@@ -3,6 +3,7 @@
   "description": "MedLab v2026.5 WordPress runtime",
   "type": "project",
   "require": {
-    "php": ">=8.2"
+    "php": ">=8.2",
+    "aws/aws-sdk-php": "^3.336"
   }
 }
