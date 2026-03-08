@@ -1,19 +1,21 @@
 {
   "name": "medlab-worker",
-  "version": "2026.5.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "MedLab Worker v2026.5 - Stateless and medical-grade task execution.",
-  "type": "module",
-  "engines": {
-    "node": ">=20"
-  },
+  "type": "commonjs",
+  "main": "dist/main.js",
   "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "check": "tsc --noEmit --project tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.699.0",
-    "mysql2": "^3.11.5",
-    "puppeteer-core": "^23.4.1"
+    "mysql2": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   }
 }
