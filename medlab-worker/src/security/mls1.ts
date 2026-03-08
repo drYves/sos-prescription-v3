@@ -1,29 +1,84 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import crypto from "node:crypto";
 
-const b64url = (raw: Buffer): string => raw.toString('base64url');
-
-export type Mls1Claims = { ts_ms: number; nonce: string; req_id?: string };
-
-export function signMls1(rawBody: Buffer, secret: string): string {
-  const sig = createHmac('sha256', secret).update(rawBody).digest('hex');
-  return `mls1.${b64url(rawBody)}.${sig}`;
+export interface Mls1TokenParts {
+  payloadBytes: Buffer;
+  sigHex: string;
+  payloadB64Url: string;
 }
 
-export function verifyMls1(rawBody: Buffer, token: string, activeSecret: string, previousSecret?: string): boolean {
-  const [prefix, payload, sigHex] = token.split('.');
-  if (prefix !== 'mls1' || !payload || !sigHex || !/^[0-9a-f]{64}$/i.test(sigHex)) return false;
+export interface CanonicalGet {
+  method: "GET";
+  path: string;
+  tsMs: number;
+  nonce: string;
+}
 
-  const decoded = Buffer.from(payload, 'base64url');
-  if (!timingSafeEqual(decoded, rawBody)) return false;
+export function parseMls1Token(headerValue: string): Mls1TokenParts | null {
+  const parts = headerValue.split(".");
+  if (parts.length !== 3) return null;
+  if (parts[0] !== "mls1") return null;
 
-  const expected = Buffer.from(createHmac('sha256', activeSecret).update(rawBody).digest('hex'));
-  const candidate = Buffer.from(sigHex.toLowerCase());
-  if (timingSafeEqual(expected, candidate)) return true;
+  const payloadB64Url = parts[1];
+  const sigHex = parts[2];
 
-  if (previousSecret) {
-    const rotated = Buffer.from(createHmac('sha256', previousSecret).update(rawBody).digest('hex'));
-    if (timingSafeEqual(rotated, candidate)) return true;
+  if (!/^[0-9a-f]{64}$/i.test(sigHex)) return null;
+
+  const payloadBytes = base64UrlDecode(payloadB64Url);
+  if (!payloadBytes) return null;
+
+  return { payloadBytes, sigHex: sigHex.toLowerCase(), payloadB64Url };
+}
+
+export function verifyMls1Payload(
+  payloadBytes: Buffer,
+  sigHex: string,
+  secretCandidates: string[],
+): boolean {
+  for (const secret of secretCandidates) {
+    const expectedHex = crypto.createHmac("sha256", secret).update(payloadBytes).digest("hex");
+    if (timingSafeEqualHex(expectedHex, sigHex)) return true;
   }
-
   return false;
+}
+
+export function buildMls1Token(payloadBytes: Buffer, secret: string): string {
+  const b64 = base64UrlEncode(payloadBytes);
+  const sigHex = crypto.createHmac("sha256", secret).update(payloadBytes).digest("hex");
+  return `mls1.${b64}.${sigHex}`;
+}
+
+export function parseCanonicalGet(payloadBytes: Buffer): CanonicalGet | null {
+  const s = payloadBytes.toString("utf8");
+  const parts = s.split("|");
+  if (parts.length !== 4) return null;
+  if (parts[0] !== "GET") return null;
+
+  const path = parts[1];
+  const tsMs = Number(parts[2]);
+  const nonce = parts[3];
+
+  if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+  if (!nonce || nonce.length < 8) return null;
+
+  return { method: "GET", path, tsMs, nonce };
+}
+
+export function base64UrlEncode(bytes: Buffer): string {
+  return bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export function base64UrlDecode(b64url: string): Buffer | null {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
+  try {
+    return Buffer.from(b64, "base64");
+  } catch (_err) {
+    return null;
+  }
+}
+
+function timingSafeEqualHex(aHex: string, bHex: string): boolean {
+  const a = Buffer.from(aHex, "utf8");
+  const b = Buffer.from(bHex, "utf8");
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

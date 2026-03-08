@@ -1,32 +1,51 @@
-import { PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Config } from "../config";
+
+export interface UploadPdfInput {
+  bucket: string;
+  key: string;
+  body: Buffer;
+  contentType: string;
+  metadata: Record<string, string>;
+}
 
 export class S3Service {
   private readonly client: S3Client;
-  private readonly bucket: string;
+  private readonly sse: string;
 
-  constructor() {
-    const region = process.env['S3_REGION'];
-    if (!region) {
-      throw new Error('Missing S3_REGION');
-    }
+  constructor(cfg: S3Config) {
+    this.sse = cfg.sse;
 
-    const config: S3ClientConfig = {
-      region,
-      forcePathStyle: ['1', 'true'].includes(process.env['S3_FORCE_PATH_STYLE'] ?? ''),
+    this.client = new S3Client({
+      region: cfg.region,
+      endpoint: cfg.endpoint,
+      forcePathStyle: cfg.forcePathStyle,
       credentials: {
-        accessKeyId: process.env['S3_ACCESS_KEY_ID'] ?? '',
-        secretAccessKey: process.env['S3_SECRET_ACCESS_KEY'] ?? '',
+        accessKeyId: cfg.accessKeyId,
+        secretAccessKey: cfg.secretAccessKey,
       },
-    };
-
-    const endpoint = process.env['S3_ENDPOINT'];
-    if (endpoint) config.endpoint = endpoint;
-
-    this.client = new S3Client(config);
-    this.bucket = process.env['S3_BUCKET_PDF'] ?? '';
+    });
   }
 
-  async uploadPdf(key: string, body: Buffer): Promise<void> {
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: 'application/pdf', ServerSideEncryption: 'AES256' }));
+  async uploadPdf(input: UploadPdfInput): Promise<void> {
+    const cmd = new PutObjectCommand({
+      Bucket: input.bucket,
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+      ServerSideEncryption: this.sse as never,
+      Metadata: normalizeMetadata(input.metadata),
+    });
+
+    await this.client.send(cmd);
   }
+}
+
+function normalizeMetadata(meta: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    const key = k.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+    out[key] = String(v).slice(0, 256);
+  }
+  return out;
 }

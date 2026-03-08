@@ -1,50 +1,164 @@
-import { setTimeout as sleep } from 'node:timers/promises';
-import { MemoryGuard } from './admission/memoryGuard.js';
-import { createDbClient } from './db/mysql.js';
-import { JobsRepo } from './db/jobsRepo.js';
-import { PdfRenderer } from './pdf/pdfRenderer.js';
-import { S3Service } from './s3/s3Service.js';
-import { startPulseServer } from './http/pulseServer.js';
-
-type JobPayload = { job: { job_id: string; rx_id: number } };
+import { MemoryGuard } from "./admission/memoryGuard";
+import { loadConfig } from "./config";
+import { JobsRepo } from "./db/jobsRepo";
+import { createMysqlPool } from "./db/mysql";
+import { startPulseServer } from "./http/pulseServer";
+import { processJob, failOrRetry } from "./jobs/processor";
+import { NdjsonLogger } from "./logger";
+import { NonceCache } from "./security/nonceCache";
+import { S3Service } from "./s3/s3Service";
+import { sleep } from "./utils/sleep";
 
 async function main(): Promise<void> {
-  const db = createDbClient();
-  const repo = new JobsRepo(db);
-  const renderer = new PdfRenderer();
-  const s3 = new S3Service();
-  const guard = new MemoryGuard(512, 450);
+  const cfg = loadConfig();
+  const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
 
-  startPulseServer(Number(process.env['WORKER_PULSE_PORT'] ?? process.env['PORT'] ?? 3000));
+  const pool = createMysqlPool(cfg.mysql);
+  const jobsRepo = new JobsRepo(pool, cfg.mysql.tablePrefix);
+  const s3 = new S3Service(cfg.s3);
+
+  const memGuard = new MemoryGuard(cfg.ramGuardMaxMb, cfg.ramGuardResumeMb);
+  const nonceCache = new NonceCache(cfg.security.authSkewWindowMs * 2);
+
+  const secrets = [
+    cfg.security.hmacSecretActive,
+    ...(cfg.security.hmacSecretPrevious ? [cfg.security.hmacSecretPrevious] : []),
+  ];
+
+  const server = startPulseServer({
+    port: cfg.port,
+    siteId: cfg.siteId,
+    workerId: cfg.workerId,
+    jobsRepo,
+    memGuard,
+    nonceCache,
+    secrets,
+    skewWindowMs: cfg.security.authSkewWindowMs,
+    logger,
+  });
+
+  const zombieTimer = setInterval(async () => {
+    try {
+      const r = await jobsRepo.sweepZombies(cfg.siteId, 50);
+      if (r.requeued || r.failed) {
+        logger.warning("job.zombie_sweep", { requeued: r.requeued, failed: r.failed }, undefined);
+      }
+    } catch (_err) {
+      logger.error("job.zombie_sweep_failed", { message: "Zombie sweep failed" }, undefined);
+    }
+  }, cfg.zombieSweepIntervalMs);
+  zombieTimer.unref();
+
+  const shutdown = async (signal: string) => {
+    logger.warning("system.shutdown", { signal }, undefined);
+    try {
+      server.close();
+    } catch (_err) {
+      // noop
+    }
+    try {
+      clearInterval(zombieTimer);
+    } catch (_err) {
+      // noop
+    }
+    try {
+      await pool.end();
+    } catch (_err) {
+      // noop
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+
+  logger.info(
+    "system.worker_started",
+    {
+      worker_id: cfg.workerId,
+      table: jobsRepo.getTableName(),
+      lease_min: cfg.leaseMinutes,
+      poll_ms: cfg.pollIntervalMs,
+    },
+    undefined,
+  );
 
   while (true) {
-    if (!guard.canRun()) {
+    memGuard.tick();
+
+    if (!memGuard.canClaim()) {
+      logger.warning(
+        "system.admission.degraded",
+        {
+          rss_mb: memGuard.rssMb(),
+          threshold_mb: cfg.ramGuardMaxMb,
+          resume_mb: cfg.ramGuardResumeMb,
+        },
+        undefined,
+      );
+
       await sleep(2000);
       continue;
     }
 
-    const job = await repo.claimNext();
-    if (!job) {
+    let job = null;
+    try {
+      job = await jobsRepo.claimNextPendingJob({
+        siteId: cfg.siteId,
+        workerId: cfg.workerId,
+        leaseMinutes: cfg.leaseMinutes,
+      });
+    } catch (_err) {
+      logger.error("job.claim_failed", { message: "Failed to claim job" }, undefined);
       await sleep(1000);
       continue;
     }
 
+    if (!job) {
+      await sleep(cfg.pollIntervalMs);
+      continue;
+    }
+
     try {
-      const payload = JSON.parse(job.payload) as JobPayload;
-      const html = `<html><body><h1>Prescription #${payload.job.rx_id}</h1></body></html>`;
-      const pdf = await renderer.render({ html });
-      const month = new Date().toISOString().slice(0, 7).replace('-', '/');
-      const key = `unit/${process.env['ML_SITE_ID'] ?? 'unknown_site'}/rx-pdf/${month}/${job.job_id}.pdf`;
-      await s3.uploadPdf(key, pdf);
-      await repo.markDone(job.job_id, key);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'unknown-error';
-      await repo.markFailed(job.job_id, 'PDF_RENDER_FAILED', message);
+      await processJob(job, {
+        siteId: cfg.siteId,
+        jobsRepo,
+        s3,
+        s3BucketPdf: cfg.s3.bucketPdf,
+        hmacSecrets: secrets,
+        logger,
+      });
+    } catch (err) {
+      await failOrRetry(
+        job,
+        {
+          siteId: cfg.siteId,
+          jobsRepo,
+          s3,
+          s3BucketPdf: cfg.s3.bucketPdf,
+          hmacSecrets: secrets,
+          logger,
+        },
+        err,
+      );
     }
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error);
+void main().catch(() => {
+  process.stderr.write(
+    `${JSON.stringify({
+      ts: new Date().toISOString(),
+      ts_ms: Date.now(),
+      severity: "critical",
+      component: "worker",
+      service: "sosprescription",
+      event: "system.fatal",
+      context: { message: "Fatal worker error" },
+    })}\n`,
+  );
   process.exit(1);
 });
