@@ -1,0 +1,10 @@
+{
+  "name": "sos-prescription-v3",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix medlab-worker run build"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.4.1"
+  }
+}
