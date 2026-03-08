@@ -1,27 +1,28 @@
-import { JobRow, JobsRepo, sha256Bytes } from "../db/jobsRepo";
+import fs from "node:fs/promises";
+import { JobRow, JobsRepo } from "../db/jobsRepo";
 import { NdjsonLogger } from "../logger";
+import { PdfRenderer } from "../pdf/pdfRenderer";
 import { parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { S3Service } from "../s3/s3Service";
-
-export class SoftError extends Error {
-  constructor(public readonly code: string, public readonly messageSafe: string) {
-    super(messageSafe);
-  }
-}
-
-export class HardError extends Error {
-  constructor(public readonly code: string, public readonly messageSafe: string) {
-    super(messageSafe);
-  }
-}
+import { HardError, SoftError } from "./errors";
 
 export interface JobProcessorDeps {
   siteId: string;
+  wpBaseUrl: string;
+  renderPathTemplate: string;
+  chromeExecutablePath: string;
   jobsRepo: JobsRepo;
   s3: S3Service;
   s3BucketPdf: string;
   hmacSecrets: string[];
+  hmacSecretActive: string;
+  workerId: string;
+  pdfRenderer: PdfRenderer;
   logger: NdjsonLogger;
+  memGuard: any;
+  admissionMaxMb: number;
+  pdfRenderTimeoutMs: number;
+  pdfReadyTimeoutMs: number;
 }
 
 export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<void> {
@@ -71,16 +72,31 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     throw new HardError("ML_JOB_TYPE_UNSUPPORTED", "Unsupported job type");
   }
 
-  const pdfBytes = makePlaceholderPdf(job.job_id, reqId);
-  const artifactSha = sha256Bytes(pdfBytes);
+  const render = await deps.pdfRenderer.renderToTmpPdf({
+    siteId: deps.siteId,
+    wpBaseUrl: deps.wpBaseUrl,
+    renderPathTemplate: deps.renderPathTemplate,
+    hmacSecret: deps.hmacSecretActive,
+    workerId: deps.workerId,
+    jobId: job.job_id,
+    rxId: job.rx_id,
+    reqId,
+    chromeExecutablePath: deps.chromeExecutablePath,
+    renderTimeoutMs: deps.pdfRenderTimeoutMs,
+    readyTimeoutMs: deps.pdfReadyTimeoutMs,
+    memGuard: deps.memGuard,
+    admissionMaxMb: deps.admissionMaxMb,
+  });
 
   const s3Key = buildPdfS3Key(deps.siteId, job.job_id, new Date());
+
   try {
-    await deps.s3.uploadPdf({
+    await deps.s3.uploadPdfFromFile({
       bucket: deps.s3BucketPdf,
       key: s3Key,
-      body: pdfBytes,
-      contentType: "application/pdf",
+      filePath: render.filePath,
+      contentType: render.contentType,
+      contentLength: render.sizeBytes,
       metadata: {
         schema_version: "2026.5",
         job_id: job.job_id,
@@ -89,14 +105,20 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     });
   } catch (_err) {
     throw new SoftError("ML_S3_UPLOAD_FAILED", "S3 upload failed");
+  } finally {
+    try {
+      await fs.unlink(render.filePath);
+    } catch (_err) {
+      // noop
+    }
   }
 
   await deps.jobsRepo.markDone({
     jobId: job.job_id,
     s3KeyRef: s3Key,
-    artifactSha256: artifactSha,
-    artifactSizeBytes: pdfBytes.length,
-    contentType: "application/pdf",
+    artifactSha256: Buffer.from(render.sha256Hex, "hex"),
+    artifactSizeBytes: render.sizeBytes,
+    contentType: render.contentType,
   });
 
   deps.logger.info(
@@ -104,7 +126,7 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     {
       job_id: job.job_id,
       s3_key_ref: s3Key,
-      artifact_size_bytes: pdfBytes.length,
+      artifact_size_bytes: render.sizeBytes,
     },
     reqId,
   );
@@ -170,29 +192,4 @@ function buildPdfS3Key(siteId: string, jobId: string, now: Date): string {
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   return `unit/${siteId}/rx-pdf/${yyyy}/${mm}/${jobId}.pdf`;
-}
-
-function makePlaceholderPdf(jobId: string, reqId?: string): Buffer {
-  const text = `SOS Prescription v3\nPlaceholder PDF\njob_id=${jobId}\nreq_id=${reqId ?? "n/a"}\n`;
-  const pdf = [
-    "%PDF-1.4",
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >> endobj",
-    `4 0 obj << /Length ${text.length + 40} >> stream`,
-    `BT /F1 12 Tf 72 760 Td (${escapePdfString(text)}) Tj ET`,
-    "endstream endobj",
-    "xref",
-    "0 5",
-    "0000000000 65535 f ",
-    "trailer << /Root 1 0 R /Size 5 >>",
-    "startxref",
-    "0",
-    "%%EOF",
-  ].join("\n");
-  return Buffer.from(pdf, "utf8");
-}
-
-function escapePdfString(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }

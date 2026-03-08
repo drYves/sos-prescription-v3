@@ -3,7 +3,8 @@ import { loadConfig } from "./config";
 import { JobsRepo } from "./db/jobsRepo";
 import { createMysqlPool } from "./db/mysql";
 import { startPulseServer } from "./http/pulseServer";
-import { processJob, failOrRetry } from "./jobs/processor";
+import { failOrRetry, processJob } from "./jobs/processor";
+import { PdfRenderer } from "./pdf/pdfRenderer";
 import { NdjsonLogger } from "./logger";
 import { NonceCache } from "./security/nonceCache";
 import { S3Service } from "./s3/s3Service";
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   const pool = createMysqlPool(cfg.mysql);
   const jobsRepo = new JobsRepo(pool, cfg.mysql.tablePrefix);
   const s3 = new S3Service(cfg.s3);
+  const pdfRenderer = new PdfRenderer(logger);
 
   const memGuard = new MemoryGuard(cfg.ramGuardMaxMb, cfg.ramGuardResumeMb);
   const nonceCache = new NonceCache(cfg.security.authSkewWindowMs * 2);
@@ -125,22 +127,42 @@ async function main(): Promise<void> {
     try {
       await processJob(job, {
         siteId: cfg.siteId,
+        wpBaseUrl: cfg.wpBaseUrl,
+        renderPathTemplate: cfg.pdfRenderPathTemplate,
+        chromeExecutablePath: cfg.chromeExecutablePath,
         jobsRepo,
         s3,
         s3BucketPdf: cfg.s3.bucketPdf,
         hmacSecrets: secrets,
+        hmacSecretActive: cfg.security.hmacSecretActive,
+        workerId: cfg.workerId,
+        pdfRenderer,
         logger,
+        memGuard,
+        admissionMaxMb: cfg.ramGuardMaxMb,
+        pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
+        pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
       });
     } catch (err) {
       await failOrRetry(
         job,
         {
           siteId: cfg.siteId,
+          wpBaseUrl: cfg.wpBaseUrl,
+          renderPathTemplate: cfg.pdfRenderPathTemplate,
+          chromeExecutablePath: cfg.chromeExecutablePath,
           jobsRepo,
           s3,
           s3BucketPdf: cfg.s3.bucketPdf,
           hmacSecrets: secrets,
+          hmacSecretActive: cfg.security.hmacSecretActive,
+          workerId: cfg.workerId,
+          pdfRenderer,
           logger,
+          memGuard,
+          admissionMaxMb: cfg.ramGuardMaxMb,
+          pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
+          pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
         },
         err,
       );
