@@ -31,6 +31,8 @@ require_once __DIR__ . '/includes/Core/PdfAccessService.php';
 require_once __DIR__ . '/includes/Rest/WorkerCallbackController.php';
 require_once __DIR__ . '/includes/Rest/WorkerRenderController.php';
 require_once __DIR__ . '/includes/Admin/MedLabStatusAdmin.php';
+require_once __DIR__ . '/includes/Install.php';
+register_activation_hook(__FILE__, ['SosPrescription\Install', 'activate']);
 
 \SosPrescription\Rest\WorkerCallbackController::register();
 \SosPrescription\Rest\WorkerRenderController::register();
