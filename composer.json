@@ -1,0 +1,8 @@
+{
+  "name": "sos/prescription-v3",
+  "description": "MedLab v2026.5 WordPress runtime",
+  "type": "project",
+  "require": {
+    "php": ">=8.2"
+  }
+}
