@@ -37,6 +37,11 @@ export interface WorkerConfig {
   zombieSweepIntervalMs: number;
   ramGuardMaxMb: number;
   ramGuardResumeMb: number;
+  wpBaseUrl: string;
+  pdfRenderPathTemplate: string;
+  chromeExecutablePath: string;
+  pdfRenderTimeoutMs: number;
+  pdfReadyTimeoutMs: number;
   mysql: MysqlConfig;
   s3: S3Config;
   security: SecurityConfig;
@@ -110,6 +115,7 @@ export function loadConfig(): WorkerConfig {
   };
 
   const mysql = loadMysqlConfig();
+  const wpBaseUrl = mustGetEnv("ML_WP_BASE_URL").replace(/\/+$/g, "");
 
   const s3: S3Config = {
     endpoint: mustGetEnv("S3_ENDPOINT"),
@@ -131,6 +137,15 @@ export function loadConfig(): WorkerConfig {
     zombieSweepIntervalMs: parseIntEnv("ZOMBIE_SWEEP_INTERVAL_MS", 60_000),
     ramGuardMaxMb: parseIntEnv("RAM_GUARD_MAX_MB", 512),
     ramGuardResumeMb: parseIntEnv("RAM_GUARD_RESUME_MB", 450),
+    wpBaseUrl,
+    pdfRenderPathTemplate:
+      getEnv("PDF_RENDER_PATH_TEMPLATE") ?? "/wp-json/sosprescription/v3/worker/render/rx/{rx_id}",
+    chromeExecutablePath:
+      getEnv("CHROME_EXECUTABLE_PATH")
+      ?? getEnv("PUPPETEER_EXECUTABLE_PATH")
+      ?? mustGetEnv("CHROME_EXECUTABLE_PATH"),
+    pdfRenderTimeoutMs: parseIntEnv("PDF_RENDER_TIMEOUT_MS", 45_000),
+    pdfReadyTimeoutMs: parseIntEnv("PDF_READY_TIMEOUT_MS", 15_000),
     mysql,
     s3,
     security,

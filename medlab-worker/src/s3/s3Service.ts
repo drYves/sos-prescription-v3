@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import fs from "node:fs";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3Config } from "../config";
 
 export interface UploadPdfInput {
@@ -6,6 +7,15 @@ export interface UploadPdfInput {
   key: string;
   body: Buffer;
   contentType: string;
+  metadata: Record<string, string>;
+}
+
+export interface UploadPdfFileInput {
+  bucket: string;
+  key: string;
+  filePath: string;
+  contentType: string;
+  contentLength: number;
   metadata: Record<string, string>;
 }
 
@@ -33,6 +43,22 @@ export class S3Service {
       Key: input.key,
       Body: input.body,
       ContentType: input.contentType,
+      ServerSideEncryption: this.sse as never,
+      Metadata: normalizeMetadata(input.metadata),
+    });
+
+    await this.client.send(cmd);
+  }
+
+  async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
+    const bodyStream = fs.createReadStream(input.filePath);
+
+    const cmd = new PutObjectCommand({
+      Bucket: input.bucket,
+      Key: input.key,
+      Body: bodyStream,
+      ContentType: input.contentType,
+      ContentLength: input.contentLength,
       ServerSideEncryption: this.sse as never,
       Metadata: normalizeMetadata(input.metadata),
     });
