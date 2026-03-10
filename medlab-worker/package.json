@@ -9,11 +9,6 @@
     "start": "node dist/main.js",
     "dev": "tsx src/main.ts"
   },
-  "dependencies": {
-    "mysql2": "3.19.1",
-    "@aws-sdk/client-s3": "3.0.0",
-    "puppeteer-core": "22.15.0"
-  },
   "devDependencies": {
     "@types/node": "20.19.37",
     "tsx": "4.21.0"
