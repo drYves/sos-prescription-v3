@@ -1,7 +1,5 @@
 .git
 .github
-node_modules
-medlab-worker/node_modules
 web
 vendor
 *.md
