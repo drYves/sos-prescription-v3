@@ -1,2 +1,1 @@
-web: npm run start
-worker: npm run build && npm run start
+web: node medlab-worker/dist/main.js
