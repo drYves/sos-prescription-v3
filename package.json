@@ -2,9 +2,11 @@
   "name": "sos-prescription-v3",
   "private": true,
   "scripts": {
-    "build": "npm --prefix medlab-worker run build"
+    "build": "npm --prefix medlab-worker run build",
+    "start": "npm --prefix medlab-worker run start"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
     "puppeteer-core": "^23.4.1"
   }
 }
