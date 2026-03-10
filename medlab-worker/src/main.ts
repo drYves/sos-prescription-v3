@@ -11,12 +11,17 @@ import { S3Service } from "./s3/s3Service";
 import { sleep } from "./utils/sleep";
 
 async function main(): Promise<void> {
+  process.stderr.write("Vérification de DATABASE_URL...\n");
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
 
   const pool = createMysqlPool(cfg.mysql);
   const jobsRepo = new JobsRepo(pool, cfg.mysql.tablePrefix);
+
+  process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
+
+  process.stderr.write("Lancement du binaire Chrome...\n");
   const pdfRenderer = new PdfRenderer(logger);
 
   const memGuard = new MemoryGuard(cfg.ramGuardMaxMb, cfg.ramGuardResumeMb);
@@ -170,17 +175,12 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch(() => {
-  process.stderr.write(
-    `${JSON.stringify({
-      ts: new Date().toISOString(),
-      ts_ms: Date.now(),
-      severity: "critical",
-      component: "worker",
-      service: "sosprescription",
-      event: "system.fatal",
-      context: { message: "Fatal worker error" },
-    })}\n`,
-  );
+void main().catch((error: unknown) => {
+  process.stderr.write("Fatal worker error\n");
+  if (error instanceof Error) {
+    process.stderr.write(`${error.stack ?? error.message}\n`);
+  } else {
+    process.stderr.write(`${String(error)}\n`);
+  }
   process.exit(1);
 });
