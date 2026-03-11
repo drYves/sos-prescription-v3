@@ -1,1134 +1,1318 @@
 <?php
-declare(strict_types=1);
+// includes/Rest/PrescriptionController.php
 
-namespace SosPrescription\Rest;
+namespace SOSPrescription\Rest;
 
-use SosPrescription\Repositories\PrescriptionRepository;
-use SosPrescription\Repositories\FileRepository;
-use SosPrescription\Services\Logger;
-use SosPrescription\Services\Audit;
-use SosPrescription\Services\AccessPolicy;
-use SosPrescription\Services\ComplianceConfig;
-use SosPrescription\Services\RxPdfGenerator;
-use SosPrescription\Services\RestGuard;
-use SosPrescription\Services\Notifications;
-use SosPrescription\Services\StripeClient;
-use SosPrescription\Services\SandboxConfig;
-use SosPrescription\Services\Turnstile;
-use SosPrescription\Services\UidGenerator;
-use SosPrescription\Services\Whitelist;
-use SosPrescription\Utils\Date;
-use WP_Error;
-use WP_REST_Request;
+use SOSPrescription\Repositories\JobRepository;
+use SOSPrescription\Services\RxPdfGenerator;
 
-final class PrescriptionController
+defined('ABSPATH') || exit;
+
+class PrescriptionController extends \WP_REST_Controller
 {
-    private PrescriptionRepository $repo;
+    /** @var \wpdb */
+    protected $wpdb;
 
-    public function __construct()
+    /** @var JobRepository */
+    protected $jobs;
+
+    /** @var RxPdfGenerator */
+    protected $rx_pdf_generator;
+
+    /** @var string */
+    protected $namespace = 'sosprescription/v1';
+
+    /** @var string */
+    protected $rest_base = 'prescriptions';
+
+    /** @var array<string, array<string, string>> */
+    protected $column_cache = array();
+
+    public function __construct($rx_pdf_generator = null, $jobs = null, $wpdb = null)
     {
-        $this->repo = new PrescriptionRepository();
-    }
-    public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
-    {
-        $ok = RestGuard::require_logged_in($request);
-        if ($ok !== true) {
-            return $ok;
-        }
-
-        // Durcissement : on exige désormais un nonce REST valide y compris en GET.
-        // Si un cache sert une page avec nonce expiré, l’UX support est guidée via ReqID.
-        $ok = RestGuard::require_wp_rest_nonce($request);
-        if ($ok !== true) {
-            return $ok;
-        }
-
-        // Anti-abus : throttling ciblé selon la route.
-        $route = (string) $request->get_route();
-        $method = strtoupper((string) $request->get_method());
-
-        // Création d'une demande/ordonnance (POST /prescriptions)
-        if ($method === 'POST' && preg_match('~/prescriptions$~', $route)) {
-            $ok = RestGuard::throttle($request, 'prescriptions_create');
-            if ($ok !== true) {
-                return $ok;
-            }
-        }
-
-        // Génération PDF (GET .../rx-pdf)
-        if ($method === 'GET' && str_contains($route, '/rx-pdf')) {
-            $ok = RestGuard::throttle($request, 'rx_pdf');
-            if ($ok !== true) {
-                return $ok;
-            }
-        }
-
-        return true;
-    }
-
-    public function permissions_check_validate(WP_REST_Request $request): bool|WP_Error
-    {
-        $base = $this->permissions_check_logged_in_nonce($request);
-        if ($base !== true) {
-            return $base;
-        }
-
-        return RestGuard::require_cap($request, 'sosprescription_validate');
-    }
-
-    public function create(WP_REST_Request $request)
-    {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
-
-        $params = $request->get_json_params();
-        if (!is_array($params)) {
-            $params = [];
-        }
-
-        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
-        $items = isset($params['items']) && is_array($params['items']) ? $params['items'] : [];
-		$consent = isset($params['consent']) && is_array($params['consent']) ? $params['consent'] : [];
-
-        // Champs V2 (optionnels)
-        $flow = isset($params['flow']) ? trim((string) $params['flow']) : null;
-        if ($flow === '') { $flow = null; }
-
-        $priority = isset($params['priority']) ? trim((string) $params['priority']) : null;
-        if ($priority === '') { $priority = null; }
-
-        $client_request_id = isset($params['client_request_id']) ? trim((string) $params['client_request_id']) : null;
-        if ($client_request_id === '') { $client_request_id = null; }
-
-        $evidence_file_ids = null;
-        if (isset($params['evidence_file_ids']) && is_array($params['evidence_file_ids'])) {
-            $evidence_file_ids = array_values(array_filter(array_map('intval', $params['evidence_file_ids']), static fn ($v) => $v > 0));
-        }
-
-        // Attestation "sur l'honneur" (flux sans justificatif)
-        $attestation_no_proof = false;
-        if (isset($params['attestation_no_proof'])) {
-            // Accepte bool / 0-1 / "0"-"1".
-            $attestation_no_proof = (bool) $params['attestation_no_proof'];
-        }
-
-        $fullname = isset($patient['fullname']) ? trim((string) $patient['fullname']) : '';
-        $birthdate_raw = isset($patient['birthdate']) ? trim((string) $patient['birthdate']) : '';
-        $birthdate = $birthdate_raw !== '' ? (Date::normalize_birthdate($birthdate_raw) ?? '') : '';
-        $birthdate_precision = Date::birthdate_precision($birthdate_raw);
-        $note = isset($patient['note']) ? trim((string) $patient['note']) : '';
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_create', [
-                'patient_name_len' => mb_strlen($fullname),
-                'patient_birthdate' => $birthdate_raw,
-                'patient_birthdate_iso' => $birthdate,
-                'patient_birthdate_precision' => $birthdate_precision,
-                'items_count' => is_array($items) ? count($items) : 0,
-                'flow' => $flow,
-                'priority' => $priority,
-                'evidence_files' => is_array($evidence_file_ids) ? count($evidence_file_ids) : 0,
-                'attestation_no_proof' => $attestation_no_proof,
-                'turnstile_token_present' => (
-                    (isset($params['turnstileToken']) && (string) $params['turnstileToken'] !== '')
-                    || (isset($params['turnstile_token']) && (string) $params['turnstile_token'] !== '')
-                ) ? true : false,
-            ]);
-        }
-
-        if (mb_strlen($fullname) < 2) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_create_validation_fail', [
-                    'reason' => 'bad_fullname',
-                ]);
-            }
-            return new WP_Error('sosprescription_bad_patient', 'Nom patient invalide.', ['status' => 400]);
-        }
-        if ($birthdate === '') {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_create_validation_fail', [
-                    'reason' => 'bad_birthdate',
-                ]);
-            }
-            return new WP_Error('sosprescription_bad_patient', 'Date de naissance invalide. Format attendu : JJ/MM/AAAA.', ['status' => 400]);
-        }
-        if (count($items) < 1) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_create_validation_fail', [
-                    'reason' => 'no_items',
-                ]);
-            }
-            return new WP_Error('sosprescription_no_items', 'Ajoutez au moins un médicament.', ['status' => 400]);
-        }
-
-        // Compat: accepter turnstileToken (camelCase) et turnstile_token (snake_case)
-        $turnstile_token = '';
-        if (isset($params['turnstileToken']) && is_string($params['turnstileToken'])) {
-            $turnstile_token = (string) $params['turnstileToken'];
-        }
-        if ($turnstile_token === '' && isset($params['turnstile_token']) && is_string($params['turnstile_token'])) {
-            $turnstile_token = (string) $params['turnstile_token'];
-        }
-        $remote_ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : null;
-
-        // ------------------------
-        // Turnstile (anti-robot)
-        // ------------------------
-        // Si la clé site n'est pas configurée, le widget n'est pas affiché côté front :
-        // on ne doit pas bloquer la soumission sur un token impossible à obtenir.
-        if (Turnstile::is_enabled()) {
-            $turn = Turnstile::verify_token($turnstile_token, $remote_ip);
-            if (is_wp_error($turn)) {
-                if ($scope !== '') {
-                    Logger::log_shortcode($scope, 'warning', 'api_prescription_create_turnstile_fail', [
-                        'code' => $turn->get_error_code(),
-                        'message' => $turn->get_error_message(),
-                    ]);
-                }
-                return $turn;
-            }
-        }
-
-		// ------------------------
-		// Consentement explicite (conformité)
-		// ------------------------
-		$comp = ComplianceConfig::get();
-		$consent_required = !empty($comp['consent_required']);
-
-		$consent_flags = [
-			'telemedicine' => !empty($consent['telemedicine']),
-			'truth' => !empty($consent['truth']),
-			'cgu' => !empty($consent['cgu']),
-			'privacy' => !empty($consent['privacy']),
-		];
-
-		if ($consent_required) {
-			$missing = [];
-			foreach ($consent_flags as $k => $v) {
-				if (!$v) {
-					$missing[] = $k;
-				}
-			}
-			if (count($missing) > 0) {
-				if ($scope !== '') {
-					Logger::log_shortcode($scope, 'warning', 'api_prescription_create_consent_missing', [
-						'missing' => $missing,
-					]);
-				}
-				return new WP_Error(
-					'sosprescription_consent_required',
-					'Vous devez accepter les consentements requis avant de soumettre la demande.',
-					['status' => 400]
-				);
-			}
-		}
-
-        // Payload sauvegardé en base (données patient + métadonnées)
-        $payload = [
-            'patient' => [
-                'fullname' => $fullname,
-                'birthdate' => $birthdate,
-                'birthdate_precision' => $birthdate_precision,
-                'note' => $note,
-            ],
-        ];
-
-		// Trace consentement + versions (auditabilité)
-		$ua = isset($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
-		if (strlen($ua) > 250) {
-			$ua = substr($ua, 0, 250);
-		}
-		$payload['consent'] = [
-			'telemedicine' => (bool) ($consent_flags['telemedicine'] ?? false),
-			'truth' => (bool) ($consent_flags['truth'] ?? false),
-			'cgu' => (bool) ($consent_flags['cgu'] ?? false),
-			'privacy' => (bool) ($consent_flags['privacy'] ?? false),
-			'timestamp' => isset($consent['timestamp']) && is_string($consent['timestamp']) && trim($consent['timestamp']) !== ''
-				? trim((string) $consent['timestamp'])
-				: current_time('mysql'),
-			'cgu_version' => (string) ($comp['cgu_version'] ?? ''),
-			'privacy_version' => (string) ($comp['privacy_version'] ?? ''),
-			'ip' => $remote_ip,
-			'user_agent' => $ua,
-		];
-
-        // ------------------------
-        // Whitelist / périmètre
-        // ------------------------
-        $wl = Whitelist::get();
-
-        // Le flux a une implication technique : RO requiert un justificatif, tandis que
-        // le flux "dépannage sans preuve" impose une attestation sur l'honneur.
-        $flow_key = strtolower(trim((string) ($flow ?? '')));
-        if ($flow_key === '') {
-            $flow_key = 'renewal';
-        }
-
-        $is_ro_proof = ($flow_key === 'ro_proof');
-        $is_no_proof = ($flow_key === 'depannage_no_proof');
-
-        // Attestation requise pour le flux sans preuve.
-        if ($is_no_proof) {
-            if (!$attestation_no_proof) {
-                if ($scope !== '') {
-                    Logger::log_shortcode($scope, 'warning', 'api_prescription_create_validation_fail', [
-                        'reason' => 'attestation_required',
-                    ]);
-                }
-                return new WP_Error(
-                    'sosprescription_attestation_required',
-                    'Merci de cocher la case "Je certifie sur l’honneur…" avant de soumettre.',
-                    ['status' => 400]
-                );
-            }
-            $payload['attestation_no_proof'] = true;
+        if ($wpdb instanceof \wpdb) {
+            $this->wpdb = $wpdb;
         } else {
-            $payload['attestation_no_proof'] = false;
+            global $wpdb;
+            $this->wpdb = $wpdb;
         }
 
-        // Justificatifs
-        $requires_evidence = !empty($wl['require_evidence']);
-        if ($is_ro_proof) {
-            $requires_evidence = true;
-        }
-        if ($is_no_proof) {
-            $requires_evidence = false;
+        $this->jobs             = $jobs instanceof JobRepository ? $jobs : new JobRepository($this->wpdb);
+        $this->rx_pdf_generator = $rx_pdf_generator instanceof RxPdfGenerator
+            ? $rx_pdf_generator
+            : new RxPdfGenerator($this->jobs, $this->wpdb);
+    }
+
+    public function register_routes()
+    {
+        \register_rest_route(
+            $this->namespace,
+            '/' . $this->rest_base,
+            array(
+                array(
+                    'methods'             => \WP_REST_Server::READABLE,
+                    'callback'            => array($this, 'get_items'),
+                    'permission_callback' => array($this, 'permissions_read'),
+                    'args'                => $this->get_collection_params(),
+                ),
+                array(
+                    'methods'             => \WP_REST_Server::CREATABLE,
+                    'callback'            => array($this, 'create_item'),
+                    'permission_callback' => array($this, 'permissions_write'),
+                ),
+            )
+        );
+
+        \register_rest_route(
+            $this->namespace,
+            '/' . $this->rest_base . '/(?P<id>\d+)',
+            array(
+                array(
+                    'methods'             => \WP_REST_Server::READABLE,
+                    'callback'            => array($this, 'get_item'),
+                    'permission_callback' => array($this, 'permissions_read'),
+                ),
+                array(
+                    'methods'             => \WP_REST_Server::EDITABLE,
+                    'callback'            => array($this, 'update_item'),
+                    'permission_callback' => array($this, 'permissions_write'),
+                ),
+            )
+        );
+
+        \register_rest_route(
+            $this->namespace,
+            '/' . $this->rest_base . '/(?P<id>\d+)/decision',
+            array(
+                array(
+                    'methods'             => \WP_REST_Server::CREATABLE,
+                    'callback'            => array($this, 'decide'),
+                    'permission_callback' => array($this, 'permissions_write'),
+                ),
+            )
+        );
+
+        \register_rest_route(
+            $this->namespace,
+            '/' . $this->rest_base . '/(?P<id>\d+)/rx-pdf',
+            array(
+                array(
+                    'methods'             => \WP_REST_Server::READABLE,
+                    'callback'            => array($this, 'get_rx_pdf'),
+                    'permission_callback' => array($this, 'permissions_read'),
+                ),
+                array(
+                    'methods'             => \WP_REST_Server::CREATABLE,
+                    'callback'            => array($this, 'generate_rx_pdf'),
+                    'permission_callback' => array($this, 'permissions_write'),
+                ),
+            )
+        );
+
+        \register_rest_route(
+            $this->namespace,
+            '/' . $this->rest_base . '/(?P<id>\d+)/pdf-status',
+            array(
+                array(
+                    'methods'             => \WP_REST_Server::READABLE,
+                    'callback'            => array($this, 'get_pdf_status'),
+                    'permission_callback' => array($this, 'permissions_read'),
+                ),
+            )
+        );
+    }
+
+    public function permissions_read()
+    {
+        $capability = (string) \apply_filters('sosprescription_rest_read_capability', 'read');
+
+        if (\current_user_can($capability)) {
+            return true;
         }
 
-        if ($requires_evidence && (!is_array($evidence_file_ids) || count($evidence_file_ids) < 1)) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_create_whitelist_fail', [
-                    'reason' => 'evidence_required',
-                    'flow' => $flow_key,
-                ]);
-            }
-            return new WP_Error(
-                'sosprescription_evidence_required',
-                'Justificatif médical obligatoire : importez une ordonnance ou une photo de boîte.',
-                ['status' => 400]
+        return new \WP_Error(
+            'rest_forbidden',
+            'Vous n’avez pas l’autorisation de consulter les prescriptions.',
+            array('status' => \rest_authorization_required_code())
+        );
+    }
+
+    public function permissions_write()
+    {
+        $capability = (string) \apply_filters('sosprescription_rest_write_capability', 'edit_posts');
+
+        if (\current_user_can($capability)) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'rest_forbidden',
+            'Vous n’avez pas l’autorisation de modifier les prescriptions.',
+            array('status' => \rest_authorization_required_code())
+        );
+    }
+
+    public function get_collection_params()
+    {
+        return array(
+            'page' => array(
+                'description'       => 'Page courante.',
+                'type'              => 'integer',
+                'default'           => 1,
+                'sanitize_callback' => 'absint',
+            ),
+            'per_page' => array(
+                'description'       => 'Nombre d’éléments par page.',
+                'type'              => 'integer',
+                'default'           => 20,
+                'sanitize_callback' => 'absint',
+            ),
+            'status' => array(
+                'description'       => 'Filtre sur le statut.',
+                'type'              => 'string',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'search' => array(
+                'description'       => 'Recherche libre.',
+                'type'              => 'string',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'with_items' => array(
+                'description'       => 'Inclure les lignes de prescription.',
+                'type'              => 'boolean',
+                'default'           => false,
+                'sanitize_callback' => array($this, 'sanitize_boolean'),
+            ),
+        );
+    }
+
+    public function get_items($request)
+    {
+        $table = $this->get_prescriptions_table();
+        if ($table === '') {
+            return new \WP_Error(
+                'sosprescription_prescriptions_table_missing',
+                'La table des prescriptions est introuvable.',
+                array('status' => 500)
             );
         }
 
-        if ($wl['mode'] !== 'off') {
-            $resolved_items = [];
-            $cis_list = [];
+        $columns     = array_keys($this->get_table_columns($table));
+        $page        = max(1, (int) $request->get_param('page'));
+        $per_page    = max(1, min(100, (int) $request->get_param('per_page')));
+        $status      = (string) $request->get_param('status');
+        $search      = (string) $request->get_param('search');
+        $with_items  = $this->truthy($request->get_param('with_items'));
+        $where_parts = array('1=1');
+        $args        = array();
 
-            foreach ($items as $it) {
-                if (!is_array($it)) { continue; }
+        $status_col = $this->first_existing_column($columns, array('status', 'state', 'rx_status'));
+        if ($status !== '' && $status_col !== '') {
+            $where_parts[] = "`{$status_col}` = %s";
+            $args[]        = $status;
+        }
 
-                $cis = isset($it['cis']) && is_numeric($it['cis']) ? (int) $it['cis'] : 0;
+        if ($search !== '') {
+            $search_cols = array_filter(array(
+                $this->first_existing_column($columns, array('rx_uid', 'uid', 'reference', 'code')),
+                $this->first_existing_column($columns, array('patient_fullname', 'patient_name')),
+            ));
 
-                if ($cis < 1) {
-                    $cip13 = isset($it['cip13']) ? (string) $it['cip13'] : '';
-                    $cis_from_cip13 = $cip13 !== '' ? Whitelist::cis_from_cip13($cip13) : null;
-                    if ($cis_from_cip13 !== null) {
-                        $cis = $cis_from_cip13;
-                        $it['cis'] = (string) $cis_from_cip13;
-                    }
+            if (!empty($search_cols)) {
+                $like_parts = array();
+                $needle     = '%' . $this->wpdb->esc_like($search) . '%';
+
+                foreach ($search_cols as $search_col) {
+                    $like_parts[] = "`{$search_col}` LIKE %s";
+                    $args[]       = $needle;
                 }
 
-                if ($cis > 0) {
-                    $cis_list[] = $cis;
-                }
-
-                $resolved_items[] = $it;
-            }
-
-            $items = $resolved_items;
-
-            $cis_list = array_values(array_unique(array_filter(array_map('intval', $cis_list), static fn ($v) => $v > 0)));
-            $atc_map = Whitelist::map_atc_codes_for_cis($cis_list);
-
-            $issues = [];
-            foreach ($items as $idx => $it) {
-                if (!is_array($it)) { continue; }
-                $cis = isset($it['cis']) && is_numeric($it['cis']) ? (int) $it['cis'] : 0;
-                $ev = Whitelist::evaluate_for_flow($cis, $cis > 0 ? ($atc_map[$cis] ?? null) : null, $flow_key);
-                if (!$ev['allowed']) {
-                    $issues[] = [
-                        'index' => (int) $idx,
-                        'cis' => $cis > 0 ? $cis : null,
-                        'reason_code' => $ev['reason_code'],
-                    ];
-                }
-            }
-
-            if (count($issues) > 0) {
-                if ($scope !== '') {
-                    Logger::log_shortcode($scope, 'warning', 'api_prescription_create_whitelist_blocked', [
-                        'mode' => $wl['mode'],
-                        'issues' => $issues,
-                    ]);
-                }
-
-                if ($wl['mode'] === 'enforce') {
-                    return new WP_Error(
-                        'sosprescription_out_of_scope',
-                        'Un ou plusieurs médicaments ne sont pas pris en charge par SOS Prescription (périmètre restreint).',
-                        ['status' => 400]
-                    );
-                }
-
-                // Warn mode : on conserve une trace dans le payload pour le médecin.
-                $payload['whitelist'] = [
-                    'mode' => 'warn',
-                    'issues' => $issues,
-                ];
+                $where_parts[] = '(' . implode(' OR ', $like_parts) . ')';
             }
         }
 
-        $uid = UidGenerator::generate(10);
+        $where_sql = implode(' AND ', $where_parts);
+        $order_col = $this->first_existing_column($columns, array('updated_at', 'created_at', 'id'));
+        if ($order_col === '') {
+            $order_col = 'id';
+        }
 
-        $user_id = get_current_user_id();
+        $count_sql = "SELECT COUNT(*) FROM `{$table}` WHERE {$where_sql}";
+        $total     = (int) $this->wpdb->get_var($this->prepare_query($count_sql, $args));
+        $offset    = ($page - 1) * $per_page;
 
-        // Paiement : si Stripe est activé, la demande est créée en "payment_pending".
-        // Elle ne doit pas entrer dans la file "pending" avant autorisation du paiement.
-        $initial_status = StripeClient::is_enabled() ? 'payment_pending' : 'pending';
+        $rows_sql = "SELECT * FROM `{$table}` WHERE {$where_sql} ORDER BY `{$order_col}` DESC LIMIT %d OFFSET %d";
+        $rows     = $this->wpdb->get_results($this->prepare_query($rows_sql, array_merge($args, array($per_page, $offset))), ARRAY_A);
 
-        $res = $this->repo->create(
-            (int) $user_id,
-            $uid,
-            $payload,
-            $items,
-            $flow,
-            $priority,
-            $client_request_id,
-            $evidence_file_ids,
-            $initial_status
+        $data = array();
+        foreach ((array) $rows as $row) {
+            $data[] = $this->prepare_item_array($row, $with_items);
+        }
+
+        $response = new \WP_REST_Response($data, 200);
+        $response->header('X-WP-Total', (string) $total);
+        $response->header('X-WP-TotalPages', (string) max(1, (int) ceil($total / $per_page)));
+
+        return $response;
+    }
+
+    public function get_item($request)
+    {
+        $prescription_id = (int) $request['id'];
+        $row             = $this->fetch_prescription_row($prescription_id);
+
+        if (empty($row)) {
+            return new \WP_Error(
+                'sosprescription_prescription_not_found',
+                'Prescription introuvable.',
+                array('status' => 404)
+            );
+        }
+
+        return new \WP_REST_Response($this->prepare_item_array($row, true), 200);
+    }
+
+    public function create_item($request)
+    {
+        $table = $this->get_prescriptions_table();
+        if ($table === '') {
+            return new \WP_Error(
+                'sosprescription_prescriptions_table_missing',
+                'La table des prescriptions est introuvable.',
+                array('status' => 500)
+            );
+        }
+
+        $body    = $this->get_request_body($request);
+        $columns = array_keys($this->get_table_columns($table));
+        $data    = $this->build_prescription_row_data($body, $columns, $table, false);
+
+        if (empty($data)) {
+            return new \WP_Error(
+                'sosprescription_empty_payload',
+                'Aucune donnée exploitable à enregistrer.',
+                array('status' => 400)
+            );
+        }
+
+        $inserted = $this->wpdb->insert($table, $data, $this->build_formats($table, $data));
+        if ($inserted === false) {
+            return new \WP_Error(
+                'sosprescription_insert_failed',
+                $this->wpdb->last_error !== '' ? $this->wpdb->last_error : 'Échec de création de la prescription.',
+                array('status' => 500)
+            );
+        }
+
+        $prescription_id = (int) $this->wpdb->insert_id;
+        $items           = $this->extract_items_payload($body);
+
+        if (!empty($items)) {
+            $this->sync_items($prescription_id, $items);
+        }
+
+        $row    = $this->fetch_prescription_row($prescription_id);
+        $req_id = $this->build_req_id();
+
+        $dispatch = $this->rx_pdf_generator->generate(
+            $prescription_id,
+            array(
+                'source' => 'rest_create',
+                'req_id' => $req_id,
+            )
         );
 
-        if (isset($res['error'])) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'error', 'api_prescription_create_db_error', [
-                    'uid' => $uid,
-                    'message' => (string) ($res['message'] ?? 'Erreur DB'),
-                    'ms' => (int) round((microtime(true) - $t0) * 1000),
-                ]);
-            }
-            return new WP_Error('sosprescription_db_error', (string) ($res['message'] ?? 'Erreur DB'), ['status' => 500]);
+        if (\is_wp_error($dispatch)) {
+            return new \WP_REST_Response(
+                array(
+                    'id'           => $prescription_id,
+                    'req_id'       => $req_id,
+                    'prescription' => $this->prepare_item_array($row, true),
+                    'pdf'          => $this->build_degraded_pdf_state($dispatch, $req_id),
+                    'message'      => 'Prescription créée. PDF en attente de reprise.',
+                ),
+                202
+            );
         }
 
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_create_done', [
-                'uid' => $uid,
-                'id' => isset($res['id']) ? (int) $res['id'] : null,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-
-		$created_id = isset($res['id']) ? (int) $res['id'] : null;
-		Audit::log('prescription_create', 'prescription', $created_id, $created_id, [
-			'flow' => $flow,
-			'priority' => $priority,
-			'initial_status' => $initial_status,
-			'evidence_files' => is_array($evidence_file_ids) ? count($evidence_file_ids) : 0,
-		]);
-
-        return rest_ensure_response($res);
+        return new \WP_REST_Response(
+            array(
+                'id'           => $prescription_id,
+                'req_id'       => $req_id,
+                'prescription' => $this->prepare_item_array($row, true),
+                'verification' => isset($dispatch['verification']) ? $dispatch['verification'] : array(),
+                'dispatch'     => isset($dispatch['dispatch']) ? $dispatch['dispatch'] : array(),
+                'pdf'          => isset($dispatch['pdf']) ? $dispatch['pdf'] : array('status' => 'pending'),
+                'message'      => 'Prescription créée. PDF en cours de génération.',
+            ),
+            202
+        );
     }
 
-    public function list(WP_REST_Request $request)
+    public function update_item($request)
     {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
+        $prescription_id = (int) $request['id'];
+        $table           = $this->get_prescriptions_table();
 
-        $status = $request->get_param('status');
-        $status = is_string($status) ? trim($status) : null;
-
-        $limit = (int) ($request->get_param('limit') ?? 100);
-        if ($limit < 1) { $limit = 100; }
-        if ($limit > 200) { $limit = 200; }
-
-        $offset = (int) ($request->get_param('offset') ?? 0);
-        if ($offset < 0) { $offset = 0; }
-
-		$current_user_id = (int) get_current_user_id();
-		$is_admin = AccessPolicy::is_admin();
-		$is_doctor = AccessPolicy::is_doctor();
-		$can_staff = $is_admin || $is_doctor;
-
-        if ($scope !== '') {
-			Logger::log_shortcode($scope, 'debug', 'api_prescription_list', [
-                'status' => $status,
-                'limit' => $limit,
-                'offset' => $offset,
-				'is_admin' => $is_admin,
-				'is_doctor' => $is_doctor,
-            ]);
+        if ($table === '') {
+            return new \WP_Error(
+                'sosprescription_prescriptions_table_missing',
+                'La table des prescriptions est introuvable.',
+                array('status' => 500)
+            );
         }
 
-		if ($is_admin) {
-			$rows = $this->repo->list(null, $status, $limit, $offset);
-		} elseif ($is_doctor) {
-			$rows = $this->repo->list_for_doctor((int) $current_user_id, $status, $limit, $offset);
-		} else {
-			$rows = $this->repo->list((int) $current_user_id, $status, $limit, $offset);
-		}
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_list_done', [
-                'count' => is_array($rows) ? count($rows) : 0,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
+        $existing = $this->fetch_prescription_row($prescription_id);
+        if (empty($existing)) {
+            return new \WP_Error(
+                'sosprescription_prescription_not_found',
+                'Prescription introuvable.',
+                array('status' => 404)
+            );
         }
 
-        return rest_ensure_response($rows);
+        $body    = $this->get_request_body($request);
+        $columns = array_keys($this->get_table_columns($table));
+        $data    = $this->build_prescription_row_data($body, $columns, $table, true);
+
+        if (!empty($data)) {
+            $updated = $this->wpdb->update(
+                $table,
+                $data,
+                array('id' => $prescription_id),
+                $this->build_formats($table, $data),
+                array('%d')
+            );
+
+            if ($updated === false) {
+                return new \WP_Error(
+                    'sosprescription_update_failed',
+                    $this->wpdb->last_error !== '' ? $this->wpdb->last_error : 'Échec de mise à jour de la prescription.',
+                    array('status' => 500)
+                );
+            }
+        }
+
+        if (array_key_exists('items', $body) || array_key_exists('medications', $body)) {
+            $this->sync_items($prescription_id, $this->extract_items_payload($body));
+        }
+
+        $row = $this->fetch_prescription_row($prescription_id);
+
+        return new \WP_REST_Response($this->prepare_item_array($row, true), 200);
     }
 
-    public function get_one(WP_REST_Request $request)
+    public function decide($request)
     {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
+        $prescription_id = (int) $request['id'];
+        $row             = $this->fetch_prescription_row($prescription_id);
 
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_get_bad_id', [
-                    'id' => $id,
-                ]);
+        if (empty($row)) {
+            return new \WP_Error(
+                'sosprescription_prescription_not_found',
+                'Prescription introuvable.',
+                array('status' => 404)
+            );
+        }
+
+        $body     = $this->get_request_body($request);
+        $decision = isset($body['decision']) ? (string) $body['decision'] : (string) $request->get_param('decision');
+        $decision = strtolower(trim($decision));
+
+        if (!in_array($decision, array('approved', 'rejected'), true)) {
+            return new \WP_Error(
+                'sosprescription_invalid_decision',
+                'La décision doit être "approved" ou "rejected".',
+                array('status' => 400)
+            );
+        }
+
+        $table   = $this->get_prescriptions_table();
+        $columns = array_keys($this->get_table_columns($table));
+        $updates = $this->build_decision_updates($decision, $body, $columns);
+
+        if (!empty($updates)) {
+            $updated = $this->wpdb->update(
+                $table,
+                $updates,
+                array('id' => $prescription_id),
+                $this->build_formats($table, $updates),
+                array('%d')
+            );
+
+            if ($updated === false) {
+                return new \WP_Error(
+                    'sosprescription_decision_update_failed',
+                    $this->wpdb->last_error !== '' ? $this->wpdb->last_error : 'Échec de mise à jour de la décision.',
+                    array('status' => 500)
+                );
             }
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $row = $this->repo->get($id);
-        if (!$row) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_get_not_found', [
-                    'id' => $id,
-                ]);
-            }
-            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
-        }
+        $row    = $this->fetch_prescription_row($prescription_id);
+        $req_id = $this->build_req_id();
 
-		$current_user_id = (int) get_current_user_id();
-		if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_get_forbidden', [
-                    'id' => $id,
-                    'user_id' => (int) $current_user_id,
-                ]);
-            }
-            return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
-        }
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_get_done', [
-                'id' => $id,
-                'uid' => isset($row['uid']) ? (string) $row['uid'] : null,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-
-		Audit::log('prescription_view', 'prescription', $id, $id, [
-			'status' => isset($row['status']) ? (string) $row['status'] : null,
-		]);
-
-        return rest_ensure_response($row);
-    }
-
-    public function decision(WP_REST_Request $request)
-    {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
-
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_decision_bad_id', [
-                    'id' => $id,
-                ]);
-            }
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
-        }
-
-        $params = $request->get_json_params();
-        if (!is_array($params)) { $params = []; }
-
-        $decision = isset($params['decision']) ? (string) $params['decision'] : '';
-        if ($decision !== 'approved' && $decision !== 'rejected') {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_decision_bad_decision', [
-                    'id' => $id,
-                    'decision' => $decision,
-                ]);
-            }
-            return new WP_Error('sosprescription_bad_decision', 'Décision invalide.', ['status' => 400]);
-        }
-
-        $reason = isset($params['reason']) ? (string) $params['reason'] : null;
-
-		$doctor_user_id = (int) get_current_user_id();
-		$rx_row = $this->repo->get($id);
-		if (!$rx_row) {
-			return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
-		}
-		if (!AccessPolicy::can_current_user_access_prescription_row($rx_row)) {
-			return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
-		}
-
-		// Si assignée à un autre médecin, on bloque.
-		$assigned_doctor_id = isset($rx_row['doctor_user_id']) && $rx_row['doctor_user_id'] !== null ? (int) $rx_row['doctor_user_id'] : null;
-		if (!AccessPolicy::is_admin() && $assigned_doctor_id !== null && $assigned_doctor_id > 0 && $assigned_doctor_id !== $doctor_user_id) {
-			return new WP_Error('sosprescription_forbidden', 'Demande assignée à un autre médecin.', ['status' => 403]);
-		}
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_decision', [
-                'id' => $id,
-                'decision' => $decision,
-                'doctor_user_id' => (int) $doctor_user_id,
-                'reason_present' => $reason !== null && trim((string) $reason) !== '' ? true : false,
-            ]);
-        }
-
-        // État courant (statut + paiement)
-        $p = $this->repo->get_payment_fields($id);
-        if ($p === null) {
-            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
-        }
-
-        $current_status = isset($p['status']) ? (string) $p['status'] : '';
-
-        // Idempotence / sécurité : on n'écrase jamais une décision déjà prise.
-        if (in_array($current_status, ['approved', 'rejected'], true)) {
-            if ($current_status === $decision) {
-                if ($scope !== '') {
-                    Logger::log_shortcode($scope, 'info', 'api_prescription_decision_idempotent', [
-                        'id' => $id,
-                        'decision' => $decision,
-                        'ms' => (int) round((microtime(true) - $t0) * 1000),
-                    ]);
-                }
-                return rest_ensure_response(['ok' => true, 'already' => true]);
-            }
-            return new WP_Error('sosprescription_already_decided', 'Cette demande a déjà été décidée.', [
-                'status' => 409,
-                'current_status' => $current_status,
-            ]);
-        }
-
-        // Sécurité / UX : on exige une ordonnance PDF attachée avant validation.
-        // (Le patient doit pouvoir télécharger un document final.)
         if ($decision === 'approved') {
-            $fileRepo = new FileRepository();
-            $rxpdf = $fileRepo->find_latest_for_prescription_purpose($id, 'rx_pdf');
-            if (!$rxpdf) {
-                return new WP_Error('sosprescription_rx_pdf_required', 'Ordonnance PDF requise avant validation.', ['status' => 409]);
+            $dispatch = $this->rx_pdf_generator->generate(
+                $prescription_id,
+                array(
+                    'source' => 'doctor_approval',
+                    'req_id' => $req_id,
+                )
+            );
+
+            if (\is_wp_error($dispatch)) {
+                return new \WP_REST_Response(
+                    array(
+                        'id'           => $prescription_id,
+                        'decision'     => $decision,
+                        'req_id'       => $req_id,
+                        'prescription' => $this->prepare_item_array($row, true),
+                        'pdf'          => $this->build_degraded_pdf_state($dispatch, $req_id),
+                        'message'      => 'Validation enregistrée. PDF temporairement indisponible.',
+                    ),
+                    202
+                );
+            }
+
+            $pdf_state = isset($dispatch['pdf']) ? $dispatch['pdf'] : array('status' => 'pending');
+
+            return new \WP_REST_Response(
+                array(
+                    'id'           => $prescription_id,
+                    'decision'     => $decision,
+                    'req_id'       => $req_id,
+                    'prescription' => $this->prepare_item_array($row, true),
+                    'verification' => isset($dispatch['verification']) ? $dispatch['verification'] : array(),
+                    'dispatch'     => isset($dispatch['dispatch']) ? $dispatch['dispatch'] : array(),
+                    'pdf'          => $pdf_state,
+                    'message'      => $this->message_for_pdf_state($pdf_state),
+                ),
+                $pdf_state['status'] === 'done' ? 200 : 202
+            );
+        }
+
+        return new \WP_REST_Response(
+            array(
+                'id'           => $prescription_id,
+                'decision'     => $decision,
+                'req_id'       => $req_id,
+                'prescription' => $this->prepare_item_array($row, true),
+                'pdf'          => $this->jobs->get_public_state_for_rx_id($prescription_id),
+            ),
+            200
+        );
+    }
+
+    public function generate_rx_pdf($request)
+    {
+        $prescription_id = (int) $request['id'];
+        $req_id          = $this->build_req_id();
+
+        $dispatch = $this->rx_pdf_generator->generate(
+            $prescription_id,
+            array(
+                'source' => 'manual_dispatch',
+                'req_id' => $req_id,
+            )
+        );
+
+        if (\is_wp_error($dispatch)) {
+            return new \WP_REST_Response(
+                array(
+                    'ok'              => false,
+                    'mode'            => 'stateless',
+                    'req_id'          => $req_id,
+                    'prescription_id' => $prescription_id,
+                    'pdf'             => $this->build_degraded_pdf_state($dispatch, $req_id),
+                    'message'         => 'Le PDF n’a pas pu être mis en file immédiatement.',
+                ),
+                202
+            );
+        }
+
+        $status_code = (isset($dispatch['pdf']['status']) && $dispatch['pdf']['status'] === 'done') ? 200 : 202;
+
+        return new \WP_REST_Response($dispatch, $status_code);
+    }
+
+    public function get_pdf_status($request)
+    {
+        $prescription_id = (int) $request['id'];
+
+        return new \WP_REST_Response(
+            array(
+                'prescription_id' => $prescription_id,
+                'pdf'             => $this->jobs->get_public_state_for_rx_id($prescription_id),
+            ),
+            200
+        );
+    }
+
+    public function get_rx_pdf($request)
+    {
+        $prescription_id = (int) $request['id'];
+        $done_job        = $this->jobs->get_latest_done_by_rx_id($prescription_id);
+
+        if (!empty($done_job)) {
+            $download_url = $this->build_presigned_s3_url_from_job($done_job, 60);
+
+            if (\is_wp_error($download_url)) {
+                return $download_url;
+            }
+
+            return new \WP_REST_Response(
+                array(
+                    'prescription_id' => $prescription_id,
+                    'pdf'             => $this->jobs->public_projection($done_job),
+                    'download_url'    => $download_url,
+                    'expires_in'      => 60,
+                ),
+                200
+            );
+        }
+
+        $auto_dispatch = true;
+        if ($request->offsetExists('dispatch')) {
+            $auto_dispatch = $this->truthy($request->get_param('dispatch'));
+        }
+
+        if ($auto_dispatch) {
+            $dispatch = $this->rx_pdf_generator->generate(
+                $prescription_id,
+                array(
+                    'source' => 'download_probe',
+                    'req_id' => $this->build_req_id(),
+                )
+            );
+
+            if (\is_wp_error($dispatch)) {
+                return new \WP_REST_Response(
+                    array(
+                        'prescription_id' => $prescription_id,
+                        'pdf'             => $this->build_degraded_pdf_state($dispatch, $this->build_req_id()),
+                        'message'         => 'PDF temporairement indisponible.',
+                    ),
+                    202
+                );
+            }
+
+            return new \WP_REST_Response(
+                array(
+                    'prescription_id' => $prescription_id,
+                    'pdf'             => $dispatch['pdf'],
+                    'dispatch'        => $dispatch['dispatch'],
+                    'message'         => 'PDF en cours de génération.',
+                ),
+                202
+            );
+        }
+
+        return new \WP_REST_Response(
+            array(
+                'prescription_id' => $prescription_id,
+                'pdf'             => $this->jobs->get_public_state_for_rx_id($prescription_id),
+                'message'         => 'PDF en cours de génération.',
+            ),
+            202
+        );
+    }
+
+    protected function get_prescriptions_table()
+    {
+        $candidates = array(
+            $this->wpdb->prefix . 'sosprescription_prescriptions',
+            $this->wpdb->prefix . 'sosprescription_prescription',
+            $this->wpdb->prefix . 'sosprescription_rx',
+        );
+
+        foreach ($candidates as $table) {
+            if ($this->table_exists($table)) {
+                return $table;
             }
         }
 
-        // Paiement (Stripe) :
-        // - le patient autorise (pré-autorisation)
-        // - on capture UNIQUEMENT en cas d'approbation médicale
-        // -> pour éviter un "approved" sans débit, on capture AVANT de persister la décision.
-        $captured_pi_id = null;
-        $pi_id = '';
-        $pi_status = '';
+        return '';
+    }
 
-        if ($decision === 'approved' && StripeClient::is_enabled()) {
-            $pi_id = isset($p['payment_intent_id']) && is_string($p['payment_intent_id']) ? trim((string) $p['payment_intent_id']) : '';
-            if ($pi_id === '') {
-                return new WP_Error('sosprescription_payment_required', 'Paiement requis avant validation.', ['status' => 409]);
-            }
+    protected function get_items_table()
+    {
+        $candidates = array(
+            $this->wpdb->prefix . 'sosprescription_prescription_items',
+            $this->wpdb->prefix . 'sosprescription_items',
+            $this->wpdb->prefix . 'sosprescription_medications',
+            $this->wpdb->prefix . 'sosprescription_prescription_lines',
+        );
 
-            $pi = StripeClient::retrieve_payment_intent($pi_id);
-            if (is_wp_error($pi)) {
-                return $pi;
-            }
-
-            $pi_status = isset($pi['status']) ? (string) $pi['status'] : '';
-
-            if ($pi_status !== 'requires_capture' && $pi_status !== 'succeeded') {
-                return new WP_Error('sosprescription_payment_not_authorized', 'Paiement non autorisé (validation nécessaire).', [
-                    'status' => 409,
-                    'payment_status' => $pi_status,
-                ]);
-            }
-
-            if ($pi_status === 'requires_capture') {
-                $idem = 'sosprescription_capture_' . $id . '_' . $pi_id;
-                $cap = StripeClient::capture_payment_intent($pi_id, $idem);
-                if (is_wp_error($cap)) {
-                    return $cap;
+        foreach ($candidates as $table) {
+            if ($this->table_exists($table)) {
+                $columns = array_keys($this->get_table_columns($table));
+                if ($this->first_existing_column($columns, array('prescription_id', 'rx_id')) !== '') {
+                    return $table;
                 }
-
-                $captured_pi_id = $pi_id;
-
-                $this->repo->update_payment_fields($id, [
-                    'payment_provider' => 'stripe',
-                    'payment_status' => isset($cap['status']) ? (string) $cap['status'] : 'succeeded',
-                    'amount_cents' => isset($cap['amount_received']) ? (int) $cap['amount_received'] : null,
-                    'currency' => isset($cap['currency']) ? strtoupper((string) $cap['currency']) : null,
-                ]);
-            } else {
-                // déjà capturé (cas rare) : on synchronise les champs.
-                $this->repo->update_payment_fields($id, [
-                    'payment_provider' => 'stripe',
-                    'payment_status' => $pi_status,
-                    'amount_cents' => isset($pi['amount_received']) ? (int) $pi['amount_received'] : null,
-                    'currency' => isset($pi['currency']) ? strtoupper((string) $pi['currency']) : null,
-                ]);
-            }
-        } elseif (StripeClient::is_enabled()) {
-            // pour rejected, on conserve l'ID pour la phase "void" après décision (si présent)
-            $pi_id = isset($p['payment_intent_id']) && is_string($p['payment_intent_id']) ? trim((string) $p['payment_intent_id']) : '';
-        }
-
-        $ok = $this->repo->decide($id, (int) $doctor_user_id, $decision, $reason);
-
-        if (!$ok) {
-            // Si la décision n'a pas été appliquée, c'est soit :
-            // - conflit (déjà décidée par ailleurs)
-            // - ou erreur DB.
-            $fresh = $this->repo->get_payment_fields($id);
-            $fresh_status = $fresh !== null && isset($fresh['status']) ? (string) $fresh['status'] : '';
-
-            // Cas rare : paiement capturé mais décision non persistée (conflit ou erreur).
-            if ($decision === 'approved' && StripeClient::is_enabled() && $pi_id !== '') {
-                // Si quelqu'un a rejeté entre-temps, on rembourse pour rester cohérent.
-                if ($fresh_status === 'rejected') {
-                    $refund_idem = 'sosprescription_refund_conflict_' . $id . '_' . $pi_id;
-                    $refund = StripeClient::create_refund_for_payment_intent((string) $pi_id, null, $refund_idem);
-                    if (!is_wp_error($refund)) {
-                        $this->repo->update_payment_fields($id, [
-                            'payment_status' => 'refunded',
-                        ]);
-                    } else {
-                        Logger::log('runtime', 'error', 'stripe_refund_failed_after_conflict', [
-                            'prescription_id' => $id,
-                            'payment_intent_id' => $pi_id,
-                            'error_code' => $refund->get_error_code(),
-                            'error_message' => $refund->get_error_message(),
-                        ]);
-                    }
-                } elseif ($fresh_status === 'approved') {
-                    // Idempotence : déjà approuvée par ailleurs.
-                    return rest_ensure_response(['ok' => true, 'already' => true]);
-                } else {
-                    // Erreur DB après capture : on tente un remboursement automatique.
-                    if ($captured_pi_id !== null) {
-                        $refund_idem = 'sosprescription_refund_db_' . $id . '_' . $captured_pi_id;
-                        $refund = StripeClient::create_refund_for_payment_intent((string) $captured_pi_id, null, $refund_idem);
-                        if (!is_wp_error($refund)) {
-                            $this->repo->update_payment_fields($id, [
-                                'payment_status' => 'refunded',
-                            ]);
-                        } else {
-                            Logger::log('runtime', 'error', 'stripe_refund_failed_after_db_error', [
-                                'prescription_id' => $id,
-                                'payment_intent_id' => $captured_pi_id,
-                                'error_code' => $refund->get_error_code(),
-                                'error_message' => $refund->get_error_message(),
-                            ]);
-                        }
-                    }
-                }
-            }
-
-            if (in_array($fresh_status, ['approved', 'rejected'], true)) {
-                return new WP_Error('sosprescription_already_decided', 'Cette demande a déjà été décidée.', [
-                    'status' => 409,
-                    'current_status' => $fresh_status,
-                ]);
-            }
-
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'error', 'api_prescription_decision_db_error', [
-                    'id' => $id,
-                    'decision' => $decision,
-                    'ms' => (int) round((microtime(true) - $t0) * 1000),
-                ]);
-            }
-            return new WP_Error('sosprescription_db_error', 'Erreur DB (décision).', ['status' => 500]);
-        }
-
-        // Pour un refus (rejected), on annule l'autorisation si un PI existe.
-        // Si (cas rare) le paiement est déjà capturé, on tente un remboursement.
-        if ($decision === 'rejected' && StripeClient::is_enabled() && $pi_id !== '') {
-            $pi = StripeClient::retrieve_payment_intent($pi_id);
-            if (!is_wp_error($pi)) {
-                $pi_status2 = isset($pi['status']) ? (string) $pi['status'] : '';
-                if ($pi_status2 === 'requires_capture') {
-                    $idem = 'sosprescription_cancel_' . $id . '_' . $pi_id;
-                    $cancel = StripeClient::cancel_payment_intent($pi_id, $idem);
-                    if (!is_wp_error($cancel)) {
-                        $this->repo->update_payment_fields($id, [
-                            'payment_provider' => 'stripe',
-                            'payment_status' => isset($cancel['status']) ? (string) $cancel['status'] : 'canceled',
-                            'currency' => isset($cancel['currency']) ? strtoupper((string) $cancel['currency']) : null,
-                        ]);
-                    } else {
-                        Logger::log('runtime', 'error', 'stripe_cancel_failed', [
-                            'prescription_id' => $id,
-                            'payment_intent_id' => $pi_id,
-                            'error_code' => $cancel->get_error_code(),
-                            'error_message' => $cancel->get_error_message(),
-                        ]);
-                    }
-                } elseif ($pi_status2 === 'succeeded') {
-                    $idem = 'sosprescription_refund_' . $id . '_' . $pi_id;
-                    $refund = StripeClient::create_refund_for_payment_intent($pi_id, null, $idem);
-                    if (!is_wp_error($refund)) {
-                        $this->repo->update_payment_fields($id, [
-                            'payment_provider' => 'stripe',
-                            'payment_status' => 'refunded',
-                        ]);
-                    } else {
-                        // On log et on marque l'échec pour traitement manuel.
-                        $this->repo->update_payment_fields($id, [
-                            'payment_provider' => 'stripe',
-                            'payment_status' => 'refund_failed',
-                        ]);
-                        Logger::log('runtime', 'error', 'stripe_refund_failed_after_reject', [
-                            'prescription_id' => $id,
-                            'payment_intent_id' => $pi_id,
-                            'error_code' => $refund->get_error_code(),
-                            'error_message' => $refund->get_error_message(),
-                        ]);
-                    }
-                } else {
-                    // Synchronisation best-effort
-                    if ($pi_status2 !== '') {
-                        $this->repo->update_payment_fields($id, [
-                            'payment_provider' => 'stripe',
-                            'payment_status' => $pi_status2,
-                            'currency' => isset($pi['currency']) ? strtoupper((string) $pi['currency']) : null,
-                        ]);
-                    }
-                }
-            } else {
-                Logger::log('runtime', 'error', 'stripe_retrieve_failed_after_reject', [
-                    'prescription_id' => $id,
-                    'payment_intent_id' => $pi_id,
-                    'error_code' => $pi->get_error_code(),
-                    'error_message' => $pi->get_error_message(),
-                ]);
             }
         }
 
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_decision_done', [
-                'id' => $id,
-                'decision' => $decision,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-
-        // Notification patient : décision disponible (sans données de santé).
-        $owner = $this->repo->get_owner_user_id($id);
-        if ($owner !== null) {
-            Notifications::patient_decision($id, (int) $owner, (string) $decision, (int) $doctor_user_id);
-        }
-
-		Audit::log('prescription_decision', 'prescription', $id, $id, [
-			'decision' => (string) $decision,
-			'reason_present' => $reason !== null && trim((string) $reason) !== '' ? true : false,
-			'payment_provider' => StripeClient::is_enabled() ? 'stripe' : null,
-			'payment_intent_id' => $pi_id !== '' ? $pi_id : null,
-			'captured' => $captured_pi_id !== null ? true : false,
-		]);
-
-        return rest_ensure_response(['ok' => true]);
+        return '';
     }
 
-    /**
-     * Assigne une demande au médecin courant.
-     *
-     * - Passe le statut en "in_review".
-     * - Refuse si la demande est déjà assignée à un autre médecin,
-     *   ou si elle est dans un statut non compatible.
-     */
-    public function assign(WP_REST_Request $request)
+    protected function fetch_prescription_row($prescription_id)
     {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
+        $table = $this->get_prescriptions_table();
 
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        if ($table === '') {
+            return null;
         }
 
-        // Vérifie l'existence.
-        $owner = $this->repo->get_owner_user_id($id);
-        if ($owner === null) {
-            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
-        }
+        $sql = $this->wpdb->prepare(
+            "SELECT * FROM `{$table}` WHERE `id` = %d LIMIT 1",
+            (int) $prescription_id
+        );
 
-        $doctor_user_id = (int) get_current_user_id();
+        $row = $this->wpdb->get_row($sql, ARRAY_A);
 
-        $before = $this->repo->get_payment_fields($id);
-        $before_status = is_array($before) && isset($before['status']) ? (string) $before['status'] : '';
-
-        $ok = $this->repo->assign_to_doctor($id, $doctor_user_id);
-        if (!$ok) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_assign_failed', [
-                    'id' => $id,
-                    'doctor_user_id' => $doctor_user_id,
-                    'ms' => (int) round((microtime(true) - $t0) * 1000),
-                ]);
-            }
-            return new WP_Error('sosprescription_assign_failed', 'Impossible d’assigner (déjà assignée ou statut incompatible).', ['status' => 409]);
-        }
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_assign_done', [
-                'id' => $id,
-                'doctor_user_id' => $doctor_user_id,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-
-        // Notification patient : dossier passé en in_review (assigné).
-        if ($before_status !== 'in_review') {
-            Notifications::patient_assigned($id, (int) $owner, (int) $doctor_user_id);
-        }
-		Audit::log('prescription_assign', 'prescription', $id, $id, [
-			'doctor_user_id' => (int) $doctor_user_id,
-			'before_status' => (string) $before_status,
-		]);
-        return rest_ensure_response(['ok' => true]);
+        return $row ? $this->decode_jsonish_row($row) : null;
     }
 
-    /**
-     * Mise à jour de statut (triage).
-     *
-     * Statuts autorisés : pending | in_review | needs_info
-     */
-    public function update_status(WP_REST_Request $request)
+    protected function fetch_items_for_prescription($prescription_id)
     {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
-
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        $table = $this->get_items_table();
+        if ($table === '') {
+            return array();
         }
 
-        // Vérifie l'existence.
-        $owner = $this->repo->get_owner_user_id($id);
-        if ($owner === null) {
-            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        $columns = array_keys($this->get_table_columns($table));
+        $fk_col  = $this->first_existing_column($columns, array('prescription_id', 'rx_id'));
+        if ($fk_col === '') {
+            return array();
         }
 
-        $params = $request->get_json_params();
-        if (!is_array($params)) {
-            $params = [];
+        $order_col = $this->first_existing_column($columns, array('line_no', 'position', 'sort_order', 'id'));
+        $order_sql = $order_col !== '' ? " ORDER BY `{$order_col}` ASC, `id` ASC" : '';
+
+        $sql = $this->wpdb->prepare(
+            "SELECT * FROM `{$table}` WHERE `{$fk_col}` = %d{$order_sql}",
+            (int) $prescription_id
+        );
+
+        $rows   = $this->wpdb->get_results($sql, ARRAY_A);
+        $result = array();
+
+        foreach ((array) $rows as $row) {
+            $result[] = $this->decode_jsonish_row($row);
         }
 
-        $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : '';
-        if (!in_array($status, ['pending', 'in_review', 'needs_info'], true)) {
-            return new WP_Error('sosprescription_bad_status', 'Statut invalide.', ['status' => 400]);
-        }
-
-        $doctor_user_id = (int) get_current_user_id();
-
-        $before = $this->repo->get_payment_fields($id);
-        $before_status = is_array($before) && isset($before['status']) ? (string) $before['status'] : '';
-
-        $ok = $this->repo->update_status_by_doctor($id, $doctor_user_id, $status);
-        if (!$ok) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_prescription_update_status_failed', [
-                    'id' => $id,
-                    'doctor_user_id' => $doctor_user_id,
-                    'status' => $status,
-                    'ms' => (int) round((microtime(true) - $t0) * 1000),
-                ]);
-            }
-            return new WP_Error('sosprescription_status_failed', 'Impossible de changer le statut (assignation/statut incompatible).', ['status' => 409]);
-        }
-
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_prescription_update_status_done', [
-                'id' => $id,
-                'doctor_user_id' => $doctor_user_id,
-                'status' => $status,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-
-        if ($status === 'in_review' && $before_status !== 'in_review') {
-            Notifications::patient_assigned($id, (int) $owner, (int) $doctor_user_id);
-        }
-		Audit::log('prescription_status', 'prescription', $id, $id, [
-			'status' => (string) $status,
-			'before_status' => (string) $before_status,
-			'doctor_user_id' => (int) $doctor_user_id,
-		]);
-
-        return rest_ensure_response(['ok' => true]);
+        return $result;
     }
 
-    /**
-     * Génère et attache une ordonnance PDF (serveur) à la prescription.
-     *
-     * Retourne un objet de type UploadFileResponse (id, download_url, etc.).
-     */
-    public function generate_rx_pdf(WP_REST_Request $request)
+    protected function prepare_item_array(array $row, $include_items = true)
     {
-        $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
-        $t0 = microtime(true);
+        $row = $this->decode_jsonish_row($row);
 
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_rx_pdf_bad_id', ['id' => $id]);
-            }
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        if (isset($row['id'])) {
+            $row['id'] = (int) $row['id'];
         }
 
-		$doctor_user_id = (int) get_current_user_id();
-        if ($doctor_user_id < 1) {
-            return new WP_Error('sosprescription_auth_required', 'Connexion requise.', ['status' => 401]);
+        if ($include_items && !empty($row['id'])) {
+            $row['items'] = $this->fetch_items_for_prescription((int) $row['id']);
         }
 
-        $row = $this->repo->get($id);
-        if (!$row) {
-            return new WP_Error('sosprescription_not_found', 'Prescription introuvable.', ['status' => 404]);
+        if (!empty($row['id'])) {
+            $row['pdf'] = $this->jobs->get_public_state_for_rx_id((int) $row['id']);
         }
 
-		$can_manage_all = AccessPolicy::is_admin();
-
-        $assigned = isset($row['doctor_user_id']) && $row['doctor_user_id'] !== null ? (int) $row['doctor_user_id'] : null;
-        if (!$can_manage_all && $assigned !== null && $assigned !== (int) $doctor_user_id) {
-            return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
-        }
-
-        $status = isset($row['status']) ? (string) $row['status'] : '';
-        if ($status === 'payment_pending') {
-            return new WP_Error('sosprescription_payment_pending', 'Paiement non validé : génération refusée.', ['status' => 409]);
-        }
-
-        // Si pas encore assignée, on s'assigne (statut -> in_review) quand c'est possible.
-        if (!$can_manage_all && $assigned === null && in_array($status, ['pending', 'needs_info', 'in_review'], true)) {
-            $this->repo->assign_to_doctor($id, (int) $doctor_user_id);
-        }
-
-        $file = RxPdfGenerator::generate($id, (int) $doctor_user_id);
-        if (is_wp_error($file)) {
-            return $file;
-        }
-
-		if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_rx_pdf_done', [
-                'id' => $id,
-                'doctor_user_id' => (int) $doctor_user_id,
-                'file_id' => isset($file['id']) ? (int) $file['id'] : null,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
-		Audit::log('rx_pdf_generate', 'file', isset($file['id']) ? (int) $file['id'] : null, $id, [
-			'doctor_user_id' => (int) $doctor_user_id,
-		]);
-
-        return rest_ensure_response($file);
+        return $row;
     }
 
-    public function print_view(WP_REST_Request $request)
+    protected function build_prescription_row_data(array $body, array $columns, $table, $is_update)
     {
-        $id = (int) $request->get_param('id');
-        if ($id < 1) {
-            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        $body = $this->normalize_request_body($body);
+
+        $data    = array();
+        $blocked = array('id');
+
+        foreach ($body as $key => $value) {
+            if (in_array($key, $blocked, true)) {
+                continue;
+            }
+
+            if (!in_array($key, $columns, true)) {
+                continue;
+            }
+
+            $data[$key] = $this->prepare_db_value($table, $key, $value);
         }
 
-        $row = $this->repo->get($id);
-        if (!$row) {
-            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        if (!$is_update) {
+            $status_col = $this->first_existing_column($columns, array('status', 'state', 'rx_status'));
+            if ($status_col !== '' && !isset($data[$status_col])) {
+                $data[$status_col] = 'draft';
+            }
         }
 
-		if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
-            return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
+        $created_at_col = $this->first_existing_column($columns, array('created_at'));
+        $updated_at_col = $this->first_existing_column($columns, array('updated_at'));
+
+        if (!$is_update && $created_at_col !== '' && !isset($data[$created_at_col])) {
+            $data[$created_at_col] = gmdate('Y-m-d H:i:s');
         }
 
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-        $patient = isset($payload['patient']) && is_array($payload['patient']) ? $payload['patient'] : [];
-
-        $patient_name = esc_html((string) ($patient['fullname'] ?? ''));
-        $patient_birth = esc_html((string) ($patient['birthdate'] ?? ''));
-        $patient_note = esc_html((string) ($patient['note'] ?? ''));
-
-        $uid = esc_html((string) ($row['uid'] ?? ''));
-        $status = esc_html((string) ($row['status'] ?? ''));
-        $created = esc_html((string) ($row['created_at'] ?? ''));
-
-        $items = isset($row['items']) && is_array($row['items']) ? $row['items'] : [];
-
-        $html = '<!doctype html><html><head><meta charset="utf-8"/><title>Ordonnance ' . $uid . '</title>';
-        $html .= '<style>
-            body{font-family: Arial, sans-serif; color:#111; margin:24px;}
-            .h{display:flex; justify-content:space-between; align-items:flex-start;}
-            .box{border:1px solid #ddd; border-radius:10px; padding:12px; margin-top:12px;}
-            .title{font-size:20px; font-weight:bold;}
-            .muted{color:#555; font-size:12px;}
-            .item{padding:10px 0; border-bottom:1px solid #eee;}
-            .item:last-child{border-bottom:none;}
-            .label{font-weight:bold;}
-            .small{font-size:12px; color:#444;}
-            @media print{ .no-print{display:none;} }
-        </style>';
-        $html .= '</head><body>';
-
-        $html .= '<div class="h">';
-        $html .= '<div><div class="title">Ordonnance</div><div class="muted">Référence: <strong>' . $uid . '</strong></div></div>';
-        $html .= '<div class="muted">Créée: ' . $created . '<br/>Statut: ' . $status . '</div>';
-        $html .= '</div>';
-
-        $html .= '<div class="box">';
-        $html .= '<div class="label">Patient</div>';
-        $html .= '<div>' . $patient_name . '</div>';
-        $html .= '<div class="small">Naissance: ' . $patient_birth . '</div>';
-        if ($patient_note !== '') {
-            $html .= '<div class="small" style="margin-top:6px;">Note: ' . nl2br($patient_note) . '</div>';
+        if ($updated_at_col !== '') {
+            $data[$updated_at_col] = gmdate('Y-m-d H:i:s');
         }
-        $html .= '</div>';
 
-        $html .= '<div class="box">';
-        $html .= '<div class="label">Médicaments</div>';
+        return $data;
+    }
 
-        if (count($items) < 1) {
-            $html .= '<div class="muted">Aucun</div>';
+    protected function build_decision_updates($decision, array $body, array $columns)
+    {
+        $now     = gmdate('Y-m-d H:i:s');
+        $user_id = max(0, (int) \get_current_user_id());
+        $updates = array();
+
+        $status_col = $this->first_existing_column($columns, array('status', 'state', 'rx_status'));
+        if ($status_col !== '') {
+            $updates[$status_col] = $decision;
+        }
+
+        $decision_col = $this->first_existing_column($columns, array('decision', 'approval_decision', 'validation_decision'));
+        if ($decision_col !== '' && !isset($updates[$decision_col])) {
+            $updates[$decision_col] = $decision;
+        }
+
+        if ($decision === 'approved') {
+            $at_col = $this->first_existing_column($columns, array('approved_at', 'validated_at', 'decision_at'));
+            $by_col = $this->first_existing_column($columns, array('approved_by', 'validated_by', 'decision_by'));
         } else {
-            foreach ($items as $it) {
-                if (!is_array($it)) { continue; }
+            $at_col = $this->first_existing_column($columns, array('rejected_at', 'decision_at'));
+            $by_col = $this->first_existing_column($columns, array('rejected_by', 'decision_by'));
+        }
 
-                $denom = esc_html((string) ($it['denomination'] ?? ''));
-                $poso = esc_html((string) ($it['posologie'] ?? ''));
-                $qty  = esc_html((string) ($it['quantite'] ?? ''));
-                $cis  = isset($it['cis']) ? esc_html((string) $it['cis']) : '';
-                $cip13= isset($it['cip13']) ? esc_html((string) $it['cip13']) : '';
+        if ($at_col !== '') {
+            $updates[$at_col] = $now;
+        }
 
-                $html .= '<div class="item">';
-                $html .= '<div class="label">' . $denom . '</div>';
-                $meta = [];
-                if ($cis !== '') { $meta[] = 'CIS ' . $cis; }
-                if ($cip13 !== '') { $meta[] = 'CIP13 ' . $cip13; }
-                if (count($meta) > 0) {
-                    $html .= '<div class="small">' . implode(' • ', $meta) . '</div>';
-                }
-                if ($poso !== '') {
-                    $html .= '<div style="margin-top:6px;"><span class="small">Posologie:</span> ' . $poso . '</div>';
-                }
-                if ($qty !== '') {
-                    $html .= '<div><span class="small">Quantité:</span> ' . $qty . '</div>';
-                }
-                $html .= '</div>';
+        if ($by_col !== '') {
+            $updates[$by_col] = $user_id;
+        }
+
+        $note = '';
+        foreach (array('note', 'reason', 'comment', 'decision_note') as $candidate) {
+            if (!empty($body[$candidate]) && is_scalar($body[$candidate])) {
+                $note = (string) $body[$candidate];
+                break;
             }
         }
 
-        $html .= '</div>';
+        if ($note !== '') {
+            $note_col = $this->first_existing_column($columns, array('decision_note', 'decision_reason', 'note'));
+            if ($note_col !== '') {
+                $updates[$note_col] = $note;
+            }
+        }
 
-        $html .= '<div class="no-print" style="margin-top:16px;"><button onclick="window.print()">Imprimer</button></div>';
+        $updated_at_col = $this->first_existing_column($columns, array('updated_at'));
+        if ($updated_at_col !== '') {
+            $updates[$updated_at_col] = $now;
+        }
 
-        $html .= '</body></html>';
+        return $updates;
+    }
 
-		Audit::log('prescription_print_view', 'prescription', $id, $id);
-		return new \WP_REST_Response($html, 200, [
-			'Content-Type' => 'text/html; charset=utf-8',
-			'X-Robots-Tag' => 'noindex, nofollow',
-			'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-			'Pragma' => 'no-cache',
-			'Referrer-Policy' => 'no-referrer',
-		]);
+    protected function sync_items($prescription_id, array $items)
+    {
+        $table = $this->get_items_table();
+        if ($table === '') {
+            return;
+        }
+
+        $columns = array_keys($this->get_table_columns($table));
+        $fk_col  = $this->first_existing_column($columns, array('prescription_id', 'rx_id'));
+        if ($fk_col === '') {
+            return;
+        }
+
+        $this->wpdb->delete($table, array($fk_col => (int) $prescription_id), array('%d'));
+
+        $created_at_col = $this->first_existing_column($columns, array('created_at'));
+        $updated_at_col = $this->first_existing_column($columns, array('updated_at'));
+        $line_no_col    = $this->first_existing_column($columns, array('line_no', 'position', 'sort_order'));
+        $raw_col        = $this->first_existing_column($columns, array('raw', 'payload', 'data'));
+
+        foreach ($items as $index => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $row             = $this->normalize_item_payload($item);
+            $insert          = array();
+            $insert[$fk_col] = (int) $prescription_id;
+
+            if ($line_no_col !== '') {
+                $insert[$line_no_col] = isset($row[$line_no_col]) ? (int) $row[$line_no_col] : ($index + 1);
+            }
+
+            foreach ($row as $key => $value) {
+                if (!in_array($key, $columns, true)) {
+                    continue;
+                }
+
+                if (in_array($key, array('id', $fk_col, $line_no_col), true)) {
+                    continue;
+                }
+
+                $insert[$key] = $this->prepare_db_value($table, $key, $value);
+            }
+
+            if ($raw_col !== '' && !isset($insert[$raw_col])) {
+                $insert[$raw_col] = \wp_json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            if ($created_at_col !== '') {
+                $insert[$created_at_col] = gmdate('Y-m-d H:i:s');
+            }
+
+            if ($updated_at_col !== '') {
+                $insert[$updated_at_col] = gmdate('Y-m-d H:i:s');
+            }
+
+            $this->wpdb->insert($table, $insert, $this->build_formats($table, $insert));
+        }
+    }
+
+    protected function normalize_request_body(array $body)
+    {
+        if (isset($body['prescription']) && is_array($body['prescription'])) {
+            $body = array_merge($body, $body['prescription']);
+        }
+
+        if (!isset($body['items']) && isset($body['medications']) && is_array($body['medications'])) {
+            $body['items'] = $body['medications'];
+        }
+
+        if (isset($body['patient']) && is_array($body['patient'])) {
+            $patient = $body['patient'];
+
+            if (!isset($body['patient_fullname']) && !empty($patient['fullname'])) {
+                $body['patient_fullname'] = $patient['fullname'];
+            }
+            if (!isset($body['patient_name']) && !empty($patient['fullname'])) {
+                $body['patient_name'] = $patient['fullname'];
+            }
+            if (!isset($body['patient_birthdate']) && !empty($patient['birthdate'])) {
+                $body['patient_birthdate'] = $patient['birthdate'];
+            }
+            if (!isset($body['patient_birthdate_precision']) && !empty($patient['birthdate_precision'])) {
+                $body['patient_birthdate_precision'] = $patient['birthdate_precision'];
+            }
+            if (!isset($body['patient_note']) && !empty($patient['note'])) {
+                $body['patient_note'] = $patient['note'];
+            }
+        }
+
+        if (!isset($body['rx_uid']) && !empty($body['uid'])) {
+            $body['rx_uid'] = $body['uid'];
+        }
+
+        return $body;
+    }
+
+    protected function normalize_item_payload(array $item)
+    {
+        if (!isset($item['denomination']) && !empty($item['label'])) {
+            $item['denomination'] = $item['label'];
+        }
+
+        if (!isset($item['posologie']) && !empty($item['dosage'])) {
+            $item['posologie'] = $item['dosage'];
+        }
+
+        if (!isset($item['quantite']) && !empty($item['quantity'])) {
+            $item['quantite'] = $item['quantity'];
+        }
+
+        return $item;
+    }
+
+    protected function extract_items_payload(array $body)
+    {
+        if (!empty($body['items']) && is_array($body['items'])) {
+            return $body['items'];
+        }
+
+        if (!empty($body['medications']) && is_array($body['medications'])) {
+            return $body['medications'];
+        }
+
+        return array();
+    }
+
+    protected function get_request_body($request)
+    {
+        $body = $request->get_json_params();
+        if (empty($body)) {
+            $body = $request->get_body_params();
+        }
+        if (empty($body)) {
+            $body = $request->get_params();
+        }
+
+        return is_array($body) ? $body : array();
+    }
+
+    protected function build_formats($table, array $data)
+    {
+        $formats = array();
+
+        foreach ($data as $column => $value) {
+            $formats[] = $this->guess_format($table, $column);
+        }
+
+        return $formats;
+    }
+
+    protected function guess_format($table, $column)
+    {
+        $type = $this->get_column_type($table, $column);
+
+        if (preg_match('/(bigint|int|tinyint|smallint|mediumint)/', $type)) {
+            return '%d';
+        }
+
+        return '%s';
+    }
+
+    protected function prepare_db_value($table, $column, $value)
+    {
+        $type = $this->get_column_type($table, $column);
+
+        if (is_array($value) || is_object($value)) {
+            return \wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        if ($value === null) {
+            if (preg_match('/(bigint|int|tinyint|smallint|mediumint)/', $type)) {
+                return 0;
+            }
+
+            return '';
+        }
+
+        if (is_bool($value)) {
+            if (preg_match('/(bigint|int|tinyint|smallint|mediumint)/', $type)) {
+                return $value ? 1 : 0;
+            }
+
+            return $value ? '1' : '0';
+        }
+
+        if (preg_match('/(bigint|int|tinyint|smallint|mediumint)/', $type)) {
+            return (int) $value;
+        }
+
+        if (preg_match('/(decimal|float|double)/', $type)) {
+            return (string) $value;
+        }
+
+        $value = (string) $value;
+
+        if (preg_match('/text/', $type)) {
+            return \sanitize_textarea_field($value);
+        }
+
+        return \sanitize_text_field($value);
+    }
+
+    protected function get_column_type($table, $column)
+    {
+        $columns = $this->get_table_columns($table);
+
+        return isset($columns[$column]) ? $columns[$column] : 'text';
+    }
+
+    protected function get_table_columns($table)
+    {
+        if (isset($this->column_cache[$table])) {
+            return $this->column_cache[$table];
+        }
+
+        $columns = array();
+        $rows    = $this->wpdb->get_results("SHOW FULL COLUMNS FROM `{$table}`", ARRAY_A);
+
+        foreach ((array) $rows as $row) {
+            if (!empty($row['Field'])) {
+                $columns[$row['Field']] = !empty($row['Type']) ? strtolower((string) $row['Type']) : 'text';
+            }
+        }
+
+        $this->column_cache[$table] = $columns;
+
+        return $columns;
+    }
+
+    protected function first_existing_column(array $columns, array $candidates)
+    {
+        foreach ($candidates as $candidate) {
+            if (in_array($candidate, $columns, true)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    protected function table_exists($table)
+    {
+        $sql = $this->wpdb->prepare('SHOW TABLES LIKE %s', $table);
+
+        return (string) $this->wpdb->get_var($sql) === (string) $table;
+    }
+
+    protected function decode_jsonish_row(array $row)
+    {
+        foreach ($row as $key => $value) {
+            if (is_string($value)) {
+                $trimmed = trim($value);
+                if ($trimmed !== '' && (($trimmed[0] === '{' && substr($trimmed, -1) === '}') || ($trimmed[0] === '[' && substr($trimmed, -1) === ']'))) {
+                    $decoded = json_decode($trimmed, true);
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        $row[$key] = $decoded;
+                    }
+                }
+            }
+        }
+
+        return $row;
+    }
+
+    protected function prepare_query($sql, array $args = array())
+    {
+        if (empty($args)) {
+            return $sql;
+        }
+
+        return $this->wpdb->prepare($sql, $args);
+    }
+
+    protected function build_req_id()
+    {
+        try {
+            return 'req_' . bin2hex(random_bytes(8));
+        } catch (\Exception $e) {
+            return 'req_' . md5((string) \wp_rand() . microtime(true));
+        }
+    }
+
+    protected function build_degraded_pdf_state($error, $req_id)
+    {
+        return array(
+            'status'       => 'degraded',
+            'job_id'       => 0,
+            'req_id'       => (string) $req_id,
+            'can_download' => false,
+            's3_ready'     => false,
+            'error'        => array(
+                'code'    => $error instanceof \WP_Error ? $error->get_error_code() : 'unknown_error',
+                'message' => $error instanceof \WP_Error ? $error->get_error_message() : 'Erreur inconnue',
+            ),
+        );
+    }
+
+    protected function message_for_pdf_state(array $pdf_state)
+    {
+        $status = isset($pdf_state['status']) ? (string) $pdf_state['status'] : 'pending';
+
+        if ($status === 'done') {
+            return 'Validation enregistrée. PDF disponible.';
+        }
+
+        if ($status === 'failed') {
+            return 'Validation enregistrée. Le PDF est indisponible pour le moment.';
+        }
+
+        if ($status === 'degraded') {
+            return 'Validation enregistrée. Service PDF ralenti ; le document sera disponible sous peu.';
+        }
+
+        return 'Validation enregistrée. PDF en cours de génération.';
+    }
+
+    protected function sanitize_boolean($value)
+    {
+        return $this->truthy($value);
+    }
+
+    protected function truthy($value)
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        $value = strtolower(trim((string) $value));
+
+        return in_array($value, array('1', 'true', 'yes', 'y', 'on'), true);
+    }
+
+    protected function build_presigned_s3_url_from_job(array $job, $ttl = 60)
+    {
+        $ttl = max(1, min(604800, (int) $ttl));
+
+        $filtered = \apply_filters('sosprescription_presign_s3_url', null, $job, $ttl);
+        if (is_string($filtered) && $filtered !== '') {
+            return $filtered;
+        }
+
+        $key      = !empty($job['s3_key_ref']) ? (string) $job['s3_key_ref'] : '';
+        $bucket   = !empty($job['s3_bucket']) ? (string) $job['s3_bucket'] : $this->get_env_or_constant('SOSPRESCRIPTION_S3_BUCKET');
+        $region   = !empty($job['s3_region']) ? (string) $job['s3_region'] : $this->get_env_or_constant('SOSPRESCRIPTION_S3_REGION', $this->get_env_or_constant('AWS_REGION'));
+        $endpoint = $this->get_env_or_constant('SOSPRESCRIPTION_S3_ENDPOINT', $this->get_env_or_constant('AWS_ENDPOINT_URL_S3'));
+
+        if ($key === '' || $bucket === '' || $region === '') {
+            return new \WP_Error(
+                'sosprescription_s3_config_missing',
+                'Configuration S3 incomplète pour la présignature.',
+                array('status' => 500)
+            );
+        }
+
+        $credentials = $this->resolve_s3_credentials();
+        if (\is_wp_error($credentials)) {
+            return $credentials;
+        }
+
+        $amz_date = gmdate('Ymd\THis\Z');
+        $date     = gmdate('Ymd');
+        $scope    = $date . '/' . $region . '/s3/aws4_request';
+
+        $use_path_style = ($endpoint !== '' || strpos($bucket, '.') !== false);
+
+        if ($endpoint !== '') {
+            $parsed    = wp_parse_url($endpoint);
+            $scheme    = !empty($parsed['scheme']) ? $parsed['scheme'] : 'https';
+            $host      = !empty($parsed['host']) ? $parsed['host'] : '';
+            $base_path = !empty($parsed['path']) ? rtrim($parsed['path'], '/') : '';
+
+            if ($host === '') {
+                return new \WP_Error(
+                    'sosprescription_s3_endpoint_invalid',
+                    'Endpoint S3 invalide.',
+                    array('status' => 500)
+                );
+            }
+
+            $canonical_uri = $base_path . '/' . $this->aws_uri_encode($bucket) . '/' . $this->aws_uri_encode_path($key);
+            $url_base      = $scheme . '://' . $host;
+        } elseif ($use_path_style) {
+            $host          = 's3.' . $region . '.amazonaws.com';
+            $canonical_uri = '/' . $this->aws_uri_encode($bucket) . '/' . $this->aws_uri_encode_path($key);
+            $url_base      = 'https://' . $host;
+        } else {
+            $host          = $bucket . '.s3.' . $region . '.amazonaws.com';
+            $canonical_uri = '/' . $this->aws_uri_encode_path($key);
+            $url_base      = 'https://' . $host;
+        }
+
+        $query = array(
+            'X-Amz-Algorithm'     => 'AWS4-HMAC-SHA256',
+            'X-Amz-Credential'    => $credentials['access_key'] . '/' . $scope,
+            'X-Amz-Date'          => $amz_date,
+            'X-Amz-Expires'       => (string) $ttl,
+            'X-Amz-SignedHeaders' => 'host',
+        );
+
+        if (!empty($credentials['session_token'])) {
+            $query['X-Amz-Security-Token'] = $credentials['session_token'];
+        }
+
+        $canonical_query   = $this->aws_build_query($query);
+        $canonical_headers = 'host:' . $host . "\n";
+        $signed_headers    = 'host';
+        $canonical_request = "GET\n{$canonical_uri}\n{$canonical_query}\n{$canonical_headers}\n{$signed_headers}\nUNSIGNED-PAYLOAD";
+
+        $string_to_sign = "AWS4-HMAC-SHA256\n{$amz_date}\n{$scope}\n" . hash('sha256', $canonical_request);
+        $signing_key    = $this->aws_signing_key($credentials['secret_key'], $date, $region, 's3');
+        $signature      = hash_hmac('sha256', $string_to_sign, $signing_key);
+
+        return $url_base . $canonical_uri . '?' . $canonical_query . '&X-Amz-Signature=' . $signature;
+    }
+
+    protected function resolve_s3_credentials()
+    {
+        $access_key = $this->get_env_or_constant('SOSPRESCRIPTION_S3_ACCESS_KEY', $this->get_env_or_constant('AWS_ACCESS_KEY_ID'));
+        $secret_key = $this->get_env_or_constant('SOSPRESCRIPTION_S3_SECRET_KEY', $this->get_env_or_constant('AWS_SECRET_ACCESS_KEY'));
+        $session    = $this->get_env_or_constant('SOSPRESCRIPTION_S3_SESSION_TOKEN', $this->get_env_or_constant('AWS_SESSION_TOKEN'));
+
+        if ($access_key === '' || $secret_key === '') {
+            return new \WP_Error(
+                'sosprescription_s3_credentials_missing',
+                'Identifiants S3 manquants pour la présignature.',
+                array('status' => 500)
+            );
+        }
+
+        return array(
+            'access_key'    => $access_key,
+            'secret_key'    => $secret_key,
+            'session_token' => $session,
+        );
+    }
+
+    protected function get_env_or_constant($name, $default = '')
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
+        }
+
+        $env = getenv($name);
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return $default;
+    }
+
+    protected function aws_signing_key($secret, $date, $region, $service)
+    {
+        $k_date    = hash_hmac('sha256', $date, 'AWS4' . $secret, true);
+        $k_region  = hash_hmac('sha256', $region, $k_date, true);
+        $k_service = hash_hmac('sha256', $service, $k_region, true);
+
+        return hash_hmac('sha256', 'aws4_request', $k_service, true);
+    }
+
+    protected function aws_build_query(array $params)
+    {
+        ksort($params);
+
+        $pairs = array();
+        foreach ($params as $key => $value) {
+            $pairs[] = $this->aws_uri_encode($key) . '=' . $this->aws_uri_encode((string) $value);
+        }
+
+        return implode('&', $pairs);
+    }
+
+    protected function aws_uri_encode_path($value)
+    {
+        $segments = explode('/', ltrim((string) $value, '/'));
+        $encoded  = array();
+
+        foreach ($segments as $segment) {
+            $encoded[] = $this->aws_uri_encode($segment);
+        }
+
+        return implode('/', $encoded);
+    }
+
+    protected function aws_uri_encode($value)
+    {
+        return str_replace('%7E', '~', rawurlencode((string) $value));
     }
 }
