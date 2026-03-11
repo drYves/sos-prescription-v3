@@ -1,0 +1,155 @@
+/* SOS Prescription – Doctor Account (Signature upload) */
+
+.sp-signature-upload-wrap {
+  max-width: 540px;
+}
+
+.sp-hidden-file-input {
+  display: none !important;
+}
+
+/* Faux bouton (label) */
+.sp-custom-file-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  user-select: none;
+}
+
+.sp-custom-file-upload:hover {
+  border-color: #2563eb;
+  background: #f8fafc;
+}
+
+.sp-custom-file-upload:focus,
+.sp-custom-file-upload:focus-within {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.sp-signature-upload-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #2563eb;
+  flex: 0 0 auto;
+}
+
+.sp-signature-upload-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sp-signature-upload-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.sp-signature-upload-text span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* States */
+.sp-custom-file-upload.error {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+  background: #fff;
+  animation: spPulseRed 900ms ease-out 1;
+}
+
+.sp-custom-file-upload.success {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+  background: #fff;
+}
+
+@keyframes spPulseRed {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.28); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.sp-signature-error {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.sp-signature-preview {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.sp-signature-preview img {
+  display: block;
+  max-height: 90px;
+  width: auto;
+  max-width: 100%;
+}
+
+
+/* Premium UX: drag&drop + metadata + clear selection */
+.sp-custom-file-upload.dragover {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.sp-signature-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b7280;
+}
+
+.sp-signature-meta strong {
+  color: #111827;
+  font-weight: 700;
+}
+
+.sp-signature-meta .sp-warn {
+  display: block;
+  margin-top: 4px;
+  color: #b45309;
+  font-weight: 700;
+}
+
+.sp-signature-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sp-signature-clear {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.sp-signature-clear:hover {
+  background: #f9fafb;
+}

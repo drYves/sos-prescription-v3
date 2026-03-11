@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vérification d’ordonnance • {{PRODUCT}}</title>
+  <style>
+    :root{
+      --bg:#f8fafc;
+      --card:#ffffff;
+      --ink:#0f172a;
+      --muted:#6b7280;
+      --line:#e5e7eb;
+      --blue:#2563eb;
+      --blue-50:#eff6ff;
+      --green:#10b981;
+      --green-50:#ecfdf5;
+      --amber:#f59e0b;
+      --amber-50:#fffbeb;
+      --red:#ef4444;
+      --red-50:#fef2f2;
+      --radius:18px;
+      --shadow:0 18px 40px -24px rgba(15,23,42,.25);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      padding:26px;
+      background: radial-gradient(1200px 600px at 50% -120px, #dbeafe 0%, var(--bg) 60%);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color:var(--ink);
+      -webkit-font-smoothing:antialiased;
+    }
+    .topbar{max-width:980px;margin:0 auto 14px auto;display:flex;justify-content:space-between;align-items:center;gap:16px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{width:44px;height:44px;border-radius:14px;background: radial-gradient(circle at 30% 30%, #60a5fa, var(--blue));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 22px -14px rgba(37,99,235,.8)}
+    .logo svg{width:22px;height:22px;fill:#fff}
+    .brand-name{font-weight:800;letter-spacing:-.02em}
+    .brand-sub{font-size:12px;color:var(--muted);margin-top:2px}
+    .pill{padding:10px 14px;border:1px solid var(--line);background:rgba(255,255,255,.75);border-radius:999px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;backdrop-filter:blur(10px)}
+    .pill .dot{width:10px;height:10px;border-radius:99px;background:var(--green);box-shadow:0 0 0 3px var(--green-50)}
+
+    .container{max-width:980px;margin:0 auto}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+    .card-header{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+    .card-title{display:flex;gap:14px;align-items:flex-start}
+    .card-title .icon{width:44px;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--blue-50);display:flex;align-items:center;justify-content:center}
+    .card-title .icon svg{width:22px;height:22px;fill:var(--blue)}
+    h1{font-size:16px;margin:0 0 2px 0;letter-spacing:-.02em}
+    .sub{font-size:12.5px;color:var(--muted);line-height:1.35}
+    .card-meta{text-align:right}
+    .badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-bottom:6px}
+    .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:#fff;color:var(--muted);white-space:nowrap}
+    .badge .dot{width:8px;height:8px;border-radius:99px;background:var(--muted)}
+    .badge.valid{background:var(--green-50);border-color:#a7f3d0;color:#065f46}
+    .badge.valid .dot{background:var(--green)}
+    .badge.warn{background:var(--amber-50);border-color:#fde68a;color:#92400e}
+    .badge.warn .dot{background:var(--amber)}
+    .badge.danger{background:var(--red-50);border-color:#fecaca;color:#991b1b}
+    .badge.danger .dot{background:var(--red)}
+    .tiny{font-size:11.5px;color:var(--muted)}
+
+    .card-body{padding:18px 20px}
+    .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}
+    @media (max-width:860px){body{padding:18px}.grid{grid-template-columns:1fr}.card-meta{text-align:left}.badges{justify-content:flex-start}}
+    .panel{border:1px solid var(--line);border-radius:16px;padding:14px 14px;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)}
+    .panel-title{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px 0}
+    .kv{display:grid;grid-template-columns:1fr;gap:10px}
+    .row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+    .k{font-size:12px;color:var(--muted)}
+    .v{font-size:13.5px;font-weight:700;color:var(--ink);text-align:right;line-height:1.35}
+    .v code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px;font-weight:800;padding:3px 6px;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc}
+    .divider{height:1px;background:var(--line);margin:16px 0}
+
+    .actions{display:flex;flex-direction:column;gap:10px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;font-weight:800;font-size:13px;cursor:pointer}
+    .btn svg{width:18px;height:18px}
+    .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+    .btn.secondary{background:var(--blue-50);border-color:#bfdbfe;color:var(--blue)}
+    .btn.disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
+    .note{font-size:12px;color:var(--muted);line-height:1.45}
+
+    .rx-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+    .rx-item{padding:12px 12px;border:1px solid var(--line);border-radius:14px;background:#fff;display:flex;gap:12px;align-items:flex-start}
+    .rx-item .bullet{width:10px;height:10px;border-radius:99px;background:var(--blue);box-shadow:0 0 0 4px var(--blue-50);margin-top:6px;flex:0 0 auto}
+    .rx-item strong{font-weight:900}
+    .rx-item .detail{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.4}
+
+    .dispense-box{padding:12px 12px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(180deg,#fff 0%,#f8fafc 100%)}
+    .dispense-title{font-weight:900;font-size:13px;margin:0 0 4px 0}
+    .dispense-sub{font-size:12px;color:var(--muted);margin:0 0 10px 0}
+    .dispense-form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .dispense-form input{flex:1 1 160px;padding:12px 12px;border-radius:14px;border:1px solid var(--line);font-size:14px;outline:none}
+    .dispense-form input:focus{border-color:#93c5fd;box-shadow:0 0 0 4px rgba(37,99,235,.12)}
+    .mini{font-size:11px;color:var(--muted);margin-top:8px}
+
+    .alert{padding:12px 14px;border-radius:16px;border:1px solid var(--line);margin-bottom:14px;font-size:13px}
+    .alert.ok{background:var(--green-50);border-color:#a7f3d0;color:#065f46}
+    .alert.err{background:var(--red-50);border-color:#fecaca;color:#991b1b}
+
+    .card-footer{border-top:1px solid var(--line);padding:14px 20px;display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:12px;flex-wrap:wrap}
+    .footer{max-width:980px;margin:14px auto 0 auto;text-align:center;font-size:11.5px;color:var(--muted)}
+    .footer a{color:var(--blue);text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M11 2h2v20h-2zM2 11h20v2H2z"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">{{PRODUCT}}</div>
+        <div class="brand-sub">Vérification d’ordonnance</div>
+      </div>
+    </div>
+    <div class="pill"><span class="dot"></span>Lecture sécurisée</div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 2h6a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm1 3v2h4V5h-4zm0 4h4v2h-4V9z"/></svg>
+          </div>
+          <div>
+            <h1>Ordonnance vérifiée</h1>
+            <div class="sub">Cette page permet de vérifier l’authenticité. Ne partagez pas ce lien.</div>
+          </div>
+        </div>
+        <div class="card-meta">
+          <div class="badges">
+            <span class="badge valid"><span class="dot"></span>Valide</span>
+            {{DISPENSE_BADGE_HTML}}
+            <span class="badge"><span class="dot"></span>{{RX_BADGE}}</span>
+          </div>
+          <div class="tiny">Référence scan : {{SCAN_REF}} • Dernière mise à jour : {{UPDATED_LABEL}}</div>
+        </div>
+      </div>
+
+      <div class="card-body">
+        {{FLASH_HTML}}
+
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-title">Détails</div>
+            <div class="kv">
+              <div class="row"><div class="k">Praticien</div><div class="v">{{DOCTOR_LABEL}}</div></div>
+              <div class="row"><div class="k">Patient</div><div class="v">{{PATIENT_NAME}} • {{PATIENT_BIRTH}}</div></div>
+              {{PATIENT_WEIGHT_ROW_HTML}}
+              <div class="row"><div class="k">Émise le</div><div class="v">{{ISSUED_LABEL}}</div></div>
+              <div class="row"><div class="k">Délivrance</div><div class="v">{{DISPENSE_LABEL}}</div></div>
+              <div class="row"><div class="k">Nombre de lignes</div><div class="v">{{MED_COUNT}}</div></div>
+            </div>
+            <div class="divider"></div>
+            <div class="kv">
+              {{META_ROWS_HTML}}
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Actions</div>
+            <div class="actions">
+              {{PDF_ACTIONS_HTML}}
+              {{DISPENSE_SECTION_HTML}}
+              <div class="note">Données affichées via un lien sécurisé. Échanges chiffrés (TLS).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="panel">
+          <div class="panel-title">Prescription</div>
+          {{MED_LIST_HTML}}
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div>Généré par {{PRODUCT}} • Vérification en lecture seule</div>
+        <div>Empreinte : <code>{{HASH_SHORT}}</code></div>
+      </div>
+    </div>
+
+    <div class="footer">Besoin d’aide ? Contactez le support {{PRODUCT}}.</div>
+  </div>
+
+  <script>
+    (function(){
+      var btn = document.getElementById('sp-dispense-open');
+      var form = document.getElementById('sp-dispense-form');
+      if(btn && form){
+        btn.addEventListener('click', function(){
+          btn.style.display = 'none';
+          form.style.display = 'flex';
+          var input = form.querySelector('input[name="dispense_code"]');
+          if(input){ input.focus(); }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

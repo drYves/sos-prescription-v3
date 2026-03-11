@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>SOS Prescription — Note technique (Template Vérification Pharmacien)</title>
+  <style>
+    body{
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      line-height: 1.55;
+      margin: 20px;
+      max-width: 980px;
+      color: #111827;
+    }
+    h1{font-size:22px;margin:0 0 6px 0}
+    .muted{color:#6b7280}
+    h2{font-size:16px;margin:22px 0 8px 0}
+    code, pre{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    pre{background:#0b1020;color:#e5e7eb;padding:12px;border-radius:10px;overflow:auto}
+    table{border-collapse:collapse;width:100%}
+    th, td{border:1px solid #e5e7eb;padding:8px;vertical-align:top}
+    th{background:#f9fafb;text-align:left}
+    .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;background:#eff6ff;color:#1e40af;font-weight:600}
+  </style>
+</head>
+<body>
+
+<h1>Template “Vérification Pharmacien”</h1>
+<div class="muted">Page publique consultée lors du scan QR : <code>/v/{token}</code></div>
+
+<h2>Objectif</h2>
+<p>
+  Le template contrôle le rendu “premium” de la page de vérification sans toucher au PHP.
+  Il est <strong>chargé depuis un fichier HTML</strong> (override uploadable depuis l’admin).
+</p>
+
+<h2>Source de vérité</h2>
+<p>
+  Le fichier HTML est la source de vérité UI. Le serveur remplace des <strong>placeholders</strong>
+  de type <code>{{TOKEN}}</code> et injecte certains blocs HTML (liste médicaments, actions…)
+  pour garder une logique métier unique.
+</p>
+
+<h2>Placeholders supportés</h2>
+<p>
+  Dans l’admin, une table affiche la liste des placeholders supportés et lesquels sont détectés
+  dans votre template (présent/absent). Les placeholders inconnus sont signalés.
+</p>
+
+<h2>Blocs HTML injectés</h2>
+<ul>
+  <li><code>{{MED_LIST_HTML}}</code> : liste des médicaments (HTML déjà formatté par le serveur)</li>
+  <li><code>{{META_ROWS_HTML}}</code> : métadonnées “Sécurité” (URL, identifiant, empreinte, code délivrance…)</li>
+  <li><code>{{PDF_ACTIONS_HTML}}</code> : actions PDF (télécharger/voir)</li>
+  <li><code>{{DISPENSE_SECTION_HTML}}</code> : statut + action “Marquer comme délivrée” (avec code 6 chiffres)</li>
+  <li><code>{{FLASH_HTML}}</code> : messages succès/erreur après action</li>
+</ul>
+<p class="muted">Conseil : ne modifiez pas la structure interne de ces blocs ; stylisez-les via CSS (classes).</p>
+
+<h2>Contraintes sécurité / confidentialité</h2>
+<ul>
+  <li>La page peut être consultée sans compte (pharmacien). Pas d’informations inutiles : uniquement ce qui est requis pour vérifier.</li>
+  <li>Le token est un identifiant aléatoire long (non dérivé de l’UID). Évitez de le réafficher en clair partout ; privilégiez l’empreinte courte <code>{{HASH_SHORT}}</code>.</li>
+  <li>Le bouton “Marquer comme délivrée” doit demander le code à 6 chiffres imprimé sur l’ordonnance.</li>
+</ul>
+
+<h2>CSS recommandé</h2>
+<p>
+  Cette page est du HTML “navigateur”. Vous pouvez utiliser flexbox, grid, variables CSS, badges…
+  Néanmoins, pour garder une compatibilité maximale (thèmes, mobiles), privilégiez :
+</p>
+<ul>
+  <li>Une colonne centrée (max-width 1000px)</li>
+  <li>Des cartes (<span class="badge">Card</span>) avec bordure légère + ombre douce</li>
+  <li>Des boutons standards (primary/secondary) + états disabled</li>
+</ul>
+
+<h2>Exemple minimal</h2>
+<pre>&lt;div class="card"&gt;
+  &lt;div class="title"&gt;Vérification ordonnance&lt;/div&gt;
+  &lt;div class="meta"&gt;
+    {{META_ROWS_HTML}}
+  &lt;/div&gt;
+  &lt;div class="meds"&gt;
+    {{MED_LIST_HTML}}
+  &lt;/div&gt;
+  &lt;div class="actions"&gt;
+    {{PDF_ACTIONS_HTML}}
+    {{DISPENSE_SECTION_HTML}}
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+
+<h2>Protocole de test</h2>
+<ul>
+  <li>Utiliser <strong>Prévisualiser (données de démo)</strong> depuis l’admin pour tester rapidement.</li>
+  <li>Vérifier : affichage patient, badge délivrance, téléchargement PDF, action “délivrée” (code 6 chiffres).</li>
+  <li>En cas d’erreur : relever le ReqID s’il est affiché et consulter l’onglet Logs.</li>
+</ul>
+
+</body>
+</html>

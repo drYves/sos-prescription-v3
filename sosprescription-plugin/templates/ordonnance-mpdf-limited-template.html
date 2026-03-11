@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOS Prescription — Template Ordonnance (mPDF/Dompdf — CSS limité)</title>
+  <!--
+    SOS Prescription — Template HTML→PDF (CSS limité)
+
+    Objectif : rester compatible avec mPDF/Dompdf en environnement PHP mutualisé.
+
+    Capabilités OK (généralement) :
+      - Tableaux (<table>) pour la mise en page multi-colonnes
+      - Couleurs simples, bordures, radius, background
+      - Images (PNG/JPG) locales ou data-uri
+      - page-break-inside: avoid (partiel), page-break-before/after
+
+    Capabilités À ÉVITER :
+      - Flexbox, CSS Grid
+      - position: fixed/absolute complexes
+      - variables CSS, pseudo-éléments avancés
+      - JS (aucun rendu JS dans PDF)
+
+    Ce fichier est une version “éditeur HTML” du template utilisé côté plugin.
+    Dans le plugin, les valeurs sont injectées côté PHP.
+
+    Placeholders (à titre indicatif) :
+      {{DOCTOR_DISPLAY}}, {{SPECIALTY}}, {{RPPS}}, {{ADDRESS}}, {{PHONE}}, {{DIPLOMA_LINE}}
+      {{PATIENT_NAME}}, {{PATIENT_BIRTH_LABEL}}, {{PATIENT_WH_LABEL}}
+      {{RX_PUBLIC_ID}}, {{HASH_SHORT}}, {{VERIFY_URL}}, {{DELIVERY_CODE}}, {{MED_COUNT}}
+      {{BARCODE_BASE64}}, {{QR_BASE64}}, {{SIGNATURE_BASE64}}
+  -->
+
+  <style>
+    /* Base */
+    body { font-family: DejaVu Sans, Arial, sans-serif; color: #111827; font-size: 11pt; }
+    table { border-collapse: collapse; width: 100%; }
+    .muted { color: #6b7280; }
+    .muted2 { color: #9ca3af; }
+    .small { font-size: 9pt; }
+    .xsmall { font-size: 8pt; }
+
+    /* Header */
+    .header-grid td { vertical-align: top; }
+    .specialty { color: #1e40af; text-transform: uppercase; font-weight: 700; font-size: 9pt; letter-spacing: 0.6pt; }
+    .doc-name { font-size: 18pt; font-weight: 800; margin: 0.5mm 0 1.5mm 0; }
+    .doctor-lines { font-size: 9pt; line-height: 1.45; }
+    .header-divider { border-bottom: 1px dashed #e5e7eb; margin: 4mm 0 0 0; }
+    .badge { background: #eff6ff; color: #1e40af; border-radius: 99px; padding: 2.4mm 4.2mm; font-weight: 800; font-size: 9pt; display: inline-block; }
+    .barcode-wrap { text-align: right; }
+
+    /* Patient card */
+    .patient-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 5mm 6mm; margin-top: 6mm; }
+    .patient-grid td { vertical-align: top; }
+    .pc-label { font-size: 8pt; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.4pt; }
+    .pc-value { font-size: 12pt; font-weight: 700; margin-top: 1mm; }
+
+    /* Center title */
+    .doc-title-wrap { text-align: center; margin: 10mm 0 7mm; }
+    .doc-title { background: #eff6ff; color: #2563eb; border-radius: 99px; padding: 2.7mm 9mm; font-weight: 900; letter-spacing: 1.8pt; font-size: 10pt; text-transform: uppercase; display: inline-block; }
+
+    /* Medications list (table-based) */
+    .med-row { margin-bottom: 7mm; page-break-inside: avoid; }
+    .med-dot-cell { width: 6mm; vertical-align: top; padding-top: 2.2mm; }
+    .med-dot { width: 3mm; height: 3mm; background: #2563eb; border-radius: 50%; }
+    .med-name { font-size: 12pt; font-weight: 900; }
+    .med-name-wrap { word-wrap: break-word; }
+    .med-tag { font-size: 8pt; font-weight: 800; background: #f3f4f6; color: #6b7280; padding: 1.1mm 2.2mm; border-radius: 6px; margin-left: 2mm; }
+    .med-posology { font-size: 10pt; color: #4b5563; line-height: 1.5; margin-top: 1.2mm; }
+
+    /* Stripe + checksum med count */
+    .strip-table { width: 100%; margin: 8mm 0 4mm; }
+    .void-zone-cell { height: 14mm; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+    .count-cell { width: 22mm; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; vertical-align: bottom; }
+    .count-box { width: 14mm; height: 14mm; border: 1px solid #111827; padding: 1mm; margin-left: auto; }
+    .count-box-inner { width: 100%; height: 12mm; border: 1px solid #111827; text-align: center; font-weight: 900; font-size: 13pt; line-height: 12mm; }
+
+    /* Footer (security) */
+    .footer { border-top: 2px solid #e5e7eb; padding-top: 6mm; }
+    .footer-grid td { vertical-align: middle; }
+    .security-title { font-weight: 900; font-size: 10pt; }
+    .qr-img { width: 18mm; height: 18mm; }
+    .issue-line { font-size: 7.5pt; color: #6b7280; margin-bottom: 1.5mm; }
+    .delivery-label { font-size: 8pt; color: #9ca3af; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4pt; }
+    .delivery-code { font-size: 14pt; font-weight: 900; color: #111827; background: #f3f4f6; padding: 1.4mm 2.6mm; border-radius: 6px; }
+    .sig-img { max-height: 22mm; }
+    .right { text-align: right; }
+    .watermark { margin-top: 6mm; text-align: center; font-size: 8pt; color: #d1d5db; }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <table class="header-grid">
+    <tr>
+      <td style="width: 70%;">
+        <div class="specialty">MÉDECINE D'URGENCE</div>
+        <div class="doc-name">Dr Yves BURCKEL</div>
+        <div class="doctor-lines muted">
+          Diplômé Faculté Paris XIII • Lauréat de l’Académie<br>
+          RPPS : 10000554302<br>
+          184 avenue Vauban, 06700 Saint-Laurent-du-Var<br>
+          Tél : 01 23 45 67 89
+        </div>
+      </td>
+      <td class="barcode-wrap" style="width: 30%;">
+        <div style="margin-bottom: 3mm;"><span class="badge">RX-31EE58-53E2</span></div>
+        <!-- Barcode RPPS : dans le plugin => image base64 générée -->
+        <div class="muted2 xsmall">Code-barres RPPS</div>
+        <div style="border:1px solid #e5e7eb; padding: 3mm; border-radius: 8px;">
+          <span class="muted2 xsmall">{{BARCODE_BASE64}}</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <div class="header-divider"></div>
+
+  <!-- PATIENT CARD -->
+  <div class="patient-card">
+    <table class="patient-grid">
+      <tr>
+        <td style="width: 40%;">
+          <div class="pc-label">Patient</div>
+          <div class="pc-value">M. Khaled RABII</div>
+        </td>
+        <td style="width: 30%;">
+          <div class="pc-label">Date de naissance</div>
+          <div class="pc-value">14/01/1968 (57 ans)</div>
+        </td>
+        <td style="width: 30%;" class="right">
+          <div class="pc-label">Poids / Taille</div>
+          <div class="pc-value">78 kg / 175 cm</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- TITLE -->
+  <div class="doc-title-wrap"><span class="doc-title">Ordonnance</span></div>
+
+  <!-- MEDICATIONS -->
+  <div class="med-row">
+    <table class="med-table">
+      <tr>
+        <td class="med-dot-cell"><div class="med-dot"></div></td>
+        <td>
+          <div class="med-name med-name-wrap">DOLIPRANE</div>
+          <div>
+            <span class="med-tag">1000 mg</span>
+            <span class="med-tag">Comprimé</span>
+          </div>
+          <div class="med-posology">1 fois par jour pendant 5 jours. <strong>(1@08:00)</strong></div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="med-row">
+    <table class="med-table">
+      <tr>
+        <td class="med-dot-cell"><div class="med-dot"></div></td>
+        <td>
+          <div class="med-name med-name-wrap">DOLIRHUME PARACÉTAMOL ET PSEUDOÉPHÉDRINE 500 mg/30 mg</div>
+          <div>
+            <span class="med-tag">Comprimé</span>
+          </div>
+          <div class="med-posology">1 fois par jour pendant 5 jours. <strong>(1@08:00)</strong></div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- STRIPE + MED COUNT -->
+  <table class="strip-table">
+    <tr>
+      <td class="void-zone-cell"></td>
+      <td class="count-cell">
+        <div class="count-box"><div class="count-box-inner">2</div></div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- FOOTER SECURITY -->
+  <div class="footer">
+    <table class="footer-grid">
+      <tr>
+        <td style="width: 55%;">
+          <div class="security-title">Sécurité</div>
+          <div class="muted2 small">Authenticité vérifiable par scan du QR.</div>
+          <div class="muted small" style="margin-top: 3mm;">Vérification : {{VERIFY_URL}}</div>
+          <div class="muted small">Identifiant : RX-31EE58-53E2</div>
+          <div class="muted small">Empreinte : 1A2B3C4D5E6F</div>
+          <div style="margin-top: 3mm;">
+            <span class="delivery-label">Code délivrance</span>
+            <span class="delivery-code">734637</span>
+          </div>
+        </td>
+        <td style="width: 20%;" class="right">
+          <!-- QR : dans le plugin => image base64 générée -->
+          <div class="muted2 xsmall">QR</div>
+          <div style="border:1px solid #e5e7eb; padding: 3mm; border-radius: 10px; display:inline-block;">
+            <span class="muted2 xsmall">{{QR_BASE64}}</span>
+          </div>
+        </td>
+        <td style="width: 25%;" class="right">
+          <div class="issue-line">Fait à Saint-Laurent-du-Var, le 10/01/2026</div>
+          <!-- Signature : dans le plugin => image base64 (PNG/JPG) -->
+          <div class="muted2 xsmall">Signature</div>
+          <div style="margin-top: 2mm; border-bottom:1px solid #e5e7eb; padding-bottom: 2mm;">
+            <span class="muted2 xsmall">{{SIGNATURE_BASE64}}</span>
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="watermark">Généré par sosprescription.fr — Ordonnance sécurisée</div>
+  </div>
+
+</body>
+</html>

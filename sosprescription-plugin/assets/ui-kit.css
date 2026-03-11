@@ -1,0 +1,535 @@
+/*
+  SOS Prescription – Unified UI Kit
+  ---------------------------------
+  Lightweight primitives for consistent UI across:
+  - Patient app (form + portal)
+  - Doctor console
+  - Backoffice (WP admin pages)
+
+  Design tokens are kept intentionally simple to avoid collisions with themes.
+*/
+
+:root {
+  --sp-ink: #111827;
+  --sp-muted: #6b7280;
+  --sp-muted-2: #9ca3af;
+  --sp-border: #e5e7eb;
+  --sp-border-strong: #d1d5db;
+  --sp-bg: #ffffff;
+
+  --sp-primary: #2563eb;
+  --sp-primary-ink: #1e40af;
+
+  --sp-success-bg: #ecfdf5;
+  --sp-success-border: #a7f3d0;
+  --sp-success-ink: #065f46;
+
+  --sp-warn-bg: #fffbeb;
+  --sp-warn-border: #fde68a;
+  --sp-warn-ink: #92400e;
+
+  --sp-danger-bg: #fef2f2;
+  --sp-danger-border: #fecaca;
+  --sp-danger-ink: #991b1b;
+
+  --sp-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  --sp-shadow-md: 0 10px 25px rgba(0,0,0,0.08);
+
+  --sp-radius: 12px;
+  --sp-radius-sm: 10px;
+}
+
+/* Scope helper to avoid fighting with WP / theme CSS */
+.sp-ui {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  color: var(--sp-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.sp-ui *,
+.sp-ui *::before,
+.sp-ui *::after {
+  box-sizing: border-box;
+}
+
+.sp-ui a {
+  color: var(--sp-primary);
+  text-decoration: none;
+}
+
+.sp-ui a:hover {
+  text-decoration: underline;
+}
+
+.sp-muted {
+  color: var(--sp-muted);
+}
+
+.sp-muted-2 {
+  color: var(--sp-muted-2);
+}
+
+.sp-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border: 1px solid var(--sp-border);
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Cards */
+.sp-card {
+  background: var(--sp-bg);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  padding: 16px;
+  box-shadow: var(--sp-shadow);
+}
+
+.sp-card + .sp-card {
+  margin-top: 14px;
+}
+
+.sp-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sp-card-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.sp-card-subtitle {
+  font-size: 13px;
+  margin: 4px 0 0;
+  color: var(--sp-muted);
+  line-height: 1.35;
+}
+
+/* Badges */
+.sp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: var(--sp-primary-ink);
+  white-space: nowrap;
+}
+
+/* Status dots used inside badges (online/offline). */
+.sp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  display: inline-block;
+  background: var(--sp-muted);
+  flex: 0 0 auto;
+}
+
+.sp-dot-online {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16);
+}
+
+.sp-badge-success {
+  border-color: var(--sp-success-border);
+  background: var(--sp-success-bg);
+  color: var(--sp-success-ink);
+}
+
+.sp-badge-warn {
+  border-color: var(--sp-warn-border);
+  background: var(--sp-warn-bg);
+  color: var(--sp-warn-ink);
+}
+
+.sp-badge-danger {
+  border-color: var(--sp-danger-border);
+  background: var(--sp-danger-bg);
+  color: var(--sp-danger-ink);
+}
+
+/* Alerts */
+.sp-alert {
+  border-radius: var(--sp-radius);
+  padding: 12px 14px;
+  border: 1px solid var(--sp-border);
+  background: #f9fafb;
+  color: var(--sp-ink);
+  line-height: 1.4;
+}
+
+.sp-alert + .sp-alert {
+  margin-top: 10px;
+}
+
+.sp-alert-title {
+  font-weight: 800;
+  margin: 0 0 4px;
+}
+
+.sp-alert-error {
+  background: var(--sp-danger-bg);
+  border-color: var(--sp-danger-border);
+  color: var(--sp-danger-ink);
+}
+
+.sp-alert-success {
+  background: var(--sp-success-bg);
+  border-color: var(--sp-success-border);
+  color: var(--sp-success-ink);
+}
+
+.sp-alert-warn {
+  background: var(--sp-warn-bg);
+  border-color: var(--sp-warn-border);
+  color: var(--sp-warn-ink);
+}
+
+/* Buttons */
+.sp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  line-height: 1;
+}
+
+.sp-btn:active {
+  transform: translateY(1px);
+}
+
+.sp-btn[disabled],
+.sp-btn.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sp-btn-primary {
+  background: var(--sp-primary);
+  border-color: var(--sp-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.sp-btn-primary:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.sp-btn-secondary {
+  background: #fff;
+  border-color: var(--sp-border-strong);
+  color: var(--sp-ink);
+}
+
+.sp-btn-secondary:hover {
+  background: #f9fafb;
+}
+
+.sp-btn-danger {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.sp-btn-danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.sp-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--sp-primary-ink);
+}
+
+.sp-btn-ghost:hover {
+  background: #eff6ff;
+}
+
+/* Inputs */
+.sp-input,
+.sp-select,
+.sp-textarea {
+  width: 100%;
+  border: 1px solid var(--sp-border-strong);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  background: #fff;
+  color: var(--sp-ink);
+}
+
+.sp-textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.sp-input:focus,
+.sp-select:focus,
+.sp-textarea:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
+}
+
+/* Tables (admin-friendly) */
+.sp-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.sp-table th,
+.sp-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sp-border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.sp-table th {
+  background: #f9fafb;
+  font-weight: 800;
+  color: var(--sp-ink);
+}
+
+.sp-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Small layout helpers */
+.sp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sp-row-between {
+  justify-content: space-between;
+}
+
+.sp-hidden {
+  display: none !important;
+}
+
+/* Alignment helpers */
+.sp-row-end {
+  justify-content: flex-end;
+}
+
+/* Code/log viewer block */
+.sp-pre {
+  white-space: pre-wrap;
+  max-height: 520px;
+  overflow: auto;
+  background: #0b1020;
+  color: #e7eaf2;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #1f2937;
+}
+
+/* ------------------------------------------------------
+   WP Admin compatibility layer (only within .sp-ui)
+   ------------------------------------------------------ */
+
+/* Buttons (WordPress .button) => look like SOS UI kit */
+.sp-ui .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid var(--sp-border-strong);
+  background: #fff;
+  color: var(--sp-ink);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  line-height: 1;
+}
+
+.sp-ui .button:hover {
+  background: #f9fafb;
+  border-color: var(--sp-border-strong);
+  color: var(--sp-ink);
+}
+
+.sp-ui .button:active {
+  transform: translateY(1px);
+}
+
+.sp-ui .button.button-primary {
+  background: var(--sp-primary);
+  border-color: var(--sp-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.sp-ui .button.button-primary:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.sp-ui .button.button-secondary {
+  background: #fff;
+  border-color: var(--sp-border-strong);
+  color: var(--sp-ink);
+}
+
+.sp-ui .button.button-secondary:hover {
+  background: #f9fafb;
+}
+
+.sp-ui .button.button-small {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  min-height: 0;
+}
+
+.sp-ui .button[disabled],
+.sp-ui .button.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sp-ui .button .dashicons {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  line-height: 1;
+}
+
+/* Tables (WordPress widefat) => closer to .sp-table */
+.sp-ui table.widefat {
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  overflow: hidden;
+  box-shadow: var(--sp-shadow);
+}
+
+.sp-ui table.widefat th,
+.sp-ui table.widefat td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sp-border);
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.sp-ui table.widefat thead th {
+  background: #f9fafb;
+  font-weight: 800;
+  color: var(--sp-ink);
+}
+
+.sp-ui table.widefat tr:last-child td {
+  border-bottom: none;
+}
+
+/* Admin helper rows (logs/import pages) */
+.sp-file-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sp-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+
+/* Force contrast on colored action buttons inside WP Admin (WP can override <a> colors) */
+.sp-ui a.sp-btn-primary,
+.sp-ui a.sp-btn-danger {
+  color: #ffffff !important;
+}
+
+
+/* ---- Admin: Compact template action icons (Rx / Templates) ---- */
+.sp-ui .sp-admin-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sp-ui .sp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--sp-border-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #374151;
+  text-decoration: none;
+}
+
+.sp-ui .sp-icon-btn:hover {
+  background: #f3f4f6;
+}
+
+.sp-ui .sp-icon-btn .dashicons {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+}
+
+.sp-ui .sp-icon-btn-danger {
+  border-color: #fecaca;
+  color: #d63638;
+}
+
+.sp-ui .sp-icon-btn-danger:hover {
+  background: #fef2f2;
+}

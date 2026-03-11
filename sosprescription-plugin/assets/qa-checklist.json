@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0",
+  "plugin": "SOSPrescription",
+  "release": "v1.9.1",
+  "generated_at": "2026-01-18",
+  "notes": "Checklist QA embarquee (tests manuels/automatisables). Aucun PII ne doit etre utilise dans les scenarios.",
+  "contexts": [
+    "patient",
+    "doctor",
+    "pharmacist",
+    "admin",
+    "system"
+  ],
+  "tests": [
+    {
+      "id": "SYS-01",
+      "context": "system",
+      "title": "System Status - checks PASS/FAIL",
+      "steps": [
+        "Aller dans WP Admin > SOS Prescription > System Status",
+        "Verifier que le rapport affiche les checks I/O, Assets, Runtime, Dependencies",
+        "Exporter le rapport JSON"
+      ],
+      "expected": [
+        "La page s'affiche sans erreur",
+        "L'export JSON se telecharge",
+        "Les champs status sont coherents (pass/warn/fail)"
+      ]
+    },
+    {
+      "id": "OCR-01",
+      "context": "patient",
+      "title": "OCR client-side - document reconnu",
+      "steps": [
+        "Ouvrir le formulaire patient",
+        "Uploader une image d'ordonnance lisible (JPG/PNG)",
+        "Attendre le resultat OCR"
+      ],
+      "expected": [
+        "Indicateur vert 'Document reconnu'",
+        "Le formulaire reste utilisable",
+        "Aucun blocage serveur (pas d'OCR cote serveur)"
+      ]
+    },
+    {
+      "id": "OCR-02",
+      "context": "patient",
+      "title": "OCR client-side - soft warning + Forcer l'envoi",
+      "steps": [
+        "Uploader une image sans mots-cles (ex: photo)",
+        "Observer le warning",
+        "Cliquer sur 'Forcer l'envoi'"
+      ],
+      "expected": [
+        "Warning visible mais non bloquant",
+        "Bouton 'Forcer l'envoi' permet de continuer",
+        "Un ReqID est affiche si erreur"
+      ]
+    },
+    {
+      "id": "DOC-01",
+      "context": "doctor",
+      "title": "Console medecin - reception/traitement demande",
+      "steps": [
+        "Creer une demande cote patient",
+        "Verifier apparition cote medecin sans refresh destructif",
+        "Valider ou refuser avec motif"
+      ],
+      "expected": [
+        "La demande apparait",
+        "Les actions fonctionnent",
+        "Les logs NDJSON contiennent req_id et scope pertinents"
+      ]
+    },
+    {
+      "id": "RX-01",
+      "context": "doctor",
+      "title": "Generation PDF ordonnance (mPDF)",
+      "steps": [
+        "Sur une prescription validee, generer le PDF",
+        "Verifier presence QR, code-barres, signature",
+        "Verifier alignements critiques (colonne droite)"
+      ],
+      "expected": [
+        "PDF se genere sans 500",
+        "Rendu stable/pixel-perfect",
+        "Aucun placeholder non remplace"
+      ]
+    },
+    {
+      "id": "PHARM-01",
+      "context": "pharmacist",
+      "title": "/v/{token} - validation delivrance (code 6 chiffres)",
+      "steps": [
+        "Ouvrir /v/{token} via QR",
+        "Saisir un code incorrect (3 tentatives)",
+        "Saisir le code correct",
+        "Verifier statut 'Delivree'"
+      ],
+      "expected": [
+        "Les tentatives sont loggees (rx_delivery_attempt)",
+        "Le rate-limiter bloque apres seuil",
+        "Succes met a jour delivered_at et statut"
+      ]
+    },
+    {
+      "id": "PHARM-02",
+      "context": "pharmacist",
+      "title": "Telechargement PDF cote pharmacien",
+      "steps": [
+        "Depuis /v/{token}, cliquer 'Telecharger PDF'",
+        "Verifier que le PDF est telecharge",
+        "Verifier que l'action est tracee (ReqID + timestamp)"
+      ],
+      "expected": [
+        "Acces securise",
+        "Traçabilite dans logs",
+        "Aucune fuite d'URL privee"
+      ]
+    },
+    {
+      "id": "LOG-01",
+      "context": "admin",
+      "title": "Logs - recherche globale ReqID + export",
+      "steps": [
+        "Aller dans WP Admin > SOS Prescription > Logs",
+        "Chercher un ReqID",
+        "Exporter le bundle ticket-ready (NDJSON filtre)"
+      ],
+      "expected": [
+        "Recherche retrouve toutes les lignes",
+        "Export contient scope/lvl/req_id",
+        "Aucune PII (nom patient, etc.)"
+      ]
+    }
+  ]
+}

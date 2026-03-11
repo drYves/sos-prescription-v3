@@ -1,0 +1,835 @@
+.sosprescription-doctor {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #111;
+}
+
+.sosprescription-doctor * {
+  box-sizing: border-box;
+}
+
+.sosprescription-doctor .hidden {
+  display: none !important;
+}
+
+
+.sosprescription-doctor .sp-card {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Stack of cards (narrow column friendly, aligned with patient UI) */
+.sosprescription-doctor .sp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sosprescription-doctor .sp-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 10px;
+}
+
+.sosprescription-doctor .sp-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sosprescription-doctor .sp-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sosprescription-doctor .sp-title h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sosprescription-doctor .sp-muted {
+  color: #555;
+  font-size: 12px;
+}
+
+.sosprescription-doctor .sp-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sosprescription-doctor .sp-select,
+.sosprescription-doctor .sp-input,
+.sosprescription-doctor textarea {
+  padding: 8px 10px;
+  border: 1px solid #c3c4c7;
+  border-radius: 10px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.sosprescription-doctor textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+}
+
+.sosprescription-doctor .sp-btn {
+  border: 1px solid #2271b1;
+  background: #2271b1;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.sosprescription-doctor .sp-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sosprescription-doctor .sp-btn-secondary {
+  border: 1px solid #c3c4c7;
+  background: #f6f7f7;
+  color: #111;
+}
+
+.sosprescription-doctor .sp-btn-danger {
+  border: 1px solid #d63638;
+  background: #d63638;
+  color: #fff;
+}
+
+.sosprescription-doctor .sp-btn-success {
+  border: 1px solid #1b7f3a;
+  background: #1b7f3a;
+  color: #fff;
+}
+
+.sosprescription-doctor .sp-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .sosprescription-doctor .sp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sosprescription-doctor .sp-list {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  overflow: hidden;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.sosprescription-doctor .sp-list-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.sosprescription-doctor .sp-list-item:hover {
+  background: #f8fafc;
+}
+
+.sosprescription-doctor .sp-list-item.is-selected {
+  background: #eff6ff;
+}
+
+.sosprescription-doctor .sp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sosprescription-doctor .sp-uid {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.sosprescription-doctor .sp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #d0e3ff;
+  background: #f0f6fc;
+  color: #0a3d66;
+  white-space: nowrap;
+}
+
+.sosprescription-doctor .sp-badge-warn {
+  border-color: #f0c36d;
+  background: #fff7ed;
+  color: #7a3e00;
+}
+
+.sosprescription-doctor .sp-badge-success {
+  border-color: #95d5a6;
+  background: #ecfdf3;
+  color: #0d5f2b;
+}
+
+.sosprescription-doctor .sp-badge-danger {
+  border-color: #f2a3a3;
+  background: #fff1f2;
+  color: #7a1212;
+}
+
+.sosprescription-doctor .sp-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sosprescription-doctor .sp-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #c3c4c7;
+  background: #f6f7f7;
+  color: #111;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.sosprescription-doctor .sp-attachment:hover {
+  background: #ffffff;
+}
+
+.sosprescription-doctor .sp-section {
+  margin-top: 12px;
+}
+
+.sosprescription-doctor .sp-section h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.sosprescription-doctor .sp-kv {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 6px 10px;
+  font-size: 13px;
+}
+
+.sosprescription-doctor .sp-kv .k {
+  color: #555;
+}
+
+.sosprescription-doctor .sp-divider {
+  border-top: 1px solid #eee;
+  margin: 12px 0;
+}
+
+.sosprescription-doctor .sp-doc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.sosprescription-doctor .sp-doc + .sp-doc {
+  margin-top: 8px;
+}
+
+.sosprescription-doctor .sp-doc .name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.sosprescription-doctor .sp-doc .meta {
+  color: #555;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.sosprescription-doctor .sp-empty {
+  padding: 12px;
+  border: 1px solid #eee;
+  background: #fafafa;
+  border-radius: 12px;
+  color: #444;
+  font-size: 13px;
+}
+
+.sosprescription-doctor .sp-error {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d63638;
+  background: #fcf0f1;
+  border-radius: 10px;
+  color: #8a1f21;
+}
+
+.sosprescription-doctor .sp-info {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d0e3ff;
+  background: #f0f6fc;
+  border-radius: 10px;
+  color: #0a3d66;
+}
+
+.sosprescription-doctor .sp-chat {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.sosprescription-doctor .sp-bubble {
+  max-width: 88%;
+  border-radius: 16px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.sosprescription-doctor .sp-bubble-patient {
+  background: #111;
+  color: #fff;
+}
+
+.sosprescription-doctor .sp-bubble-doctor {
+  background: #f3f4f6;
+  color: #111;
+}
+
+.sosprescription-doctor .sp-bubble-time {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.sosprescription-doctor .sp-attach {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sosprescription-doctor .sp-attach:hover {
+  background: #f9fafb;
+}
+
+.sosprescription-doctor .sp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sosprescription-doctor .sp-actions .sp-btn {
+  white-space: nowrap;
+}
+
+.sosprescription-doctor .sp-small {
+  font-size: 12px;
+  color: #555;
+}
+
+.sosprescription-doctor .sp-fileinput {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* Compose (messagerie) — style compact */
+.sosprescription-doctor .sp-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.sosprescription-doctor .sp-compose-row .sp-grow {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.sosprescription-doctor .sp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  width: 38px;
+  border-radius: 10px;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 18px;
+  color: #333;
+}
+
+/* Icône trombone (SVG) — évite les soucis de police/emoji manquante */
+.sosprescription-doctor .sp-icon-paperclip {
+  width: 18px;
+  height: 18px;
+  display: block;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234b5563' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E");
+}
+
+.sosprescription-doctor .sp-icon-btn:hover {
+  background: #f6f7f7;
+}
+
+.sosprescription-doctor .sp-files-hint {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+
+/* --- v1.5.32: UI "card" alignement + colonne étroite --- */
+.sosprescription-doctor .sp-case-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sosprescription-doctor .sp-case-id {
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.sosprescription-doctor .sp-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.sosprescription-doctor .sp-strong {
+  font-weight: 700;
+}
+
+.sosprescription-doctor .sp-section {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.sosprescription-doctor .sp-section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #555;
+}
+
+.sosprescription-doctor .sp-patient-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sosprescription-doctor .sp-meds {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sosprescription-doctor .sp-med {
+  padding: 8px 0;
+  border-top: 1px dashed #eee;
+}
+
+.sosprescription-doctor .sp-med:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sosprescription-doctor .sp-med-name {
+  font-weight: 700;
+}
+
+.sosprescription-doctor .sp-med-pos {
+  margin-top: 2px;
+}
+
+.sosprescription-doctor .sp-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px dashed #eee;
+}
+
+.sosprescription-doctor .sp-file-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sosprescription-doctor .sp-file-name {
+  font-weight: 600;
+}
+
+.sosprescription-doctor .sp-file-meta {
+  margin-top: 2px;
+}
+
+.sosprescription-doctor .sp-chat-history {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fafafa;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.sosprescription-doctor .sp-chat-msg + .sp-chat-msg {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #eee;
+}
+
+.sosprescription-doctor .sp-chat-meta {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.sosprescription-doctor .sp-chat-body {
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.sosprescription-doctor .sp-chat-att {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sosprescription-doctor .sp-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #1e73be;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sosprescription-doctor .sp-chat-compose {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+
+.sosprescription-doctor .sp-chat-input {
+  min-height: 56px;
+  resize: vertical;
+}
+
+.sosprescription-doctor .sp-icon-btn {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fff;
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  cursor: pointer;
+}
+
+.sosprescription-doctor .sp-icon-btn:hover {
+  background: #f5f5f5;
+}
+
+.sosprescription-doctor .sp-wrap {
+  flex-wrap: wrap;
+}
+
+.sosprescription-doctor .sp-mt {
+  margin-top: 12px;
+}
+
+.sosprescription-doctor .sp-label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #555;
+}
+
+.sosprescription-doctor .sp-decision-card {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfbfb;
+}
+
+
+/*
+  Thème hardening : certains thèmes WP appliquent des styles globaux agressifs sur les <button>
+  (texte blanc, fond sombre). On force ici la lisibilité de la console médecin.
+*/
+
+.sosprescription-doctor .sp-list-item {
+  color: #111827 !important;
+  background: #ffffff !important;
+}
+
+.sosprescription-doctor .sp-list-item:hover,
+.sosprescription-doctor .sp-list-item:focus {
+  background: #f9fafb !important;
+}
+
+.sosprescription-doctor .sp-list-item.is-selected {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+}
+
+/* Icône trombone en emoji : garantir un rendu sur Windows/Android */
+.sosprescription-doctor .sp-icon-btn {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+}
+
+/* Sandbox badge */
+.sosprescription-doctor .sp-badge-sandbox {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+
+/* -------------------------------------------------------
+   Chat compose (console médecin) — compact + stable (colonne étroite)
+------------------------------------------------------- */
+.sosprescription-doctor .sp-chat-compose {
+  flex-wrap: nowrap;
+}
+
+.sosprescription-doctor .sp-chat-input {
+  min-height: 72px;
+  height: auto;
+  resize: vertical;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  min-width: 0;
+}
+
+.sosprescription-doctor .sp-icon-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  font-size: 18px;
+  color: #4b5563;
+}
+
+.sosprescription-doctor .sp-chat-send {
+  min-height: 40px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+
+/* -------------------------------------------------------
+   Messagerie — look clean & premium (console médecin)
+------------------------------------------------------- */
+.sosprescription-doctor .sp-chat-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sosprescription-doctor .sp-chat-hdr-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sosprescription-doctor .sp-chat-hdr-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.sosprescription-doctor .sp-chat-hdr-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sosprescription-doctor .sp-chat-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #111827;
+}
+
+.sosprescription-doctor .sp-chat-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.sosprescription-doctor .sp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  border: 1px solid #d1fae5;
+  background: #ecfdf5;
+  color: #065f46;
+  white-space: nowrap;
+}
+
+.sosprescription-doctor .sp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #16a34a;
+}
+
+.sosprescription-doctor .sp-chat-history-wrap {
+  margin-top: 6px;
+}
+
+.sosprescription-doctor .sp-chat-placeholder {
+  padding: 8px 0;
+}
+
+.sosprescription-doctor .sp-chat-compose-premium {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.sosprescription-doctor .sp-chat-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.sosprescription-doctor .sp-chat-textarea {
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px 12px 12px 44px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.sosprescription-doctor .sp-chat-textarea:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.sosprescription-doctor .sp-chat-inset-btn {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sosprescription-doctor .sp-chat-inset-btn:hover {
+  background: #f3f4f6;
+}
+
+.sosprescription-doctor .sp-chat-inset-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sosprescription-doctor .sp-chat-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  height: 44px;
+  white-space: nowrap;
+}
+
+.sosprescription-doctor .sp-chat-send svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sosprescription-doctor .sp-chat-footnote {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.sosprescription-doctor .sp-chat-readonly {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+}

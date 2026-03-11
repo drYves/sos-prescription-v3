@@ -1,0 +1,147 @@
+/* OCR Prefill (front) - minimal utility styling */
+
+#sosprescription-ocr-prefill {
+  max-width: 900px;
+  margin: 12px auto;
+  padding: 0 12px;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-card {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-title {
+  margin: 0 0 6px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-muted {
+  margin: 0;
+  font-size: 12px;
+  color: #374151;
+  opacity: 0.9;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+/* Ensure the file picker + "Analyser" button stay accessible (mobile included) */
+#sosprescription-ocr-prefill .sp-ocr-actions input[type="file"] {
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 100%;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-actions button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 520px) {
+  #sosprescription-ocr-prefill .sp-ocr-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #sosprescription-ocr-prefill .sp-ocr-actions button {
+    width: 100%;
+  }
+  #sosprescription-ocr-prefill .sp-ocr-actions input[type="file"] {
+    min-width: 0;
+  }
+}
+
+#sosprescription-ocr-prefill .sp-ocr-status {
+  font-size: 12px;
+  color: #374151;
+  opacity: 0.9;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-results {
+  margin-top: 12px;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 12px;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  border: 1px solid #f3f4f6;
+  background: #fafafa;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-item-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.35;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-item-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-btn-primary {
+  border-color: #111827;
+  background: #111827;
+  color: #fff;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #374151;
+}
+
+#sosprescription-ocr-prefill .sp-ocr-lines {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #6b7280;
+  white-space: pre-wrap;
+  background: #fff;
+  border: 1px dashed #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+}

@@ -1,0 +1,140 @@
+.sosprescription-bdpm {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #111;
+}
+
+.sosprescription-bdpm .sp-card {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.sosprescription-bdpm .sp-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px 0;
+}
+
+.sosprescription-bdpm .sp-title h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sosprescription-bdpm .sp-muted {
+  color: #555;
+  font-size: 12px;
+}
+
+.sosprescription-bdpm .sp-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.sosprescription-bdpm .sp-input {
+  padding: 8px 10px;
+  border: 1px solid #c3c4c7;
+  border-radius: 10px;
+  min-width: 260px;
+}
+
+.sosprescription-bdpm .sp-select {
+  padding: 8px 10px;
+  border: 1px solid #c3c4c7;
+  border-radius: 10px;
+}
+
+.sosprescription-bdpm .sp-btn {
+  border: 1px solid #2271b1;
+  background: #2271b1;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.sosprescription-bdpm .sp-btn[disabled] {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.sosprescription-bdpm .sp-btn-secondary {
+  border: 1px solid #c3c4c7;
+  background: #f6f7f7;
+  color: #111;
+}
+
+.sosprescription-bdpm .sp-table-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.sosprescription-bdpm table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.sosprescription-bdpm th,
+.sosprescription-bdpm td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  vertical-align: top;
+}
+
+.sosprescription-bdpm th {
+  text-align: left;
+  background: #fafafa;
+  font-size: 13px;
+}
+
+.sosprescription-bdpm td {
+  font-size: 13px;
+}
+
+.sosprescription-bdpm .sp-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #f0f6fc;
+  border: 1px solid #d0e3ff;
+  color: #0a3d66;
+}
+
+.sosprescription-bdpm .sp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.sosprescription-bdpm .sp-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sosprescription-bdpm .sp-error {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d63638;
+  background: #fcf0f1;
+  border-radius: 10px;
+  color: #8a1f21;
+}
+
+.sosprescription-bdpm .sp-empty {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #dcdcde;
+  background: #f6f7f7;
+  border-radius: 10px;
+  color: #444;
+}

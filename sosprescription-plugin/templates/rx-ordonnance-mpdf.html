@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Ordonnance</title>
+
+  <!--
+    SOS Prescription — Template Ordonnance (mPDF — CSS limité)
+    SOURCE PROPRE (baseline) : header badge+barcode + compteur MED_COUNT stabilisés (mPDF-friendly).
+
+    ✅ Objectif : itérer sur le rendu (HTML/CSS) sans toucher au PHP.
+    Le plugin charge ce fichier et remplace les tokens {{...}}.
+
+    ⚠️ Contraintes mPDF :
+      - Préférer <table> pour les layouts multi-colonnes / alignements.
+      - CSS simple : couleurs, bordures, radius, padding, font-size, text-align.
+      - Éviter : flexbox, grid, variables CSS, JS.
+      - Utiliser des tailles physiques (mm/pt) pour les éléments “pixel-stables”.
+      - Éviter margin dans les <td> : préférer padding (mm).
+
+    TOKENS TEXTE (échappés HTML) :
+      {{UID}} {{DOSSIER_UID}} {{DATE_FR}}
+      {{DOCTOR_PREFIX}} {{DOCTOR_NAME}} {{DOCTOR_DISPLAY}}
+      {{SPECIALTY}} {{RPPS}} {{ADDRESS}} {{PHONE}} {{DIPLOMA_LINE}}
+      {{PATIENT_NAME}} {{PATIENT_BIRTH_LABEL}} {{PATIENT_WH_LABEL}}
+      {{VERIFY_URL}} {{RX_PUBLIC_ID}} {{HASH_SHORT}} {{DELIVERY_CODE}} {{MED_COUNT}} {{ISSUE_LINE}}
+
+    TOKENS HTML (injectés tels quels) :
+      {{MEDICATIONS_HTML}} {{QR_IMG_HTML}} {{BARCODE_HTML}} {{SIGNATURE_IMG_HTML}}
+
+    OVERRIDE SANS TOUCHER AU PLUGIN :
+      Déposez un fichier : /wp-content/uploads/sosprescription-templates/rx-ordonnance-mpdf.html
+      (il sera prioritaire sur ce template par défaut)
+  -->
+
+  <style>
+    /* ===== Base ===== */
+    body { font-family: DejaVu Sans, Helvetica, Arial, sans-serif; color: #111827; font-size: 11pt; }
+    table { border-collapse: collapse; width: 100%; }
+    a { color: inherit; text-decoration: none; }
+
+    .muted  { color: #6b7280; }
+    .muted2 { color: #9ca3af; }
+    .small  { font-size: 9pt; }
+    .xsmall { font-size: 8pt; }
+    .right  { text-align: right; }
+
+    /* ===== Barcode (alignement géométrique / quiet-zone intacte) =====
+       IMPORTANT : on neutralise margin/padding sur le tag <barcode> mPDF.
+       Cela évite les micro-décalages de box sans jamais rogner la quiet-zone. */
+    barcode { margin: 0; padding: 0; vertical-align: top; }
+    /* DEBUG : pour visualiser la bounding-box réelle (quiet-zone incluse), décommentez :
+    barcode { border: 0.25mm solid #ef4444; }
+    */
+
+    /* ===== Header ===== */
+    .header-grid td { vertical-align: top; }
+    .specialty {
+      color: #1e40af;
+      font-weight: 800;
+      font-size: 10pt;
+      letter-spacing: 0.10mm;
+      margin: 0;
+    }
+    .doc-name { font-size: 19pt; font-weight: 900; line-height: 1.05; margin: 0.6mm 0 1.2mm 0; }
+    .doctor-lines { font-size: 9pt; line-height: 1.40; }
+    .header-divider { border-bottom: 0.25mm dashed #e5e7eb; margin: 3.5mm 0 0 0; }
+
+    /* Header droite : colonne fixe (évite “grand vide”) */
+    .header-right { width: 60mm; text-align: right; padding: 0; vertical-align: top; }
+
+    /* Stack badge + barcode (table imbriquée) */
+    .h-stack { display: inline-table; width: auto; border-collapse: collapse; }
+    /* v1.7.4: mPDF applique un padding par défaut sur les <td>.
+       On force des paddings explicites (gauche/droite à 0) pour alignement "pixel perfect". */
+    .h-badge-cell { padding: 2.0mm 4.0mm 4.0mm 0; line-height: 1; text-align: right; }
+    .h-barcode-cell { line-height: 1; text-align: right; padding: 0; }
+
+    .badge {
+      background: #eff6ff;
+      color: #1e40af;
+      border-radius: 99mm;
+      padding: 2.4mm 4.2mm;
+      font-weight: 900;
+      font-size: 9pt;
+      display: inline-block;
+    }
+
+    /* ===== Patient card ===== */
+    .patient-card {
+      border: 0.25mm solid #e5e7eb;
+      border-radius: 3.0mm;
+      padding: 5.0mm 6.0mm;
+      margin-top: 6.0mm;
+      page-break-inside: avoid;
+    }
+    .patient-grid td { vertical-align: top; }
+    .pc1 { width: 40%; }
+    .pc2 { width: 30%; }
+    .pc3 { width: 30%; text-align: right; }
+
+    .pc-label {
+      font-size: 8pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      color: #94a3b8;
+      letter-spacing: 0.15mm;
+    }
+    .pc-value { font-size: 12pt; font-weight: 800; margin-top: 1.0mm; }
+
+    /* ===== Center title ===== */
+    .doc-title-wrap { text-align: center; margin: 10.0mm 0 7.0mm 0; }
+    .doc-title {
+      background: #eff6ff;
+      color: #2563eb;
+      border-radius: 99mm;
+      padding: 2.7mm 9.0mm;
+      font-weight: 900;
+      letter-spacing: 0.65mm;
+      font-size: 10pt;
+      text-transform: uppercase;
+      display: inline-block;
+      line-height: 1;
+    }
+
+    /* ===== Medications list (table-based; HTML injecté par le PHP) ===== */
+    .med-row { margin-bottom: 7.0mm; page-break-inside: avoid; }
+    .med-dot-cell { width: 6.0mm; vertical-align: top; padding-top: 2.2mm; }
+    .med-dot { width: 3.0mm; height: 3.0mm; background: #2563eb; border-radius: 99mm; }
+    .med-name { font-size: 12pt; font-weight: 900; }
+    .med-name-wrap { word-wrap: break-word; }
+    .med-tag {
+      font-size: 8pt;
+      font-weight: 800;
+      background: #f3f4f6;
+      color: #6b7280;
+      padding: 1.1mm 2.2mm;
+      border-radius: 2.0mm;
+      margin-left: 2.0mm;
+    }
+    .med-posology { font-size: 10pt; color: #4b5563; line-height: 1.50; margin-top: 1.2mm; }
+
+    /* ===== Stripe + compteur meds ===== */
+    .strip-table { width: 100%; margin: 8.0mm 0 4.0mm 0; }
+    /* IMPORTANT : hauteur >= hauteur du carré (18mm) pour éviter l'écrasement mPDF */
+    .void-zone-cell {
+      height: 18.0mm;
+      background-color: #f3f4f6;
+      /* Motif hachuré léger (Base64) : stable sous mPDF (pas de linear-gradient). */
+      background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAAQklEQVR42mN8+vw1Hy83AxL49PkrkSKMn798I08nAwMDE9k6UTSTqhOhmQydUM3k6fz0+SsT2TpHQ3s0tEdDG7sIACAz1APLP1dXAAAAAElFTkSuQmCC');
+      background-repeat: repeat;
+      border-bottom: 0.25mm solid #e5e7eb;
+    }
+    /* v1.7.4: neutralise le padding par défaut mPDF sur la cellule du compteur (colonne de droite) */
+    .count-cell { width: 26.0mm; background: #f3f4f6; border-bottom: 0.25mm solid #e5e7eb; vertical-align: middle; text-align: right; padding: 0; }
+
+    /* Double carré stable (table-in-table, dimensions explicites en mm) */
+    .count-box-outer { width: 18.0mm; height: 18.0mm; border: 1pt solid #111827; background: #ffffff; table-layout: fixed; display: inline-table; margin: 0; }
+    .count-box-pad   { width: 18.0mm; height: 18.0mm; padding: 1.5mm; vertical-align: middle; }
+    .count-box-inner { width: 15.0mm; height: 15.0mm; border: 1pt solid #111827; table-layout: fixed; }
+    /* "Double carré" : blindage anti-déformation (mPDF peut étirer via métriques de police/line-height). */
+    .count-num       { width: 15.0mm; height: 15.0mm; text-align: center; vertical-align: middle; font-weight: 900; font-size: 13pt; line-height: 1; font-family: sans-serif; }
+
+    /* ===== Footer ===== */
+    .footer { border-top: 0.50mm solid #e5e7eb; padding-top: 6.0mm; }
+    .footer-grid td { vertical-align: middle; }
+    .security-title { font-weight: 900; font-size: 10pt; }
+    .qr-img { width: 18.0mm; height: 18.0mm; }
+
+    .issue-line { font-size: 7pt; color: #6b7280; margin-bottom: 1.0mm; }
+
+    .f1 { width: 15%; }
+    .f2 { width: 45%; }
+    /* v1.7.4: neutralise le padding par défaut mPDF pour coller date/signature à droite */
+    .f3 { width: 40%; text-align: right; padding: 0; }
+
+    .delivery-label {
+      font-size: 8pt;
+      color: #9ca3af;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.15mm;
+    }
+    .delivery-code {
+      font-size: 14pt;
+      font-weight: 900;
+      color: #111827;
+      background: #f3f4f6;
+      padding: 1.4mm 2.6mm;
+      border-radius: 2.0mm;
+    }
+
+    /* Signature : hauteur explicite (max-height peu fiable) */
+    .sig-img { height: 18.0mm; display: inline-block; vertical-align: top; }
+    .sig-fallback { font-size: 8.5pt; color: #9ca3af; font-style: italic; line-height: 1.25; }
+
+    .watermark { margin-top: 6.0mm; text-align: center; font-size: 8pt; color: #d1d5db; }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <table class="header-grid" cellpadding="0" cellspacing="0">
+    <tr>
+      <td>
+        <div class="specialty">{{SPECIALTY}}</div>
+        <div class="doctor-lines muted" style="margin-top: 0.8mm;">{{DIPLOMA_LINE}}</div>
+        <div class="doc-name">{{DOCTOR_DISPLAY}}</div>
+        <div class="doctor-lines muted">
+          RPPS : {{RPPS}}<br>
+          {{ADDRESS}}<br>
+          {{PHONE}}
+        </div>
+      </td>
+
+      <!-- Colonne droite : largeur fixe en mm pour éviter le “grand vide” -->
+      <td class="header-right">
+        <!-- Table imbriquée inline-table pour un stack stable badge + barcode -->
+        <table class="h-stack" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="h-badge-cell">
+              <span class="badge">Dossier {{UID}}</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="h-barcode-cell">
+              <!-- BARCODE_HTML doit rester géométriquement aligné à droite (quiet-zone incluse) -->
+              {{BARCODE_HTML}}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <div class="header-divider"></div>
+
+  <!-- PATIENT CARD -->
+  <div class="patient-card">
+    <table class="patient-grid" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="pc1">
+          <div class="pc-label">Patient</div>
+          <div class="pc-value">{{PATIENT_NAME}}</div>
+        </td>
+        <td class="pc2">
+          <div class="pc-label">Date de naissance</div>
+          <div class="pc-value">{{PATIENT_BIRTH_LABEL}}</div>
+        </td>
+        <td class="pc3">
+          <div class="pc-label">Poids / Taille</div>
+          <div class="pc-value">{{PATIENT_WH_LABEL}}</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- TITLE -->
+  <div class="doc-title-wrap"><span class="doc-title">Ordonnance</span></div>
+
+  <!-- MEDICATIONS (HTML injected) -->
+  <div class="prescription">
+    {{MEDICATIONS_HTML}}
+  </div>
+
+  <!-- STRIPE + MED COUNT -->
+  <table class="strip-table" cellpadding="0" cellspacing="0" width="100%" style="width:100%; table-layout:fixed; border-collapse:collapse;">
+    <tr>
+      <td class="void-zone-cell" style="padding:0;"><span style="font-size:1pt; line-height:1; color:transparent;">&nbsp;</span></td>
+      <td class="count-cell" style="width: 26mm; text-align: right; padding: 0; vertical-align: middle;">
+        <table class="count-box-outer" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="count-box-pad">
+              <table class="count-box-inner" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td class="count-num">{{MED_COUNT}}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- FOOTER SECURITY -->
+  <div class="footer">
+    <table class="footer-grid" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="f1">{{QR_IMG_HTML}}</td>
+        <td class="f2">
+          <div class="security-title">Sécurité</div>
+          <div class="muted2 small">Authenticité vérifiable par scan du QR.</div>
+          <div class="muted2 small">Identifiant : {{RX_PUBLIC_ID}}</div>
+          <div class="muted2 small">Empreinte : {{HASH_SHORT}}</div>
+          <div style="margin-top: 3.0mm;">
+            <span class="delivery-label">Code délivrance</span>
+            <span class="delivery-code">{{DELIVERY_CODE}}</span>
+          </div>
+        </td>
+        <td class="f3">
+          <div class="issue-line">{{ISSUE_LINE}}</div>
+          {{SIGNATURE_IMG_HTML}}
+        </td>
+      </tr>
+    </table>
+
+    <div class="watermark">Généré par sosprescription.fr — Ordonnance sécurisée</div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Ordonnance</title>
+
+  <!--
+  NOTES — Variant B “Tech Badge Premium”
+  - Look “SaaS médical” : badges, fonds bleutés très légers, hiérarchie forte.
+  - Toujours mPDF-safe : tables pour header stack / footer / compteur, pas de flex/grid/absolute/fixed.
+  - Barcode : alignement géométrique à droite (quiet-zone intacte) => wrapper sans padding + CSS barcode margin/padding = 0.
+  - Multi-page meds : styles compatibles avec le HTML injecté par {{MEDICATIONS_HTML}}.
+  - Signature : hauteur fixée côté PHP + styles ici ; fallback texte discret.
+  -->
+
+  <style>
+    body { font-family: DejaVu Sans, Helvetica, Arial, sans-serif; font-size: 11pt; color: #0b1220; }
+    table { border-collapse: collapse; width: 100%; }
+    a { color: inherit; text-decoration: none; }
+
+    .muted  { color: #64748b; }
+    .muted2 { color: #94a3b8; }
+    .small  { font-size: 9pt; }
+    .xsmall { font-size: 8pt; }
+    .right  { text-align: right; }
+
+    /* Barcode strict */
+    barcode { margin: 0; padding: 0; vertical-align: top; }
+    /* DEBUG (décommenter pour visualiser la box)
+    barcode { border: 0.2mm solid #ef4444; }
+    */
+
+    /* ===== Header ===== */
+    .header-grid td { vertical-align: top; }
+    .h-left  { width: 118mm; }
+    .h-right { width: 56mm; text-align: right; }
+
+    .specialty {
+      font-size: 8.8pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.25mm;
+      color: #1d4ed8;
+      margin: 0 0 1.2mm 0;
+    }
+    .doc-name {
+      font-size: 19pt;
+      font-weight: 900;
+      line-height: 1.05;
+      margin: 0 0 1.2mm 0;
+    }
+    .doctor-lines { font-size: 9pt; line-height: 1.35; }
+    .diploma-line { margin: 0 0 0.8mm 0; }
+
+    .header-divider { border-bottom: 0.3mm dashed #dbeafe; margin: 3.8mm 0 0 0; }
+
+    /* Header right stack */
+    .stack { display: inline-table; width: auto; border-collapse: collapse; }
+    .stack td { padding: 0; margin: 0; }
+    .badge-cell { padding-bottom: 2.8mm; line-height: 1; text-align: right;  padding-right:4mm;}
+    .barcode-cell { line-height: 1; text-align: right; }
+
+    .badge {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 0.3mm solid #bfdbfe;
+      border-radius: 99mm;
+      padding: 2.3mm 4.3mm;
+      font-size: 9pt;
+      font-weight: 900;
+      letter-spacing: 0.05mm;
+    }
+
+    /* ===== Patient card ===== */
+    .patient-card {
+      border: 0.3mm solid #e2e8f0;
+      border-radius: 3.5mm;
+      padding: 5.0mm 6.0mm;
+      margin-top: 6.0mm;
+      background: #ffffff;
+      page-break-inside: avoid;
+    }
+    .patient-grid td { vertical-align: top; }
+    .pc1 { width: 58mm; }
+    .pc2 { width: 58mm; }
+    .pc3 { width: 58mm; text-align: right; }
+
+    .pc-label {
+      font-size: 8pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.20mm;
+      color: #94a3b8;
+    }
+    .pc-value { font-size: 12pt; font-weight: 900; margin-top: 1.0mm; }
+
+    /* ===== Title capsule ===== */
+    .doc-title-wrap { text-align: center; margin: 10.0mm 0 7.0mm 0; }
+    .doc-title {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 99mm;
+      padding: 2.8mm 9.5mm;
+      font-weight: 900;
+      letter-spacing: 0.80mm;
+      font-size: 10pt;
+      text-transform: uppercase;
+      line-height: 1;
+      border: 0.3mm solid #bfdbfe;
+    }
+
+    /* ===== Medications (injecté) ===== */
+    .med-row { margin-bottom: 6.5mm; page-break-inside: avoid; }
+    .med-table { width: 100%; }
+    .med-dot-cell { width: 6.0mm; vertical-align: top; padding-top: 2.2mm; }
+    .med-dot { width: 3.0mm; height: 3.0mm; background: #2563eb; border-radius: 99mm; }
+    .med-name { font-size: 12pt; font-weight: 900; }
+    .med-name-wrap { word-wrap: break-word; }
+    .med-tag {
+      font-size: 8pt;
+      font-weight: 900;
+      background: #eef2ff;
+      color: #1e40af;
+      padding: 1.0mm 2.1mm;
+      border-radius: 2.0mm;
+      margin-left: 2.0mm;
+      border: 0.2mm solid #c7d2fe;
+    }
+    .med-posology { font-size: 10pt; color: #475569; line-height: 1.45; margin-top: 1.2mm; }
+
+    /* ===== Stripe + MED_COUNT ===== */
+    .strip-table { width: 100%; margin: 8.0mm 0 4.0mm 0; }
+    .void-zone-cell { height: 14.0mm; background: #f1f5ff; border-bottom: 0.3mm solid #dbeafe; }
+    /* v1.7.4: neutralise le padding par défaut mPDF pour aligner le compteur à droite */
+    .count-cell { width: 22.0mm; background: #f1f5ff; border-bottom: 0.3mm solid #dbeafe; vertical-align: bottom; text-align: right; padding: 0; }
+
+    .count-box-outer { width: 18.0mm; height: 18.0mm; table-layout: fixed; border: 0.4mm solid #0b1220; background: #ffffff; display: inline-table; margin: 0; }
+    .count-box-pad   { width: 18.0mm; height: 18.0mm; padding: 1.5mm; vertical-align: middle; }
+    .count-box-inner { width: 15.0mm; height: 15.0mm; table-layout: fixed; border: 0.4mm solid #0b1220; }
+    .count-num       { width: 15.0mm; height: 15.0mm; text-align: center; vertical-align: middle; font-weight: 900; font-size: 13pt; line-height: 1; }
+
+    /* ===== Footer security (plus “badge” tech) ===== */
+    .footer { border-top: 0.6mm solid #dbeafe; padding-top: 6.0mm; }
+    .footer-grid td { vertical-align: middle; }
+
+    .f-qr    { width: 25.0mm; }
+    .f-mid   { width: 89.0mm; }
+    /* v1.7.4: neutralise le padding par défaut mPDF pour la colonne Signature */
+    .f-right { width: 60.0mm; text-align: right; padding: 0; }
+
+    .qr-img { width: 18.0mm; height: 18.0mm; }
+    .security-title { font-weight: 900; font-size: 10pt; color: #0b1220; }
+
+    .sec-box {
+      border: 0.3mm solid #dbeafe;
+      border-radius: 3.0mm;
+      background: #f8fbff;
+      padding: 3.8mm 4.2mm;
+    }
+
+    .kv-line { margin-top: 0.8mm; }
+    .kv-label { font-weight: 900; color: #94a3b8; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.20mm; }
+    .kv-value { color: #475569; font-size: 9pt; }
+
+    .delivery-wrap { margin-top: 2.6mm; }
+    .delivery-label { font-size: 8pt; color: #94a3b8; font-weight: 900; text-transform: uppercase; letter-spacing: 0.20mm; }
+    .delivery-code { font-size: 14pt; font-weight: 900; color: #1e40af; background: #eef2ff; padding: 1.2mm 2.4mm; border-radius: 2.0mm; border: 0.2mm solid #c7d2fe; }
+
+    .issue-line { font-size: 7.5pt; color: #64748b; margin-bottom: 1.0mm; }
+    .sig-img { height: 18.0mm; vertical-align: top; }
+    .sig-fallback { font-size: 8.5pt; color: #94a3b8; font-style: italic; line-height: 1.25; }
+
+    .watermark { margin-top: 6.0mm; text-align: center; font-size: 8pt; color: #cbd5e1; }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <table class="header-grid" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="h-left">
+        <div class="specialty">{{SPECIALTY}}</div>
+        <div class="doc-name">{{DOCTOR_DISPLAY}}</div>
+        <div class="doctor-lines muted">
+          <div class="diploma-line">{{DIPLOMA_LINE}}</div>
+          <div><span style="font-weight:900; color:#1d4ed8;">RPPS :</span> {{RPPS}}</div>
+          <div>{{ADDRESS}}</div>
+          <div>{{PHONE}}</div>
+        </div>
+      </td>
+
+      <td class="h-right">
+        <table class="stack" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="badge-cell">
+              <span class="badge">Dossier {{UID}}</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="barcode-cell">
+              {{BARCODE_HTML}}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+  <div class="header-divider"></div>
+
+  <!-- PATIENT CARD -->
+  <div class="patient-card">
+    <table class="patient-grid" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="pc1">
+          <div class="pc-label">Patient</div>
+          <div class="pc-value">{{PATIENT_NAME}}</div>
+        </td>
+        <td class="pc2">
+          <div class="pc-label">Date de naissance</div>
+          <div class="pc-value">{{PATIENT_BIRTH_LABEL}}</div>
+        </td>
+        <td class="pc3">
+          <div class="pc-label">Poids / Taille</div>
+          <div class="pc-value">{{PATIENT_WH_LABEL}}</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- TITLE -->
+  <div class="doc-title-wrap">
+    <span class="doc-title">ORDONNANCE</span>
+  </div>
+
+  <!-- MEDICATIONS -->
+  <div class="prescription">
+    {{MEDICATIONS_HTML}}
+  </div>
+
+  <!-- STRIPE + MED COUNT -->
+  <table class="strip-table" cellpadding="0" cellspacing="0" width="100%" style="width:100%; table-layout:fixed; border-collapse:collapse;">
+    <tr>
+      <td class="void-zone-cell" style="padding:0;"><span style="font-size:1pt; line-height:1; color:transparent;">&nbsp;</span></td>
+      <td class="count-cell" style="width: 26mm; text-align: right; padding: 0; vertical-align: middle;">
+        <table class="count-box-outer" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="count-box-pad">
+              <table class="count-box-inner" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td class="count-num">{{MED_COUNT}}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- FOOTER SECURITY -->
+  <div class="footer">
+    <table class="footer-grid" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="f-qr">{{QR_IMG_HTML}}</td>
+        <td class="f-mid">
+          <div class="sec-box">
+            <div class="security-title">Sécurité</div>
+            <div class="muted2 small">Authenticité vérifiable par scan du QR.</div>
+
+            <div class="kv-line">
+              <span class="kv-label">Identifiant</span>
+              <span class="kv-value"> : {{RX_PUBLIC_ID}}</span>
+            </div>
+            <div class="kv-line">
+              <span class="kv-label">Empreinte</span>
+              <span class="kv-value"> : {{HASH_SHORT}}</span>
+            </div>
+
+            <div class="delivery-wrap">
+              <span class="delivery-label">Code délivrance</span>
+              <span class="delivery-code">{{DELIVERY_CODE}}</span>
+            </div>
+          </div>
+        </td>
+        <td class="f-right">
+          <div class="issue-line">{{ISSUE_LINE}}</div>
+          {{SIGNATURE_IMG_HTML}}
+        </td>
+      </tr>
+    </table>
+
+    <div class="watermark">Généré par sosprescription.fr — Ordonnance sécurisée</div>
+  </div>
+
+</body>
+</html>
