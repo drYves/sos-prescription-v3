@@ -17,12 +17,22 @@ final class Assets
     /** @var bool */
     private static bool $module_filter_registered = false;
 
+    private static function plugin_root_path(): string
+    {
+        return dirname(__DIR__, 2);
+    }
+
+    private static function plugin_root_url(): string
+    {
+        return untrailingslashit(plugins_url('', self::plugin_root_path() . '/sosprescription.php')) . '/';
+    }
+
     public static function enqueue_form_app(): void
     {
         // Unified UI kit (shared across patient / doctor / backoffice).
         wp_enqueue_style(
             'sosprescription-ui-kit',
-            SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
+            self::plugin_root_url() . 'assets/ui-kit.css',
             [],
             SOSPRESCRIPTION_VERSION
         );
@@ -41,7 +51,7 @@ final class Assets
         // - Chargé uniquement sur le formulaire
         wp_enqueue_script(
             'sosprescription-tesseract',
-            SOSPRESCRIPTION_URL . 'assets/js/libs/tesseract/tesseract.min.js',
+            self::plugin_root_url() . 'assets/js/libs/tesseract/tesseract.min.js',
             [],
             SOSPRESCRIPTION_VERSION,
             true
@@ -49,7 +59,7 @@ final class Assets
 
         wp_enqueue_script(
             'sosprescription-client-ocr',
-            SOSPRESCRIPTION_URL . 'assets/js/sosprescription-client-ocr.js',
+            self::plugin_root_url() . 'assets/js/sosprescription-client-ocr.js',
             ['sosprescription-tesseract'],
             SOSPRESCRIPTION_VERSION,
             true
@@ -64,7 +74,7 @@ final class Assets
         // Exemple : dropdown de recherche médicaments rendu illisible par des styles globaux.
         wp_enqueue_style(
             'sosprescription-form-overrides',
-            SOSPRESCRIPTION_URL . 'assets/form-overrides.css',
+            self::plugin_root_url() . 'assets/form-overrides.css',
             [],
             SOSPRESCRIPTION_VERSION
         );
@@ -74,14 +84,14 @@ final class Assets
         // Bandeau 'mentions patient' (périmètre / exclusions).
         wp_enqueue_style(
             'sosprescription-notices',
-            SOSPRESCRIPTION_URL . 'assets/notices.css',
+            self::plugin_root_url() . 'assets/notices.css',
             ['sosprescription-form-overrides'],
             SOSPRESCRIPTION_VERSION
         );
 
         wp_enqueue_script(
             'sosprescription-notices',
-            SOSPRESCRIPTION_URL . 'assets/notices.js',
+            self::plugin_root_url() . 'assets/notices.js',
             [],
             SOSPRESCRIPTION_VERSION,
             true
@@ -118,7 +128,7 @@ final class Assets
         // Unified UI kit (shared across patient / doctor / backoffice).
         wp_enqueue_style(
             'sosprescription-ui-kit',
-            SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
+            self::plugin_root_url() . 'assets/ui-kit.css',
             [],
             SOSPRESCRIPTION_VERSION
         );
@@ -171,14 +181,14 @@ final class Assets
             return;
         }
 
-        $manifest = new AssetManifest(SOSPRESCRIPTION_PATH . 'build/manifest.json');
+        $manifest = new AssetManifest(self::plugin_root_path() . '/build/manifest.json');
         $item = $manifest->get($entry);
 
         if (!$item || empty($item['file'])) {
             return;
         }
 
-        $module_src = SOSPRESCRIPTION_URL . 'build/' . ltrim((string) $item['file'], '/');
+        $module_src = self::plugin_root_url() . 'build/' . ltrim((string) $item['file'], '/');
 
         // En prod mutualisé, certains optimiseurs (minify/defer) peuvent casser les scripts type="module".
         // On charge donc l'entry Vite via un loader classique qui fait un import() dynamique.
@@ -200,7 +210,7 @@ final class Assets
         if ($loader_file !== '' && $boot_var !== '' && $root_id !== '') {
             wp_enqueue_script(
                 $loader_handle,
-                SOSPRESCRIPTION_URL . $loader_file,
+                self::plugin_root_url() . $loader_file,
                 $deps,
                 SOSPRESCRIPTION_VERSION,
                 true
@@ -215,7 +225,7 @@ final class Assets
                     continue;
                 }
                 $css_handle = 'sosprescription-vite-css-' . substr(md5($css_file), 0, 12);
-                $css_src = SOSPRESCRIPTION_URL . 'build/' . ltrim($css_file, '/');
+                $css_src = self::plugin_root_url() . 'build/' . ltrim($css_file, '/');
                 wp_enqueue_style($css_handle, $css_src, [], SOSPRESCRIPTION_VERSION);
             }
 
@@ -240,7 +250,7 @@ final class Assets
                 continue;
             }
             $css_handle = 'sosprescription-vite-css-' . substr(md5($css_file), 0, 12);
-            $css_src = SOSPRESCRIPTION_URL . 'build/' . ltrim($css_file, '/');
+            $css_src = self::plugin_root_url() . 'build/' . ltrim($css_file, '/');
             wp_enqueue_style($css_handle, $css_src, [], SOSPRESCRIPTION_VERSION);
         }
 

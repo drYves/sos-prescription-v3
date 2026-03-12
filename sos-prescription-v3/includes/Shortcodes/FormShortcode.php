@@ -30,7 +30,7 @@ final class FormShortcode
         Assets::enqueue_frontend('form');
 
         // Debug : vérifier que WP a bien enqueue les scripts (sinon React ne montera pas).
-        $manifest_path = SOSPRESCRIPTION_PATH . 'build/manifest.json';
+        $manifest_path = dirname(__DIR__, 2) . '/build/manifest.json';
         $manifest_exists = is_file($manifest_path);
         $manifest_size = $manifest_exists ? (int) (@filesize($manifest_path) ?: 0) : 0;
 

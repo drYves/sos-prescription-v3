@@ -7,7 +7,7 @@ defined('ABSPATH') || exit;
 
 final class Installer
 {
-    const DB_VERSION = '3.1.4';
+    const DB_VERSION = '3.1.7';
 
     public static function activate()
     {
@@ -17,7 +17,7 @@ final class Installer
     public static function maybe_upgrade()
     {
         $installed = (string) \get_option('sosprescription_db_version', '');
-        if ($installed !== self::DB_VERSION) {
+        if ($installed === '' || version_compare($installed, self::DB_VERSION, '<')) {
             self::install();
         }
     }

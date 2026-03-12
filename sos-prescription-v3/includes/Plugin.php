@@ -108,7 +108,7 @@ final class Plugin
     private static function maybe_upgrade(): void
     {
         $dbv = (string) get_option('sosprescription_db_version', '');
-        if ($dbv !== SOSPRESCRIPTION_VERSION) {
+        if ($dbv === '' || version_compare($dbv, Installer::DB_VERSION, '<')) {
             Installer::install();
         }
     }
