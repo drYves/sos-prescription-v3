@@ -1,7 +1,13 @@
 (function () {
-  var cfg = window.SosPrescriptionImport || {}
-  var restBase = String(cfg.restBase || '')
-  var nonce = String(cfg.nonce || '')
+  var importCfg = window.SosPrescriptionImport || window.SOSPrescriptionImport || {}
+  var appCfg = window.SosPrescription || window.SOSPrescription || {}
+
+  var restBase = String(importCfg.restBase || appCfg.restBase || '')
+  var nonce = String(importCfg.nonce || appCfg.nonce || '')
+  var maxUploadBytes = Number(importCfg.maxUploadBytes || (5 * 1024 * 1024 * 1024))
+  var maxUploadLabel = String(importCfg.maxUploadLabel || humanBytes(maxUploadBytes))
+  var serverMaxUploadBytes = Number(importCfg.serverMaxUploadBytes || 0)
+  var serverMaxUploadLabel = String(importCfg.serverMaxUploadLabel || (serverMaxUploadBytes > 0 ? humanBytes(serverMaxUploadBytes) : ''))
 
   var fileInput = document.getElementById('sosprescription-import-file')
   var btnUpload = document.getElementById('sosprescription-import-upload')
@@ -14,7 +20,6 @@
   var filesEl = document.getElementById('sosprescription-import-files')
   var metaEl = document.getElementById('sosprescription-import-meta')
   var historyEl = document.getElementById('sosprescription-import-history')
-
   var testInput = document.getElementById('sosprescription-import-test-q')
   var testDropdown = document.getElementById('sosprescription-import-test-dropdown')
   var testPicked = document.getElementById('sosprescription-import-test-picked')
@@ -25,8 +30,6 @@
   }
 
   var running = false
-  // Sur certains hébergements (mutualisés / WAF), une boucle trop agressive peut
-  // faire échouer les appels REST. On garde une cadence raisonnable.
   var LOOP_DELAY_MS = 650
   var searchTimer = null
   var searchReqId = 0
@@ -39,6 +42,21 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
+  }
+
+  function humanBytes(bytes) {
+    var size = Number(bytes || 0)
+    if (!isFinite(size) || size <= 0) return '0 o'
+
+    var units = ['o', 'Ko', 'Mo', 'Go', 'To']
+    var index = 0
+    while (size >= 1024 && index < units.length - 1) {
+      size = size / 1024
+      index += 1
+    }
+
+    var digits = index === 0 ? 0 : (size >= 10 ? 1 : 2)
+    return size.toFixed(digits).replace(/\.0+$/, '').replace(/(\.[1-9]*)0+$/, '$1') + ' ' + units[index]
   }
 
   function setStatus(msg) {
@@ -55,6 +73,10 @@
     init = init || {}
     var headers = init.headers || {}
     headers['X-WP-Nonce'] = nonce
+    headers['Accept'] = 'application/json'
+    if (!headers['X-Sos-Scope']) {
+      headers['X-Sos-Scope'] = 'sosprescription_admin'
+    }
     init.headers = headers
     init.credentials = 'same-origin'
 
@@ -107,12 +129,8 @@
 
   function renderDropdownItems(items) {
     if (!testDropdown) return
-
     var html = ''
-    html += '<div class="sp-dropdown-header">'
-    html += '<span>Résultats</span>'
-    html += '<span class="sp-muted">Cliquez pour afficher le détail</span>'
-    html += '</div>'
+    html += '<div class="sp-dropdown-header"><span>Résultats</span><span class="sp-muted">Cliquez pour afficher le détail</span></div>'
     html += '<div class="sp-dropdown-body">'
 
     if (!items || !items.length) {
@@ -135,17 +153,14 @@
         if (cip13) html += ' • CIP13 ' + escHtml(cip13)
         if (taux) html += ' • Remb. ' + escHtml(taux)
         if (prix !== null && isFinite(prix)) html += ' • ' + escHtml(prix.toFixed(2)) + '€'
-        html += '</div>'
-        html += '</button>'
+        html += '</div></button>'
       }
     }
 
     html += '</div>'
-
     testDropdown.innerHTML = html
     testDropdown.style.display = 'block'
 
-    // Bind clicks
     var btns = testDropdown.querySelectorAll('button.sp-dropdown-item')
     for (var j = 0; j < btns.length; j++) {
       ;(function (btn) {
@@ -153,9 +168,7 @@
           e.preventDefault()
           var idx = Number(btn.getAttribute('data-idx') || '0')
           var it = items && items[idx] ? items[idx] : null
-          if (it) {
-            renderPicked(it)
-          }
+          if (it) renderPicked(it)
           hideDropdown()
         })
       })(btns[j])
@@ -180,15 +193,13 @@
     if (cip13) html += ' • CIP13 ' + escHtml(cip13)
     if (taux) html += ' • Remb. ' + escHtml(taux)
     if (prix !== null && isFinite(prix)) html += ' • ' + escHtml(prix.toFixed(2)) + '€'
-    html += '</div>'
-    html += '<div class="sp-muted" style="margin-top:8px;">✅ Recherche BDPM opérationnelle.</div>'
+    html += '</div><div class="sp-muted" style="margin-top:8px;">✅ Recherche BDPM opérationnelle.</div>'
 
     testPicked.innerHTML = html
   }
 
   function renderHistory(history) {
     if (!historyEl) return
-
     if (!history || !history.length) {
       historyEl.innerHTML = '<div class="sp-empty">Aucun historique disponible.</div>'
       return
@@ -202,44 +213,20 @@
       var zip = h.zip_name ? String(h.zip_name) : '—'
       var sid = h.session_id ? String(h.session_id) : '—'
       var total = typeof h.total_rows === 'number' ? h.total_rows : 0
-
-      rows += '<tr>'
-      rows += '<td><code>' + escHtml(v) + '</code></td>'
-      rows += '<td>' + escHtml(at) + '</td>'
-      rows += '<td>' + escHtml(zip) + '</td>'
-      rows += '<td><code>' + escHtml(sid) + '</code></td>'
-      rows += '<td style="text-align:right;">' + escHtml(formatNumber(total)) + '</td>'
-      rows += '</tr>'
+      rows += '<tr><td><code>' + escHtml(v) + '</code></td><td>' + escHtml(at) + '</td><td>' + escHtml(zip) + '</td><td><code>' + escHtml(sid) + '</code></td><td style="text-align:right;">' + escHtml(formatNumber(total)) + '</td></tr>'
     }
 
-    var html = ''
-    html += '<div class="sp-table-wrap">'
-    html += '<table class="widefat striped">'
-    html += '<thead><tr>'
-    html += '<th>BDPM en base</th>'
-    html += '<th>Importé le</th>'
-    html += '<th>ZIP</th>'
-    html += '<th>Session</th>'
-    html += '<th style="text-align:right;">Total lignes</th>'
-    html += '</tr></thead>'
-    html += '<tbody>' + rows + '</tbody>'
-    html += '</table>'
-    html += '</div>'
-
-    historyEl.innerHTML = html
+    historyEl.innerHTML = '<div class="sp-table-wrap"><table class="widefat striped"><thead><tr><th>BDPM en base</th><th>Importé le</th><th>ZIP</th><th>Session</th><th style="text-align:right;">Total lignes</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
   }
 
   function renderMeta(meta, state) {
     if (!metaEl) return
-
     var m = meta && typeof meta === 'object' ? meta : null
-
     var version = m && m.bdpm_version ? String(m.bdpm_version) : '—'
     var importedAt = m && m.imported_at ? String(m.imported_at) : '—'
     var session = m && m.session_id ? String(m.session_id) : '—'
     var zip = m && m.zip_name ? String(m.zip_name) : '—'
     var total = m && typeof m.total_rows === 'number' ? m.total_rows : 0
-
     var activeSession = state && state.session_id ? String(state.session_id) : ''
     var activeVersion = state && state.bdpm_version ? String(state.bdpm_version) : ''
 
@@ -249,22 +236,17 @@
     html += '<div><strong>Dernière session :</strong> <code>' + escHtml(session) + '</code></div>'
     html += '<div><strong>ZIP source :</strong> ' + escHtml(zip) + '</div>'
     html += '<div><strong>Total lignes importées :</strong> ' + escHtml(formatNumber(total)) + '</div>'
-
     if (activeSession && activeSession !== session) {
       html += '<div style="margin-top:10px; padding-top:10px; border-top:1px solid #dcdcde;">'
       html += '<div><strong>Session active :</strong> <code>' + escHtml(activeSession) + '</code></div>'
-      if (activeVersion) {
-        html += '<div style="margin-top:6px;"><strong>Version (session) :</strong> <code>' + escHtml(activeVersion) + '</code></div>'
-      }
+      if (activeVersion) html += '<div style="margin-top:6px;"><strong>Version (session) :</strong> <code>' + escHtml(activeVersion) + '</code></div>'
       html += '</div>'
     }
-
     metaEl.innerHTML = html
   }
 
   function renderFiles(files) {
     if (!filesEl) return
-
     if (!files || !files.length) {
       filesEl.innerHTML = '<div class="sp-empty">Aucun fichier reconnu / aucune session active.</div>'
       return
@@ -279,51 +261,15 @@
       var offset = typeof f.offset === 'number' ? f.offset : 0
       var done = !!f.done
       var rcount = typeof f.rows === 'number' ? f.rows : 0
-
       var pct = size > 0 ? Math.round((offset / size) * 100) : 0
       if (pct < 0) pct = 0
       if (pct > 100) pct = 100
+      var badge = done ? '<span class="sp-badge sp-badge-ok">OK</span>' : pct > 0 ? '<span class="sp-badge sp-badge-warn">…</span>' : '<span class="sp-badge">…</span>'
 
-      var badge = done
-        ? '<span class="sp-badge sp-badge-ok">OK</span>'
-        : pct > 0
-          ? '<span class="sp-badge sp-badge-warn">…</span>'
-          : '<span class="sp-badge">…</span>'
-
-      rows += '<tr>'
-      rows += '<td><code>' + escHtml(name) + '</code></td>'
-      rows += '<td><code>' + escHtml(table) + '</code></td>'
-      rows += '<td style="text-align:right;">' + escHtml(formatNumber(rcount)) + '</td>'
-      rows += '<td>'
-      rows += '<div style="display:flex; align-items:center; gap:10px;">'
-      rows += '<div style="width:140px; height:10px; background:#e5e7eb; border:1px solid #dcdcde; border-radius:999px; overflow:hidden;">'
-      rows += '<div style="width:' + escHtml(pct) + '%; height:100%; background:#2271b1;"></div>'
-      rows += '</div>'
-      rows += '<span class="sp-muted">' + escHtml(pct) + '%</span>'
-      rows += '</div>'
-      rows += '</td>'
-      rows += '<td>' + badge + '</td>'
-      rows += '</tr>'
+      rows += '<tr><td><code>' + escHtml(name) + '</code></td><td><code>' + escHtml(table) + '</code></td><td style="text-align:right;">' + escHtml(formatNumber(rcount)) + '</td><td><div style="display:flex; align-items:center; gap:10px;"><div style="width:140px; height:10px; background:#e5e7eb; border:1px solid #dcdcde; border-radius:999px; overflow:hidden;"><div style="width:' + escHtml(pct) + '%; height:100%; background:#2271b1;"></div></div><span class="sp-muted">' + escHtml(pct) + '%</span></div></td><td>' + badge + '</td></tr>'
     }
 
-    var html = ''
-    html += '<div style="margin-top:12px;">'
-    html += '<div class="sp-card-subtitle">Détails fichiers</div>'
-    html += '<div class="sp-table-wrap">'
-    html += '<table class="widefat striped">'
-    html += '<thead><tr>'
-    html += '<th>Fichier</th>'
-    html += '<th>Table</th>'
-    html += '<th style="text-align:right;">Lignes importées</th>'
-    html += '<th>Progress</th>'
-    html += '<th>OK</th>'
-    html += '</tr></thead>'
-    html += '<tbody>' + rows + '</tbody>'
-    html += '</table>'
-    html += '</div>'
-    html += '</div>'
-
-    filesEl.innerHTML = html
+    filesEl.innerHTML = '<div style="margin-top:12px;"><div class="sp-card-subtitle">Détails fichiers</div><div class="sp-table-wrap"><table class="widefat striped"><thead><tr><th>Fichier</th><th>Table</th><th style="text-align:right;">Lignes importées</th><th>Progress</th><th>OK</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
   }
 
   function renderState(state) {
@@ -339,7 +285,6 @@
 
     var pct = state && typeof state.progress === 'number' ? state.progress : 0
     setProgress(pct)
-
     var cur = state && state.current_file ? String(state.current_file) : ''
     var curPct = state && typeof state.current_file_progress === 'number' ? state.current_file_progress : 0
 
@@ -357,6 +302,16 @@
     }
   }
 
+  function validateSelectedFile(file) {
+    if (!file) return 'Veuillez sélectionner un fichier ZIP.'
+    var fileName = String(file.name || '')
+    if (fileName && !/\.zip$/i.test(fileName)) return 'Veuillez sélectionner une archive ZIP BDPM.'
+    var fileSize = Number(file.size || 0)
+    if (isFinite(fileSize) && fileSize > 0 && fileSize > maxUploadBytes) return 'Archive ZIP trop volumineuse. Limite plugin : ' + maxUploadLabel + '.'
+    if (serverMaxUploadBytes > 0 && fileSize > serverMaxUploadBytes) return 'Archive ZIP supérieure à la limite actuelle du serveur (' + serverMaxUploadLabel + ').'
+    return ''
+  }
+
   function uploadZip() {
     if (!fileInput || !fileInput.files || fileInput.files.length < 1) {
       setStatus('Veuillez sélectionner un fichier ZIP.')
@@ -364,9 +319,14 @@
     }
 
     var file = fileInput.files[0]
+    var validationError = validateSelectedFile(file)
+    if (validationError) {
+      setStatus(validationError)
+      return
+    }
+
     var fd = new FormData()
     fd.append('file', file)
-
     setStatus('Upload en cours…')
     api('/import/upload', { method: 'POST', body: fd })
       .then(function (state) {
@@ -374,8 +334,6 @@
         setStatus('Upload OK. Session: ' + (state && state.session_id ? state.session_id : '—') + ' — cliquez “Démarrer / Reprendre”.')
       })
       .catch(function (e) {
-        // Fallback compat : certains hébergements bloquent les uploads via REST.
-        // Dans ce cas, on retente en soumettant le formulaire classique (admin-post.php).
         try {
           var fallback = document.getElementById('sosprescription-import-upload-form')
           if (fallback && typeof fallback.submit === 'function') {
@@ -384,7 +342,6 @@
             return
           }
         } catch (_) {}
-
         setStatus('Upload erreur: ' + (e && e.message ? e.message : '—'))
       })
   }
@@ -419,7 +376,6 @@
     running = false
     setStatus('Réinitialisation…')
     setProgress(0)
-
     api('/import/reset', { method: 'POST' })
       .then(function () {
         setStatus('Import réinitialisé. Uploadez un ZIP puis démarrez.')
@@ -432,17 +388,13 @@
 
   function refreshStatus() {
     api('/import/status', { method: 'GET' })
-      .then(function (state) {
-        renderState(state)
-      })
+      .then(function (state) { renderState(state) })
       .catch(function () {})
   }
 
   function doAutocompleteSearch() {
     if (!testInput || !testDropdown) return
-
     var q = String(testInput.value || '').trim()
-
     if (q.length < 2) {
       hideDropdown()
       return
@@ -450,7 +402,6 @@
 
     var myId = ++searchReqId
     showDropdownLoading()
-
     api('/medications/search?q=' + encodeURIComponent(q) + '&limit=20', { method: 'GET' })
       .then(function (items) {
         if (myId !== searchReqId) return
@@ -464,22 +415,15 @@
       })
   }
 
-  if (btnUpload) {
-    btnUpload.addEventListener('click', function (e) {
-      e.preventDefault()
-      uploadZip()
-    })
-  }
-  if (btnStart) {
-    btnStart.addEventListener('click', function (e) {
-      e.preventDefault()
-      stepLoop()
-    })
-  }
-  if (btnReset) {
-    btnReset.addEventListener('click', function (e) {
-      e.preventDefault()
-      resetImport()
+  if (btnUpload) btnUpload.addEventListener('click', function (e) { e.preventDefault(); uploadZip() })
+  if (btnStart) btnStart.addEventListener('click', function (e) { e.preventDefault(); stepLoop() })
+  if (btnReset) btnReset.addEventListener('click', function (e) { e.preventDefault(); resetImport() })
+
+  if (fileInput) {
+    fileInput.addEventListener('change', function () {
+      if (!fileInput.files || fileInput.files.length < 1) return
+      var message = validateSelectedFile(fileInput.files[0])
+      if (message) setStatus(message)
     })
   }
 
@@ -488,17 +432,11 @@
       if (searchTimer) window.clearTimeout(searchTimer)
       searchTimer = window.setTimeout(doAutocompleteSearch, 200)
     })
-
     testInput.addEventListener('focus', function () {
-      if (String(testInput.value || '').trim().length >= 2) {
-        doAutocompleteSearch()
-      }
+      if (String(testInput.value || '').trim().length >= 2) doAutocompleteSearch()
     })
-
     testInput.addEventListener('keydown', function (e) {
-      if (e && e.key === 'Escape') {
-        hideDropdown()
-      }
+      if (e && e.key === 'Escape') hideDropdown()
     })
   }
 
@@ -506,11 +444,7 @@
     if (!testDropdown || !testInput) return
     var t = e && e.target ? e.target : null
     if (!t) return
-
-    // click outside => close
-    if (t === testInput || testInput.contains(t) || testDropdown.contains(t)) {
-      return
-    }
+    if (t === testInput || testInput.contains(t) || testDropdown.contains(t)) return
     hideDropdown()
   })
 

@@ -1,4 +1,5 @@
 <?php
+// includes/Rest/ImportController.php
 declare(strict_types=1);
 
 namespace SOSPrescription\Rest;
@@ -10,6 +11,8 @@ use WP_REST_Request;
 
 final class ImportController
 {
+    private const MAX_ARCHIVE_BYTES = 5368709120;
+
     private MedicationImporter $importer;
 
     public function __construct()
@@ -51,6 +54,15 @@ final class ImportController
 
         if ((int) $file['error'] !== UPLOAD_ERR_OK) {
             return new WP_Error('sosprescription_upload_error', 'Erreur upload (code ' . (int) $file['error'] . ').', ['status' => 400]);
+        }
+
+        $size = self::uploaded_file_size($file);
+        if ($size > self::max_archive_bytes()) {
+            return new WP_Error(
+                'sosprescription_upload_too_large',
+                'Archive ZIP trop volumineuse. Limite plugin : ' . size_format((float) self::max_archive_bytes()) . '.',
+                ['status' => 413]
+            );
         }
 
         $tmp = (string) $file['tmp_name'];
@@ -97,5 +109,31 @@ final class ImportController
     {
         $this->importer->reset();
         return rest_ensure_response(['ok' => true]);
+    }
+
+    private static function max_archive_bytes(): int
+    {
+        return (int) apply_filters('sosprescription_import_max_archive_bytes', self::MAX_ARCHIVE_BYTES);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private static function uploaded_file_size(array $file): int
+    {
+        if (!isset($file['size'])) {
+            return 0;
+        }
+
+        $size = $file['size'];
+        if (is_int($size) || is_float($size)) {
+            return max(0, (int) $size);
+        }
+
+        if (is_string($size) && $size !== '' && preg_match('/^\d+$/', $size) === 1) {
+            return max(0, (int) $size);
+        }
+
+        return 0;
     }
 }
