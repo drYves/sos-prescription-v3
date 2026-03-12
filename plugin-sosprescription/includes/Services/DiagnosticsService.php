@@ -1,4 +1,5 @@
 <?php
+/** Lot B stateless deployment marker. */
 declare(strict_types=1);
 
 namespace SosPrescription\Services;

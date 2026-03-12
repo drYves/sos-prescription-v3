@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  // Lot B stateless deployment marker.
 
   var GLOBAL_KEY = 'sosPrescriptionDoctorConsole';
   var DEFAULTS = {

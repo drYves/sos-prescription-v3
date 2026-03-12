@@ -1,4 +1,5 @@
 <?php
+/** Lot B stateless deployment marker. */
 
 namespace SosPrescription\Admin;
 
