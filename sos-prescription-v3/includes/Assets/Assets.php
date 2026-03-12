@@ -517,6 +517,15 @@ final class Assets
             $json = '{}';
         }
 
-        wp_add_inline_script($handle, 'window.SOSPrescription = ' . $json . ';', 'before');
+        $globalVar = 'SOSPrescription';
+        $script = 'window.' . $globalVar . ' = ' . $json . ';';
+
+        // Application du pont de compatibilité pour le frontend (Sos vs SOS)
+        $legacy = self::legacy_boot_global($globalVar);
+        if ($legacy !== '' && $legacy !== $globalVar) {
+            $script .= 'window.' . $legacy . ' = window.' . $globalVar . ';';
+        }
+
+        wp_add_inline_script($handle, $script, 'before');
     }
 }
