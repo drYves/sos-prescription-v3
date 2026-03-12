@@ -17,14 +17,9 @@ final class Assets
     /** @var bool */
     private static bool $module_filter_registered = false;
 
-    private static function plugin_root_path(): string
-    {
-        return dirname(__DIR__, 2);
-    }
-
     private static function plugin_root_url(): string
     {
-        return untrailingslashit(plugins_url('', self::plugin_root_path() . '/sosprescription.php')) . '/';
+        return untrailingslashit(plugins_url('', plugin_dir_path(dirname(__DIR__)) . 'sosprescription.php')) . '/';
     }
 
     public static function enqueue_form_app(): void
@@ -181,7 +176,13 @@ final class Assets
             return;
         }
 
-        $manifest = new AssetManifest(self::plugin_root_path() . '/build/manifest.json');
+        $manifest_path = plugin_dir_path(dirname(__DIR__)) . 'build/manifest.json';
+
+        if (!is_file($manifest_path)) {
+            error_log('[SOSPrescription] Vite manifest missing at: ' . $manifest_path);
+        }
+
+        $manifest = new AssetManifest($manifest_path);
         $item = $manifest->get($entry);
 
         if (!$item || empty($item['file'])) {

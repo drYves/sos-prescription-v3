@@ -7,7 +7,7 @@ defined('ABSPATH') || exit;
 
 final class Installer
 {
-    const DB_VERSION = '3.1.7';
+    const DB_VERSION = '3.1.8';
 
     public static function activate()
     {
@@ -52,6 +52,11 @@ final class Installer
     {
         $table = self::jobs_table_name();
         $charset_collate = $wpdb->get_charset_collate();
+        $existing_table = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+
+        if ($existing_table === $table) {
+            return;
+        }
 
         $sql = "CREATE TABLE {$table} (
   job_id char(36) NOT NULL,
