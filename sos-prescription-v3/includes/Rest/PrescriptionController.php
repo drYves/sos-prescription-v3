@@ -216,8 +216,10 @@ class PrescriptionController extends \WP_REST_Controller
         return rest_ensure_response($row);
     }
 
-    public function update_item(WP_REST_Request $request)
+    public function update_item($request)
     {
+        $request = $this->ensure_rest_request($request);
+
         return new WP_Error(
             'sosprescription_update_not_supported',
             'La mise a jour directe d une ordonnance n est pas supportee par cette version.',
@@ -348,17 +350,20 @@ class PrescriptionController extends \WP_REST_Controller
 
     public function create_item($request)
     {
-        return $this->create($this->ensure_rest_request($request));
+        $request = $this->ensure_rest_request($request);
+        return $this->create($request);
     }
 
     public function get_items($request)
     {
-        return $this->list($this->ensure_rest_request($request));
+        $request = $this->ensure_rest_request($request);
+        return $this->list($request);
     }
 
     public function get_item($request)
     {
-        return $this->get_one($this->ensure_rest_request($request));
+        $request = $this->ensure_rest_request($request);
+        return $this->get_one($request);
     }
 
     public function decide($request)
