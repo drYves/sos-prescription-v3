@@ -46,13 +46,13 @@ final class Plugin
         Logger::register_fatal_handler();
 
         Notifications::register_hooks();
-        Retention::register_hooks();
-        StorageCleaner::register_hooks();
         NoIndex::register_hooks();
         NoCache::register_hooks();
         VerificationPage::register_hooks();
         ThemeTrace::register();
         PhpDebugTrace::register_hooks();
+
+        add_action('plugins_loaded', [self::class, 'register_lifecycle_services'], 20);
 
         self::register_rest_diagnostics();
 
@@ -87,6 +87,12 @@ final class Plugin
         add_action('admin_init', [NotificationsPage::class, 'register_actions']);
         add_action('admin_init', [NoticesPage::class, 'register_actions']);
         add_action('admin_init', [CompliancePage::class, 'register_actions']);
+    }
+
+    public static function register_lifecycle_services(): void
+    {
+        Retention::register_hooks();
+        StorageCleaner::register_hooks();
     }
 
     private static function maybe_upgrade(): void

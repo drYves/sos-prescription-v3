@@ -12,23 +12,24 @@ final class Retention
     public const CRON_HOOK = 'sosprescription_daily_retention';
 
     private static bool $cronRegistered = false;
+    private static bool $bootstrapped = false;
 
     public static function register_hooks(): void
     {
+        if (self::$bootstrapped) {
+            return;
+        }
+        self::$bootstrapped = true;
+
         add_action(self::CRON_HOOK, [self::class, 'run_daily']);
 
-        // Ne jamais sonder/scheduler le cron au chargement du plugin.
-        // Sur certains hébergeurs / stacks, cela peut croiser des wrappers
-        // de scheduling qui s'initialisent plus tard dans le cycle.
-        if (did_action('init') > 0) {
-            self::ensure_cron_scheduled();
-        } else {
-            add_action('init', [self::class, 'ensure_cron_scheduled'], 20);
-        }
-
-        // No-op sur si Action Scheduler n'est pas charge.
-        // Si la librairie est présente, on repasse après son init.
+        add_action('plugins_loaded', [self::class, 'ensure_cron_scheduled'], 20);
+        add_action('init', [self::class, 'ensure_cron_scheduled'], 20);
         add_action('action_scheduler_init', [self::class, 'ensure_cron_scheduled'], 20);
+
+        if (self::is_scheduling_ready()) {
+            self::ensure_cron_scheduled();
+        }
     }
 
     public static function ensure_cron_scheduled(): void
@@ -37,11 +38,36 @@ final class Retention
             return;
         }
 
+        if (!self::is_scheduling_ready()) {
+            return;
+        }
+
         if (!wp_next_scheduled(self::CRON_HOOK)) {
             wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
         }
 
         self::$cronRegistered = true;
+    }
+
+    private static function is_scheduling_ready(): bool
+    {
+        if (wp_installing()) {
+            return false;
+        }
+
+        if (did_action('plugins_loaded') < 1) {
+            return false;
+        }
+
+        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
+            return false;
+        }
+
+        if (function_exists('as_next_scheduled_action') && did_action('action_scheduler_init') < 1) {
+            return false;
+        }
+
+        return true;
     }
 
     public static function run_daily(): void
