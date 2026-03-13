@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SOSPrescription\Admin;
 
+use SOSPrescription\Installer;
 use SOSPrescription\Services\DiagnosticProvider;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\StorageCleaner;
@@ -13,6 +14,9 @@ final class SystemStatusPage
     public static function register_actions(): void
     {
         add_action('admin_post_sosprescription_export_system_report', [self::class, 'handle_export_system_report']);
+        add_action('admin_post_sosprescription_repair_db', [self::class, 'handle_repair_db']);
+        add_action('admin_post_sosprescription_test_s3_bridge', [self::class, 'handle_test_s3_bridge']);
+        add_action('admin_post_sosprescription_test_scalingo_bridge', [self::class, 'handle_test_scalingo_bridge']);
     }
 
     public static function render_page(): void
@@ -33,6 +37,7 @@ final class SystemStatusPage
         $errors = isset($report['errors']) && is_array($report['errors']) ? $report['errors'] : [];
         $configAudit = isset($report['config_audit']) && is_array($report['config_audit']) ? $report['config_audit'] : [];
         $storage = method_exists(StorageCleaner::class, 'get_storage_snapshot') ? StorageCleaner::get_storage_snapshot() : [];
+        $bridges = DiagnosticProvider::get_bridge_dashboard();
         $summary = self::compute_summary($checks);
         $exportUrl = wp_nonce_url(
             admin_url('admin-post.php?action=sosprescription_export_system_report'),
@@ -46,6 +51,9 @@ final class SystemStatusPage
             'ocr_assets' => __('Integrite des assets OCR', 'sosprescription'),
             'runtime' => __('Environnement runtime', 'sosprescription'),
             'dependencies' => __('Dependances', 'sosprescription'),
+            'sql_bridge' => __('Bridge SQL', 'sosprescription'),
+            'aws_s3_bridge' => __('Bridge AWS S3', 'sosprescription'),
+            'scalingo_bridge' => __('Bridge Scalingo', 'sosprescription'),
         ];
 
         ?>
@@ -57,6 +65,8 @@ final class SystemStatusPage
                     <p><?php echo esc_html__('Nettoyage du stockage declenche.', 'sosprescription'); ?></p>
                 </div>
             <?php endif; ?>
+
+            <?php self::render_bridge_notice(); ?>
 
             <div class="sp-card" style="max-width:1100px;">
                 <h2 style="margin-top:0;"><?php echo esc_html__('Resume', 'sosprescription'); ?></h2>
@@ -96,6 +106,8 @@ final class SystemStatusPage
                     </div>
                 <?php endif; ?>
             </div>
+
+            <?php self::render_bridge_dashboard($bridges); ?>
 
             <?php foreach ($labels as $key => $label) : ?>
                 <?php if (isset($checks[$key]) && is_array($checks[$key])) : ?>
@@ -154,6 +166,42 @@ final class SystemStatusPage
 
         echo wp_json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         exit;
+    }
+
+    public static function handle_repair_db(): void
+    {
+        self::assert_manage_options();
+        check_admin_referer('sosprescription_repair_db');
+
+        $result = Installer::force_schema_integrity();
+        self::redirect_with_bridge_notice(
+            !empty($result['ok']) ? 'success' : 'error',
+            !empty($result['ok']) ? 'Reparation BDD terminee.' : 'Reparation BDD incomplete. Verifiez les details du bridge SQL.'
+        );
+    }
+
+    public static function handle_test_s3_bridge(): void
+    {
+        self::assert_manage_options();
+        check_admin_referer('sosprescription_test_s3_bridge');
+
+        $result = DiagnosticProvider::test_s3_bridge();
+        self::redirect_with_bridge_notice(
+            (($result['status'] ?? 'fail') === 'pass') ? 'success' : 'error',
+            (($result['status'] ?? 'fail') === 'pass') ? 'Test AWS S3 reussi.' : 'Test AWS S3 en echec.'
+        );
+    }
+
+    public static function handle_test_scalingo_bridge(): void
+    {
+        self::assert_manage_options();
+        check_admin_referer('sosprescription_test_scalingo_bridge');
+
+        $result = DiagnosticProvider::test_scalingo_bridge();
+        self::redirect_with_bridge_notice(
+            (($result['status'] ?? 'fail') === 'pass') ? 'success' : 'error',
+            (($result['status'] ?? 'fail') === 'pass') ? 'Test moteur PDF reussi.' : 'Test moteur PDF en echec.'
+        );
     }
 
     /**
@@ -232,6 +280,75 @@ final class SystemStatusPage
                 <?php wp_nonce_field('sosprescription_storage_cleanup_now'); ?>
                 <button class="button button-secondary" type="submit"><?php echo esc_html__('Forcer le nettoyage maintenant', 'sosprescription'); ?></button>
             </form>
+        </div>
+        <?php
+    }
+
+    /**
+     * @param array<string, mixed> $bridges
+     */
+    private static function render_bridge_dashboard(array $bridges): void
+    {
+        $sql = isset($bridges['sql']) && is_array($bridges['sql']) ? $bridges['sql'] : [];
+        $s3 = isset($bridges['aws_s3']) && is_array($bridges['aws_s3']) ? $bridges['aws_s3'] : [];
+        $scalingo = isset($bridges['scalingo']) && is_array($bridges['scalingo']) ? $bridges['scalingo'] : [];
+        ?>
+        <div class="sp-card" style="max-width:1100px;margin-top:16px;">
+            <h2 style="margin-top:0;"><?php echo esc_html__('Diagnostic Dashboard', 'sosprescription'); ?></h2>
+            <p class="sp-muted"><?php echo esc_html__('Certification des ponts BDD, AWS S3 et moteur PDF.', 'sosprescription'); ?></p>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin:14px 0 18px;">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="sosprescription_repair_db">
+                    <?php wp_nonce_field('sosprescription_repair_db'); ?>
+                    <button class="button button-secondary" type="submit"><?php echo esc_html__('Reparer BDD', 'sosprescription'); ?></button>
+                </form>
+
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="sosprescription_test_s3_bridge">
+                    <?php wp_nonce_field('sosprescription_test_s3_bridge'); ?>
+                    <button class="button button-secondary" type="submit"><?php echo esc_html__('Tester AWS S3', 'sosprescription'); ?></button>
+                </form>
+
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="sosprescription_test_scalingo_bridge">
+                    <?php wp_nonce_field('sosprescription_test_scalingo_bridge'); ?>
+                    <button class="button button-secondary" type="submit"><?php echo esc_html__('Tester Moteur PDF', 'sosprescription'); ?></button>
+                </form>
+            </div>
+
+            <?php self::render_bridge_result('SQL', $sql); ?>
+            <?php self::render_bridge_result('AWS S3', $s3); ?>
+            <?php self::render_bridge_result('Scalingo / Worker', $scalingo); ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private static function render_bridge_result(string $title, array $result): void
+    {
+        $status = isset($result['status']) ? (string) $result['status'] : 'warn';
+        $details = self::extract_details($result);
+        ?>
+        <div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-top:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <strong><?php echo esc_html($title); ?></strong>
+                <?php echo wp_kses_post(self::status_badge($status)); ?>
+            </div>
+            <?php if (!empty($details)) : ?>
+                <table class="widefat striped" style="margin-top:10px;">
+                    <tbody>
+                    <?php foreach ($details as $key => $value) : ?>
+                        <tr>
+                            <th style="width:240px;"><?php echo esc_html((string) $key); ?></th>
+                            <td><?php echo wp_kses_post(self::format_value($value)); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -392,5 +509,38 @@ final class SystemStatusPage
     {
         $labelMap = ['pass' => 'PASS', 'warn' => 'WARN', 'fail' => 'FAIL'];
         return self::status_badge($type) . ' <span class="sp-muted">' . esc_html($labelMap[$type] . ': ' . $count) . '</span>';
+    }
+
+    private static function render_bridge_notice(): void
+    {
+        $message = isset($_GET['sp_bridge_notice']) ? rawurldecode(sanitize_text_field((string) wp_unslash($_GET['sp_bridge_notice']))) : '';
+        $type = isset($_GET['sp_bridge_notice_type']) ? sanitize_key((string) wp_unslash($_GET['sp_bridge_notice_type'])) : '';
+
+        if ($message === '') {
+            return;
+        }
+
+        $class = $type === 'success' ? 'notice notice-success is-dismissible' : 'notice notice-error';
+        echo '<div class="' . esc_attr($class) . '"><p>' . esc_html($message) . '</p></div>';
+    }
+
+    private static function assert_manage_options(): void
+    {
+        if (!current_user_can('manage_options')) {
+            status_header(403);
+            wp_die(esc_html__('Acces refuse.', 'sosprescription'));
+        }
+    }
+
+    private static function redirect_with_bridge_notice(string $type, string $message): void
+    {
+        $url = add_query_arg([
+            'page' => 'sosprescription-system-status',
+            'sp_bridge_notice' => rawurlencode($message),
+            'sp_bridge_notice_type' => sanitize_key($type),
+        ], admin_url('admin.php'));
+
+        wp_safe_redirect($url);
+        exit;
     }
 }

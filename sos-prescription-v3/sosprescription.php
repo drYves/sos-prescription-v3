@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SOS Prescription V3 (Official)
  * Description: Délivrance et validation d'ordonnances (SOS Prescription V1).
- * Version: 3.2.5
+ * Version: 3.2.6
  * Author: SOS Prescription
  * Requires at least: 6.0
  * Requires PHP: 8.2
@@ -15,7 +15,7 @@ defined('ABSPATH') || exit;
 
 // NOTE: keep this value in sync with the plugin header Version above.
 // It is used for cache-busting (assets), logs, and DB migrations.
-define('SOSPRESCRIPTION_VERSION', '3.2.5');
+define('SOSPRESCRIPTION_VERSION', '3.2.6');
 define('SOSPRESCRIPTION_PATH', plugin_dir_path(__FILE__));
 define('SOSPRESCRIPTION_URL', plugin_dir_url(__FILE__));
 
