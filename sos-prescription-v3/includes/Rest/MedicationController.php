@@ -89,60 +89,74 @@ final class MedicationController
             $items = $this->repo->search($q, $limit);
             $rawCount = is_array($items) ? count($items) : 0;
 
-            if ($scope === 'sosprescription_form' || $scope === 'form') {
-                $flowKey = strtolower(trim((string) ($request->get_param('flow') ?? '')));
+            if ($this->is_form_scope($scope)) {
+                $flowKey = $this->resolve_flow_key($request);
 
                 $wl = Whitelist::get();
                 $mode = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
                 $enforce = ($mode === 'enforce');
 
                 $cisList = [];
-                foreach ($items as $it) {
-                    if (!is_array($it)) {
+                foreach ($items as $item) {
+                    if (!is_array($item)) {
                         continue;
                     }
 
-                    $cis = isset($it['cis']) ? (int) $it['cis'] : 0;
+                    $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
                     if ($cis > 0) {
                         $cisList[] = $cis;
                     }
                 }
                 $cisList = array_values(array_unique($cisList));
 
-                $atcMap = ($mode !== 'off' && count($cisList) > 0)
-                    ? Whitelist::map_atc_codes_for_cis($cisList)
-                    : [];
+                $mitmReady = Whitelist::is_mitm_ready();
+                if (!$mitmReady) {
+                    error_log('[SOSPrescription] Warning: ATC table empty');
+                }
+
+                $atcMap = [];
+                if ($mode !== 'off' && $cisList !== [] && $mitmReady) {
+                    $atcMap = Whitelist::map_atc_codes_for_cis($cisList);
+                }
 
                 $selectable = 0;
-                foreach ($items as &$it) {
-                    if (!is_array($it)) {
+                foreach ($items as &$item) {
+                    if (!is_array($item)) {
                         continue;
                     }
 
-                    $cis = isset($it['cis']) ? (int) $it['cis'] : 0;
-                    $allowed = true;
+                    $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
+                    $atcCodes = $cis > 0 ? ($atcMap[$cis] ?? null) : null;
+
+                    $evaluation = [
+                        'allowed' => true,
+                        'reason_code' => 'mode_off',
+                        'reason' => 'Whitelist desactivee.',
+                        'atc_codes' => is_array($atcCodes) ? $atcCodes : [],
+                    ];
 
                     if ($mode !== 'off') {
-                        $evaluation = Whitelist::evaluate_for_flow(
-                            $cis,
-                            $cis > 0 ? ($atcMap[$cis] ?? null) : null,
-                            $flowKey
-                        );
-                        $allowed = (bool) ($evaluation['allowed'] ?? false);
+                        $evaluation = Whitelist::evaluate_for_flow($cis, $atcCodes, $flowKey);
                     }
 
-                    $it['is_selectable'] = $enforce ? $allowed : true;
-                    if (!empty($it['is_selectable'])) {
+                    $isSelectable = $enforce ? (bool) ($evaluation['allowed'] ?? false) : true;
+                    $item['is_selectable'] = $isSelectable;
+                    $item['whitelist_flow'] = $flowKey;
+                    $item['whitelist_reason'] = isset($evaluation['reason_code']) ? (string) $evaluation['reason_code'] : '';
+
+                    if ($isSelectable) {
                         $selectable++;
                     }
                 }
-                unset($it);
+                unset($item);
 
-                if ($rawCount > 0 && $selectable === 0 && $enforce && $scope !== '') {
+                if ($rawCount > 0 && $selectable === 0 && $scope !== '') {
                     Logger::log_shortcode($scope, 'warning', 'api_medication_search_all_out_of_scope', [
                         'q' => self::str_sub($q, 0, 80),
                         'raw_count' => $rawCount,
                         'mode' => $mode,
+                        'flow' => $flowKey,
+                        'mitm_ready' => $mitmReady ? '1' : '0',
                     ]);
                 }
             }
@@ -260,6 +274,42 @@ final class MedicationController
         }
 
         return rest_ensure_response($res);
+    }
+
+    private function is_form_scope(string $scope): bool
+    {
+        return in_array($scope, ['form', 'sosprescription_form'], true);
+    }
+
+    private function resolve_flow_key(WP_REST_Request $request): string
+    {
+        $candidates = [
+            $request->get_param('flow'),
+            $request->get_param('flow_key'),
+            $request->get_header('X-Sos-Flow'),
+            $request->get_header('X-SOS-Flow'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+
+            $candidate = strtolower(trim($candidate));
+            if ($candidate === '') {
+                continue;
+            }
+
+            if (in_array($candidate, ['ro_proof', 'ro', 'renewal', 'renewal_with_proof', 'ro-with-proof'], true)) {
+                return 'ro_proof';
+            }
+
+            if (in_array($candidate, ['depannage_no_proof', 'depannage', 'no_proof', 'without_proof', 'depannage-sans-preuve'], true)) {
+                return 'depannage_no_proof';
+            }
+        }
+
+        return 'ro_proof';
     }
 
     private static function str_len(string $value): int
