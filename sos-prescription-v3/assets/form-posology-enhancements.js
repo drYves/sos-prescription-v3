@@ -2,25 +2,33 @@
 (function () {
   'use strict';
 
+  /**
+   * Correctif de stabilisation V2/V3
+   *
+   * Le bundle React/Vite contient déjà sa propre logique de posologie.
+   * Ce fichier ne doit donc plus modifier la structure DOM du sous-arbre React
+   * (pas de MutationObserver, pas d’injection de labels, pas de dispatch
+   * synthétique massif) afin d’éviter les collisions au moment où un
+   * médicament est sélectionné et ajouté au formulaire.
+   *
+   * Rôle conservé :
+   * - renforcer quelques attributs natifs (min/max/aria/placeholder)
+   * - rester strictement passif
+   */
+
   var ROOT_ID = 'sosprescription-root-form';
   var BLOCK_SELECTOR = '.rounded-xl.border.border-gray-200.p-4';
-  var timers = new WeakMap();
-
   var MAX_DAILY_TAKES = 6;
   var MAX_WEEKLY_TAKES = 12;
   var MAX_DURATION = 3650;
-
-  var PRESET_TIMES = {
-    1: ['08:00'],
-    2: ['08:00', '20:00'],
-    3: ['08:00', '12:00', '20:00'],
-    4: ['08:00', '12:00', '16:00', '20:00'],
-    5: ['08:00', '11:00', '14:00', '17:00', '20:00'],
-    6: ['08:00', '10:30', '13:00', '15:30', '18:00', '20:30']
-  };
+  var scanScheduled = false;
 
   function qsa(root, selector) {
     return Array.prototype.slice.call(root.querySelectorAll(selector));
+  }
+
+  function text(node) {
+    return String(node && node.textContent ? node.textContent : '').replace(/\s+/g, ' ').trim();
   }
 
   function clampInt(value, min, max, fallback) {
@@ -29,14 +37,18 @@
       number = fallback;
     }
 
-    number = Math.max(min, number);
-    number = Math.min(max, number);
+    if (number < min) {
+      number = min;
+    }
+    if (number > max) {
+      number = max;
+    }
 
     return number;
   }
 
-  function text(node) {
-    return String(node && node.textContent ? node.textContent : '').replace(/\s+/g, ' ').trim();
+  function getRoot() {
+    return document.getElementById(ROOT_ID);
   }
 
   function isPosologyBlock(block) {
@@ -56,30 +68,25 @@
     return qsa(root, BLOCK_SELECTOR).filter(isPosologyBlock);
   }
 
-  function getRowBlocks(block) {
-    return qsa(block, '.grid.grid-cols-1.gap-2.md\\:grid-cols-3').filter(function (row) {
-      return !!row.querySelector('input[type="time"]') && !!row.querySelector('input[type="text"]');
-    });
-  }
-
   function getControls(block) {
     var numberInputs = qsa(block, 'input[type="number"]');
     var selects = qsa(block, 'select');
-    var rows = getRowBlocks(block);
+    var rowBlocks = qsa(block, '.grid.grid-cols-1.gap-2.md\\:grid-cols-3').filter(function (row) {
+      return !!row.querySelector('input[type="time"]') && !!row.querySelector('input[type="text"]');
+    });
 
     return {
       countInput: numberInputs[0] || null,
       durationInput: numberInputs[1] || null,
       frequencySelect: selects[0] || null,
       durationUnitSelect: selects[1] || null,
-      rows: rows,
-      timeInputs: rows.map(function (row) {
+      rows: rowBlocks,
+      timeInputs: rowBlocks.map(function (row) {
         return row.querySelector('input[type="time"]');
       }).filter(Boolean),
-      doseInputs: rows.map(function (row) {
+      doseInputs: rowBlocks.map(function (row) {
         return row.querySelector('input[type="text"]');
-      }).filter(Boolean),
-      buttons: qsa(block, 'button')
+      }).filter(Boolean)
     };
   }
 
@@ -91,263 +98,11 @@
     return frequency === 'semaine' ? MAX_WEEKLY_TAKES : MAX_DAILY_TAKES;
   }
 
-  function isAutoMode(block) {
-    return qsa(block, 'button').some(function (button) {
-      return text(button).indexOf('Réinitialiser horaires recommandés') !== -1;
-    });
-  }
-
-  function setNativeValue(element, value) {
-    var prototype = Object.getPrototypeOf(element);
-    var descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
-
-    if (descriptor && typeof descriptor.set === 'function') {
-      descriptor.set.call(element, value);
-    } else {
-      element.value = value;
-    }
-  }
-
-  function dispatchValueUpdate(element, value) {
-    if (!element) {
-      return;
+  function enhanceBlock(block) {
+    if (!block || block.getAttribute('data-sp-posology-passive') === '1') {
+      // On continue quand même pour refléter les changements de fréquence.
     }
 
-    setNativeValue(element, value);
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new Event('blur', { bubbles: true }));
-  }
-
-  function recommendedTimes(count) {
-    var safeCount = clampInt(count, 1, MAX_DAILY_TAKES, 1);
-
-    if (PRESET_TIMES[safeCount]) {
-      return PRESET_TIMES[safeCount].slice();
-    }
-
-    return PRESET_TIMES[1].slice();
-  }
-
-  function ordinalLabel(index) {
-    var rank = index + 1;
-    if (rank === 1) {
-      return '1ère prise';
-    }
-    if (rank === 2) {
-      return '2ème prise';
-    }
-    if (rank === 3) {
-      return '3ème prise';
-    }
-    if (rank === 4) {
-      return '4ème prise';
-    }
-    if (rank === 5) {
-      return '5ème prise';
-    }
-    if (rank === 6) {
-      return '6ème prise';
-    }
-    if (rank === 7) {
-      return '7ème prise';
-    }
-    if (rank === 8) {
-      return '8ème prise';
-    }
-    if (rank === 9) {
-      return '9ème prise';
-    }
-    return String(rank) + 'ème prise';
-  }
-
-  function cleanupDuplicates(container, selector, keepNode) {
-    qsa(container, selector).forEach(function (node) {
-      if (node !== keepNode) {
-        node.remove();
-      }
-    });
-  }
-
-  function ensureNode(container, selector, tagName, className, textValue, prepend) {
-    var node = container.querySelector(selector);
-    if (!node) {
-      node = document.createElement(tagName);
-      if (prepend && container.firstChild) {
-        container.insertBefore(node, container.firstChild);
-      } else {
-        container.appendChild(node);
-      }
-    }
-
-    node.className = className;
-    node.textContent = textValue;
-
-    return node;
-  }
-
-  function ensureTopHelper(block, frequency) {
-    var controls = getControls(block);
-    if (!controls.countInput) {
-      return;
-    }
-
-    var grid = controls.countInput.closest('.grid');
-    if (!grid) {
-      return;
-    }
-
-    var helper = block.querySelector('[data-sp-posology-helper="1"]');
-    if (!helper) {
-      helper = document.createElement('div');
-      helper.setAttribute('data-sp-posology-helper', '1');
-      helper.className = 'mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900';
-      grid.insertAdjacentElement('afterend', helper);
-    }
-
-    if (frequency === 'semaine') {
-      helper.textContent = 'La fréquence indique ici le nombre de prises par semaine. Les horaires détaillés ne s’appliquent qu’au mode “Par jour”.';
-    } else {
-      helper.textContent = 'La fréquence indique le nombre de prises par jour. La quantité à prendre se renseigne plus bas, prise par prise.';
-    }
-  }
-
-  function ensureTopLabels(block) {
-    var controls = getControls(block);
-    var frequency = getFrequency(controls);
-    var maxCount = getMaxCount(frequency);
-    var labelNodes = qsa(block, 'div.text-sm.font-medium.text-gray-900');
-
-    if (labelNodes[0]) {
-      labelNodes[0].textContent = 'Nombre de prises';
-    }
-    if (labelNodes[1]) {
-      labelNodes[1].textContent = 'Fréquence';
-    }
-    if (labelNodes[2]) {
-      labelNodes[2].textContent = 'Durée du traitement';
-    }
-
-    if (controls.countInput) {
-      controls.countInput.setAttribute('aria-label', 'Nombre de prises');
-      controls.countInput.setAttribute('min', '1');
-      controls.countInput.setAttribute('max', String(maxCount));
-      controls.countInput.setAttribute('step', '1');
-      controls.countInput.setAttribute('inputmode', 'numeric');
-      controls.countInput.setAttribute('title', frequency === 'semaine' ? 'Nombre de prises par semaine' : 'Nombre de prises par jour');
-    }
-
-    if (controls.frequencySelect) {
-      controls.frequencySelect.setAttribute('aria-label', 'Fréquence de prise');
-    }
-
-    if (controls.durationInput) {
-      controls.durationInput.setAttribute('aria-label', 'Durée du traitement');
-      controls.durationInput.setAttribute('min', '1');
-      controls.durationInput.setAttribute('max', String(MAX_DURATION));
-      controls.durationInput.setAttribute('step', '1');
-      controls.durationInput.setAttribute('inputmode', 'numeric');
-
-      var raw = String(controls.durationInput.value == null ? '' : controls.durationInput.value).trim();
-      if (raw !== '' && parseInt(raw, 10) <= 0) {
-        controls.durationInput.setCustomValidity('La durée doit être supérieure ou égale à 1.');
-      } else {
-        controls.durationInput.setCustomValidity('');
-      }
-    }
-
-    if (controls.durationUnitSelect) {
-      controls.durationUnitSelect.setAttribute('aria-label', 'Unité de durée');
-    }
-
-    ensureTopHelper(block, frequency);
-  }
-
-  function ensureRowLabels(block) {
-    var controls = getControls(block);
-    var frequency = getFrequency(controls);
-    var maxCount = getMaxCount(frequency);
-    var count = clampInt(controls.countInput && controls.countInput.value, 1, maxCount, 1);
-    var autoMode = isAutoMode(block) && frequency === 'jour';
-
-    controls.rows.forEach(function (row, index) {
-      var headerCell = row.children[0] || row.querySelector('div');
-      var timeInput = row.querySelector('input[type="time"]');
-      var doseInput = row.querySelector('input[type="text"]');
-
-      if (!headerCell || !timeInput || !doseInput) {
-        return;
-      }
-
-      row.setAttribute('data-sp-row-index', String(index + 1));
-
-      var titleNode = headerCell.querySelector('[data-sp-posology-row-title="1"]') || headerCell.querySelector('span.font-medium');
-      if (!titleNode) {
-        titleNode = document.createElement('span');
-        headerCell.insertBefore(titleNode, headerCell.firstChild);
-      }
-      titleNode.setAttribute('data-sp-posology-row-title', '1');
-      titleNode.className = 'font-medium';
-      titleNode.textContent = ordinalLabel(index);
-      cleanupDuplicates(headerCell, '[data-sp-posology-row-title="1"]', titleNode);
-
-      var noteText = autoMode && (index === 0 || index === count - 1) ? '(ancre)' : '';
-      var noteNode = headerCell.querySelector('[data-sp-posology-row-note="1"]');
-
-      if (noteText !== '') {
-        if (!noteNode) {
-          noteNode = document.createElement('span');
-          noteNode.setAttribute('data-sp-posology-row-note', '1');
-          headerCell.appendChild(noteNode);
-        }
-        noteNode.className = 'ml-2 text-xs text-gray-500';
-        noteNode.textContent = noteText;
-      } else if (noteNode) {
-        noteNode.remove();
-      }
-
-      var timeCell = timeInput.parentElement;
-      var doseCell = doseInput.parentElement;
-
-      if (timeCell) {
-        var timeLabel = ensureNode(
-          timeCell,
-          '[data-sp-field-label="time"]',
-          'div',
-          'mb-1 text-xs font-medium text-gray-600',
-          'Horaire',
-          true
-        );
-        timeLabel.setAttribute('data-sp-field-label', 'time');
-        cleanupDuplicates(timeCell, '[data-sp-field-label="time"]', timeLabel);
-      }
-
-      if (doseCell) {
-        var doseLabel = ensureNode(
-          doseCell,
-          '[data-sp-field-label="dose"]',
-          'div',
-          'mb-1 text-xs font-medium text-gray-600',
-          'Quantité / prise',
-          true
-        );
-        doseLabel.setAttribute('data-sp-field-label', 'dose');
-        cleanupDuplicates(doseCell, '[data-sp-field-label="dose"]', doseLabel);
-      }
-
-      doseInput.setAttribute('placeholder', 'Ex : 1 comprimé');
-      doseInput.setAttribute('aria-label', 'Quantité pour ' + ordinalLabel(index));
-      timeInput.setAttribute('aria-label', 'Horaire pour ' + ordinalLabel(index));
-
-      if (index >= count) {
-        row.style.display = 'none';
-      } else {
-        row.style.removeProperty('display');
-      }
-    });
-  }
-
-  function normalizeNumericFields(block, hard) {
     var controls = getControls(block);
     if (!controls.countInput || !controls.durationInput || !controls.frequencySelect) {
       return;
@@ -355,107 +110,89 @@
 
     var frequency = getFrequency(controls);
     var maxCount = getMaxCount(frequency);
-    var countValue = clampInt(controls.countInput.value, 1, maxCount, 1);
-    var durationValue = clampInt(controls.durationInput.value, 1, MAX_DURATION, 1);
 
+    controls.countInput.setAttribute('min', '1');
     controls.countInput.setAttribute('max', String(maxCount));
+    controls.countInput.setAttribute('step', '1');
+    controls.countInput.setAttribute('inputmode', 'numeric');
+    controls.countInput.setAttribute(
+      'title',
+      frequency === 'semaine' ? 'Nombre de prises par semaine' : 'Nombre de prises par jour'
+    );
+    controls.countInput.setAttribute(
+      'aria-label',
+      frequency === 'semaine' ? 'Nombre de prises par semaine' : 'Nombre de prises par jour'
+    );
 
-    if (hard && String(controls.countInput.value) !== String(countValue)) {
-      dispatchValueUpdate(controls.countInput, String(countValue));
-      return;
-    }
+    controls.durationInput.setAttribute('min', '1');
+    controls.durationInput.setAttribute('max', String(MAX_DURATION));
+    controls.durationInput.setAttribute('step', '1');
+    controls.durationInput.setAttribute('inputmode', 'numeric');
+    controls.durationInput.setAttribute('aria-label', 'Durée du traitement');
 
-    if (hard && String(controls.durationInput.value) !== String(durationValue)) {
-      dispatchValueUpdate(controls.durationInput, String(durationValue));
-      return;
-    }
-
-    if (String(controls.durationInput.value).trim() !== '' && parseInt(controls.durationInput.value, 10) <= 0) {
+    var rawDuration = String(controls.durationInput.value == null ? '' : controls.durationInput.value).trim();
+    if (rawDuration !== '' && parseInt(rawDuration, 10) <= 0) {
       controls.durationInput.setCustomValidity('La durée doit être supérieure ou égale à 1.');
     } else {
       controls.durationInput.setCustomValidity('');
     }
-  }
 
-  function applyRecommendedTimes(block) {
-    var controls = getControls(block);
-    if (!controls.frequencySelect || getFrequency(controls) !== 'jour') {
-      return;
+    if (controls.frequencySelect) {
+      controls.frequencySelect.setAttribute('aria-label', 'Fréquence de prise');
     }
 
-    var count = clampInt(controls.countInput && controls.countInput.value, 1, MAX_DAILY_TAKES, 1);
-    var times = recommendedTimes(count);
-    var timeInputs = controls.timeInputs.slice(0, count);
-
-    if (!timeInputs.length) {
-      return;
+    if (controls.durationUnitSelect) {
+      controls.durationUnitSelect.setAttribute('aria-label', 'Unité de durée');
     }
 
-    timeInputs.forEach(function (input, index) {
-      var value = times[index] || times[times.length - 1] || '08:00';
-      dispatchValueUpdate(input, value);
-    });
-  }
-
-  function patchBlock(block, hard) {
-    if (!block) {
-      return;
-    }
-
-    ensureTopLabels(block);
-    normalizeNumericFields(block, !!hard);
-    ensureRowLabels(block);
-  }
-
-  function schedulePatch(block, hard, delay, withRecommendedTimes) {
-    if (!block) {
-      return;
-    }
-
-    if (timers.has(block)) {
-      window.clearTimeout(timers.get(block));
-    }
-
-    var timeout = window.setTimeout(function () {
-      timers.delete(block);
-      patchBlock(block, hard);
-      if (withRecommendedTimes) {
-        applyRecommendedTimes(block);
+    controls.timeInputs.forEach(function (input, index) {
+      if (!input) {
+        return;
       }
-    }, typeof delay === 'number' ? delay : 120);
+      input.setAttribute('aria-label', 'Horaire de prise ' + String(index + 1));
+      input.setAttribute('step', '300');
+    });
 
-    timers.set(block, timeout);
+    controls.doseInputs.forEach(function (input, index) {
+      if (!input) {
+        return;
+      }
+      input.setAttribute('aria-label', 'Quantité pour la prise ' + String(index + 1));
+      if (!input.getAttribute('placeholder')) {
+        input.setAttribute('placeholder', 'Dose');
+      }
+    });
+
+    block.setAttribute('data-sp-posology-passive', '1');
   }
 
   function scan() {
-    var root = document.getElementById(ROOT_ID);
+    scanScheduled = false;
+
+    var root = getRoot();
     if (!root) {
       return;
     }
 
-    findBlocks(root).forEach(function (block) {
-      patchBlock(block, false);
-    });
+    findBlocks(root).forEach(enhanceBlock);
   }
 
-  function onDocumentClick(event) {
-    var button = event.target && event.target.closest ? event.target.closest('button') : null;
-    if (!button) {
+  function scheduleScan() {
+    if (scanScheduled) {
       return;
     }
 
-    var block = button.closest(BLOCK_SELECTOR);
-    if (!isPosologyBlock(block)) {
+    scanScheduled = true;
+
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(scan);
       return;
     }
 
-    var label = text(button);
-    if (label.indexOf('Réinitialiser horaires recommandés') !== -1 || label.indexOf('Horaires auto') !== -1) {
-      schedulePatch(block, true, 160, true);
-    }
+    window.setTimeout(scan, 16);
   }
 
-  function onDocumentInput(event) {
+  function onInput(event) {
     var target = event.target;
     if (!target || !(target instanceof HTMLElement)) {
       return;
@@ -468,6 +205,25 @@
 
     if (target.matches('input[type="number"]')) {
       var controls = getControls(block);
+      var frequency = getFrequency(controls);
+      var maxCount = getMaxCount(frequency);
+
+      if (controls.countInput === target) {
+        var safeCount = clampInt(target.value, 1, maxCount, 1);
+        target.setAttribute('max', String(maxCount));
+        if (String(target.value).trim() !== '' && parseInt(target.value, 10) > maxCount) {
+          target.setCustomValidity('Valeur trop élevée pour cette fréquence.');
+        } else {
+          target.setCustomValidity('');
+        }
+        if (!Number.isFinite(parseInt(String(target.value), 10)) && String(target.value).trim() !== '') {
+          target.setCustomValidity('Saisissez un nombre entier.');
+        }
+        // Pas d’écriture de valeur ici : React gère déjà l’état.
+        if (safeCount < 1) {
+          target.setCustomValidity('La valeur doit être supérieure ou égale à 1.');
+        }
+      }
 
       if (controls.durationInput === target) {
         var rawDuration = String(target.value == null ? '' : target.value).trim();
@@ -479,10 +235,10 @@
       }
     }
 
-    patchBlock(block, false);
+    scheduleScan();
   }
 
-  function onDocumentChange(event) {
+  function onChange(event) {
     var target = event.target;
     if (!target || !(target instanceof HTMLElement)) {
       return;
@@ -493,56 +249,61 @@
       return;
     }
 
-    normalizeNumericFields(block, true);
-    patchBlock(block, true);
+    scheduleScan();
+  }
 
-    if (target.matches('input[type="number"], select')) {
-      if (isAutoMode(block)) {
-        schedulePatch(block, true, 140, true);
-      } else {
-        schedulePatch(block, true, 80, false);
+  function onBlur(event) {
+    var target = event.target;
+    if (!target || !(target instanceof HTMLElement)) {
+      return;
+    }
+
+    var block = target.closest(BLOCK_SELECTOR);
+    if (!isPosologyBlock(block)) {
+      return;
+    }
+
+    if (target.matches('input[type="number"]')) {
+      var controls = getControls(block);
+      var frequency = getFrequency(controls);
+      var maxCount = getMaxCount(frequency);
+
+      if (controls.countInput === target) {
+        var countValue = clampInt(target.value, 1, maxCount, 1);
+        if (String(target.value).trim() === '' || parseInt(target.value, 10) !== countValue) {
+          target.value = String(countValue);
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+
+      if (controls.durationInput === target) {
+        var durationValue = clampInt(target.value, 1, MAX_DURATION, 1);
+        if (String(target.value).trim() === '' || parseInt(target.value, 10) !== durationValue) {
+          target.value = String(durationValue);
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }
     }
+
+    scheduleScan();
   }
 
-  function onDocumentBlur(event) {
-    var target = event.target;
-    if (!target || !(target instanceof HTMLElement)) {
-      return;
-    }
-
-    var block = target.closest(BLOCK_SELECTOR);
-    if (!isPosologyBlock(block)) {
-      return;
-    }
-
-    normalizeNumericFields(block, true);
-    patchBlock(block, true);
-  }
-
-  function observe() {
-    var root = document.getElementById(ROOT_ID);
+  function boot() {
+    var root = getRoot();
     if (!root) {
       return;
     }
 
-    var observer = new MutationObserver(function () {
-      scan();
-    });
-
-    observer.observe(root, {
-      childList: true,
-      subtree: true
-    });
-  }
-
-  function boot() {
     scan();
-    observe();
-    document.addEventListener('click', onDocumentClick, true);
-    document.addEventListener('input', onDocumentInput, true);
-    document.addEventListener('change', onDocumentChange, true);
-    document.addEventListener('blur', onDocumentBlur, true);
+
+    // Pas de MutationObserver : on évite de toucher au cycle React au moment
+    // exact où un médicament est sélectionné et injecté dans l’arbre.
+    document.addEventListener('focusin', scheduleScan, true);
+    document.addEventListener('input', onInput, true);
+    document.addEventListener('change', onChange, true);
+    document.addEventListener('blur', onBlur, true);
   }
 
   if (document.readyState === 'loading') {

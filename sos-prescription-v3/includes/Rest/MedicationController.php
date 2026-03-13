@@ -78,13 +78,14 @@ final class MedicationController
 
             return new WP_Error(
                 'sosprescription_bdpm_not_ready',
-                'Referentiel medicaments indisponible (BDPM non importee).',
+                'Référentiel médicaments indisponible (BDPM non importée).',
                 ['status' => 503]
             );
         }
 
         try {
             $items = $this->repo->search($q, $limit);
+            $items = $this->canonicalize_search_items($items);
             $rawCount = is_array($items) ? count($items) : 0;
 
             if ($this->is_form_scope($scope)) {
@@ -118,31 +119,25 @@ final class MedicationController
                 }
 
                 $selectable = 0;
+
                 foreach ($items as &$item) {
                     if (!is_array($item)) {
                         continue;
                     }
 
                     $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
-                    $atcCodes = $cis > 0 ? ($atcMap[$cis] ?? null) : null;
-
-                    $evaluation = [
-                        'allowed' => true,
-                        'reason_code' => 'mode_off',
-                        'reason' => 'Whitelist desactivee.',
-                        'atc_codes' => is_array($atcCodes) ? $atcCodes : [],
-                    ];
+                    $allowed = true;
 
                     if ($mode !== 'off') {
+                        $atcCodes = $cis > 0 ? ($atcMap[$cis] ?? null) : null;
                         $evaluation = Whitelist::evaluate_for_flow($cis, $atcCodes, $flowKey);
+                        $allowed = (bool) ($evaluation['allowed'] ?? false);
                     }
 
-                    $isSelectable = $enforce ? (bool) ($evaluation['allowed'] ?? false) : true;
-                    $item['is_selectable'] = $isSelectable;
-                    $item['whitelist_flow'] = $flowKey;
-                    $item['whitelist_reason'] = isset($evaluation['reason_code']) ? (string) $evaluation['reason_code'] : '';
+                    // Compatibilité V2 : une seule clé métier additionnelle côté front.
+                    $item['is_selectable'] = $enforce ? $allowed : true;
 
-                    if ($isSelectable) {
+                    if (!empty($item['is_selectable'])) {
                         $selectable++;
                     }
                 }
@@ -171,7 +166,7 @@ final class MedicationController
 
             return new WP_Error(
                 'sosprescription_medication_search_failed',
-                'Erreur interne lors de la recherche de medicaments.',
+                'Erreur interne lors de la recherche de médicaments.',
                 ['status' => 500]
             );
         }
@@ -252,7 +247,7 @@ final class MedicationController
 
             return new WP_Error(
                 'sosprescription_medication_table_failed',
-                'Erreur interne lors de la lecture du referentiel medicaments.',
+                'Erreur interne lors de la lecture du référentiel médicaments.',
                 ['status' => 500]
             );
         }
@@ -304,6 +299,75 @@ final class MedicationController
         }
 
         return 'ro_proof';
+    }
+
+    /**
+     * @param mixed $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalize_search_items($items): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $out[] = $this->canonicalize_search_item($item);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Compat V2 stricte :
+     * type, cis, cip13, cip7, label, specialite, tauxRemb, prixTTC
+     *
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private function canonicalize_search_item(array $item): array
+    {
+        $type = isset($item['type']) && $item['type'] === 'presentation' ? 'presentation' : 'specialite';
+
+        $cis = isset($item['cis']) ? trim((string) $item['cis']) : '';
+        $cip13 = isset($item['cip13']) ? trim((string) $item['cip13']) : '';
+        $cip7 = isset($item['cip7']) ? trim((string) $item['cip7']) : '';
+
+        $label = isset($item['label']) ? trim((string) $item['label']) : '';
+        $specialite = isset($item['specialite']) ? trim((string) $item['specialite']) : '';
+
+        if ($label === '' && $specialite !== '') {
+            $label = $specialite;
+        }
+        if ($specialite === '' && $label !== '') {
+            $specialite = $label;
+        }
+        if ($label === '') {
+            $label = 'Médicament';
+        }
+
+        $tauxRemb = isset($item['tauxRemb']) ? trim((string) $item['tauxRemb']) : '';
+
+        $prixTTC = null;
+        if (array_key_exists('prixTTC', $item) && $item['prixTTC'] !== null && $item['prixTTC'] !== '') {
+            $prixTTC = (float) $item['prixTTC'];
+        }
+
+        return [
+            'type' => $type,
+            'cis' => $cis,
+            'cip13' => $cip13,
+            'cip7' => $cip7,
+            'label' => $label,
+            'specialite' => $specialite,
+            'tauxRemb' => $tauxRemb,
+            'prixTTC' => $prixTTC,
+        ];
     }
 
     /**
