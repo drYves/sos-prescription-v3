@@ -19,31 +19,41 @@ use SOSPrescription\Admin\CompliancePage;
 use SOSPrescription\Admin\SetupPage;
 use SOSPrescription\Admin\VerificationTemplatePage;
 use SOSPrescription\Admin\SystemStatusPage;
+use SOSPrescription\Frontend\VerificationPage;
 use SOSPrescription\Rest\Routes;
 use SOSPrescription\Shortcodes\AdminShortcode;
 use SOSPrescription\Shortcodes\BdpmTableShortcode;
 use SOSPrescription\Shortcodes\DoctorAccountShortcode;
 use SOSPrescription\Shortcodes\FormShortcode;
 use SOSPrescription\Shortcodes\PatientShortcode;
-use SOSPrescription\Frontend\VerificationPage;
-use SOSPrescription\Services\Notifications;
+use SOSPrescription\Services\Audit;
+use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\NoCache;
 use SOSPrescription\Services\NoIndex;
+use SOSPrescription\Services\Notifications;
+use SOSPrescription\Services\PhpDebugTrace;
 use SOSPrescription\Services\Retention;
 use SOSPrescription\Services\StorageCleaner;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\PhpDebugTrace;
 use SOSPrescription\Services\ThemeTrace;
 
 final class Plugin
 {
+    private static bool $wpLoadedBootstrapDone = false;
+
     public static function init(): void
     {
         UpgradeManager::register_hooks();
         UpgradeManager::maybe_upgrade();
 
-        self::maybe_upgrade();
-        Logger::register_fatal_handler();
+        try {
+            Logger::register_fatal_handler();
+        } catch (\Throwable $e) {
+            self::failsafe_log('logger_register_fatal_handler_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
 
         Notifications::register_hooks();
         NoIndex::register_hooks();
@@ -52,7 +62,11 @@ final class Plugin
         ThemeTrace::register();
         PhpDebugTrace::register_hooks();
 
-        add_action('plugins_loaded', [self::class, 'register_lifecycle_services'], 20);
+        if (did_action('wp_loaded') > 0) {
+            self::bootstrap_after_wp_loaded();
+        } else {
+            add_action('wp_loaded', [self::class, 'bootstrap_after_wp_loaded'], 20);
+        }
 
         self::register_rest_diagnostics();
 
@@ -63,13 +77,19 @@ final class Plugin
             if (!is_admin()) {
                 return;
             }
+
             $page = isset($_GET['page']) ? sanitize_key((string) $_GET['page']) : '';
             if ($page === '' || strpos($page, 'sosprescription') !== 0) {
                 return;
             }
 
             wp_enqueue_style('dashicons');
-            wp_enqueue_style('sosprescription-ui-kit', SOSPRESCRIPTION_URL . 'assets/ui-kit.css', [], SOSPRESCRIPTION_VERSION);
+            wp_enqueue_style(
+                'sosprescription-ui-kit',
+                SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
+                [],
+                SOSPRESCRIPTION_VERSION
+            );
         });
 
         add_action('admin_menu', [ImportPage::class, 'register_menu']);
@@ -89,10 +109,58 @@ final class Plugin
         add_action('admin_init', [CompliancePage::class, 'register_actions']);
     }
 
+    public static function bootstrap_after_wp_loaded(): void
+    {
+        if (self::$wpLoadedBootstrapDone) {
+            return;
+        }
+
+        self::$wpLoadedBootstrapDone = true;
+
+        self::maybe_upgrade_safely();
+        self::register_lifecycle_services();
+    }
+
     public static function register_lifecycle_services(): void
     {
-        Retention::register_hooks();
-        StorageCleaner::register_hooks();
+        try {
+            Retention::register_hooks();
+            if (method_exists(Retention::class, 'ensure_cron_scheduled')) {
+                Retention::ensure_cron_scheduled();
+            }
+        } catch (\Throwable $e) {
+            self::failsafe_log('retention_bootstrap_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
+
+        try {
+            StorageCleaner::register_hooks();
+            if (method_exists(StorageCleaner::class, 'ensure_cron_scheduled')) {
+                StorageCleaner::ensure_cron_scheduled();
+            }
+        } catch (\Throwable $e) {
+            self::failsafe_log('storage_cleaner_bootstrap_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
+    }
+
+    private static function maybe_upgrade_safely(): void
+    {
+        try {
+            self::maybe_upgrade();
+        } catch (\Throwable $e) {
+            self::failsafe_log('schema_upgrade_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
     }
 
     private static function maybe_upgrade(): void
@@ -141,14 +209,24 @@ final class Plugin
             }
 
             if (is_wp_error($response)) {
-                Logger::log_scoped('runtime', 'api', 'warning', 'api_error', [
-                    'route' => $route,
-                    'code' => $response->get_error_code(),
-                    'message' => $response->get_error_message(),
-                    'data' => $response->get_error_data(),
-                    'user_id' => get_current_user_id(),
-                    'req_id' => Logger::get_request_id(),
-                ]);
+                try {
+                    Logger::log_scoped('runtime', 'api', 'warning', 'api_error', [
+                        'route' => $route,
+                        'code' => $response->get_error_code(),
+                        'message' => $response->get_error_message(),
+                        'data' => $response->get_error_data(),
+                        'user_id' => get_current_user_id(),
+                        'req_id' => Logger::get_request_id(),
+                    ]);
+                } catch (\Throwable $e) {
+                    self::failsafe_log('rest_diagnostics_logger_failed', [
+                        'route' => $route,
+                        'wp_error_code' => $response->get_error_code(),
+                        'message' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                    ]);
+                }
             }
 
             return $response;
@@ -162,5 +240,36 @@ final class Plugin
         AdminShortcode::register();
         DoctorAccountShortcode::register();
         BdpmTableShortcode::register();
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private static function failsafe_log(string $event, array $context = []): void
+    {
+        try {
+            Audit::write_failsafe_log($event, $context, 'plugin');
+        } catch (\Throwable $e) {
+            $uploads = function_exists('wp_upload_dir') ? wp_upload_dir() : ['basedir' => sys_get_temp_dir()];
+            $baseDir = is_array($uploads) && !empty($uploads['basedir'])
+                ? (string) $uploads['basedir']
+                : sys_get_temp_dir();
+
+            if (!is_dir($baseDir)) {
+                @wp_mkdir_p($baseDir);
+            }
+
+            $file = rtrim($baseDir, '/\\') . DIRECTORY_SEPARATOR . 'sosprescription.log';
+            $line = '[' . gmdate('c') . '] [plugin] ' . $event;
+
+            if ($context !== []) {
+                $json = wp_json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+                if (is_string($json) && $json !== '') {
+                    $line .= ' ' . $json;
+                }
+            }
+
+            @file_put_contents($file, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
     }
 }

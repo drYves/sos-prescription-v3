@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SOSPrescription\Rest;
 
 use SOSPrescription\Repositories\MedicationRepository;
+use SOSPrescription\Services\Audit;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\RestGuard;
 use SOSPrescription\Services\Whitelist;
@@ -62,21 +63,18 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'debug', 'api_medication_search', [
-                'q' => self::str_sub($q, 0, 80),
-                'q_len' => self::str_len($q),
-                'limit' => $limit,
-            ]);
-        }
+
+        $this->safe_shortcode_log($scope, 'debug', 'api_medication_search', [
+            'q' => self::str_sub($q, 0, 80),
+            'q_len' => self::str_len($q),
+            'limit' => $limit,
+        ]);
 
         $meta = get_option('sosprescription_bdpm_meta');
         if (!is_array($meta) || empty($meta['imported_at'])) {
-            if ($scope !== '') {
-                Logger::log_shortcode($scope, 'warning', 'api_medication_search_bdpm_not_ready', [
-                    'q' => self::str_sub($q, 0, 80),
-                ]);
-            }
+            $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_bdpm_not_ready', [
+                'q' => self::str_sub($q, 0, 80),
+            ]);
 
             return new WP_Error(
                 'sosprescription_bdpm_not_ready',
@@ -150,8 +148,8 @@ final class MedicationController
                 }
                 unset($item);
 
-                if ($rawCount > 0 && $selectable === 0 && $scope !== '') {
-                    Logger::log_shortcode($scope, 'warning', 'api_medication_search_all_out_of_scope', [
+                if ($rawCount > 0 && $selectable === 0) {
+                    $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_all_out_of_scope', [
                         'q' => self::str_sub($q, 0, 80),
                         'raw_count' => $rawCount,
                         'mode' => $mode,
@@ -161,7 +159,7 @@ final class MedicationController
                 }
             }
         } catch (Throwable $e) {
-            Logger::log('runtime', 'error', 'api_medication_search_failed', [
+            $this->safe_runtime_log('error', 'api_medication_search_failed', [
                 'scope' => $scope,
                 'q' => self::str_sub($q, 0, 80),
                 'limit' => $limit,
@@ -178,13 +176,11 @@ final class MedicationController
             );
         }
 
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'info', 'api_medication_search_done', [
-                'q' => self::str_sub($q, 0, 80),
-                'count' => is_array($items) ? count($items) : 0,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
+        $this->safe_shortcode_log($scope, 'info', 'api_medication_search_done', [
+            'q' => self::str_sub($q, 0, 80),
+            'count' => is_array($items) ? count($items) : 0,
+            'ms' => (int) round((microtime(true) - $t0) * 1000),
+        ]);
 
         return rest_ensure_response($items);
     }
@@ -233,18 +229,17 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
-        if ($scope !== '') {
-            Logger::log_shortcode($scope, 'debug', 'api_medication_table', [
-                'q' => self::str_sub($q, 0, 80),
-                'page' => $page,
-                'perPage' => $perPage,
-            ]);
-        }
+
+        $this->safe_shortcode_log($scope, 'debug', 'api_medication_table', [
+            'q' => self::str_sub($q, 0, 80),
+            'page' => $page,
+            'perPage' => $perPage,
+        ]);
 
         try {
             $res = $this->repo->table($q, $page, $perPage);
         } catch (Throwable $e) {
-            Logger::log('runtime', 'error', 'api_medication_table_failed', [
+            $this->safe_runtime_log('error', 'api_medication_table_failed', [
                 'scope' => $scope,
                 'q' => self::str_sub($q, 0, 80),
                 'page' => $page,
@@ -262,16 +257,15 @@ final class MedicationController
             );
         }
 
-        if ($scope !== '') {
-            $count = (is_array($res) && isset($res['items']) && is_array($res['items'])) ? count($res['items']) : 0;
-            $total = (is_array($res) && isset($res['total'])) ? (int) $res['total'] : 0;
-            Logger::log_shortcode($scope, 'info', 'api_medication_table_done', [
-                'q' => self::str_sub($q, 0, 80),
-                'count' => $count,
-                'total' => $total,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-        }
+        $count = (is_array($res) && isset($res['items']) && is_array($res['items'])) ? count($res['items']) : 0;
+        $total = (is_array($res) && isset($res['total'])) ? (int) $res['total'] : 0;
+
+        $this->safe_shortcode_log($scope, 'info', 'api_medication_table_done', [
+            'q' => self::str_sub($q, 0, 80),
+            'count' => $count,
+            'total' => $total,
+            'ms' => (int) round((microtime(true) - $t0) * 1000),
+        ]);
 
         return rest_ensure_response($res);
     }
@@ -310,6 +304,47 @@ final class MedicationController
         }
 
         return 'ro_proof';
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function safe_shortcode_log(string $scope, string $level, string $message, array $context = []): void
+    {
+        if ($scope === '') {
+            return;
+        }
+
+        try {
+            Logger::log_shortcode($scope, $level, $message, $context);
+        } catch (Throwable $e) {
+            Audit::write_failsafe_log('medication_controller_shortcode_log_failed', [
+                'scope' => $scope,
+                'level' => $level,
+                'event' => $message,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'rest');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function safe_runtime_log(string $level, string $message, array $context = []): void
+    {
+        try {
+            Logger::log('runtime', $level, $message, $context);
+        } catch (Throwable $e) {
+            Audit::write_failsafe_log('medication_controller_runtime_log_failed', [
+                'level' => $level,
+                'event' => $message,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'rest');
+        }
     }
 
     private static function str_len(string $value): int

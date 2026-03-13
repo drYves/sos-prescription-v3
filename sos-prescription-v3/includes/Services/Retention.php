@@ -19,15 +19,15 @@ final class Retention
         if (self::$bootstrapped) {
             return;
         }
+
         self::$bootstrapped = true;
 
         add_action(self::CRON_HOOK, [self::class, 'run_daily']);
 
-        add_action('plugins_loaded', [self::class, 'ensure_cron_scheduled'], 20);
-        add_action('init', [self::class, 'ensure_cron_scheduled'], 20);
+        add_action('wp_loaded', [self::class, 'ensure_cron_scheduled'], 20);
         add_action('action_scheduler_init', [self::class, 'ensure_cron_scheduled'], 20);
 
-        if (self::is_scheduling_ready()) {
+        if (did_action('wp_loaded') > 0) {
             self::ensure_cron_scheduled();
         }
     }
@@ -42,20 +42,28 @@ final class Retention
             return;
         }
 
-        if (!wp_next_scheduled(self::CRON_HOOK)) {
-            wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
-        }
+        try {
+            if (!wp_next_scheduled(self::CRON_HOOK)) {
+                wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
+            }
 
-        self::$cronRegistered = true;
+            self::$cronRegistered = true;
+        } catch (\Throwable $e) {
+            Audit::write_failsafe_log('retention_schedule_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'retention');
+        }
     }
 
     private static function is_scheduling_ready(): bool
     {
-        if (wp_installing()) {
+        if (function_exists('wp_installing') && wp_installing()) {
             return false;
         }
 
-        if (did_action('plugins_loaded') < 1) {
+        if (did_action('wp_loaded') < 1) {
             return false;
         }
 
@@ -125,7 +133,11 @@ final class Retention
                 $repo = new AuditRepository();
                 $out['audit_purged'] = (int) $repo->purge_older_than_days(max(1, $days));
             } catch (\Throwable $e) {
-                // no-op
+                Audit::write_failsafe_log('retention_audit_purge_failed', [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ], 'retention');
             }
         }
 
@@ -160,7 +172,11 @@ final class Retention
 
                 $out['orphan_files_purged'] = $total;
             } catch (\Throwable $e) {
-                // no-op
+                Audit::write_failsafe_log('retention_orphan_files_purge_failed', [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ], 'retention');
             }
         }
 
@@ -187,7 +203,11 @@ final class Retention
                 }
             }
         } catch (\Throwable $e) {
-            // Never block the request for retention issues.
+            Audit::write_failsafe_log('retention_runtime_log_purge_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'retention');
         }
 
         return $out;
