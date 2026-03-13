@@ -1,4 +1,5 @@
 <?php
+// includes/Rest/Routes.php
 declare(strict_types=1);
 
 namespace SOSPrescription\Rest;
@@ -9,7 +10,7 @@ final class Routes
     {
         $med = new MedicationController();
         $imp = new ImportController();
-        $rx  = new PrescriptionController();
+        $rx = new PrescriptionController();
         $log = new LogController();
         $pricing = new PricingController();
         $files = new FilesController();
@@ -61,7 +62,6 @@ final class Routes
             'permission_callback' => [$imp, 'permissions_check_manage_data'],
         ]);
 
-        // Tarifs
         register_rest_route('sosprescription/v1', '/pricing', [
             'methods' => 'GET',
             'callback' => [$pricing, 'get_public'],
@@ -82,25 +82,36 @@ final class Routes
         ]);
 
         register_rest_route('sosprescription/v1', '/prescriptions', [
-            'methods' => 'POST',
-            'callback' => [$rx, 'create'],
-            'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
-            'args' => EndpointArgs::create_prescription_v1(),
-        ]);
-
-        register_rest_route('sosprescription/v1', '/prescriptions', [
-            'methods' => 'GET',
-            'callback' => [$rx, 'list'],
-            'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
-            'args' => EndpointArgs::list_prescriptions_v1(),
+            [
+                'methods' => 'POST',
+                'callback' => [$rx, 'create'],
+                'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+                'args' => EndpointArgs::create_prescription_v1(),
+            ],
+            [
+                'methods' => 'GET',
+                'callback' => [$rx, 'list'],
+                'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+                'args' => EndpointArgs::list_prescriptions_v1(),
+            ],
         ]);
 
         register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)', [
-            'methods' => 'GET',
-            'callback' => [$rx, 'get_one'],
-            'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
-            'args' => [
-                'id' => EndpointArgs::id(),
+            [
+                'methods' => 'GET',
+                'callback' => [$rx, 'get_one'],
+                'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+                'args' => [
+                    'id' => EndpointArgs::id(),
+                ],
+            ],
+            [
+                'methods' => \WP_REST_Server::EDITABLE,
+                'callback' => [$rx, 'update_item'],
+                'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+                'args' => [
+                    'id' => EndpointArgs::id(),
+                ],
             ],
         ]);
 
@@ -114,53 +125,40 @@ final class Routes
             ),
         ]);
 
-        // Console médecin : assignation et mise à jour de statut (triage).
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/assign', [
-            'methods' => 'POST',
-            'callback' => [$rx, 'assign'],
-            'permission_callback' => [$rx, 'permissions_check_validate'],
-            'args' => [
-                'id' => EndpointArgs::id(),
+        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/rx-pdf', [
+            [
+                'methods' => 'GET',
+                'callback' => [$rx, 'get_rx_pdf'],
+                'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+                'args' => [
+                    'id' => EndpointArgs::id(),
+                ],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$rx, 'generate_rx_pdf'],
+                'permission_callback' => [$rx, 'permissions_check_validate'],
+                'args' => [
+                    'id' => EndpointArgs::id(),
+                ],
             ],
         ]);
 
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/status', [
-            'methods' => 'POST',
-            'callback' => [$rx, 'update_status'],
-            'permission_callback' => [$rx, 'permissions_check_validate'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::update_status_v1()
-            ),
-        ]);
-
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/print', [
+        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/pdf-status', [
             'methods' => 'GET',
-            'callback' => [$rx, 'print_view'],
+            'callback' => [$rx, 'get_pdf_status'],
             'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
             'args' => [
                 'id' => EndpointArgs::id(),
             ],
         ]);
 
-        // Génération serveur d'ordonnance PDF (attachée en tant que fichier purpose=rx_pdf)
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/rx-pdf', [
-            'methods' => 'POST',
-            'callback' => [$rx, 'generate_rx_pdf'],
-            'permission_callback' => [$rx, 'permissions_check_validate'],
-            'args' => [
-                'id' => EndpointArgs::id(),
-            ],
-        ]);
-
-        // Logs frontend (télémétrie de debug)
         register_rest_route('sosprescription/v1', '/logs/frontend', [
             'methods' => 'POST',
             'callback' => [$log, 'frontend'],
             'permission_callback' => [$log, 'permissions_check_logged_in_nonce'],
         ]);
 
-        // Fichiers (pièces justificatives)
         register_rest_route('sosprescription/v1', '/files', [
             'methods' => 'POST',
             'callback' => [$files, 'upload'],
@@ -186,29 +184,27 @@ final class Routes
             ],
         ]);
 
-
-        // Messagerie patient/médecin (asynchrone)
         register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages', [
-            'methods' => 'GET',
-            'callback' => [$messages, 'list'],
-            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::list_messages_v1()
-            ),
+            [
+                'methods' => 'GET',
+                'callback' => [$messages, 'list'],
+                'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
+                'args' => array_merge(
+                    ['id' => EndpointArgs::id()],
+                    EndpointArgs::list_messages_v1()
+                ),
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$messages, 'create'],
+                'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
+                'args' => array_merge(
+                    ['id' => EndpointArgs::id()],
+                    EndpointArgs::create_message_v1()
+                ),
+            ],
         ]);
 
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages', [
-            'methods' => 'POST',
-            'callback' => [$messages, 'create'],
-            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::create_message_v1()
-            ),
-        ]);
-
-        // Paiements (Stripe)
         register_rest_route('sosprescription/v1', '/payments/config', [
             'methods' => 'GET',
             'callback' => [$payments, 'get_config'],
@@ -233,14 +229,12 @@ final class Routes
             ],
         ]);
 
-        // Endpoint webhook Stripe (pas de nonce) : signature obligatoire.
         register_rest_route('sosprescription/v1', '/stripe/webhook', [
             'methods' => 'POST',
             'callback' => [$payments, 'stripe_webhook'],
             'permission_callback' => [$payments, 'permissions_check_public'],
         ]);
 
-        // Verification pharmacien (/v/{token}) : confirmer la délivrance (code 6 chiffres).
         register_rest_route('sosprescription/v1', '/verify/(?P<token>[a-f0-9]{16,64})/deliver', [
             'methods' => 'POST',
             'callback' => [VerificationController::class, 'deliver'],
@@ -260,6 +254,5 @@ final class Routes
                 ],
             ],
         ]);
-
     }
 }
