@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Assets;
+namespace SosPrescription\Assets;
 
 final class AssetManifest
 {

@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\ComplianceConfig;
-use SOSPrescription\Services\Retention;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\Retention;
+use SosPrescription\Services\Audit;
 
 final class CompliancePage
 {

@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Repositories;
+namespace SosPrescription\Repositories;
 
-use SOSPrescription\Db;
-use SOSPrescription\Services\FileStorage;
+use SosPrescription\Db;
+use SosPrescription\Services\FileStorage;
 use WP_Error;
 
 final class FileRepository

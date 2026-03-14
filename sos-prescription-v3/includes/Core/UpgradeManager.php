@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace SOSPrescription\Core;
+namespace SosPrescription\Core;
 
-use SOSPrescription\Frontend\VerificationPage;
+use SosPrescription\Frontend\VerificationPage;
 
 /**
  * Upgrade manager (Release Readiness).

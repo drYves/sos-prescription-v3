@@ -1,8 +1,7 @@
 <?php
-/** Lot B stateless deployment marker. */
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * Collects a minimal, support-friendly diagnostics snapshot.

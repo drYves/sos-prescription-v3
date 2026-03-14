@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Repositories\FileRepository;
-use SOSPrescription\Repositories\PrescriptionRepository;
-use SOSPrescription\Services\FileStorage;
-use SOSPrescription\Services\Ocr;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\AccessPolicy;
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\RestGuard;
+use SosPrescription\Repositories\FileRepository;
+use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Services\FileStorage;
+use SosPrescription\Services\Ocr;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\AccessPolicy;
+use SosPrescription\Services\Audit;
+use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
 

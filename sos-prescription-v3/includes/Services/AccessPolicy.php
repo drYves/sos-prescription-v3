@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * Centralise les règles d'accès aux objets sensibles (prescriptions, messages, fichiers).

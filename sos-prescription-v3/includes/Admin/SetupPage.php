@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\ComplianceConfig;
-use SOSPrescription\Services\NotificationsConfig;
-use SOSPrescription\Services\Pricing;
-use SOSPrescription\Services\StripeConfig;
-use SOSPrescription\Services\Whitelist;
+use SosPrescription\Services\Audit;
+use SosPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\NotificationsConfig;
+use SosPrescription\Services\Pricing;
+use SosPrescription\Services\StripeConfig;
+use SosPrescription\Services\Whitelist;
 
 /**
  * Backoffice : écran d'installation / vérification.

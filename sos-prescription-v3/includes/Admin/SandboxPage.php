@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Db;
-use SOSPrescription\Services\FileStorage;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\SandboxConfig;
+use SosPrescription\Db;
+use SosPrescription\Services\FileStorage;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\SandboxConfig;
 
 /**
  * Sandbox (tests) – outils de nettoyage pour repartir sur une base propre.
@@ -52,11 +52,11 @@ final class SandboxPage
 		echo '<h2 style="margin-top:0">État (demandes)</h2>';
 		echo '<table class="widefat striped" style="margin:0;">';
 		echo '<tbody>';
-		echo '<tr><td><strong>Demandes (prescriptions)</strong></td><td>' . wp_kses_post(self::render_count_cell($counts['prescriptions'])) . '</td></tr>';
-		echo '<tr><td>Items (médicaments)</td><td>' . wp_kses_post(self::render_count_cell($counts['items'])) . '</td></tr>';
-		echo '<tr><td>Messages</td><td>' . wp_kses_post(self::render_count_cell($counts['messages'])) . '</td></tr>';
-		echo '<tr><td>Fichiers</td><td>' . wp_kses_post(self::render_count_cell($counts['files'])) . '</td></tr>';
-		echo '<tr><td>Audit</td><td>' . wp_kses_post(self::render_count_cell($counts['audit'])) . '</td></tr>';
+		echo '<tr><td><strong>Demandes (prescriptions)</strong></td><td>' . esc_html((string) $counts['prescriptions']) . '</td></tr>';
+		echo '<tr><td>Items (médicaments)</td><td>' . esc_html((string) $counts['items']) . '</td></tr>';
+		echo '<tr><td>Messages</td><td>' . esc_html((string) $counts['messages']) . '</td></tr>';
+		echo '<tr><td>Fichiers</td><td>' . esc_html((string) $counts['files']) . '</td></tr>';
+		echo '<tr><td>Audit</td><td>' . esc_html((string) $counts['audit']) . '</td></tr>';
 		echo '</tbody>';
 		echo '</table>';
 		echo '<p style="margin:12px 0 0; color:#6b7280; font-size:12px;">Astuce : utilisez cette page uniquement en environnement de test.</p>';
@@ -243,7 +243,7 @@ final class SandboxPage
 		$t_items = Db::table('prescription_items');
 		$t_msgs  = Db::table('prescription_messages');
 		$t_files = Db::table('files');
-		$t_audit = self::resolve_audit_table();
+		$t_audit = Db::table('audit_log');
 
 		$deleted_disk = 0;
 		$deleted_db = [
@@ -257,7 +257,7 @@ final class SandboxPage
 		// Optionnel: suppression fichiers sur disque (avant suppression DB)
 		if ($delete_files) {
 			try {
-				$rows = self::table_exists($t_files) ? $wpdb->get_results("SELECT id, storage_key FROM {$t_files}", ARRAY_A) : [];
+				$rows = $wpdb->get_results("SELECT id, storage_key FROM {$t_files}", ARRAY_A);
 				if (is_array($rows)) {
 					foreach ($rows as $r) {
 						$sk = isset($r['storage_key']) ? (string) $r['storage_key'] : '';
@@ -276,13 +276,13 @@ final class SandboxPage
 		}
 
 		// Delete DB rows (order matters)
-		$deleted_db['items'] = self::safe_delete_all($t_items);
-		$deleted_db['messages'] = self::safe_delete_all($t_msgs);
-		$deleted_db['files'] = self::safe_delete_all($t_files);
+		$deleted_db['items'] = (int) $wpdb->query("DELETE FROM {$t_items}");
+		$deleted_db['messages'] = (int) $wpdb->query("DELETE FROM {$t_msgs}");
+		$deleted_db['files'] = (int) $wpdb->query("DELETE FROM {$t_files}");
 		if ($delete_audit) {
-			$deleted_db['audit'] = self::safe_delete_all($t_audit);
+			$deleted_db['audit'] = (int) $wpdb->query("DELETE FROM {$t_audit}");
 		}
-		$deleted_db['prescriptions'] = self::safe_delete_all($t_presc);
+		$deleted_db['prescriptions'] = (int) $wpdb->query("DELETE FROM {$t_presc}");
 
 		Logger::log_shortcode('sosprescription_admin', 'info', 'sandbox_purge_requests', [
 			'delete_files' => $delete_files,
@@ -310,97 +310,27 @@ final class SandboxPage
 
 	/**
 	 * Counts rows for quick display.
-	 * @return array<string, array{exists:bool,count:int}>
+	 * @return array<string, int>
 	 */
 	private static function get_counts(): array
 	{
+		global $wpdb;
 		$counts = [
-			'prescriptions' => ['exists' => false, 'count' => 0],
-			'items' => ['exists' => false, 'count' => 0],
-			'messages' => ['exists' => false, 'count' => 0],
-			'files' => ['exists' => false, 'count' => 0],
-			'audit' => ['exists' => false, 'count' => 0],
+			'prescriptions' => 0,
+			'items' => 0,
+			'messages' => 0,
+			'files' => 0,
+			'audit' => 0,
 		];
-
-		$counts['prescriptions'] = self::safe_count(Db::table('prescriptions'));
-		$counts['items'] = self::safe_count(Db::table('prescription_items'));
-		$counts['messages'] = self::safe_count(Db::table('prescription_messages'));
-		$counts['files'] = self::safe_count(Db::table('files'));
-		$counts['audit'] = self::safe_count(self::resolve_audit_table());
-
+		try {
+			$counts['prescriptions'] = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . Db::table('prescriptions'));
+			$counts['items'] = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . Db::table('prescription_items'));
+			$counts['messages'] = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . Db::table('prescription_messages'));
+			$counts['files'] = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . Db::table('files'));
+			$counts['audit'] = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . Db::table('audit_log'));
+		} catch (\Throwable $e) {
+			// ignore
+		}
 		return $counts;
-	}
-
-	/**
-	 * @return array{exists:bool,count:int}
-	 */
-	private static function safe_count(string $table): array
-	{
-		global $wpdb;
-
-		if ($table === '' || !self::table_exists($table)) {
-			return ['exists' => false, 'count' => 0];
-		}
-
-		try {
-			$value = $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
-			return ['exists' => true, 'count' => $value === null ? 0 : (int) $value];
-		} catch (\Throwable $e) {
-			return ['exists' => true, 'count' => 0];
-		}
-	}
-
-	private static function safe_delete_all(string $table): int
-	{
-		global $wpdb;
-
-		if ($table === '' || !self::table_exists($table)) {
-			return 0;
-		}
-
-		try {
-			$result = $wpdb->query("DELETE FROM {$table}");
-			return is_int($result) ? $result : 0;
-		} catch (\Throwable $e) {
-			return 0;
-		}
-	}
-
-	private static function resolve_audit_table(): string
-	{
-		$auditLog = Db::table('audit_log');
-		if (self::table_exists($auditLog)) {
-			return $auditLog;
-		}
-
-		return Db::table('audit');
-	}
-
-	private static function table_exists(string $table): bool
-	{
-		global $wpdb;
-
-		if ($table === '') {
-			return false;
-		}
-
-		try {
-			$sql = $wpdb->prepare('SHOW TABLES LIKE %s', $table);
-			return (string) $wpdb->get_var($sql) === $table;
-		} catch (\Throwable $e) {
-			return false;
-		}
-	}
-
-	/**
-	 * @param array{exists:bool,count:int}|mixed $item
-	 */
-	private static function render_count_cell($item): string
-	{
-		if (!is_array($item) || empty($item['exists'])) {
-			return '<span style="color:#b45309;">Table absente (Lancer réparation)</span>';
-		}
-
-		return esc_html((string) ((int) ($item['count'] ?? 0)));
 	}
 }

@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Core\Mls1Verifier;
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\NonceStore;
-use SOSPrescription\Core\ReqId;
+use SosPrescription\Core\Mls1Verifier;
+use SosPrescription\Core\NdjsonLogger;
+use SosPrescription\Core\NonceStore;
+use SosPrescription\Core\ReqId;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;

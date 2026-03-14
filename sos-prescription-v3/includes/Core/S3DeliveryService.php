@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Core;
+namespace SosPrescription\Core;
 
 use Aws\Exception\AwsException;
 use Aws\S3\S3Client;

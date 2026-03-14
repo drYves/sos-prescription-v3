@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * Rendu du bandeau "mentions" côté patient.

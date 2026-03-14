@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\Whitelist;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\Whitelist;
+use SosPrescription\Services\Audit;
 
 /**
  * Backoffice : configuration du périmètre (whitelist ATC/CIS).

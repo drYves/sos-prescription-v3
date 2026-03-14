@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
-use SOSPrescription\Db;
+use SosPrescription\Db;
 use WP_Error;
 
 final class MedicationImporter

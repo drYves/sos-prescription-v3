@@ -1,11 +1,10 @@
 <?php
-/** Lot B stateless deployment marker. */
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Repositories\FileRepository;
-use SOSPrescription\Services\RxPdfGenerator;
-use SOSPrescription\Services\Logger;
+use SosPrescription\Repositories\FileRepository;
+use SosPrescription\Services\RxPdfGenerator;
+use SosPrescription\Services\Logger;
 
 /**
  * Admin page: Ordonnances (PDF)
@@ -1275,7 +1274,7 @@ class RxPage
         $demo['__template_file']   = $target['file'] ?? 'rx-ordonnance-mpdf.html';
 
         $sig  = self::load_signature_for_demo();
-        $repl = \SOSPrescription\Services\RxPdfGenerator::debug_build_template_replacements($demo, $sig);
+        $repl = \SosPrescription\Services\RxPdfGenerator::debug_build_template_replacements($demo, $sig);
 
         $injected_keys = array_keys($repl);
         sort($injected_keys);
@@ -1340,7 +1339,7 @@ class RxPage
             ],
             // Snapshot of the effective mPDF config used for ordonnance rendering.
             // Useful to validate critical flags (eg: shrink_tables_to_fit).
-            'mpdf_config' => \SOSPrescription\Services\RxPdfGenerator::debug_get_mpdf_config(),
+            'mpdf_config' => \SosPrescription\Services\RxPdfGenerator::debug_get_mpdf_config(),
             'template' => [
                 'source' => $target['source'] ?? '',
                 'file'   => $target['file'] ?? '',
@@ -1360,7 +1359,7 @@ class RxPage
             'metrics' => $metrics,
         ];
 
-        \SOSPrescription\Services\Logger::info('rx_template_audit_config', [
+        \SosPrescription\Services\Logger::info('rx_template_audit_config', [
             'source' => $target['source'] ?? '',
             'file'   => $target['file'] ?? '',
             'ph_count' => count($placeholders),

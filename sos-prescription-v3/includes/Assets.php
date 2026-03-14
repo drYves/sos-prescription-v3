@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription;
+namespace SosPrescription;
 
-use SOSPrescription\Assets\Assets as AssetManager;
-use SOSPrescription\Services\ComplianceConfig;
-use SOSPrescription\Services\SandboxConfig;
+use SosPrescription\Assets\Assets as AssetManager;
+use SosPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\SandboxConfig;
 
 /**
  * Façade d'assets (compatibilité).
  *
- * Le gestionnaire Vite/manifest est dans \SOSPrescription\Assets\Assets.
- * Certaines classes utilisent historiquement \SOSPrescription\Assets::enqueue(...)
+ * Le gestionnaire Vite/manifest est dans \SosPrescription\Assets\Assets.
+ * Certaines classes utilisent historiquement \SosPrescription\Assets::enqueue(...)
  * => on fournit une couche stable.
  */
 final class Assets
@@ -162,6 +162,6 @@ final class Assets
             $json = '{}';
         }
 
-        wp_add_inline_script($handle, 'window.SOSPrescription = ' . $json . ';', 'before');
+        wp_add_inline_script($handle, 'window.SosPrescription = ' . $json . ';', 'before');
     }
 }

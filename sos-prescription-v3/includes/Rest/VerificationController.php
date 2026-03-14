@@ -1,12 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Repositories\PrescriptionRepository;
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\RestGuard;
+use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
 
@@ -20,11 +19,8 @@ final class VerificationController
      */
     public static function deliver(WP_REST_Request $request)
     {
-        $throttle = RestGuard::throttle($request, 'rx_delivery', [
-            'limit' => 5,
-            'window' => 3600,
-        ]);
-
+        // Anti brute-force: 5 attempts / hour (token+IP).
+        $throttle = RestGuard::throttle($request, 'rx_delivery', 5, 3600);
         if ($throttle instanceof WP_Error) {
             $data = $throttle->get_error_data();
             if (!is_array($data)) {
@@ -33,7 +29,6 @@ final class VerificationController
             if (empty($data['req_id'])) {
                 $data['req_id'] = Logger::rid();
             }
-
             return new WP_Error(
                 $throttle->get_error_code(),
                 $throttle->get_error_message(),
@@ -42,8 +37,8 @@ final class VerificationController
         }
 
         $token = (string) $request->get_param('token');
-        $codeRaw = (string) $request->get_param('code');
-        $code = preg_replace('/\D+/', '', $codeRaw);
+        $code_raw = (string) $request->get_param('code');
+        $code = preg_replace('/\D+/', '', $code_raw);
         $code = is_string($code) ? $code : '';
 
         if ($token === '' || !preg_match('/^[a-f0-9]{16,64}$/i', $token)) {
@@ -71,11 +66,11 @@ final class VerificationController
         $repo = new PrescriptionRepository();
         $rx = $repo->get_by_verify_token($token);
         if (!is_array($rx) || empty($rx['id'])) {
-            self::safe_ndjson('warn', 'rx_delivery_attempt', [
+            Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
                 'token_prefix' => substr($token, 0, 8),
                 'found' => false,
                 'code_ok' => false,
-            ]);
+            ], 'warn');
 
             return new WP_Error(
                 'rx_not_found',
@@ -87,18 +82,18 @@ final class VerificationController
             );
         }
 
-        $rxId = (int) $rx['id'];
+        $rx_id = (int) $rx['id'];
         $expected = isset($rx['verify_code']) ? (string) $rx['verify_code'] : '';
-        $alreadyDispensed = !empty($rx['dispensed_at']);
+        $already_dispensed = !empty($rx['dispensed_at']);
 
-        self::safe_ndjson('info', 'rx_delivery_attempt', [
-            'rx_id' => $rxId,
+        Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
+            'rx_id' => $rx_id,
             'token_prefix' => substr($token, 0, 8),
-            'already_dispensed' => $alreadyDispensed,
+            'already_dispensed' => $already_dispensed,
             'code_len' => strlen($code),
-        ]);
+        ], 'info');
 
-        if ($alreadyDispensed) {
+        if ($already_dispensed) {
             return rest_ensure_response([
                 'ok' => true,
                 'already_dispensed' => true,
@@ -108,11 +103,11 @@ final class VerificationController
         }
 
         if ($expected === '') {
-            self::safe_ndjson('error', 'rx_delivery_error', [
-                'rx_id' => $rxId,
+            Logger::ndjson_scoped('rx', 'rx_delivery_error', [
+                'rx_id' => $rx_id,
                 'token_prefix' => substr($token, 0, 8),
                 'reason' => 'missing_verify_code',
-            ]);
+            ], 'error');
 
             return new WP_Error(
                 'rx_not_deliverable',
@@ -125,11 +120,11 @@ final class VerificationController
         }
 
         if (!hash_equals($expected, $code)) {
-            self::safe_ndjson('warn', 'rx_delivery_attempt', [
-                'rx_id' => $rxId,
+            Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
+                'rx_id' => $rx_id,
                 'token_prefix' => substr($token, 0, 8),
                 'code_ok' => false,
-            ]);
+            ], 'warn');
 
             return new WP_Error(
                 'invalid_code',
@@ -142,13 +137,13 @@ final class VerificationController
         }
 
         $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
-        $ok = $repo->mark_dispensed($rxId, $ip);
+        $ok = $repo->mark_dispensed($rx_id, $ip);
         if (!$ok) {
-            self::safe_ndjson('error', 'rx_delivery_error', [
-                'rx_id' => $rxId,
+            Logger::ndjson_scoped('rx', 'rx_delivery_error', [
+                'rx_id' => $rx_id,
                 'token_prefix' => substr($token, 0, 8),
                 'reason' => 'db_update_failed',
-            ]);
+            ], 'error');
 
             return new WP_Error(
                 'rx_deliver_failed',
@@ -160,38 +155,21 @@ final class VerificationController
             );
         }
 
+        // Refresh record to get final dispensed_at.
         $rx2 = $repo->get_by_verify_token($token);
-        $dispensedAt = (is_array($rx2) && !empty($rx2['dispensed_at'])) ? (string) $rx2['dispensed_at'] : gmdate('c');
+        $dispensed_at = (is_array($rx2) && !empty($rx2['dispensed_at'])) ? (string) $rx2['dispensed_at'] : gmdate('c');
 
-        self::safe_ndjson('info', 'rx_delivered', [
-            'rx_id' => $rxId,
+        Logger::ndjson_scoped('rx', 'rx_delivered', [
+            'rx_id' => $rx_id,
             'token_prefix' => substr($token, 0, 8),
-            'dispensed_at' => $dispensedAt,
-        ]);
+            'dispensed_at' => $dispensed_at,
+        ], 'info');
 
         return rest_ensure_response([
             'ok' => true,
             'already_dispensed' => false,
-            'dispensed_at' => $dispensedAt,
+            'dispensed_at' => $dispensed_at,
             'req_id' => Logger::rid(),
         ]);
-    }
-
-    /**
-     * @param array<string,mixed> $payload
-     */
-    private static function safe_ndjson(string $level, string $event, array $payload = []): void
-    {
-        try {
-            Logger::ndjson_scoped('runtime', 'rx', $level, $event, $payload);
-        } catch (\Throwable $e) {
-            Audit::write_failsafe_log('verification_controller_logger_failed', [
-                'level' => $level,
-                'event' => $event,
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ], 'verification_controller');
-        }
     }
 }

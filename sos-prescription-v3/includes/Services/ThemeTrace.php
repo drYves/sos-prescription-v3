@@ -1,5 +1,5 @@
 <?php
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 if (!defined('ABSPATH')) {
 	exit;

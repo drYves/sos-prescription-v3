@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Services\Pricing;
-use SOSPrescription\Services\RestGuard;
+use SosPrescription\Services\Pricing;
+use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
 

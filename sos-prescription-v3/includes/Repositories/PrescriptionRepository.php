@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Repositories;
+namespace SosPrescription\Repositories;
 
-use SOSPrescription\Db;
-use SOSPrescription\Services\Posology;
-use SOSPrescription\Utils\Date;
+use SosPrescription\Db;
+use SosPrescription\Services\Posology;
+use SosPrescription\Utils\Date;
 
 final class PrescriptionRepository
 {

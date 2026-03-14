@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Shortcodes;
+namespace SosPrescription\Shortcodes;
 
-use SOSPrescription\Repositories\FileRepository;
-use SOSPrescription\Services\FileStorage;
-use SOSPrescription\Services\Logger;
+use SosPrescription\Repositories\FileRepository;
+use SosPrescription\Services\FileStorage;
+use SosPrescription\Services\Logger;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).

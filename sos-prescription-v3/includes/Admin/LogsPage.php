@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\DiagnosticsService;
-use SOSPrescription\Services\SandboxConfig;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\DiagnosticsService;
+use SosPrescription\Services\SandboxConfig;
 
 final class LogsPage
 {
@@ -411,7 +411,7 @@ final class LogsPage
             echo '<details style="margin-top:12px;">';
             echo '<summary style="cursor:pointer;"><strong>Patterns scannés</strong> <span class="sp-muted">(best-effort)</span></summary>';
             echo '<div style="margin-top:10px;" class="sp-pre">';
-            $patterns = \SOSPrescription\Services\PiiScanner::patterns();
+            $patterns = \SosPrescription\Services\PiiScanner::patterns();
             foreach ($patterns as $key => $re) {
                 echo esc_html($key) . ' : ' . esc_html($re) . "\n";
             }
@@ -1856,7 +1856,7 @@ public static function handle_support_bundle(): void
         $zip->addFromString('diagnostics.json', wp_json_encode($diag, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         // 3) pii-audit.json
-        $pii = \SOSPrescription\Services\PiiScanner::audit_logs_dir($private_logs_dir, [
+        $pii = \SosPrescription\Services\PiiScanner::audit_logs_dir($private_logs_dir, [
             'max_files' => 80,
             'max_bytes_per_file' => 1024 * 1024,
         ]);
@@ -1895,7 +1895,7 @@ public static function handle_support_bundle(): void
             }
 
             // Best-effort masking (do not guarantee full PII removal, but helps).]
-            $content = \SOSPrescription\Services\PiiScanner::mask_text($content);
+            $content = \SosPrescription\Services\PiiScanner::mask_text($content);
 
             $zip->addFromString($zip_name, $content);
         };
@@ -1967,7 +1967,7 @@ public static function handle_support_bundle(): void
         }
 
         $dir = Logger::dir();
-        $report = \SOSPrescription\Services\PiiScanner::audit_logs_dir($dir, [
+        $report = \SosPrescription\Services\PiiScanner::audit_logs_dir($dir, [
             'max_findings' => 300,
             'max_line_len' => 800,
         ]);

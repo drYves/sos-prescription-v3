@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\ReqId;
-use SOSPrescription\Core\WorkerHealthService;
+use SosPrescription\Core\NdjsonLogger;
+use SosPrescription\Core\ReqId;
+use SosPrescription\Core\WorkerHealthService;
 
 final class MedLabStatusAdmin
 {

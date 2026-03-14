@@ -1,15 +1,12 @@
 <?php
-// includes/Rest/MedicationController.php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Repositories\MedicationRepository;
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\RestGuard;
-use SOSPrescription\Services\Whitelist;
-use Throwable;
+use SosPrescription\Repositories\MedicationRepository;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\RestGuard;
+use SosPrescription\Services\Whitelist;
 use WP_Error;
 use WP_REST_Request;
 
@@ -21,7 +18,6 @@ final class MedicationController
     {
         $this->repo = new MedicationRepository();
     }
-
     public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
     {
         $ok = RestGuard::require_logged_in($request);
@@ -34,6 +30,7 @@ final class MedicationController
             return $ok;
         }
 
+        // Anti-abus : la recherche médicaments peut être appelée très fréquemment (autosuggest).
         $route = (string) $request->get_route();
         if (strpos($route, '/medications/search') !== false) {
             $ok = RestGuard::throttle($request, 'med_search');
@@ -51,31 +48,31 @@ final class MedicationController
 
         $q = trim((string) $request->get_param('q'));
         $limit = (int) ($request->get_param('limit') ?? 20);
-        if ($limit < 1) {
-            $limit = 20;
-        }
-        if ($limit > 50) {
-            $limit = 50;
-        }
+        if ($limit < 1) { $limit = 20; }
+        if ($limit > 50) { $limit = 50; }
 
-        if (self::str_len($q) < 2) {
+        if (mb_strlen($q) < 2) {
             return rest_ensure_response([]);
         }
 
         $t0 = microtime(true);
+        if ($scope !== '') {
+            Logger::log_shortcode($scope, 'debug', 'api_medication_search', [
+                'q' => mb_substr($q, 0, 80),
+                'q_len' => mb_strlen($q),
+                'limit' => $limit,
+            ]);
+        }
 
-        $this->safe_shortcode_log($scope, 'debug', 'api_medication_search', [
-            'q' => self::str_sub($q, 0, 80),
-            'q_len' => self::str_len($q),
-            'limit' => $limit,
-        ]);
-
+        // Guardrail : si la BDPM n'a pas été importée, la recherche renverra systématiquement
+        // une liste vide et l'UI ressemble à un "bug". On préfère un message clair.
         $meta = get_option('sosprescription_bdpm_meta');
         if (!is_array($meta) || empty($meta['imported_at'])) {
-            $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_bdpm_not_ready', [
-                'q' => self::str_sub($q, 0, 80),
-            ]);
-
+            if ($scope !== '') {
+                Logger::log_shortcode($scope, 'warning', 'api_medication_search_bdpm_not_ready', [
+                    'q' => mb_substr($q, 0, 80),
+                ]);
+            }
             return new WP_Error(
                 'sosprescription_bdpm_not_ready',
                 'Référentiel médicaments indisponible (BDPM non importée).',
@@ -83,345 +80,132 @@ final class MedicationController
             );
         }
 
-        try {
-            $items = $this->repo->search($q, $limit);
-            $items = $this->canonicalize_search_items($items);
-            $rawCount = is_array($items) ? count($items) : 0;
+        $items = $this->repo->search($q, $limit);
+        $raw_count = is_array($items) ? count($items) : 0;
 
-            if ($this->is_form_scope($scope)) {
-                $flowKey = $this->resolve_flow_key($request);
+        // Recherche "mixte" whitelist + BDPM (parcours patient).
+        // Objectif UX : afficher les résultats BDPM pour éviter l'effet "base vide",
+        // mais rendre inactifs les médicaments hors périmètre (whitelist).
+        //
+        // NB: le front envoie un scope "sosprescription_form" (via le loader).
+        // On accepte aussi "form" pour compatibilité.
+        if ($scope === 'sosprescription_form' || $scope === 'form') {
+            $flow_key = strtolower(trim((string) ($request->get_param('flow') ?? '')));
 
-                $wl = Whitelist::get();
-                $mode = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
-                $enforce = ($mode === 'enforce');
+            $wl = Whitelist::get();
+            $mode = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
 
-                $cisList = [];
-                foreach ($items as $item) {
-                    if (!is_array($item)) {
-                        continue;
-                    }
+            // Si mode != enforce : la whitelist ne bloque pas la sélection côté patient.
+            $enforce = ($mode === 'enforce');
 
-                    $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
-                    if ($cis > 0) {
-                        $cisList[] = $cis;
-                    }
+            $cis_list = [];
+            foreach ($items as $it) {
+                if (!is_array($it)) { continue; }
+                $cis = isset($it['cis']) ? (int) $it['cis'] : 0;
+                if ($cis > 0) { $cis_list[] = $cis; }
+            }
+            $cis_list = array_values(array_unique($cis_list));
+
+            $atc_map = ($mode !== 'off' && count($cis_list) > 0) ? Whitelist::map_atc_codes_for_cis($cis_list) : [];
+
+            $selectable = 0;
+            foreach ($items as &$it) {
+                if (!is_array($it)) { continue; }
+                $cis = isset($it['cis']) ? (int) $it['cis'] : 0;
+
+                $allowed = true;
+                if ($mode !== 'off') {
+                    $ev = Whitelist::evaluate_for_flow($cis, $cis > 0 ? ($atc_map[$cis] ?? null) : null, $flow_key);
+                    $allowed = (bool) ($ev['allowed'] ?? false);
                 }
-                $cisList = array_values(array_unique($cisList));
 
-                $mitmReady = Whitelist::is_mitm_ready();
-                if (!$mitmReady) {
-                    error_log('[SOSPrescription] Warning: ATC table empty');
+                // Champ utilisé par le front pour désactiver la ligne.
+                $it['is_selectable'] = $enforce ? $allowed : true;
+                if (!empty($it['is_selectable'])) {
+                    $selectable++;
                 }
+            }
+            unset($it);
 
-                $atcMap = [];
-                if ($mode !== 'off' && $cisList !== [] && $mitmReady) {
-                    $atcMap = Whitelist::map_atc_codes_for_cis($cisList);
-                }
-
-                $selectable = 0;
-
-                foreach ($items as &$item) {
-                    if (!is_array($item)) {
-                        continue;
-                    }
-
-                    $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
-                    $allowed = true;
-
-                    if ($mode !== 'off') {
-                        $atcCodes = $cis > 0 ? ($atcMap[$cis] ?? null) : null;
-                        $evaluation = Whitelist::evaluate_for_flow($cis, $atcCodes, $flowKey);
-                        $allowed = (bool) ($evaluation['allowed'] ?? false);
-                    }
-
-                    // Compatibilité V2 : une seule clé métier additionnelle côté front.
-                    $item['is_selectable'] = $enforce ? $allowed : true;
-
-                    if (!empty($item['is_selectable'])) {
-                        $selectable++;
-                    }
-                }
-                unset($item);
-
-                if ($rawCount > 0 && $selectable === 0) {
-                    $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_all_out_of_scope', [
-                        'q' => self::str_sub($q, 0, 80),
-                        'raw_count' => $rawCount,
+            if ($raw_count > 0 && $selectable === 0 && $enforce) {
+                if ($scope !== '') {
+                    Logger::log_shortcode($scope, 'warning', 'api_medication_search_all_out_of_scope', [
+                        'q' => mb_substr($q, 0, 80),
+                        'raw_count' => $raw_count,
                         'mode' => $mode,
-                        'flow' => $flowKey,
-                        'mitm_ready' => $mitmReady ? '1' : '0',
                     ]);
                 }
             }
-        } catch (Throwable $e) {
-            $this->safe_runtime_log('error', 'api_medication_search_failed', [
-                'scope' => $scope,
-                'q' => self::str_sub($q, 0, 80),
-                'limit' => $limit,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-
-            return new WP_Error(
-                'sosprescription_medication_search_failed',
-                'Erreur interne lors de la recherche de médicaments.',
-                ['status' => 500]
-            );
         }
 
-        $this->safe_shortcode_log($scope, 'info', 'api_medication_search_done', [
-            'q' => self::str_sub($q, 0, 80),
-            'count' => is_array($items) ? count($items) : 0,
-            'ms' => (int) round((microtime(true) - $t0) * 1000),
-        ]);
-
+        if ($scope !== '') {
+            Logger::log_shortcode($scope, 'info', 'api_medication_search_done', [
+                'q' => mb_substr($q, 0, 80),
+                'count' => is_array($items) ? count($items) : 0,
+                'ms' => (int) round((microtime(true) - $t0) * 1000),
+            ]);
+        }
         return rest_ensure_response($items);
     }
 
     public function table(WP_REST_Request $request)
     {
         $scope = strtolower(trim((string) $request->get_header('X-Sos-Scope')));
+
         $q = trim((string) ($request->get_param('q') ?? ''));
 
         $page = (int) ($request->get_param('page') ?? 1);
-        if ($page < 1) {
-            $page = 1;
-        }
-        if ($page > 1000000) {
-            $page = 1000000;
-        }
+        if ($page < 1) { $page = 1; }
+        if ($page > 1000000) { $page = 1000000; }
 
-        $perPage = (int) ($request->get_param('perPage') ?? 20);
-        if ($perPage < 10) {
-            $perPage = 10;
-        }
-        if ($perPage > 50) {
-            $perPage = 50;
-        }
+        $per_page = (int) ($request->get_param('perPage') ?? 20);
+        if ($per_page < 10) { $per_page = 10; }
+        if ($per_page > 50) { $per_page = 50; }
 
-        $qOk = false;
+        // Empêche une lecture massive sans filtre : on exige au minimum 2 caractères, ou un code.
+        $q_ok = false;
         if ($q !== '') {
             if (preg_match('/^\d{7}$/', $q) === 1) {
-                $qOk = true;
+                $q_ok = true;
             } elseif (preg_match('/^\d{13}$/', $q) === 1) {
-                $qOk = true;
+                $q_ok = true;
             } elseif (preg_match('/^\d{6,9}$/', $q) === 1) {
-                $qOk = true;
-            } elseif (self::str_len($q) >= 2) {
-                $qOk = true;
+                $q_ok = true;
+            } elseif (mb_strlen($q) >= 2) {
+                $q_ok = true;
             }
         }
 
-        if (!$qOk) {
+        if (!$q_ok) {
             return rest_ensure_response([
                 'items' => [],
                 'total' => 0,
                 'page' => 1,
-                'perPage' => $perPage,
+                'perPage' => $per_page,
             ]);
         }
 
         $t0 = microtime(true);
-
-        $this->safe_shortcode_log($scope, 'debug', 'api_medication_table', [
-            'q' => self::str_sub($q, 0, 80),
-            'page' => $page,
-            'perPage' => $perPage,
-        ]);
-
-        try {
-            $res = $this->repo->table($q, $page, $perPage);
-        } catch (Throwable $e) {
-            $this->safe_runtime_log('error', 'api_medication_table_failed', [
-                'scope' => $scope,
-                'q' => self::str_sub($q, 0, 80),
+        if ($scope !== '') {
+            Logger::log_shortcode($scope, 'debug', 'api_medication_table', [
+                'q' => mb_substr($q, 0, 80),
                 'page' => $page,
-                'perPage' => $perPage,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+                'perPage' => $per_page,
             ]);
-
-            return new WP_Error(
-                'sosprescription_medication_table_failed',
-                'Erreur interne lors de la lecture du référentiel médicaments.',
-                ['status' => 500]
-            );
         }
 
-        $count = (is_array($res) && isset($res['items']) && is_array($res['items'])) ? count($res['items']) : 0;
-        $total = (is_array($res) && isset($res['total'])) ? (int) $res['total'] : 0;
+        $res = $this->repo->table($q, $page, $per_page);
 
-        $this->safe_shortcode_log($scope, 'info', 'api_medication_table_done', [
-            'q' => self::str_sub($q, 0, 80),
-            'count' => $count,
-            'total' => $total,
-            'ms' => (int) round((microtime(true) - $t0) * 1000),
-        ]);
-
+        if ($scope !== '') {
+            $count = (is_array($res) && isset($res['items']) && is_array($res['items'])) ? count($res['items']) : 0;
+            $total = (is_array($res) && isset($res['total'])) ? (int) $res['total'] : 0;
+            Logger::log_shortcode($scope, 'info', 'api_medication_table_done', [
+                'q' => mb_substr($q, 0, 80),
+                'count' => $count,
+                'total' => $total,
+                'ms' => (int) round((microtime(true) - $t0) * 1000),
+            ]);
+        }
         return rest_ensure_response($res);
-    }
-
-    private function is_form_scope(string $scope): bool
-    {
-        return in_array($scope, ['form', 'sosprescription_form'], true);
-    }
-
-    private function resolve_flow_key(WP_REST_Request $request): string
-    {
-        $candidates = [
-            $request->get_param('flow'),
-            $request->get_param('flow_key'),
-            $request->get_header('X-Sos-Flow'),
-            $request->get_header('X-SOS-Flow'),
-        ];
-
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate)) {
-                continue;
-            }
-
-            $candidate = strtolower(trim($candidate));
-            if ($candidate === '') {
-                continue;
-            }
-
-            if (in_array($candidate, ['ro_proof', 'ro', 'renewal', 'renewal_with_proof', 'ro-with-proof'], true)) {
-                return 'ro_proof';
-            }
-
-            if (in_array($candidate, ['depannage_no_proof', 'depannage', 'no_proof', 'without_proof', 'depannage-sans-preuve'], true)) {
-                return 'depannage_no_proof';
-            }
-        }
-
-        return 'ro_proof';
-    }
-
-    /**
-     * @param mixed $items
-     * @return array<int, array<string, mixed>>
-     */
-    private function canonicalize_search_items($items): array
-    {
-        if (!is_array($items)) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($items as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-
-            $out[] = $this->canonicalize_search_item($item);
-        }
-
-        return $out;
-    }
-
-    /**
-     * Compat V2 stricte :
-     * type, cis, cip13, cip7, label, specialite, tauxRemb, prixTTC
-     *
-     * @param array<string, mixed> $item
-     * @return array<string, mixed>
-     */
-    private function canonicalize_search_item(array $item): array
-    {
-        $type = isset($item['type']) && $item['type'] === 'presentation' ? 'presentation' : 'specialite';
-
-        $cis = isset($item['cis']) ? trim((string) $item['cis']) : '';
-        $cip13 = isset($item['cip13']) ? trim((string) $item['cip13']) : '';
-        $cip7 = isset($item['cip7']) ? trim((string) $item['cip7']) : '';
-
-        $label = isset($item['label']) ? trim((string) $item['label']) : '';
-        $specialite = isset($item['specialite']) ? trim((string) $item['specialite']) : '';
-
-        if ($label === '' && $specialite !== '') {
-            $label = $specialite;
-        }
-        if ($specialite === '' && $label !== '') {
-            $specialite = $label;
-        }
-        if ($label === '') {
-            $label = 'Médicament';
-        }
-
-        $tauxRemb = isset($item['tauxRemb']) ? trim((string) $item['tauxRemb']) : '';
-
-        $prixTTC = null;
-        if (array_key_exists('prixTTC', $item) && $item['prixTTC'] !== null && $item['prixTTC'] !== '') {
-            $prixTTC = (float) $item['prixTTC'];
-        }
-
-        return [
-            'type' => $type,
-            'cis' => $cis,
-            'cip13' => $cip13,
-            'cip7' => $cip7,
-            'label' => $label,
-            'specialite' => $specialite,
-            'tauxRemb' => $tauxRemb,
-            'prixTTC' => $prixTTC,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $context
-     */
-    private function safe_shortcode_log(string $scope, string $level, string $message, array $context = []): void
-    {
-        if ($scope === '') {
-            return;
-        }
-
-        try {
-            Logger::log_shortcode($scope, $level, $message, $context);
-        } catch (Throwable $e) {
-            Audit::write_failsafe_log('medication_controller_shortcode_log_failed', [
-                'scope' => $scope,
-                'level' => $level,
-                'event' => $message,
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ], 'rest');
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $context
-     */
-    private function safe_runtime_log(string $level, string $message, array $context = []): void
-    {
-        try {
-            Logger::log('runtime', $level, $message, $context);
-        } catch (Throwable $e) {
-            Audit::write_failsafe_log('medication_controller_runtime_log_failed', [
-                'level' => $level,
-                'event' => $message,
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ], 'rest');
-        }
-    }
-
-    private static function str_len(string $value): int
-    {
-        return function_exists('mb_strlen') ? (int) mb_strlen($value, 'UTF-8') : strlen($value);
-    }
-
-    private static function str_sub(string $value, int $start, int $length): string
-    {
-        if (function_exists('mb_substr')) {
-            return (string) mb_substr($value, $start, $length, 'UTF-8');
-        }
-
-        return (string) substr($value, $start, $length);
     }
 }

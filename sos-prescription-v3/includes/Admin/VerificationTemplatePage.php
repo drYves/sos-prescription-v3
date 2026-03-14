@@ -1,9 +1,9 @@
 <?php
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\ComplianceConfig;
 
 /**
  * Admin page: Vérification (Pharmacien)

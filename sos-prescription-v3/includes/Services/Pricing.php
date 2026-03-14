@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * Stocke et renvoie les tarifs (standard / express).

@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: SOS Prescription V3 (Official)
+ * Plugin Name: SosPrescription
  * Description: Délivrance et validation d'ordonnances (SOS Prescription V1).
- * Version: 3.2.9
+ * Version: 3.3.0
  * Author: SOS Prescription
  * Requires at least: 6.0
  * Requires PHP: 8.2
@@ -15,7 +15,7 @@ defined('ABSPATH') || exit;
 
 // NOTE: keep this value in sync with the plugin header Version above.
 // It is used for cache-busting (assets), logs, and DB migrations.
-define('SOSPRESCRIPTION_VERSION', '3.2.9');
+define('SOSPRESCRIPTION_VERSION', '3.3.0');
 define('SOSPRESCRIPTION_PATH', plugin_dir_path(__FILE__));
 define('SOSPRESCRIPTION_URL', plugin_dir_url(__FILE__));
 
@@ -24,13 +24,13 @@ require_once SOSPRESCRIPTION_PATH . 'includes/turnstile.php';
 
 require_once SOSPRESCRIPTION_PATH . 'includes/Autoloader.php';
 
-\SOSPrescription\Autoloader::register();
+\SosPrescription\Autoloader::register();
 
-register_activation_hook(__FILE__, ['\\SOSPrescription\\Installer', 'activate']);
+register_activation_hook(__FILE__, ['\\SosPrescription\\Installer', 'activate']);
 // Lors d'une suppression du plugin, on CONSERVE les données par défaut.
 // La purge complète est conditionnée (option admin / constante), voir uninstall.php.
-register_uninstall_hook(__FILE__, ['\\SOSPrescription\\Installer', 'uninstall_hook']);
+register_uninstall_hook(__FILE__, ['\\SosPrescription\\Installer', 'uninstall_hook']);
 
 add_action('plugins_loaded', static function (): void {
-    \SOSPrescription\Plugin::init();
+    \SosPrescription\Plugin::init();
 });

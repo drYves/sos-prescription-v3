@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\OcrConfig;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\OcrConfig;
+use SosPrescription\Services\Audit;
 
 final class OcrPage
 {

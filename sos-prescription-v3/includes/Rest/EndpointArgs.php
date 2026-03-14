@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
 /**
  * Centralise les schémas d'arguments WP REST (validation/sanitization).

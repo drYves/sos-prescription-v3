@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Shortcodes;
+namespace SosPrescription\Shortcodes;
 
-use SOSPrescription\Assets;
-use SOSPrescription\Services\Logger;
+use SosPrescription\Assets;
+use SosPrescription\Services\Logger;
 
 final class FormShortcode
 {
@@ -30,13 +30,9 @@ final class FormShortcode
         Assets::enqueue_frontend('form');
 
         // Debug : vérifier que WP a bien enqueue les scripts (sinon React ne montera pas).
-        $manifest_path = plugin_dir_path(dirname(__DIR__)) . 'build/manifest.json';
+        $manifest_path = SOSPRESCRIPTION_PATH . 'build/manifest.json';
         $manifest_exists = is_file($manifest_path);
         $manifest_size = $manifest_exists ? (int) (@filesize($manifest_path) ?: 0) : 0;
-
-        if (!$manifest_exists) {
-            error_log('[SOSPrescription] FormShortcode manifest lookup failed at: ' . $manifest_path);
-        }
 
         Logger::log_shortcode('sosprescription_form', 'info', 'assets_state', [
             'dev_mode' => (defined('SOSPRESCRIPTION_DEV') && SOSPRESCRIPTION_DEV === true) ? true : false,

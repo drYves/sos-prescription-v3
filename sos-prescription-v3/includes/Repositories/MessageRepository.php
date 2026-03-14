@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Repositories;
+namespace SosPrescription\Repositories;
 
-use SOSPrescription\Db;
+use SosPrescription\Db;
 
 final class MessageRepository
 {

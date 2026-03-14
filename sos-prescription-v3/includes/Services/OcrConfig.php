@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * OCR configuration (client-side, Tesseract.js).

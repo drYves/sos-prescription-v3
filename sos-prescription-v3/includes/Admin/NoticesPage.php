@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\NoticesConfig;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\NoticesConfig;
+use SosPrescription\Services\Audit;
 
 final class NoticesPage
 {
@@ -85,8 +85,8 @@ final class NoticesPage
 
         $tmp = NoticesConfig::get();
         // Rendu via service (chargé côté front aussi)
-        if (class_exists('SOSPrescription\\Services\\Notices')) {
-            echo \SOSPrescription\Services\Notices::render('form');
+        if (class_exists('SosPrescription\\Services\\Notices')) {
+            echo \SosPrescription\Services\Notices::render('form');
         }
         echo '</div>';
 

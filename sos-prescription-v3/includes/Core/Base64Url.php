@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Core;
+namespace SosPrescription\Core;
 
 final class Base64Url
 {

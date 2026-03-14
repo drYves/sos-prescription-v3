@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Utils;
+namespace SosPrescription\Utils;
 
 /**
  * Utilities autour des dates (DDN, âge) pour usage "médical".

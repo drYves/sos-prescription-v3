@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * Capture des erreurs PHP (warning/notice/deprecated, etc.) dans un fichier de logs

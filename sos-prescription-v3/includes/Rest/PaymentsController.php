@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Repositories\PrescriptionRepository;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\Pricing;
-use SOSPrescription\Services\StripeClient;
-use SOSPrescription\Services\StripeConfig;
-use SOSPrescription\Services\Notifications;
-use SOSPrescription\Services\AccessPolicy;
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\RestGuard;
+use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\Pricing;
+use SosPrescription\Services\StripeClient;
+use SosPrescription\Services\StripeConfig;
+use SosPrescription\Services\Notifications;
+use SosPrescription\Services\AccessPolicy;
+use SosPrescription\Services\Audit;
+use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
 

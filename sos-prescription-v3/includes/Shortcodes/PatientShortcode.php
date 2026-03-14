@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Shortcodes;
+namespace SosPrescription\Shortcodes;
 
-use SOSPrescription\Assets;
-use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\Notices;
-use SOSPrescription\Utils\Date;
+use SosPrescription\Assets;
+use SosPrescription\Services\Logger;
+use SosPrescription\Services\Notices;
+use SosPrescription\Utils\Date;
 
 final class PatientShortcode
 {

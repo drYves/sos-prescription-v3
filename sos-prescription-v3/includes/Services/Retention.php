@@ -1,95 +1,47 @@
 <?php
-// includes/Services/Retention.php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
-use SOSPrescription\Repositories\AuditRepository;
-use SOSPrescription\Repositories\FileRepository;
+use SosPrescription\Repositories\AuditRepository;
+use SosPrescription\Repositories\FileRepository;
 
 final class Retention
 {
     public const CRON_HOOK = 'sosprescription_daily_retention';
 
-    private static bool $cronRegistered = false;
-    private static bool $bootstrapped = false;
-
     public static function register_hooks(): void
     {
-        if (self::$bootstrapped) {
-            return;
-        }
-
-        self::$bootstrapped = true;
-
         add_action(self::CRON_HOOK, [self::class, 'run_daily']);
 
-        add_action('wp_loaded', [self::class, 'ensure_cron_scheduled'], 20);
-        add_action('action_scheduler_init', [self::class, 'ensure_cron_scheduled'], 20);
-
-        if (did_action('wp_loaded') > 0) {
-            self::ensure_cron_scheduled();
+        // Schedule daily if not already scheduled.
+        if (!wp_next_scheduled(self::CRON_HOOK)) {
+            // Start in ~10 minutes to avoid immediate spike on activation.
+            wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
         }
     }
 
-    public static function ensure_cron_scheduled(): void
-    {
-        if (self::$cronRegistered) {
-            return;
-        }
-
-        if (!self::is_scheduling_ready()) {
-            return;
-        }
-
-        try {
-            if (!wp_next_scheduled(self::CRON_HOOK)) {
-                wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
-            }
-
-            self::$cronRegistered = true;
-        } catch (\Throwable $e) {
-            Audit::write_failsafe_log('retention_schedule_failed', [
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ], 'retention');
-        }
-    }
-
-    private static function is_scheduling_ready(): bool
-    {
-        if (function_exists('wp_installing') && wp_installing()) {
-            return false;
-        }
-
-        if (did_action('wp_loaded') < 1) {
-            return false;
-        }
-
-        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
-            return false;
-        }
-
-        if (function_exists('as_next_scheduled_action') && did_action('action_scheduler_init') < 1) {
-            return false;
-        }
-
-        return true;
-    }
-
+    /**
+     * Daily cron callback.
+     */
     public static function run_daily(): void
     {
         self::run();
     }
 
     /**
+     * Deletes old runtime log files from uploads/sosprescription-logs.
+     *
+     * Default retention is 30 days, override via:
+     * - define('SOSPRESCRIPTION_LOG_RETENTION_DAYS', 30)
+     * - filter 'sosprescription_log_retention_days'
+     *
      * @return array{deleted:int,bytes:int,cutoff:int}
      */
     private static function purge_runtime_logs(int $days): array
     {
         $dir = Logger::dir();
-        if ($dir === '' || !is_dir($dir)) {
+        if (empty($dir) || !is_dir($dir)) {
             return ['deleted' => 0, 'bytes' => 0, 'cutoff' => 0];
         }
 
@@ -100,13 +52,14 @@ final class Retention
         $files = glob($dir . '/*.log') ?: [];
         foreach ($files as $file) {
             $mtime = @filemtime($file);
-            if ($mtime === false || $mtime >= $cutoff) {
+            if ($mtime === false) {
                 continue;
             }
-
-            $bytes += (int) (@filesize($file) ?: 0);
-            if (@unlink($file)) {
-                $deleted++;
+            if ($mtime < $cutoff) {
+                $bytes += (int) (@filesize($file) ?: 0);
+                if (@unlink($file)) {
+                    $deleted++;
+                }
             }
         }
 
@@ -114,6 +67,8 @@ final class Retention
     }
 
     /**
+     * Exécute les purges configurées.
+     *
      * @return array<string, int>
      */
     public static function run(): array
@@ -127,75 +82,76 @@ final class Retention
             'logs_bytes_freed' => 0,
         ];
 
+        // Purge audit
         if (!empty($cfg['audit_purge_enabled'])) {
             try {
                 $days = (int) ($cfg['audit_retention_days'] ?? 3650);
                 $repo = new AuditRepository();
-                $out['audit_purged'] = (int) $repo->purge_older_than_days(max(1, $days));
+                $deleted = $repo->purge_older_than_days(max(1, $days));
+                $out['audit_purged'] = (int) $deleted;
             } catch (\Throwable $e) {
-                Audit::write_failsafe_log('retention_audit_purge_failed', [
-                    'message' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ], 'retention');
+                // ignore
             }
         }
 
+        // Purge fichiers orphelins (uploadés mais jamais rattachés à une demande)
         if (!empty($cfg['orphan_files_purge_enabled'])) {
             try {
                 $days = (int) ($cfg['orphan_files_retention_days'] ?? 7);
                 $repo = new FileRepository();
-                $total = 0;
 
+                // On boucle par batch pour éviter les timeouts.
+                $total = 0;
                 for ($i = 0; $i < 10; $i++) {
                     $batch = $repo->list_orphans_older_than_days(max(1, $days), 200);
                     if (count($batch) < 1) {
                         break;
                     }
 
-                    foreach ($batch as $row) {
-                        $id = isset($row['id']) ? (int) $row['id'] : 0;
-                        $storageKey = isset($row['storage_key']) ? (string) $row['storage_key'] : '';
-                        if ($id < 1 || $storageKey === '') {
+                    foreach ($batch as $r) {
+                        $id = isset($r['id']) ? (int) $r['id'] : 0;
+                        $storage_key = isset($r['storage_key']) ? (string) $r['storage_key'] : '';
+                        if ($id < 1 || $storage_key === '') {
                             continue;
                         }
 
-                        FileStorage::delete_by_storage_key($storageKey);
+                        // Supprime le fichier physique
+                        FileStorage::delete_by_storage_key($storage_key);
+                        // Supprime l'entrée DB
                         $repo->delete($id);
                         $total++;
                     }
 
+                    // Par sécurité : max 2000 / run
                     if ($total >= 2000) {
                         break;
                     }
                 }
 
-                $out['orphan_files_purged'] = $total;
+                $out['orphan_files_purged'] = (int) $total;
             } catch (\Throwable $e) {
-                Audit::write_failsafe_log('retention_orphan_files_purge_failed', [
-                    'message' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ], 'retention');
+                // ignore
             }
         }
 
+
+
+        // Purge runtime logs (prevents disk fill on shared hosting).
         try {
-            $daysDefault = defined('SOSPRESCRIPTION_LOG_RETENTION_DAYS')
-                ? (int) constant('SOSPRESCRIPTION_LOG_RETENTION_DAYS')
-                : 30;
+            $days_default = defined('SOSPRESCRIPTION_LOG_RETENTION_DAYS') ? (int) constant('SOSPRESCRIPTION_LOG_RETENTION_DAYS') : 30;
+            $days = (int) apply_filters('sosprescription_log_retention_days', $days_default);
 
-            $days = (int) apply_filters('sosprescription_log_retention_days', $daysDefault);
-
+            // Allow disabling runtime log purge via filter/constant (return 0).
             if ($days > 0) {
                 $days = max(1, min(3650, $days));
-                $res = self::purge_runtime_logs($days);
 
+                $res = self::purge_runtime_logs($days);
                 $out['logs_purged'] = (int) ($res['deleted'] ?? 0);
                 $out['logs_bytes_freed'] = (int) ($res['bytes'] ?? 0);
 
                 if ($out['logs_purged'] > 0) {
-                    Logger::ndjson_scoped('runtime', 'retention', 'info', 'logs_purged', [
+                    Logger::ndjson_scoped('retention', [
+                        'event' => 'logs_purged',
                         'days' => $days,
                         'deleted' => $out['logs_purged'],
                         'bytes_freed' => $out['logs_bytes_freed'],
@@ -203,11 +159,7 @@ final class Retention
                 }
             }
         } catch (\Throwable $e) {
-            Audit::write_failsafe_log('retention_runtime_log_purge_failed', [
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ], 'retention');
+            // Never block the request for retention issues.
         }
 
         return $out;

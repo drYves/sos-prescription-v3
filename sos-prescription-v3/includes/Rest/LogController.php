@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Services\Logger;
+use SosPrescription\Services\Logger;
 use WP_Error;
 use WP_REST_Request;
 

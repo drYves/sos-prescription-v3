@@ -1,6 +1,6 @@
 <?php
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
 /**
  * PII Scanner / Masker

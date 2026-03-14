@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\StripeConfig;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\StripeConfig;
+use SosPrescription\Services\Audit;
 
 /**
  * Page back-office : configuration Stripe.

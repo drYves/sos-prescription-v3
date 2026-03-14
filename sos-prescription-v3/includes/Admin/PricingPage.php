@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\Pricing;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\Pricing;
+use SosPrescription\Services\Audit;
 
 final class PricingPage
 {

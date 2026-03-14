@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Admin;
+namespace SosPrescription\Admin;
 
-use SOSPrescription\Services\NotificationsConfig;
-use SOSPrescription\Services\Notifications;
-use SOSPrescription\Services\Audit;
+use SosPrescription\Services\NotificationsConfig;
+use SosPrescription\Services\Notifications;
+use SosPrescription\Services\Audit;
 
 final class NotificationsPage
 {

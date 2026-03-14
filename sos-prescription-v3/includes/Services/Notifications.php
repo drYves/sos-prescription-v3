@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Services;
+namespace SosPrescription\Services;
 
-use SOSPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Repositories\PrescriptionRepository;
 
 /**
  * Service de notifications transactionnelles.

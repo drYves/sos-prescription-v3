@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace SOSPrescription\Shortcodes;
+namespace SosPrescription\Shortcodes;
 
-use SOSPrescription\Assets;
-use SOSPrescription\Services\Logger;
+use SosPrescription\Assets;
+use SosPrescription\Services\Logger;
 
 final class AdminShortcode
 {
