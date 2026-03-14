@@ -7,6 +7,7 @@ use SOSPrescription\Services\ComplianceConfig;
 use SOSPrescription\Services\NoticesConfig;
 use SOSPrescription\Services\NotificationsConfig;
 use SOSPrescription\Services\OcrConfig;
+use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Utils\Date;
 
 final class Assets
@@ -27,7 +28,8 @@ final class Assets
 
         $deps = [];
 
-        if (self::maybe_enqueue_turnstile()) {
+        $turnstile = self::maybe_enqueue_turnstile();
+        if ($turnstile) {
             $deps[] = 'sosprescription-turnstile';
         }
 
@@ -72,18 +74,51 @@ final class Assets
             SOSPRESCRIPTION_VERSION,
             true
         );
+
+        wp_enqueue_script(
+            'sosprescription-turnstile-failopen',
+            SOSPRESCRIPTION_URL . 'assets/form-turnstile-failopen.js',
+            [],
+            SOSPRESCRIPTION_VERSION,
+            true
+        );
+
+        $turnstile_config = [
+            'configured' => Turnstile::is_configured(),
+            'enabled' => Turnstile::is_enabled(),
+        ];
+        $json = wp_json_encode($turnstile_config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (!is_string($json)) {
+            $json = '{}';
+        }
+
+        wp_add_inline_script(
+            'sosprescription-turnstile-failopen',
+            'window.SOSPrescriptionTurnstileFailOpen = ' . $json . ';',
+            'before'
+        );
     }
 
     private static function maybe_enqueue_turnstile(): bool
     {
+        if (!Turnstile::is_configured()) {
+            return false;
+        }
+
         if (function_exists('sosprescription_turnstile_enqueue')) {
             \sosprescription_turnstile_enqueue();
         } else {
             self::enqueue_turnstile_fallback();
         }
 
-        return wp_script_is('sosprescription-turnstile', 'enqueued')
-            || wp_script_is('sosprescription-turnstile', 'registered');
+        if (wp_script_is('sosprescription-turnstile', 'enqueued')) {
+            return true;
+        }
+        if (wp_script_is('sosprescription-turnstile', 'registered')) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function enqueue_admin_app(): void
@@ -100,8 +135,8 @@ final class Assets
 
     private static function enqueue_turnstile_fallback(): void
     {
-        $siteKey = self::get_turnstile_site_key();
-        if ($siteKey === '') {
+        $site_key = Turnstile::site_key();
+        if ($site_key === '') {
             return;
         }
 
@@ -114,31 +149,22 @@ final class Assets
         );
     }
 
-    private static function get_turnstile_site_key(): string
-    {
-        $key = '';
-        if (defined('SOSPRESCRIPTION_TURNSTILE_SITE_KEY')) {
-            $key = (string) SOSPRESCRIPTION_TURNSTILE_SITE_KEY;
-        }
-        if (function_exists('sosprescription_turnstile_site_key')) {
-            $maybe = (string) \sosprescription_turnstile_site_key();
-            if ($maybe !== '') {
-                $key = $maybe;
-            }
-        }
-
-        return $key;
-    }
-
     private static function enqueue_vite_entry(string $handle, string $entry, array $deps = []): void
     {
-        $devServer = defined('SOSPRESCRIPTION_DEV_SERVER') ? (string) SOSPRESCRIPTION_DEV_SERVER : '';
-        $isDev = defined('SOSPRESCRIPTION_DEV') && SOSPRESCRIPTION_DEV === true && $devServer !== '';
+        $dev_server = defined('SOSPRESCRIPTION_DEV_SERVER') ? (string) SOSPRESCRIPTION_DEV_SERVER : '';
+        $is_dev = defined('SOSPRESCRIPTION_DEV') && SOSPRESCRIPTION_DEV === true && $dev_server !== '';
 
-        if ($isDev) {
-            wp_enqueue_script('vite-client', rtrim($devServer, '/') . '/@vite/client', [], null, true);
+        if ($is_dev) {
+            wp_enqueue_script('vite-client', rtrim($dev_server, '/') . '/@vite/client', [], null, true);
             self::mark_script_as_module('vite-client');
-            wp_enqueue_script($handle, rtrim($devServer, '/') . '/' . $entry, $deps, null, true);
+
+            wp_enqueue_script(
+                $handle,
+                rtrim($dev_server, '/') . '/' . ltrim($entry, '/'),
+                $deps,
+                null,
+                true
+            );
             self::mark_script_as_module($handle);
             self::localize_app($handle);
             return;
@@ -151,61 +177,65 @@ final class Assets
             return;
         }
 
-        $moduleSrc = SOSPRESCRIPTION_URL . 'build/' . ltrim((string) $item['file'], '/');
+        $module_src = SOSPRESCRIPTION_URL . 'build/' . ltrim((string) $item['file'], '/');
 
-        $loaderHandle = $handle . '-loader';
-        $loaderFile = '';
-        $bootVar = '';
-        $rootId = '';
+        $loader_handle = $handle . '-loader';
+        $loader_file = '';
+        $boot_var = '';
+        $root_id = '';
 
         if ($handle === 'sosprescription-form') {
-            $loaderFile = 'assets/vite-form-loader.js';
-            $bootVar = 'SosPrescriptionViteForm';
-            $rootId = 'sosprescription-root-form';
+            $loader_file = 'assets/vite-form-loader.js';
+            $boot_var = 'SOSPrescriptionViteForm';
+            $root_id = 'sosprescription-root-form';
         } elseif ($handle === 'sosprescription-admin') {
-            $loaderFile = 'assets/vite-admin-loader.js';
-            $bootVar = 'SosPrescriptionViteAdmin';
-            $rootId = 'sosprescription-root-admin';
+            $loader_file = 'assets/vite-admin-loader.js';
+            $boot_var = 'SOSPrescriptionViteAdmin';
+            $root_id = 'sosprescription-root-admin';
         }
 
-        if ($loaderFile !== '' && $bootVar !== '' && $rootId !== '') {
-            wp_enqueue_script($loaderHandle, SOSPRESCRIPTION_URL . $loaderFile, $deps, SOSPRESCRIPTION_VERSION, true);
+        if ($loader_file !== '' && $boot_var !== '' && $root_id !== '') {
+            wp_enqueue_script(
+                $loader_handle,
+                SOSPRESCRIPTION_URL . $loader_file,
+                $deps,
+                SOSPRESCRIPTION_VERSION,
+                true
+            );
 
-            foreach (self::collect_css_files($manifest, $entry) as $cssFile) {
-                $cssFile = (string) $cssFile;
-                if ($cssFile === '') {
+            $css_files = self::collect_css_files($manifest, $entry);
+            foreach ($css_files as $css_file) {
+                $css_file = (string) $css_file;
+                if ($css_file === '') {
                     continue;
                 }
-                wp_enqueue_style(
-                    'sosprescription-vite-css-' . substr(md5($cssFile), 0, 12),
-                    SOSPRESCRIPTION_URL . 'build/' . ltrim($cssFile, '/'),
-                    [],
-                    SOSPRESCRIPTION_VERSION
-                );
+
+                $css_handle = 'sosprescription-vite-css-' . substr(md5($css_file), 0, 12);
+                $css_src = SOSPRESCRIPTION_URL . 'build/' . ltrim($css_file, '/');
+                wp_enqueue_style($css_handle, $css_src, [], SOSPRESCRIPTION_VERSION);
             }
 
-            self::localize_app($loaderHandle);
-            self::localize_boot($loaderHandle, $bootVar, [
-                'moduleUrl' => add_query_arg('ver', SOSPRESCRIPTION_VERSION, $moduleSrc),
-                'rootId' => $rootId,
+            self::localize_app($loader_handle);
+            self::localize_boot($loader_handle, $boot_var, [
+                'moduleUrl' => add_query_arg('ver', SOSPRESCRIPTION_VERSION, $module_src),
+                'rootId' => $root_id,
             ]);
             return;
         }
 
-        wp_enqueue_script($handle, $moduleSrc, $deps, SOSPRESCRIPTION_VERSION, true);
+        wp_enqueue_script($handle, $module_src, $deps, SOSPRESCRIPTION_VERSION, true);
         self::mark_script_as_module($handle);
 
-        foreach (self::collect_css_files($manifest, $entry) as $cssFile) {
-            $cssFile = (string) $cssFile;
-            if ($cssFile === '') {
+        $css_files = self::collect_css_files($manifest, $entry);
+        foreach ($css_files as $css_file) {
+            $css_file = (string) $css_file;
+            if ($css_file === '') {
                 continue;
             }
-            wp_enqueue_style(
-                'sosprescription-vite-css-' . substr(md5($cssFile), 0, 12),
-                SOSPRESCRIPTION_URL . 'build/' . ltrim($cssFile, '/'),
-                [],
-                SOSPRESCRIPTION_VERSION
-            );
+
+            $css_handle = 'sosprescription-vite-css-' . substr(md5($css_file), 0, 12);
+            $css_src = SOSPRESCRIPTION_URL . 'build/' . ltrim($css_file, '/');
+            wp_enqueue_style($css_handle, $css_src, [], SOSPRESCRIPTION_VERSION);
         }
 
         self::localize_app($handle);
@@ -214,29 +244,29 @@ final class Assets
     /**
      * @param array<string, mixed> $data
      */
-    private static function localize_boot(string $handle, string $globalVar, array $data): void
+    private static function localize_boot(string $handle, string $global_var, array $data): void
     {
         $json = wp_json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
             $json = '{}';
         }
 
-        $globalVar = preg_replace('/[^A-Za-z0-9_]/', '', $globalVar);
-        if (!is_string($globalVar) || $globalVar === '') {
+        $global_var = preg_replace('/[^A-Za-z0-9_]/', '', $global_var);
+        if (!is_string($global_var) || $global_var === '') {
             return;
         }
 
-        $script = 'window.' . $globalVar . ' = ' . $json . ';';
+        $script = 'window.' . $global_var . ' = ' . $json . ';';
 
-        if (strpos($globalVar, 'SOSPrescription') === 0) {
-            $legacyVar = 'SosPrescription' . substr($globalVar, strlen('SOSPrescription'));
-            if ($legacyVar !== $globalVar) {
-                $script .= 'window.' . $legacyVar . ' = window.' . $globalVar . ';';
+        if (strpos($global_var, 'SOSPrescription') === 0) {
+            $legacy_var = 'SosPrescription' . substr($global_var, strlen('SOSPrescription'));
+            if ($legacy_var !== $global_var) {
+                $script .= 'window.' . $legacy_var . ' = window.' . $global_var . ';';
             }
-        } elseif (strpos($globalVar, 'SosPrescription') === 0) {
-            $modernVar = 'SOSPrescription' . substr($globalVar, strlen('SosPrescription'));
-            if ($modernVar !== $globalVar) {
-                $script .= 'window.' . $modernVar . ' = window.' . $globalVar . ';';
+        } elseif (strpos($global_var, 'SosPrescription') === 0) {
+            $modern_var = 'SOSPrescription' . substr($global_var, strlen('SosPrescription'));
+            if ($modern_var !== $global_var) {
+                $script .= 'window.' . $modern_var . ' = window.' . $global_var . ';';
             }
         }
 
@@ -252,19 +282,27 @@ final class Assets
         if (self::$module_filter_registered) {
             return;
         }
+
         self::$module_filter_registered = true;
 
-        add_filter('script_loader_tag', static function (string $tag, string $h): string {
-            $moduleHandles = ['vite-client', 'sosprescription-form', 'sosprescription-admin'];
-            if (!in_array($h, $moduleHandles, true)) {
+        add_filter('script_loader_tag', static function (string $tag, string $h, string $src): string {
+            $module_handles = [
+                'vite-client',
+                'sosprescription-form',
+                'sosprescription-admin',
+            ];
+
+            if (!in_array($h, $module_handles, true)) {
                 return $tag;
             }
+
             if (str_contains($tag, 'type="module"') || str_contains($tag, "type='module'")) {
                 return $tag;
             }
+
             $new = preg_replace('/^<script\b/', '<script type="module"', $tag, 1);
             return is_string($new) && $new !== '' ? $new : $tag;
-        }, 10, 2);
+        }, 10, 3);
     }
 
     /**
@@ -273,29 +311,33 @@ final class Assets
     private static function collect_css_files(AssetManifest $manifest, string $entry): array
     {
         $item = $manifest->get($entry);
-        if (!$item) {
+        if (!$item || !is_array($item)) {
             return [];
         }
 
-        $seenItems = [];
+        $seen_items = [];
         $css = [];
 
-        $walk = static function (array $it) use (&$walk, &$seenItems, &$css, $manifest): void {
+        $walk = static function (array $it) use (&$walk, &$seen_items, &$css, $manifest): void {
             if (!empty($it['css']) && is_array($it['css'])) {
-                foreach ($it['css'] as $cssFile) {
-                    if (is_string($cssFile) && $cssFile !== '') {
-                        $css[$cssFile] = true;
+                foreach ($it['css'] as $css_file) {
+                    if (is_string($css_file) && $css_file !== '') {
+                        $css[$css_file] = true;
                     }
                 }
             }
 
             if (!empty($it['imports']) && is_array($it['imports'])) {
-                foreach ($it['imports'] as $impKey) {
-                    if (!is_string($impKey) || $impKey === '' || isset($seenItems[$impKey])) {
+                foreach ($it['imports'] as $imp_key) {
+                    if (!is_string($imp_key) || $imp_key === '') {
                         continue;
                     }
-                    $seenItems[$impKey] = true;
-                    $imp = $manifest->get($impKey);
+                    if (isset($seen_items[$imp_key])) {
+                        continue;
+                    }
+
+                    $seen_items[$imp_key] = true;
+                    $imp = $manifest->get($imp_key);
                     if (is_array($imp)) {
                         $walk($imp);
                     }
@@ -308,6 +350,9 @@ final class Assets
         return array_values(array_keys($css));
     }
 
+    /**
+     * @return array<string, string>
+     */
     private static function i18n_data(): array
     {
         return [
@@ -338,17 +383,18 @@ final class Assets
     {
         $user = wp_get_current_user();
 
-        $birthIso = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate', true) : '';
-        $birthPrecision = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate_precision', true) : '';
-        $birthFr = $birthIso !== '' ? Date::iso_to_fr($birthIso) : '';
-        $weightKg = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_weight_kg', true) : '';
-        $heightCm = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_height_cm', true) : '';
+        $birth_iso = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate', true) : '';
+        $birth_precision = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate_precision', true) : '';
+        $birth_fr = $birth_iso !== '' ? Date::iso_to_fr($birth_iso) : '';
+        $weight_kg = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_weight_kg', true) : '';
+        $height_cm = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_height_cm', true) : '';
 
-        $turnstileSiteKey = self::get_turnstile_site_key();
+        $turnstile_enabled = Turnstile::is_enabled();
+        $turnstile_site_key = $turnstile_enabled ? Turnstile::site_key() : '';
 
-        $capManage = current_user_can('sosprescription_manage') || current_user_can('manage_options');
-        $capManageData = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
-        $capValidate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
+        $cap_manage = current_user_can('sosprescription_manage') || current_user_can('manage_options');
+        $cap_manage_data = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
+        $cap_validate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
 
         $data = [
             'restBase' => esc_url_raw(rest_url('sosprescription/v1')),
@@ -360,8 +406,9 @@ final class Assets
                 'url' => home_url('/'),
             ],
             'turnstile' => [
-                'siteKey' => $turnstileSiteKey,
-                'enabled' => $turnstileSiteKey !== '',
+                'siteKey' => $turnstile_site_key,
+                'enabled' => $turnstile_enabled,
+                'configured' => Turnstile::is_configured(),
             ],
             'currentUser' => [
                 'id' => (int) $user->ID,
@@ -370,16 +417,16 @@ final class Assets
                 'roles' => array_values((array) $user->roles),
             ],
             'patientProfile' => [
-                'birthdate_iso' => $birthIso,
-                'birthdate_fr' => $birthFr,
-                'birthdate_precision' => $birthPrecision,
-                'weight_kg' => $weightKg,
-                'height_cm' => $heightCm,
+                'birthdate_iso' => $birth_iso,
+                'birthdate_fr' => $birth_fr,
+                'birthdate_precision' => $birth_precision,
+                'weight_kg' => $weight_kg,
+                'height_cm' => $height_cm,
             ],
             'capabilities' => [
-                'manage' => (bool) $capManage,
-                'manageData' => (bool) $capManageData,
-                'validate' => (bool) $capValidate,
+                'manage' => (bool) $cap_manage,
+                'manageData' => (bool) $cap_manage_data,
+                'validate' => (bool) $cap_validate,
             ],
             'compliance' => ComplianceConfig::public_data(),
             'notices' => NoticesConfig::public_data(),
@@ -392,6 +439,7 @@ final class Assets
             $json = '{}';
         }
 
-        wp_add_inline_script($handle, 'window.SOSPrescription = ' . $json . ';window.SosPrescription = window.SOSPrescription;', 'before');
+        $script = 'window.SOSPrescription = ' . $json . ';window.SosPrescription = window.SOSPrescription;';
+        wp_add_inline_script($handle, $script, 'before');
     }
 }
