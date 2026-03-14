@@ -302,13 +302,13 @@ final class VerificationPage
         $attempts = (int) get_transient($attempt_key);
 
         if ($attempts >= 10) {
-            Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
+            self::safe_ndjson('warn', 'rx_delivery_attempt', [
                 'rx_id' => $rx_id,
                 'token_prefix' => $token_prefix,
                 'code_ok' => false,
                 'blocked' => true,
                 'reason' => 'too_many_attempts_post',
-            ], 'warn');
+            ]);
 
             $out['error'] = 'Trop de tentatives. Merci de réessayer plus tard.';
             return $out;
@@ -318,13 +318,13 @@ final class VerificationPage
             $attempts_next = $attempts + 1;
             set_transient($attempt_key, $attempts_next, HOUR_IN_SECONDS);
 
-            Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
+            self::safe_ndjson('warn', 'rx_delivery_attempt', [
                 'rx_id' => $rx_id,
                 'token_prefix' => $token_prefix,
                 'code_ok' => false,
                 'attempts' => $attempts_next,
                 'flow' => 'post',
-            ], 'warn');
+            ]);
 
             $out['error'] = 'Code incorrect.';
             return $out;
@@ -333,12 +333,12 @@ final class VerificationPage
         // Already dispensed.
         $dispensed_at = (string) ($rx['dispensed_at'] ?? '');
         if ($dispensed_at !== '') {
-            Logger::ndjson_scoped('rx', 'rx_delivery_attempt', [
+            self::safe_ndjson('info', 'rx_delivery_attempt', [
                 'rx_id' => $rx_id,
                 'token_prefix' => $token_prefix,
                 'already_dispensed' => true,
                 'flow' => 'post',
-            ], 'info');
+            ]);
 
             $out['success'] = 'Cette ordonnance est déjà marquée comme délivrée.';
             return $out;
@@ -347,21 +347,21 @@ final class VerificationPage
         $repo = new PrescriptionRepository();
         $ok = $repo->mark_dispensed($rx_id, $ip);
         if (!$ok) {
-            Logger::ndjson_scoped('rx', 'rx_delivery_error', [
+            self::safe_ndjson('error', 'rx_delivery_error', [
                 'rx_id' => $rx_id,
                 'token_prefix' => $token_prefix,
                 'flow' => 'post',
-            ], 'error');
+            ]);
 
             $out['error'] = 'Impossible d\'enregistrer la délivrance. Merci de réessayer.';
             return $out;
         }
 
-        Logger::ndjson_scoped('rx', 'rx_delivered', [
+        self::safe_ndjson('info', 'rx_delivered', [
             'rx_id' => $rx_id,
             'token_prefix' => $token_prefix,
             'flow' => 'post',
-        ], 'info');
+        ]);
 
         $out['success'] = 'Délivrance enregistrée.';
         return $out;
@@ -371,6 +371,27 @@ final class VerificationPage
     {
         $salt = (string) wp_salt('auth');
         return hash_hmac('sha256', $ip, $salt);
+    }
+
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private static function safe_ndjson(string $level, string $event, array $payload = []): void
+    {
+        try {
+            Logger::ndjson_scoped('runtime', 'rx', $level, $event, $payload);
+        } catch (\Throwable $e) {
+            if (class_exists('SOSPrescription\Services\Audit')) {
+                \SOSPrescription\Services\Audit::write_failsafe_log('verification_page_logger_failed', [
+                    'level' => $level,
+                    'event' => $event,
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ], 'verification_page');
+            }
+        }
     }
 
     /**

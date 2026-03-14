@@ -22,14 +22,29 @@ final class StorageCleaner
 
     private const OPTION_LAST_RUN = 'sosprescription_storage_cleaner_last_run';
 
+    private static bool $hooksRegistered = false;
+    private static bool $cronRegistered = false;
+
     /**
      * Register hooks (cron + admin-post).
      */
     public static function register_hooks(): void
     {
-        add_action('init', [self::class, 'ensure_cron_scheduled']);
+        if (self::$hooksRegistered) {
+            return;
+        }
+
+        self::$hooksRegistered = true;
+
         add_action(self::CRON_HOOK, [self::class, 'run_scheduled']);
         add_action('admin_post_' . self::ACTION_FORCE_CLEANUP, [self::class, 'handle_force_cleanup']);
+
+        add_action('wp_loaded', [self::class, 'ensure_cron_scheduled'], 20);
+        add_action('action_scheduler_init', [self::class, 'ensure_cron_scheduled'], 20);
+
+        if (did_action('wp_loaded') > 0) {
+            self::ensure_cron_scheduled();
+        }
     }
 
     /**
@@ -37,9 +52,26 @@ final class StorageCleaner
      */
     public static function ensure_cron_scheduled(): void
     {
-        if (!wp_next_scheduled(self::CRON_HOOK)) {
-            // Spread executions a bit to avoid spikes at midnight.
-            wp_schedule_event(time() + 120, 'daily', self::CRON_HOOK);
+        if (self::$cronRegistered) {
+            return;
+        }
+
+        if (!self::scheduling_is_ready()) {
+            return;
+        }
+
+        try {
+            if (!wp_next_scheduled(self::CRON_HOOK)) {
+                wp_schedule_event(time() + 120, 'daily', self::CRON_HOOK);
+            }
+
+            self::$cronRegistered = true;
+        } catch (\Throwable $e) {
+            Audit::write_failsafe_log('storage_cleaner_schedule_failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'storage');
         }
     }
 
@@ -86,12 +118,12 @@ final class StorageCleaner
      */
     public static function run(string $trigger = 'manual'): array
     {
-        $startedAt = time();
+        $startedAt = microtime(true);
 
         $payload = [
             'ok' => false,
             'trigger' => $trigger,
-            'started_at' => gmdate('c', $startedAt),
+            'started_at' => gmdate('c'),
             'ended_at' => null,
             'db_ok' => false,
             'deleted' => [
@@ -102,9 +134,9 @@ final class StorageCleaner
             'errors' => [],
         ];
 
-        $rid = Logger::rid();
+        $rid = method_exists(Logger::class, 'rid') ? Logger::rid() : '';
 
-        Logger::ndjson_scoped('system', 'info', 'storage_cleanup_start', [
+        self::safe_ndjson('info', 'storage_cleanup_start', [
             'req_id' => $rid,
             'trigger' => $trigger,
         ]);
@@ -117,7 +149,7 @@ final class StorageCleaner
             $payload['errors'][] = 'db_unavailable';
             self::persist_last_run($payload);
 
-            Logger::ndjson_scoped('system', 'warning', 'storage_cleanup_skipped_db_unavailable', [
+            self::safe_ndjson('warning', 'storage_cleanup_skipped_db_unavailable', [
                 'req_id' => $rid,
                 'trigger' => $trigger,
             ]);
@@ -131,7 +163,7 @@ final class StorageCleaner
             $payload['errors'][] = 'filesystem_unavailable';
             self::persist_last_run($payload);
 
-            Logger::ndjson_scoped('system', 'error', 'storage_cleanup_failed_filesystem_unavailable', [
+            self::safe_ndjson('error', 'storage_cleanup_failed_filesystem_unavailable', [
                 'req_id' => $rid,
                 'trigger' => $trigger,
             ]);
@@ -139,20 +171,18 @@ final class StorageCleaner
             return $payload;
         }
 
-        // 1) TEMP files cleanup (older than 24 hours)
         $tmpResult = self::cleanup_temp_dirs($fs, 24 * 3600);
-        $payload['deleted']['tmp_files'] = $tmpResult['deleted_files'];
-        $payload['bytes_freed'] += $tmpResult['bytes_freed'];
+        $payload['deleted']['tmp_files'] = (int) ($tmpResult['deleted_files'] ?? 0);
+        $payload['bytes_freed'] += (int) ($tmpResult['bytes_freed'] ?? 0);
         if (!empty($tmpResult['errors'])) {
-            $payload['errors'] = array_merge($payload['errors'], $tmpResult['errors']);
+            $payload['errors'] = array_merge($payload['errors'], (array) $tmpResult['errors']);
         }
 
-        // 2) Orphan PDFs cleanup (DB metadata)
         $orphansResult = self::cleanup_orphan_pdfs($fs);
-        $payload['deleted']['orphan_pdfs'] = $orphansResult['deleted_files'];
-        $payload['bytes_freed'] += $orphansResult['bytes_freed'];
+        $payload['deleted']['orphan_pdfs'] = (int) ($orphansResult['deleted_files'] ?? 0);
+        $payload['bytes_freed'] += (int) ($orphansResult['bytes_freed'] ?? 0);
         if (!empty($orphansResult['errors'])) {
-            $payload['errors'] = array_merge($payload['errors'], $orphansResult['errors']);
+            $payload['errors'] = array_merge($payload['errors'], (array) $orphansResult['errors']);
         }
 
         $payload['ok'] = empty($payload['errors']);
@@ -160,16 +190,26 @@ final class StorageCleaner
 
         self::persist_last_run($payload);
 
-        Logger::ndjson_scoped('system', $payload['ok'] ? 'info' : 'warning', 'storage_cleanup_end', [
+        self::safe_ndjson($payload['ok'] ? 'info' : 'warning', 'storage_cleanup_end', [
             'req_id' => $rid,
             'trigger' => $trigger,
             'ok' => $payload['ok'],
             'deleted' => $payload['deleted'],
             'bytes_freed' => $payload['bytes_freed'],
-            'duration_ms' => (int) max(0, (microtime(true) * 1000) - ($startedAt * 1000)),
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
         ]);
 
         return $payload;
+    }
+
+    /**
+     * Alias conservé pour compatibilité.
+     *
+     * @return array<string,mixed>
+     */
+    public static function get_status_snapshot(): array
+    {
+        return self::get_storage_snapshot();
     }
 
     /**
@@ -245,7 +285,6 @@ final class StorageCleaner
             }
         }
 
-        // Explicit total requested by the product (PDF + Logs).
         $snapshot['counts']['total_files'] = (int) ($snapshot['counts']['pdf_files'] + $snapshot['counts']['log_files']);
 
         return $snapshot;
@@ -262,7 +301,6 @@ final class StorageCleaner
         }
 
         try {
-            // Lightweight ping.
             return (string) $wpdb->get_var('SELECT 1') === '1';
         } catch (\Throwable $e) {
             return false;
@@ -270,8 +308,6 @@ final class StorageCleaner
     }
 
     /**
-     * Cleanup temp directories.
-     *
      * @return array{deleted_files:int,bytes_freed:int,errors:array<int,string>}
      */
     private static function cleanup_temp_dirs(WP_Filesystem_Base $fs, int $maxAgeSeconds): array
@@ -326,7 +362,7 @@ final class StorageCleaner
         }
 
         if ($deleted > 0) {
-            Logger::ndjson_scoped('system', 'info', 'storage_tmp_cleanup', [
+            self::safe_ndjson('info', 'storage_tmp_cleanup', [
                 'deleted_files' => $deleted,
                 'bytes_freed' => $bytesFreed,
                 'max_age_seconds' => $maxAgeSeconds,
@@ -341,8 +377,6 @@ final class StorageCleaner
     }
 
     /**
-     * Cleanup orphan PDFs using DB metadata.
-     *
      * @return array{deleted_files:int,bytes_freed:int,errors:array<int,string>}
      */
     private static function cleanup_orphan_pdfs(WP_Filesystem_Base $fs): array
@@ -363,7 +397,6 @@ final class StorageCleaner
             $filename = (string) ($row['filename'] ?? '');
             $purpose = (string) ($row['purpose'] ?? '');
 
-            // Only care about PDFs here.
             if (!str_ends_with(strtolower($filename), '.pdf') && !in_array($purpose, ['rx_pdf', 'pdf'], true)) {
                 continue;
             }
@@ -375,8 +408,6 @@ final class StorageCleaner
             }
 
             $path = $storage->path_for($storageKey);
-
-            // Never delete our directory safety files.
             $basename = basename($path);
             if (in_array($basename, ['.htaccess', 'index.php'], true)) {
                 continue;
@@ -390,7 +421,7 @@ final class StorageCleaner
                     $bytesFreed += $size;
                     $fileRepo->delete_by_id($id);
 
-                    Logger::ndjson_scoped('system', 'info', 'storage_orphan_pdf_deleted', [
+                    self::safe_ndjson('info', 'storage_orphan_pdf_deleted', [
                         'file_id' => $id,
                         'filename' => $filename,
                         'bytes' => $size,
@@ -400,13 +431,12 @@ final class StorageCleaner
                     $errors[] = 'delete_failed:' . $filename;
                 }
             } else {
-                // File missing on disk, still delete DB record.
                 $fileRepo->delete_by_id($id);
             }
         }
 
         if ($deleted > 0) {
-            Logger::ndjson_scoped('system', 'info', 'storage_orphan_pdfs_cleanup', [
+            self::safe_ndjson('info', 'storage_orphan_pdfs_cleanup', [
                 'deleted_files' => $deleted,
                 'bytes_freed' => $bytesFreed,
                 'retention_days' => $days,
@@ -421,13 +451,10 @@ final class StorageCleaner
     }
 
     /**
-     * Persist last run payload.
-     *
      * @param array<string,mixed> $payload
      */
     private static function persist_last_run(array $payload): void
     {
-        // Keep it small; no binary blobs.
         $safe = [
             'ok' => (bool) ($payload['ok'] ?? false),
             'trigger' => (string) ($payload['trigger'] ?? 'unknown'),
@@ -456,7 +483,6 @@ final class StorageCleaner
             require_once ABSPATH . 'wp-admin/includes/file.php';
         }
 
-        // nosemgrep: php.lang.security.filesystem.wp-filesystem
         WP_Filesystem();
 
         global $wp_filesystem;
@@ -474,8 +500,6 @@ final class StorageCleaner
     }
 
     /**
-     * Flatten WP_Filesystem dirlist (recursive) into a flat list.
-     *
      * @return array<int,array<string,mixed>>
      */
     private static function flatten_dirlist(WP_Filesystem_Base $fs, string $dir, string $root): array
@@ -515,5 +539,56 @@ final class StorageCleaner
         }
 
         return $out;
+    }
+
+    private static function scheduling_is_ready(): bool
+    {
+        if (function_exists('wp_installing') && wp_installing()) {
+            return false;
+        }
+
+        if (did_action('wp_loaded') < 1) {
+            return false;
+        }
+
+        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
+            return false;
+        }
+
+        if (function_exists('as_next_scheduled_action')) {
+            if (did_action('action_scheduler_init') < 1) {
+                return false;
+            }
+
+            if (class_exists('ActionScheduler_DataStore')) {
+                try {
+                    if (method_exists('ActionScheduler_DataStore', 'instance')) {
+                        \ActionScheduler_DataStore::instance();
+                    }
+                } catch (\Throwable $e) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private static function safe_ndjson(string $level, string $event, array $payload = []): void
+    {
+        try {
+            Logger::ndjson_scoped('runtime', 'storage', $level, $event, $payload);
+        } catch (\Throwable $e) {
+            Audit::write_failsafe_log('storage_cleaner_logger_failed', [
+                'level' => $level,
+                'event' => $event,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 'storage');
+        }
     }
 }
