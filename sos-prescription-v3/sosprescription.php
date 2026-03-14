@@ -3,7 +3,7 @@
 /**
  * Plugin Name: SosPrescription
  * Description: Delivrance et validation d'ordonnances (SOS Prescription V1).
- * Version: 3.3.4
+ * Version: 3.3.5
  * Author: SOS Prescription
  * Requires at least: 6.0
  * Requires PHP: 8.2
@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-define('SOSPRESCRIPTION_VERSION', '3.3.4');
+define('SOSPRESCRIPTION_VERSION', '3.3.5');
 define('SOSPRESCRIPTION_PATH', plugin_dir_path(__FILE__));
 define('SOSPRESCRIPTION_URL', plugin_dir_url(__FILE__));
 
