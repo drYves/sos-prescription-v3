@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace SosPrescription\Shortcodes;
+namespace SOSPrescription\Shortcodes;
 
-use SosPrescription\Repositories\FileRepository;
-use SosPrescription\Services\FileStorage;
-use SosPrescription\Services\Logger;
+use SOSPrescription\Repositories\FileRepository;
+use SOSPrescription\Services\FileStorage;
+use SOSPrescription\Services\Logger;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
@@ -29,6 +29,10 @@ final class DoctorAccountShortcode
     public const META_DIPLOMA_UNIVERSITY_LOCATION = 'sosprescription_diploma_university_location';
     public const META_DIPLOMA_HONORS = 'sosprescription_diploma_honors';
     public const META_ISSUE_PLACE = 'sosprescription_issue_place';
+    public const LEGACY_META_RPPS = 'sosprescription_doctor_rpps';
+    public const LEGACY_META_SPECIALTY = 'sosprescription_doctor_specialty';
+    public const LEGACY_META_DIPLOMA_LINE = 'sosprescription_doctor_diploma_line';
+    public const LEGACY_META_ISSUE_PLACE = 'sosprescription_doctor_issue_place';
 
     public static function register(): void
     {
@@ -114,16 +118,16 @@ final class DoctorAccountShortcode
         $is_admin_view = self::can_manage_doctors();
         $is_self = ((int) $user->ID === $current_id);
 
-        $doctor_title = (string) get_user_meta((int) $user->ID, self::META_TITLE, true);
-        $rpps = (string) get_user_meta((int) $user->ID, self::META_RPPS, true);
-        $specialty = (string) get_user_meta((int) $user->ID, self::META_SPECIALTY, true);
-        $diploma_label = (string) get_user_meta((int) $user->ID, self::META_DIPLOMA_LABEL, true);
-        $diploma_university_location = (string) get_user_meta((int) $user->ID, self::META_DIPLOMA_UNIVERSITY_LOCATION, true);
-        $diploma_honors = (string) get_user_meta((int) $user->ID, self::META_DIPLOMA_HONORS, true);
-        $issue_place = (string) get_user_meta((int) $user->ID, self::META_ISSUE_PLACE, true);
-        $address = (string) get_user_meta((int) $user->ID, self::META_ADDRESS, true);
-        $phone = (string) get_user_meta((int) $user->ID, self::META_PHONE, true);
-        $sig_file_id = (int) get_user_meta((int) $user->ID, self::META_SIG_FILE_ID, true);
+        $doctor_title = self::read_user_meta_bridge((int) $user->ID, [self::META_TITLE], '');
+        $rpps = self::read_user_meta_bridge((int) $user->ID, [self::META_RPPS, self::LEGACY_META_RPPS], '');
+        $specialty = self::read_user_meta_bridge((int) $user->ID, [self::META_SPECIALTY, self::LEGACY_META_SPECIALTY], '');
+        $diploma_label = self::read_user_meta_bridge((int) $user->ID, [self::META_DIPLOMA_LABEL], '');
+        $diploma_university_location = self::read_user_meta_bridge((int) $user->ID, [self::META_DIPLOMA_UNIVERSITY_LOCATION], '');
+        $diploma_honors = self::read_user_meta_bridge((int) $user->ID, [self::META_DIPLOMA_HONORS], '');
+        $issue_place = self::read_user_meta_bridge((int) $user->ID, [self::META_ISSUE_PLACE, self::LEGACY_META_ISSUE_PLACE], '');
+        $address = self::read_user_meta_bridge((int) $user->ID, [self::META_ADDRESS], '');
+        $phone = self::read_user_meta_bridge((int) $user->ID, [self::META_PHONE], '');
+        $sig_file_id = (int) self::read_user_meta_bridge((int) $user->ID, [self::META_SIG_FILE_ID], '0');
 
         $updated = isset($_GET['updated']) && (string) $_GET['updated'] === '1';
         $created = isset($_GET['created']) && (string) $_GET['created'] === '1';
@@ -331,7 +335,7 @@ final class DoctorAccountShortcode
                 echo '<thead><tr><th>Nom</th><th>Email</th><th>RPPS</th><th style="text-align:right;">Action</th></tr></thead><tbody>';
                 foreach ($doctors as $d) {
                     $d_id = (int) $d->ID;
-                    $d_rpps = (string) get_user_meta($d_id, self::META_RPPS, true);
+                    $d_rpps = self::read_user_meta_bridge($d_id, [self::META_RPPS, self::LEGACY_META_RPPS], '');
                     $edit_url = add_query_arg(['doctor_user_id' => $d_id], (string) get_permalink());
                     echo '<tr>';
                     echo '<td>' . esc_html((string) $d->display_name) . '</td>';
@@ -402,16 +406,16 @@ final class DoctorAccountShortcode
         }
 
         // user meta
-        update_user_meta($target_id, self::META_TITLE, (string) $doctor_title);
-        update_user_meta($target_id, self::META_RPPS, (string) $rpps);
-        update_user_meta($target_id, self::META_SPECIALTY, (string) $specialty);
-        update_user_meta($target_id, self::META_ADDRESS, (string) $address);
-        update_user_meta($target_id, self::META_PHONE, (string) $phone);
+        self::write_user_meta_bridge($target_id, [self::META_TITLE], (string) $doctor_title);
+        self::write_user_meta_bridge($target_id, [self::META_RPPS, self::LEGACY_META_RPPS], (string) $rpps);
+        self::write_user_meta_bridge($target_id, [self::META_SPECIALTY, self::LEGACY_META_SPECIALTY], (string) $specialty);
+        self::write_user_meta_bridge($target_id, [self::META_ADDRESS], (string) $address);
+        self::write_user_meta_bridge($target_id, [self::META_PHONE], (string) $phone);
 
-        update_user_meta($target_id, self::META_DIPLOMA_LABEL, (string) $diploma_label);
-        update_user_meta($target_id, self::META_DIPLOMA_UNIVERSITY_LOCATION, (string) $diploma_university_location);
-        update_user_meta($target_id, self::META_DIPLOMA_HONORS, (string) $diploma_honors);
-        update_user_meta($target_id, self::META_ISSUE_PLACE, (string) $issue_place);
+        self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_LABEL], (string) $diploma_label);
+        self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_UNIVERSITY_LOCATION], (string) $diploma_university_location);
+        self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_HONORS], (string) $diploma_honors);
+        self::write_user_meta_bridge($target_id, [self::META_ISSUE_PLACE, self::LEGACY_META_ISSUE_PLACE], (string) $issue_place);
 
         // Remove signature
         $remove_signature = isset($_POST['remove_signature']) && (string) wp_unslash($_POST['remove_signature']) === '1';
@@ -455,7 +459,7 @@ final class DoctorAccountShortcode
 
             $file_id = (int) ($created['id'] ?? 0);
             if ($file_id > 0) {
-                update_user_meta($target_id, self::META_SIG_FILE_ID, $file_id);
+                self::write_user_meta_bridge($target_id, [self::META_SIG_FILE_ID], (string) $file_id);
             }
         }
 
@@ -522,7 +526,7 @@ final class DoctorAccountShortcode
             exit;
         }
 
-        update_user_meta((int) $user_id, self::META_RPPS, (string) $rpps);
+        self::write_user_meta_bridge((int) $user_id, [self::META_RPPS, self::LEGACY_META_RPPS], (string) $rpps);
 
         // Tente d'envoyer un email WordPress standard (si configuré)
         if (function_exists('wp_new_user_notification')) {
@@ -615,5 +619,41 @@ final class DoctorAccountShortcode
         fpassthru($fp);
         fclose($fp);
         exit;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private static function read_user_meta_bridge(int $user_id, array $keys, string $default = ''): string
+    {
+        foreach ($keys as $key) {
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+
+            $value = get_user_meta($user_id, $key, true);
+            if (is_scalar($value)) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private static function write_user_meta_bridge(int $user_id, array $keys, string $value): void
+    {
+        foreach ($keys as $key) {
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+
+            update_user_meta($user_id, $key, $value);
+        }
     }
 }

@@ -1,26 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace SosPrescription;
+namespace SOSPrescription;
 
-use SosPrescription\Assets\Assets as AssetManager;
-use SosPrescription\Services\ComplianceConfig;
-use SosPrescription\Services\SandboxConfig;
+use SOSPrescription\Assets\Assets as AssetManager;
+use SOSPrescription\Services\ComplianceConfig;
+use SOSPrescription\Services\SandboxConfig;
 
-/**
- * Façade d'assets (compatibilité).
- *
- * Le gestionnaire Vite/manifest est dans \SosPrescription\Assets\Assets.
- * Certaines classes utilisent historiquement \SosPrescription\Assets::enqueue(...)
- * => on fournit une couche stable.
- */
 final class Assets
 {
-    /**
-     * Enqueue frontend assets.
-     *
-     * @param string $which form|bdpm_table
-     */
     public static function enqueue_frontend(string $which): void
     {
         $which = strtolower(trim($which));
@@ -32,15 +20,9 @@ final class Assets
 
         if ($which === 'bdpm_table') {
             self::enqueue_bdpm_table();
-            return;
         }
     }
 
-    /**
-     * Enqueue admin assets.
-     *
-     * @param string $which admin
-     */
     public static function enqueue(string $which): void
     {
         $which = strtolower(trim($which));
@@ -52,19 +34,11 @@ final class Assets
 
         if ($which === 'doctor_console') {
             self::enqueue_doctor_console();
-            return;
         }
     }
 
-    /**
-     * Console médecin (front) - JS sans build.
-     *
-     * Objectif : offrir une interface "queue + dossier + messagerie + décision" sans dépendre
-     * d'un build React.
-     */
     public static function enqueue_doctor_console(): void
     {
-        // Unified UI kit (shared across patient / doctor / backoffice)
         wp_enqueue_style(
             'sosprescription-ui-kit',
             SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
@@ -90,9 +64,6 @@ final class Assets
         self::localize_app('sosprescription-doctor-console');
     }
 
-    /**
-     * Tableau BDPM (front) - JS sans build.
-     */
     public static function enqueue_bdpm_table(): void
     {
         wp_enqueue_style(
@@ -117,20 +88,20 @@ final class Assets
     {
         $user = wp_get_current_user();
 
-        $turnstile_site_key = '';
+        $turnstileSiteKey = '';
         if (defined('SOSPRESCRIPTION_TURNSTILE_SITE_KEY')) {
-            $turnstile_site_key = (string) SOSPRESCRIPTION_TURNSTILE_SITE_KEY;
+            $turnstileSiteKey = (string) SOSPRESCRIPTION_TURNSTILE_SITE_KEY;
         }
         if (function_exists('sosprescription_turnstile_site_key')) {
             $maybe = (string) \sosprescription_turnstile_site_key();
             if ($maybe !== '') {
-                $turnstile_site_key = $maybe;
+                $turnstileSiteKey = $maybe;
             }
         }
 
-        $cap_manage = current_user_can('sosprescription_manage') || current_user_can('manage_options');
-        $cap_manage_data = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
-        $cap_validate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
+        $capManage = current_user_can('sosprescription_manage') || current_user_can('manage_options');
+        $capManageData = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
+        $capValidate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
 
         $data = [
             'restBase' => esc_url_raw(rest_url('sosprescription/v1')),
@@ -139,8 +110,8 @@ final class Assets
                 'url' => home_url('/'),
             ],
             'turnstile' => [
-                'siteKey' => $turnstile_site_key,
-                'enabled' => $turnstile_site_key !== '',
+                'siteKey' => $turnstileSiteKey,
+                'enabled' => $turnstileSiteKey !== '',
             ],
             'currentUser' => [
                 'id' => (int) $user->ID,
@@ -149,11 +120,11 @@ final class Assets
                 'roles' => array_values((array) $user->roles),
             ],
             'capabilities' => [
-                'manage' => (bool) $cap_manage,
-                'manageData' => (bool) $cap_manage_data,
-                'validate' => (bool) $cap_validate,
+                'manage' => (bool) $capManage,
+                'manageData' => (bool) $capManageData,
+                'validate' => (bool) $capValidate,
             ],
-			'compliance' => ComplianceConfig::public_data(),
+            'compliance' => ComplianceConfig::public_data(),
             'sandbox' => SandboxConfig::get(),
         ];
 
@@ -162,6 +133,6 @@ final class Assets
             $json = '{}';
         }
 
-        wp_add_inline_script($handle, 'window.SosPrescription = ' . $json . ';', 'before');
+        wp_add_inline_script($handle, 'window.SOSPrescription = ' . $json . ';window.SosPrescription = window.SOSPrescription;', 'before');
     }
 }
