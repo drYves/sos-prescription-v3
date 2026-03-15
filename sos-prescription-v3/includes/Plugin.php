@@ -1,5 +1,4 @@
-<?php
-// includes/Plugin.php
+<?php // includes/Plugin.php
 declare(strict_types=1);
 
 namespace SosPrescription;
@@ -37,23 +36,28 @@ use SosPrescription\Services\ThemeTrace;
 
 final class Plugin
 {
+    private static bool $deferred_services_booted = false;
+
     public static function init(): void
     {
         UpgradeManager::register_hooks();
         UpgradeManager::maybe_upgrade();
 
         self::maybe_upgrade();
-
         Logger::register_fatal_handler();
 
         Notifications::register_hooks();
-        Retention::register_hooks();
-        StorageCleaner::register_hooks();
         NoIndex::register_hooks();
         NoCache::register_hooks();
         VerificationPage::register_hooks();
         ThemeTrace::register();
         PhpDebugTrace::register_hooks();
+
+        if (did_action('wp_loaded') > 0) {
+            self::boot_deferred_services();
+        } else {
+            add_action('wp_loaded', [self::class, 'boot_deferred_services'], 20);
+        }
 
         self::register_rest_diagnostics();
 
@@ -71,7 +75,6 @@ final class Plugin
             }
 
             wp_enqueue_style('dashicons');
-
             wp_enqueue_style(
                 'sosprescription-ui-kit',
                 SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
@@ -95,6 +98,33 @@ final class Plugin
         add_action('admin_init', [NotificationsPage::class, 'register_actions']);
         add_action('admin_init', [NoticesPage::class, 'register_actions']);
         add_action('admin_init', [CompliancePage::class, 'register_actions']);
+    }
+
+    public static function boot_deferred_services(): void
+    {
+        if (self::$deferred_services_booted) {
+            return;
+        }
+
+        self::$deferred_services_booted = true;
+
+        try {
+            Retention::register_hooks();
+            if (method_exists(Retention::class, 'ensure_cron_scheduled')) {
+                Retention::ensure_cron_scheduled();
+            }
+        } catch (\Throwable $e) {
+            error_log('[SOSPrescription] Failed to boot Retention: ' . $e->getMessage());
+        }
+
+        try {
+            StorageCleaner::register_hooks();
+            if (method_exists(StorageCleaner::class, 'ensure_cron_scheduled')) {
+                StorageCleaner::ensure_cron_scheduled();
+            }
+        } catch (\Throwable $e) {
+            error_log('[SOSPrescription] Failed to boot StorageCleaner: ' . $e->getMessage());
+        }
     }
 
     private static function maybe_upgrade(): void
@@ -153,12 +183,7 @@ final class Plugin
                         'req_id' => Logger::get_request_id(),
                     ]);
                 } catch (\Throwable $e) {
-                    error_log(
-                        '[SOSPrescription] Failed to log REST API error: ' .
-                        $e->getMessage() .
-                        ' | route=' . $route .
-                        ' | code=' . $response->get_error_code()
-                    );
+                    error_log('[SOSPrescription] Failed to log REST API error: ' . $e->getMessage() . ' | route=' . $route . ' | code=' . $response->get_error_code());
                 }
             }
 

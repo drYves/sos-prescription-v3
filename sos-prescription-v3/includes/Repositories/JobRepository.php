@@ -142,7 +142,9 @@ class JobRepository
                 $created_by
             );
 
+            $previous_suppress = $this->wpdb->suppress_errors(true);
             $insert_result = $this->wpdb->query($sql);
+            $this->wpdb->suppress_errors($previous_suppress);
 
             if ($insert_result !== false) {
                 $job_id = (int) $this->wpdb->insert_id;

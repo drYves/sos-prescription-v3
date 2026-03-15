@@ -1,4 +1,4 @@
-<?php
+<?php // includes/Autoloader.php
 declare(strict_types=1);
 
 namespace SOSPrescription;
@@ -47,11 +47,9 @@ final class Autoloader
 
         $file = self::resolveFile($class);
         if ($file === null) {
-            error_log('[SOSPrescription] Autoloader trying to load: ' . self::buildNominalPath($class));
             return;
         }
 
-        error_log('[SOSPrescription] Autoloader trying to load: ' . $file);
         require_once $file;
     }
 
