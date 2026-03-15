@@ -220,6 +220,41 @@
       });
   }
 
+  function isProtectedWpDownload(url) {
+    try {
+      var parsed = new URL(String(url || ''), window.location.href)
+      if (parsed.origin !== window.location.origin) return false
+      return /\/wp-json\/sosprescription\/v1\/files\/\d+\/download$/i.test(parsed.pathname)
+    } catch (e) {
+      return false
+    }
+  }
+
+  function directDownload(url, filename) {
+    if (!url) {
+      return Promise.reject(new Error('URL de téléchargement manquante'))
+    }
+
+    var a = document.createElement('a')
+    a.href = String(url)
+    a.rel = 'noopener'
+    a.target = '_blank'
+    if (filename) {
+      a.download = String(filename)
+    }
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    return Promise.resolve()
+  }
+
+  function downloadAny(url, filename) {
+    if (isProtectedWpDownload(url)) {
+      return downloadWithNonce(url, filename)
+    }
+    return directDownload(url, filename)
+  }
+
   function fmtMoney(cents, currency) {
     var n = typeof cents === 'number' ? cents : Number(cents || 0)
     var cur = String(currency || 'EUR').toUpperCase()
@@ -324,6 +359,105 @@ function renderListKeepScroll() {
   } catch (e) {}
 }
 
+function normalizePdfState(resp) {
+  var pdf = (resp && resp.pdf && typeof resp.pdf === 'object') ? resp.pdf : {}
+  var status = String((pdf && pdf.status) || (resp && resp.status) || '').toLowerCase()
+  var downloadUrl = String((resp && resp.download_url) || (pdf && pdf.download_url) || '')
+
+  return {
+    status: status,
+    can_download: !!((pdf && pdf.can_download) || downloadUrl || status === 'done'),
+    download_url: downloadUrl,
+    expires_in: Number((resp && resp.expires_in) || 0),
+    job_id: Number((pdf && pdf.job_id) || 0),
+    req_id: String((pdf && pdf.req_id) || (resp && resp.req_id) || ''),
+    last_error_code: String((pdf && pdf.last_error_code) || ''),
+    last_error_message: String((pdf && pdf.last_error_message) || ''),
+    s3_ready: !!(pdf && pdf.s3_ready),
+    message: String((resp && resp.message) || '')
+  }
+}
+
+function clearPdfPolling() {
+  if (state.pdfPollingTimer) {
+    try {
+      window.clearTimeout(state.pdfPollingTimer)
+    } catch (e) {}
+  }
+  state.pdfPollingTimer = null
+  state.pdfPolling = false
+}
+
+function pdfEndpoint(id) {
+  return '/prescriptions/' + id + '/print?pdf=1&dispatch=0'
+}
+
+function fetchPdfState(opts) {
+  opts = opts || {}
+
+  if (!state.selectedId) {
+    clearPdfPolling()
+    return Promise.resolve(null)
+  }
+
+  var expectedId = Number(state.selectedId)
+
+  return apiGet(pdfEndpoint(expectedId)).then(function (resp) {
+    if (Number(state.selectedId || 0) !== expectedId) {
+      return null
+    }
+
+    state.pdfState = normalizePdfState(resp)
+    if (!opts.silent) {
+      renderDetail()
+    }
+
+    return state.pdfState
+  })
+}
+
+function schedulePdfPolling() {
+  clearPdfPolling()
+
+  if (!state.selectedId) {
+    return
+  }
+
+  state.pdfPolling = true
+  var expectedId = Number(state.selectedId)
+
+  function tick() {
+    if (!state.selectedId || Number(state.selectedId) !== expectedId) {
+      clearPdfPolling()
+      return
+    }
+
+    fetchPdfState({ silent: true })
+      .then(function (pdfState) {
+        if (!pdfState) {
+          clearPdfPolling()
+          return
+        }
+
+        if (pdfState.can_download || pdfState.status === 'done' || pdfState.status === 'failed' || pdfState.status === 'degraded') {
+          clearPdfPolling()
+          renderDetail()
+          return
+        }
+
+        state.pdfPolling = true
+        state.pdfPollingTimer = window.setTimeout(tick, 2000)
+        renderDetail()
+      })
+      .catch(function () {
+        state.pdfPolling = true
+        state.pdfPollingTimer = window.setTimeout(tick, 3000)
+      })
+  }
+
+  state.pdfPollingTimer = window.setTimeout(tick, 2000)
+}
+
   var state = {
     filterStatus: 'pending',
     filterAssigned: 'all', // all | me | unassigned
@@ -338,6 +472,9 @@ function renderListKeepScroll() {
     composeBody: '',
     composeAttachments: [],
     rejectReason: '',
+    pdfState: null,
+    pdfPolling: false,
+    pdfPollingTimer: null,
     info: '',
     error: ''
   }
@@ -744,48 +881,81 @@ function renderListKeepScroll() {
     inlineMsg = '<div class="sp-alert sp-alert-info">' + escHtml(state.info) + '</div>'
   }
 
-  // PDF block (génération + download)
+  var pdfState = state.pdfState || null
+  var pdfStatus = String(pdfState && pdfState.status ? pdfState.status : '').toLowerCase()
+
+  var pdfDownloadUrl = ''
+  var pdfDownloadName = 'ordonnance-' + uid + '.pdf'
+  var pdfCanDownload = false
+
+  if (rxpdf && rxpdf.download_url) {
+    pdfCanDownload = true
+    pdfDownloadUrl = String(rxpdf.download_url || '')
+    pdfDownloadName = String(rxpdf.original_name || pdfDownloadName)
+  }
+
+  if (pdfState && (pdfState.can_download || pdfStatus === 'done')) {
+    pdfCanDownload = !!(pdfState.download_url || pdfDownloadUrl)
+    if (pdfState.download_url) {
+      pdfDownloadUrl = String(pdfState.download_url)
+    }
+  }
+
+  var pdfBusy = !pdfCanDownload && (state.pdfPolling || pdfStatus === 'pending' || pdfStatus === 'processing')
+  var pdfFailed = !pdfCanDownload && (pdfStatus === 'failed' || pdfStatus === 'degraded')
+
   var pdfActions = ''
-  if (rxpdf) {
+  if (pdfCanDownload && pdfDownloadUrl) {
     pdfActions =
-      '<div class="sp-row sp-between sp-gap">' +
+      '<div class="sp-stack sp-gap">' +
       '<div>' +
       '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">Prête : ' +
-      escHtml(rxpdf.original_name || 'ordonnance.pdf') +
+      '<div class="sp-muted">PDF prêt au téléchargement.</div>' +
       '</div>' +
-      '</div>' +
-      '<div class="sp-row sp-gap">' +
-      '<button type="button" class="sp-btn sp-btn-secondary" data-dl-url="' +
-      escAttr(rxpdf.download_url) +
+      '<button type="button" class="sp-btn sp-btn-primary" id="sp-download-rx" data-dl-url="' +
+      escAttr(pdfDownloadUrl) +
       '" data-dl-name="' +
-      escAttr(rxpdf.original_name || 'ordonnance.pdf') +
-      '">Télécharger</button>' +
-      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Régénérer</button>' +
-      '' +
+      escAttr(pdfDownloadName) +
+      '" style="width:100%;justify-content:center">📥 Télécharger l’Ordonnance</button>' +
+      (pdfState && pdfState.expires_in ? '<div class="sp-muted">Lien sécurisé temporaire (' + escHtml(String(pdfState.expires_in)) + ' s).</div>' : '') +
+      '</div>'
+  } else if (pdfBusy) {
+    pdfActions =
+      '<div class="sp-stack sp-gap">' +
+      '<div>' +
+      '<div class="sp-strong">Ordonnance (PDF)</div>' +
+      '<div class="sp-muted">Le PDF est en cours de génération par le worker.</div>' +
       '</div>' +
+      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx" disabled aria-disabled="true" aria-busy="true">⏳ Génération en cours...</button>' +
+      '<div class="sp-muted">Rafraîchissement automatique toutes les 2 secondes.</div>' +
+      '</div>'
+  } else if (pdfFailed) {
+    pdfActions =
+      '<div class="sp-stack sp-gap">' +
+      '<div>' +
+      '<div class="sp-strong">Ordonnance (PDF)</div>' +
+      '<div class="sp-muted">La dernière génération a échoué ou est temporairement indisponible.</div>' +
       '</div>' +
-      ''
+      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Relancer la génération</button>' +
+      (pdfState && pdfState.last_error_message ? '<div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message) + '</div>' : '') +
+      '</div>'
   } else {
     pdfActions =
-      '<div class="sp-row sp-between sp-gap">' +
+      '<div class="sp-stack sp-gap">' +
       '<div>' +
       '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">Avant validation, générez l’ordonnance (PDF).</div>' +
+      '<div class="sp-muted">Avant validation, lancez la génération de l’ordonnance PDF.</div>' +
       '</div>' +
-      '<div class="sp-row sp-gap">' +
       '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Générer PDF</button>' +
-      '' +
-      '</div>' +
-      '</div>' +
-      ''
+      '</div>'
   }
 
   var validateLabel = isSandbox ? 'Valider (mode test)' : (rx.payment_status === 'authorized' ? 'Valider (capture paiement)' : 'Valider')
-  var approveDisabled = rxpdf ? '' : 'disabled'
-  var approveTitle = rxpdf
-    ? ''
-    : ' title="Générez ou importez un PDF avant validation" aria-disabled="true"'
+  var decisionLockedByPdf = pdfCanDownload
+  var approveDisabled = (decisionLockedByPdf || !rxpdf) ? 'disabled' : ''
+  var approveTitle = decisionLockedByPdf
+    ? ' title="Le PDF est prêt : utilisez le téléchargement." aria-disabled="true"'
+    : (rxpdf ? '' : ' title="Générez ou importez un PDF avant validation" aria-disabled="true"')
 
   var noteHtml = rx.note ? '<div class="sp-muted">Note : ' + escHtml(rx.note) + '</div>' : ''
 
@@ -899,19 +1069,21 @@ function renderListKeepScroll() {
     '<div class="sp-card-title">Décision</div>' +
     '<div class="sp-decision-card">' +
     pdfActions +
-    '<div class="sp-row sp-gap sp-wrap sp-mt">' +
-    '<button type="button" class="sp-btn sp-btn-success" id="sp-approve" ' +
-    approveDisabled +
-    approveTitle +
-    '>' +
-    validateLabel +
-    '</button>' +
-    '<button type="button" class="sp-btn sp-btn-danger" id="sp-reject">Refuser</button>' +
-    '</div>' +
-    '<div class="sp-mt">' +
-    '<label class="sp-label">Motif de refus (visible patient)</label>' +
-    '<textarea id="sp-reject-reason" rows="3" placeholder="Motif de refus…" class="sp-input"></textarea>' +
-    '</div>' +
+    (decisionLockedByPdf
+      ? ''
+      : ('<div class="sp-row sp-gap sp-wrap sp-mt">' +
+        '<button type="button" class="sp-btn sp-btn-success" id="sp-approve" ' +
+        approveDisabled +
+        approveTitle +
+        '>' +
+        validateLabel +
+        '</button>' +
+        '<button type="button" class="sp-btn sp-btn-danger" id="sp-reject">Refuser</button>' +
+        '</div>' +
+        '<div class="sp-mt">' +
+        '<label class="sp-label">Motif de refus (visible patient)</label>' +
+        '<textarea id="sp-reject-reason" rows="3" placeholder="Motif de refus…" class="sp-input"></textarea>' +
+        '</div>')) +
     '</div>' +
     '</div>'
 
@@ -1015,6 +1187,7 @@ function bind() {
   genBtns.forEach(function (genBtn) {
     genBtn.addEventListener('click', function (e) {
       e.preventDefault()
+      if (genBtn.disabled) return
       doGenerateRxPdf()
     })
   })
@@ -1059,7 +1232,7 @@ function bind() {
       e.preventDefault()
       var url = node.getAttribute('data-dl-url')
       var name = node.getAttribute('data-dl-name') || 'document'
-      if (url) downloadWithNonce(url, name)
+      if (url) downloadAny(url, name)
     })
   })
 }
@@ -1323,6 +1496,8 @@ function stopAutoRefresh() {
     state.composeAttachments = []
     state.composeBody = ''
     state.rejectReason = ''
+    state.pdfState = null
+    clearPdfPolling()
 
     renderList()
     refreshSelected()
@@ -1350,11 +1525,15 @@ function refreshSelected(opts) {
 
   Promise.all([
     apiGet('/prescriptions/' + id),
-    apiGet('/prescriptions/' + id + '/messages?limit=200&offset=0')
+    apiGet('/prescriptions/' + id + '/messages?limit=200&offset=0'),
+    fetchPdfState({ silent: true }).catch(function () { return null })
   ])
     .then(function (res) {
       state.selected = res[0]
       state.messages = safeArr(res[1])
+      if (res[2]) {
+        state.pdfState = res[2]
+      }
       state.selectedLoading = false
       state.messagesLoading = false
       detailInFlight = false
@@ -1505,30 +1684,57 @@ function refreshSelected(opts) {
   function doGenerateRxPdf() {
     if (!state.selectedId) return
 
+    clearPdfPolling()
     setError('')
-    setInfo('Génération PDF…')
+    state.pdfState = {
+      status: 'pending',
+      can_download: false,
+      download_url: '',
+      expires_in: 0,
+      job_id: 0,
+      req_id: '',
+      last_error_code: '',
+      last_error_message: '',
+      s3_ready: false,
+      message: ''
+    }
+    state.pdfPolling = true
+    setInfo('⏳ Génération PDF en cours...')
+    renderDetail()
 
     apiPostJson('/prescriptions/' + state.selectedId + '/rx-pdf', {})
       .then(function (resp) {
-        setInfo('PDF généré.')
+        state.pdfState = normalizePdfState(resp)
 
-        // Option: auto-download for immediate feedback (doctor)
-        // L'API retourne soit {file_id}, soit directement l'objet fichier {id,...}
-        var fileId = resp && (resp.file_id || resp.id)
-        if (fileId) {
-          apiGet('/files/' + fileId)
-            .then(function (file) {
-              if (file && file.download_url) {
-                downloadWithNonce(file.download_url, file.original_name || 'ordonnance.pdf')
-              }
-            })
-            .catch(function () {})
+        if (state.pdfState.can_download && state.pdfState.download_url) {
+          clearPdfPolling()
+          setInfo('PDF généré.')
+          refreshSelected({ silent: true })
+          renderDetail()
+          return
         }
 
-        refreshSelected()
+        setInfo('⏳ Génération en cours...')
+        refreshSelected({ silent: true })
+        schedulePdfPolling()
+        renderDetail()
       })
       .catch(function (err) {
+        clearPdfPolling()
+        state.pdfState = {
+          status: 'failed',
+          can_download: false,
+          download_url: '',
+          expires_in: 0,
+          job_id: 0,
+          req_id: '',
+          last_error_code: '',
+          last_error_message: err && err.message ? err.message : 'Erreur génération PDF',
+          s3_ready: false,
+          message: ''
+        }
         setError(err && err.message ? err.message : 'Erreur génération PDF')
+        renderDetail()
       })
   }
 
@@ -1578,8 +1784,12 @@ function refreshSelected(opts) {
     apiPostJson('/prescriptions/' + state.selectedId + '/decision', {
       decision: 'approved'
     })
-      .then(function () {
-        setInfo('Demande validée.')
+      .then(function (resp) {
+        var pdf = normalizePdfState(resp)
+        if (pdf && (pdf.status || pdf.can_download)) {
+          state.pdfState = pdf
+        }
+        setInfo(resp && resp.message ? resp.message : 'Demande validée.')
         fetchQueue(true)
         refreshSelected()
       })
