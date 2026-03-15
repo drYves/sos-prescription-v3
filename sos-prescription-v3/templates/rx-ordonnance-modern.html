@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ordonnance — Modern</title>
+  <style>
+    @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+    html, body { margin: 0; padding: 0; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.35; color: #0b1220; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .ink { color: #0b1220; } .muted { color: #5b6b7f; } .brand { color: #383C93; }
+    .title { font-size: 15pt; font-weight: 900; letter-spacing: 0.2pt; margin: 0; }
+    .topbar { display: table; width: 100%; table-layout: fixed; margin-bottom: 5mm; }
+    .topbar .cell { display: table-cell; vertical-align: middle; }
+    .badge { display: inline-block; padding: 1.5mm 4mm; border-radius: 99mm; background: #eef2ff; color: #1e3a8a; font-weight: 800; font-size: 9pt; letter-spacing: 0.4pt; text-transform: uppercase; border: 0.25mm solid #dbeafe; }
+    .card { border: 0.35mm solid #e6eaf2; border-radius: 4mm; background: #ffffff; box-shadow: 0 1.2mm 3mm rgba(56, 60, 147, 0.10); padding: 4.5mm; }
+    .grid { display: table; width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; margin-bottom: 5mm; }
+    .grid .cell { display: table-cell; vertical-align: top; }
+    .cell-left { width: 68%; padding-right: 6mm; } .cell-right { width: 32%; }
+    .label { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6pt; color: #334155; margin: 0 0 2.2mm 0; }
+    .qr-wrap { text-align: center; }
+    .qr { width: 28mm; height: 28mm; object-fit: contain; display: block; margin: 0 auto 2mm auto; border-radius: 2.5mm; border: 0.25mm solid #dbeafe; padding: 1mm; background: #ffffff; }
+    .qr-note { font-size: 8pt; color: #5b6b7f; line-height: 1.2; }
+    .patient-card { background: #f6f7ff; border-color: #dbeafe; margin-bottom: 5mm; }
+    .med-card { padding: 0; overflow: hidden; }
+    .med-head { padding: 4mm 4.5mm; border-bottom: 0.35mm solid #e6eaf2; background: #eef2ff; }
+    .med-head .label { margin: 0; color: #1e3a8a; }
+    table.med-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.med-table thead { display: table-header-group; }
+    table.med-table th { text-align: left; font-size: 9pt; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.6pt; padding: 3mm 4.5mm; border-bottom: 0.25mm solid #e6eaf2; background: #f6f7ff; }
+    table.med-table td { padding: 3mm 4.5mm; border-bottom: 0.25mm solid #eef2f7; vertical-align: top; }
+    table.med-table tr { break-inside: avoid; page-break-inside: avoid; }
+    table.med-table tr:last-child td { border-bottom: none; }
+    .col-med { width: 54%; } .col-pos { width: 28%; } .col-dur { width: 18%; }
+    .footer { display: table; width: 100%; table-layout: fixed; margin-top: 6mm; border-top: 0.35mm solid #e6eaf2; padding-top: 4mm; }
+    .footer .cell { display: table-cell; vertical-align: bottom; }
+    .footer-left { width: 64%; padding-right: 6mm; } .footer-right { width: 36%; text-align: right; }
+    .signature { width: 55mm; height: 18mm; object-fit: contain; display: inline-block; border-radius: 2.5mm; border: 0.25mm solid #e6eaf2; padding: 1mm; background: #ffffff; }
+    .sig-caption { font-size: 8pt; color: #5b6b7f; margin-top: 1.5mm; }
+    @media print { a { color: inherit; text-decoration: none; } }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="cell" style="width:70%;"><h1 class="title">Ordonnance</h1></div>
+    <div class="cell" style="width:30%; text-align:right;"><span class="badge">SOS Prescription</span></div>
+  </div>
+  <div class="grid">
+    <div class="cell cell-left"><div class="card"><div class="label">Prescripteur</div>{{DOCTOR_BLOCK}}</div></div>
+    <div class="cell cell-right"><div class="card qr-wrap"><div class="label">Vérification</div><img class="qr" src="{{QR_CODE}}" alt="QR Code" /><div class="qr-note">Scannez le QR code pour accéder à la page de contrôle.</div></div></div>
+  </div>
+  <div class="card patient-card"><div class="label">Patient</div>{{PATIENT_BLOCK}}</div>
+  <div class="card med-card">
+    <div class="med-head"><div class="label">Traitement prescrit</div></div>
+    <table class="med-table">
+      <thead><tr><th class="col-med">Médicament</th><th class="col-pos">Posologie</th><th class="col-dur">Durée</th></tr></thead>
+      <tbody>{{MEDICATIONS_LIST}}</tbody>
+    </table>
+  </div>
+  <div class="footer">
+    <div class="cell footer-left">{{FOOTER_BLOCK}}</div>
+    <div class="cell footer-right">
+      <div class="label" style="margin-bottom:2mm;">Signature</div>
+      <img class="signature" src="{{SIGNATURE_IMAGE}}" alt="Signature" />
+      <div class="sig-caption">Signature du prescripteur</div>
+    </div>
+  </div>
+</body>
+</html>

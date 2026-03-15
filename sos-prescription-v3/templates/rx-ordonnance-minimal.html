@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ordonnance — Minimal</title>
+  <style>
+    @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+    html, body { margin: 0; padding: 0; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.35; color: #111827; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .muted { color: #6b7280; } .small { font-size: 9pt; } .right { text-align: right; }
+    .header { display: table; width: 100%; table-layout: fixed; margin-bottom: 5mm; }
+    .header .cell { display: table-cell; vertical-align: top; }
+    .cell-left { width: 68%; padding-right: 6mm; } .cell-right { width: 32%; text-align: right; }
+    .title { font-weight: 900; font-size: 14pt; margin: 0 0 2mm 0; }
+    .rule { height: 0; border: none; border-top: 0.35mm solid #111827; margin: 0 0 4mm 0; }
+    .block { border: 0.25mm solid #e5e7eb; padding: 3.5mm; }
+    .label { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6pt; margin: 0 0 2mm 0; }
+    .qr { width: 24mm; height: 24mm; object-fit: contain; display: inline-block; border: 0.25mm solid #e5e7eb; padding: 1mm; background: #ffffff; }
+    table.med-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4mm; }
+    table.med-table thead { display: table-header-group; }
+    table.med-table th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.6pt; padding: 2.5mm 0; border-bottom: 0.35mm solid #111827; }
+    table.med-table td { padding: 3mm 0; border-bottom: 0.25mm solid #e5e7eb; vertical-align: top; }
+    table.med-table tr { break-inside: avoid; page-break-inside: avoid; }
+    table.med-table tr:last-child td { border-bottom: none; }
+    .col-med { width: 56%; } .col-pos { width: 28%; } .col-dur { width: 16%; }
+    .footer { margin-top: 8mm; padding-top: 4mm; border-top: 0.35mm solid #111827; display: table; width: 100%; table-layout: fixed; }
+    .footer .cell { display: table-cell; vertical-align: bottom; }
+    .footer-left { width: 62%; padding-right: 6mm; } .footer-right { width: 38%; text-align: right; }
+    .signature { width: 55mm; height: 18mm; object-fit: contain; display: inline-block; border: 0.25mm solid #e5e7eb; padding: 1mm; background: #ffffff; }
+    @media print { a { color: inherit; text-decoration: none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="cell cell-left">
+      <h1 class="title">Ordonnance</h1><hr class="rule" />
+      <div class="block"><div class="label">Prescripteur</div>{{DOCTOR_BLOCK}}</div>
+    </div>
+    <div class="cell cell-right"><div class="label">QR</div><img class="qr" src="{{QR_CODE}}" alt="QR Code" /></div>
+  </div>
+  <div class="block" style="margin-bottom: 4mm;"><div class="label">Patient</div>{{PATIENT_BLOCK}}</div>
+  <div style="margin-top: 2mm;">
+    <div class="label">Prescription</div>
+    <table class="med-table">
+      <thead><tr><th class="col-med">Médicament</th><th class="col-pos">Posologie</th><th class="col-dur">Durée</th></tr></thead>
+      <tbody>{{MEDICATIONS_LIST}}</tbody>
+    </table>
+  </div>
+  <div class="footer">
+    <div class="cell footer-left">{{FOOTER_BLOCK}}</div>
+    <div class="cell footer-right"><div class="label" style="margin-bottom:2mm;">Signature</div><img class="signature" src="{{SIGNATURE_IMAGE}}" alt="Signature" /></div>
+  </div>
+</body>
+</html>

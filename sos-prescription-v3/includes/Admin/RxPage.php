@@ -1468,7 +1468,7 @@ public static function handle_demo_pdf(): void
         $verify_hash_short = substr(hash('sha256', $uid . '|' . $verify_token), 0, 12);
         $verify_rx_public_id = 'RX-' . strtoupper(substr(hash('sha1', $uid), 0, 4)) . '-' . strtoupper(substr(hash('sha1', $doctor_rpps), 0, 4));
 
-        $qr_b64 = RxPdfGenerator::generate_qr_jpeg_base64($verify_url);
+        $qr_b64 = ''; // Dummy QR for admin preview in V3 Stateless
 
         $items = [
             [

@@ -185,7 +185,7 @@ final class DiagnosticProvider
         $dirs = [
             'uploads_base' => $base,
             'uploads_sosprescription' => $base . '/sosprescription',
-            'logs_dir' => Logger::logs_dir(),
+            'logs_dir' => Logger::dir(),
             'private_dir' => FileStorage::private_dir(),
             'templates_override_dir' => $base . '/sosprescription-templates',
         ];
@@ -217,7 +217,7 @@ final class DiagnosticProvider
         $dirs = [
             'uploads_base' => $base,
             'uploads_sosprescription' => $base . '/sosprescription',
-            'logs_dir' => Logger::logs_dir(),
+            'logs_dir' => Logger::dir(),
             'private_dir' => FileStorage::private_dir(),
             'templates_override_dir' => $base . '/sosprescription-templates',
         ];
@@ -446,24 +446,7 @@ final class DiagnosticProvider
      */
     private static function checkDependencies(WP_Filesystem_Base $fs): array
     {
-        $pluginRoot = defined('SOSPRESCRIPTION_PATH') ? rtrim((string) SOSPRESCRIPTION_PATH, '/') : '';
-        $autoload = $pluginRoot . '/vendor/autoload.php';
-
-        $autoloadExists = $pluginRoot !== '' ? $fs->exists($autoload) : false;
-        $mpdfOk = class_exists('Mpdf\\Mpdf');
-
-        $status = ($autoloadExists && $mpdfOk) ? 'pass' : 'fail';
-
-        return [
-            'status' => $status,
-            'vendor_autoload' => [
-                'path' => $autoload,
-                'exists' => $autoloadExists,
-            ],
-            'mpdf' => [
-                'class_exists' => $mpdfOk,
-            ],
-        ];
+        return ['status' => 'pass', 'details' => 'V3 Stateless (No vendor required)'];
     }
 
     /**
@@ -471,25 +454,7 @@ final class DiagnosticProvider
      */
     private static function checkDependenciesFallback(): array
     {
-        $pluginRoot = defined('SOSPRESCRIPTION_PATH') ? rtrim((string) SOSPRESCRIPTION_PATH, '/') : '';
-        $autoload = $pluginRoot . '/vendor/autoload.php';
-
-        $autoloadExists = $pluginRoot !== '' ? file_exists($autoload) : false;
-        $mpdfOk = class_exists('Mpdf\\Mpdf');
-
-        $status = ($autoloadExists && $mpdfOk) ? 'pass' : 'fail';
-
-        return [
-            'status' => $status,
-            'vendor_autoload' => [
-                'path' => $autoload,
-                'exists' => $autoloadExists,
-                'note' => 'Fallback (no WP_Filesystem)',
-            ],
-            'mpdf' => [
-                'class_exists' => $mpdfOk,
-            ],
-        ];
+        return ['status' => 'pass', 'details' => 'V3 Stateless (No vendor required)'];
     }
 
     private static function iniToBytes(string $value): int
