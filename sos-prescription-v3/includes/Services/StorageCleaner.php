@@ -27,9 +27,16 @@ final class StorageCleaner
 
         add_action(self::CRON_HOOK, [self::class, 'run_scheduled']);
         add_action('admin_post_' . self::ACTION_FORCE_CLEANUP, [self::class, 'handle_force_cleanup']);
-        add_action('wp_loaded', [self::class, 'ensure_cron_scheduled'], 20);
 
-        if (did_action('wp_loaded') > 0) {
+        add_action('wp_loaded', [self::class, 'ensure_cron_scheduled'], 20);
+        add_action('action_scheduler_init', [self::class, 'ensure_cron_scheduled'], 20);
+
+        if (did_action('action_scheduler_init') > 0) {
+            self::ensure_cron_scheduled();
+            return;
+        }
+
+        if (did_action('wp_loaded') > 0 && !function_exists('as_next_scheduled_action')) {
             self::ensure_cron_scheduled();
         }
     }
@@ -63,6 +70,20 @@ final class StorageCleaner
 
         if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
             return false;
+        }
+
+        if (function_exists('as_next_scheduled_action')) {
+            if (did_action('action_scheduler_init') < 1) {
+                return false;
+            }
+
+            if (class_exists('ActionScheduler_DataStore') && method_exists('ActionScheduler_DataStore', 'instance')) {
+                try {
+                    \ActionScheduler_DataStore::instance();
+                } catch (\Throwable $e) {
+                    return false;
+                }
+            }
         }
 
         return true;
