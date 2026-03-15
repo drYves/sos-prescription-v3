@@ -1,160 +1,185 @@
+// assets/doctor-console.js
 (function () {
-  var root = document.getElementById('sosprescription-doctor-console-root')
-  if (!root) return
+  'use strict';
 
-  var cfg = window.SosPrescription || {}
-  var restBase = String(cfg.restBase || '')
-  var nonce = String(cfg.nonce || '')
-  var isSandbox = !!(cfg && cfg.sandbox && cfg.sandbox.testing_mode)
-  var currentUser = (cfg.currentUser && typeof cfg.currentUser === 'object') ? cfg.currentUser : {}
-  var currentUserId = Number(currentUser.id || 0)
-  var currentUserName = String(currentUser.displayName || '')
+  var root = document.getElementById('sosprescription-doctor-console-root');
+  if (!root) return;
 
-  function escHtml(s) {
-    s = String(s == null ? '' : s)
+  var cfg = window.SOSPrescription || window.SosPrescription || {};
+  var restBase = String(cfg.restBase || '');
+  var nonce = String(cfg.nonce || '');
+  var isSandbox = !!(cfg && cfg.sandbox && cfg.sandbox.testing_mode);
+  var currentUser = (cfg.currentUser && typeof cfg.currentUser === 'object') ? cfg.currentUser : {};
+  var currentUserId = Number(currentUser.id || 0);
+  var currentUserName = String(currentUser.displayName || currentUser.email || '');
+
+  function escHtml(value) {
+    var s = String(value == null ? '' : value);
     return s
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;')
+      .replace(/'/g, '&#039;');
   }
 
-  function escAttr(s) {
-    // Escape for HTML attributes (including quotes).
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+  function escAttr(value) {
+    return escHtml(value);
+  }
+
+  function safeArr(value) {
+    return Array.isArray(value) ? value : [];
   }
 
   function prettyBytes(bytes) {
     var b = Number(bytes || 0);
     if (!isFinite(b) || b <= 0) return '0 o';
     var units = ['o', 'Ko', 'Mo', 'Go', 'To'];
-    var u = 0;
-    while (b >= 1024 && u < units.length - 1) {
-      b = b / 1024;
-      u++;
+    var i = 0;
+    while (b >= 1024 && i < units.length - 1) {
+      b /= 1024;
+      i++;
     }
-    var val = (u === 0 || b >= 10) ? Math.round(b) : (Math.round(b * 10) / 10);
-    // French decimal comma for readability.
-    return String(val).replace('.', ',') + ' ' + units[u];
+    var value = (i === 0 || b >= 10) ? Math.round(b) : (Math.round(b * 10) / 10);
+    return String(value).replace('.', ',') + ' ' + units[i];
   }
 
+  function ensureInlineStyle() {
+    if (document.getElementById('sp-doctor-console-inline-style')) return;
 
-  function apiJson(path, opts) {
-    opts = opts || {}
-    var method = String(opts.method || 'GET').toUpperCase()
+    var style = document.createElement('style');
+    style.id = 'sp-doctor-console-inline-style';
+    style.textContent = [
+      '#sosprescription-doctor-console-root .sp-grid{display:grid;grid-template-columns:minmax(280px,35%) minmax(420px,65%);gap:20px;align-items:start;}',
+      '#sosprescription-doctor-console-root .sp-col-list,#sosprescription-doctor-console-root .sp-col-detail{min-width:0;}',
+      '#sosprescription-doctor-console-root .sp-toolbar{display:flex;flex-wrap:wrap;gap:10px;}',
+      '#sosprescription-doctor-console-root .sp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;}',
+      '#sosprescription-doctor-console-root .sp-stack{display:flex;flex-direction:column;gap:12px;}',
+      '#sosprescription-doctor-console-root .sp-file-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #f0f0f1;}',
+      '#sosprescription-doctor-console-root .sp-file-row:first-child{border-top:0;padding-top:0;}',
+      '#sosprescription-doctor-console-root .sp-file-main{min-width:0;}',
+      '#sosprescription-doctor-console-root .sp-file-name{font-weight:600;}',
+      '#sosprescription-doctor-console-root .sp-case-id{font-size:18px;font-weight:700;}',
+      '#sosprescription-doctor-console-root .sp-meds{margin:0;padding-left:18px;}',
+      '#sosprescription-doctor-console-root .sp-med{margin:0 0 8px 0;}',
+      '#sosprescription-doctor-console-root .sp-med-name{font-weight:600;}',
+      '#sosprescription-doctor-console-root .sp-chat-history{display:flex;flex-direction:column;gap:10px;max-height:280px;overflow:auto;padding-right:4px;}',
+      '#sosprescription-doctor-console-root .sp-chat-msg{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fff;}',
+      '#sosprescription-doctor-console-root .sp-chat-meta{font-size:12px;margin-bottom:6px;}',
+      '#sosprescription-doctor-console-root .sp-chat-body{white-space:pre-wrap;word-break:break-word;font-size:13px;}',
+      '#sosprescription-doctor-console-root .sp-chat-att{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;}',
+      '#sosprescription-doctor-console-root .sp-link{background:none;border:0;padding:0;color:#2271b1;text-decoration:underline;cursor:pointer;}',
+      '#sosprescription-doctor-console-root .sp-chat-composer{display:flex;flex-direction:column;gap:10px;}',
+      '#sosprescription-doctor-console-root .sp-textarea{width:100%;min-height:96px;}',
+      '#sosprescription-doctor-console-root .sp-compose-att{margin-top:8px;font-size:12px;color:#555;}',
+      '#sosprescription-doctor-console-root .sp-pdf-download{width:100%;justify-content:center;font-size:15px;padding:12px 16px;}',
+      '#sosprescription-doctor-console-root .sp-spinner{display:inline-flex;align-items:center;gap:8px;}',
+      '#sosprescription-doctor-console-root .sp-spinner::before{content:"";width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp-doctor-spin .8s linear infinite;}',
+      '#sosprescription-doctor-console-root .sp-inline-notice{margin-bottom:12px;}',
+      '#sosprescription-doctor-console-root .sp-alert{border-radius:12px;padding:12px 14px;border:1px solid #d0e3ff;background:#f0f6fc;color:#0a3d66;}',
+      '#sosprescription-doctor-console-root .sp-alert-error{border-color:#f2a3a3;background:#fff1f2;color:#7a1212;}',
+      '#sosprescription-doctor-console-root .sp-alert-success{border-color:#95d5a6;background:#ecfdf3;color:#0d5f2b;}',
+      '#sosprescription-doctor-console-root .sp-alert-warning{border-color:#f0c36d;background:#fff7ed;color:#7a3e00;}',
+      '#sosprescription-doctor-console-root .sp-badge-soft{border-color:#e5e7eb;background:#f8fafc;color:#374151;}',
+      '#sosprescription-doctor-console-root .sp-card-title{font-size:14px;font-weight:600;margin:0 0 10px;}',
+      '@media (max-width:1100px){#sosprescription-doctor-console-root .sp-grid{grid-template-columns:1fr;}}',
+      '@keyframes sp-doctor-spin{to{transform:rotate(360deg);}}'
+    ].join('');
+    document.head.appendChild(style);
+  }
 
-    // Cache-busting for GET requests:
-    // Some host/CDN setups can cache wp-json responses too aggressively.
-    // Adding a timestamp parameter makes each request URL unique.
-    // NOTE: We also set fetch cache: 'no-store'.
-    var urlPath = String(path || '')
+  function apiJson(path, options) {
+    options = options || {};
+    var method = String(options.method || 'GET').toUpperCase();
+    var urlPath = String(path || '');
+
     if (method === 'GET') {
-      urlPath += (urlPath.indexOf('?') === -1 ? '?' : '&') + '_ts=' + Date.now()
+      urlPath += (urlPath.indexOf('?') === -1 ? '?' : '&') + '_ts=' + Date.now();
     }
 
-    var url = restBase.replace(/\/$/, '') + urlPath
+    var url = restBase.replace(/\/$/, '') + urlPath;
     var headers = Object.assign(
       {
         'X-WP-Nonce': nonce,
         'X-Sos-Scope': 'sosprescription_doctor_console'
       },
-      opts.headers || {}
-    )
+      options.headers || {}
+    );
 
     return fetch(url, {
       method: method,
-      headers: headers,
-      body: opts.body,
       credentials: 'same-origin',
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: headers,
+      body: options.body
     }).then(function (res) {
-      var headerRid = res.headers.get('X-SOSPrescription-Request-ID') || res.headers.get('X-SP-Request-ID') || ''
+      var headerRid = res.headers.get('X-SOSPrescription-Request-ID') || res.headers.get('X-SP-Request-ID') || '';
+
       return res.text().then(function (text) {
-        var data = null
+        var data = null;
         try {
-          data = text ? JSON.parse(text) : null
+          data = text ? JSON.parse(text) : null;
         } catch (e) {
-          data = null
+          data = null;
         }
 
         if (!res.ok) {
-          var rid = (data && data._request_id) ? data._request_id : headerRid
+          var rid = data && data._request_id ? data._request_id : headerRid;
+          var msg = '';
 
-          var baseMsg = ''
           if (data && typeof data.message === 'string' && data.message) {
-            baseMsg = data.message
+            msg = data.message;
           } else if (text) {
-            baseMsg = String(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+            msg = String(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
           } else {
-            baseMsg = res.statusText || 'Erreur API'
+            msg = res.statusText || 'Erreur API';
           }
 
-          // Message plus explicite pour les cas fréquents
           if (res.status === 403) {
-            baseMsg = 'Accès refusé (403). Veuillez rafraîchir la page ou vous reconnecter.'
+            msg = 'Accès refusé (403). Veuillez rafraîchir la page ou vous reconnecter.';
           } else if (res.status === 404) {
-            baseMsg = 'Ressource introuvable (404).'
-          } else if (res.status >= 500 && !baseMsg) {
-            baseMsg = 'Erreur serveur. Réessayez dans quelques instants.'
+            msg = 'Ressource introuvable (404).';
+          } else if (res.status >= 500 && !msg) {
+            msg = 'Erreur serveur. Réessayez dans quelques instants.';
           }
 
-          var parts = []
-          parts.push('HTTP ' + res.status)
-          if (rid) parts.push('Req ' + rid)
-          parts.push(path)
+          var parts = ['HTTP ' + res.status];
+          if (rid) parts.push('Req ' + rid);
+          parts.push(path);
 
-          var msg = baseMsg + ' — ' + parts.join(' · ')
-          var err = new Error(msg)
-          err.status = res.status
-          err.path = path
-          err.url = url
-          err.requestId = rid
-          err.payload = data
-
-          try {
-            console.error('[SOS Prescription] Erreur API', {
-              status: res.status,
-              path: path,
-              requestId: rid,
-              payload: data
-            })
-          } catch (e) {}
-
-          throw err
+          var err = new Error(msg + ' — ' + parts.join(' · '));
+          err.status = res.status;
+          err.requestId = rid;
+          err.payload = data;
+          err.path = path;
+          throw err;
         }
 
-        return data
-      })
-    })
+        return data;
+      });
+    });
   }
 
-  // Convenience wrappers (older code paths expect these helpers).
-  // Keep them here so the console doesn't crash on load.
   function apiGet(path) {
-    return apiJson(path, { method: 'GET' })
+    return apiJson(path, { method: 'GET' });
   }
 
   function apiPostJson(path, payload) {
-    var body = (payload == null) ? {} : payload
     return apiJson(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
+      body: JSON.stringify(payload == null ? {} : payload)
+    });
   }
 
   function apiUploadFile(file, purpose, prescriptionId) {
-    var url = restBase.replace(/\/$/, '') + '/files'
-    var fd = new FormData()
-    fd.append('file', file)
-    fd.append('purpose', String(purpose || 'message'))
-    if (prescriptionId) fd.append('prescription_id', String(prescriptionId))
+    var url = restBase.replace(/\/$/, '') + '/files';
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('purpose', String(purpose || 'message'));
+    if (prescriptionId) {
+      fd.append('prescription_id', String(prescriptionId));
+    }
 
     return fetch(url, {
       method: 'POST',
@@ -165,309 +190,164 @@
       },
       body: fd
     }).then(function (res) {
-      return res.text().then(function (text) {
-        var data = null
-        try {
-          data = text ? JSON.parse(text) : null
-        } catch (e) {
-          data = null
-        }
-        if (!res.ok) {
-          var reqId = res.headers.get('X-SOSPrescription-Request-ID') || res.headers.get('X-SP-Request-ID') || ''
-          var rid = (data && data._request_id) ? data._request_id : reqId
-          var msg = (data && typeof data.message === 'string') ? data.message : 'Erreur upload'
-          var bits = []
-          bits.push('HTTP ' + res.status)
-          if (rid) bits.push('Req ' + rid)
-          throw new Error(msg + (bits.length ? ' — ' + bits.join(' · ') : ''))
-        }
-        return data
-      })
-    })
-  }
+      var headerRid = res.headers.get('X-SOSPrescription-Request-ID') || res.headers.get('X-SP-Request-ID') || '';
 
-  // Téléchargement protégé : le endpoint /files/:id/download exige le nonce.
-  // On télécharge donc via fetch + blob puis on déclenche un download navigateur.
-  function downloadWithNonce(url, filename) {
-    if (!url) {
-      return Promise.reject(new Error('URL de téléchargement manquante'));
-    }
-    var name = filename || 'document.pdf';
-    return fetch(url, {
-      method: 'GET',
-      headers: { 'X-WP-Nonce': nonce },
-      credentials: 'same-origin'
-    })
-      .then(function (res) {
-        if (!res.ok) {
-          return res.text().then(function (t) {
-            throw new Error(t || ('Erreur téléchargement (' + res.status + ')'));
-          });
+      return res.text().then(function (text) {
+        var data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (e) {
+          data = null;
         }
-        return res.blob();
-      })
-      .then(function (blob) {
-        var a = document.createElement('a');
-        var objectUrl = URL.createObjectURL(blob);
-        a.href = objectUrl;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () {
-          URL.revokeObjectURL(objectUrl);
-        }, 1500);
+
+        if (!res.ok) {
+          var rid = data && data._request_id ? data._request_id : headerRid;
+          var msg = data && typeof data.message === 'string' ? data.message : 'Erreur upload';
+          var err = new Error(msg);
+          err.status = res.status;
+          err.requestId = rid;
+          err.payload = data;
+          throw err;
+        }
+
+        return data;
       });
+    });
   }
 
   function isProtectedWpDownload(url) {
     try {
-      var parsed = new URL(String(url || ''), window.location.href)
-      if (parsed.origin !== window.location.origin) return false
-      return /\/wp-json\/sosprescription\/v1\/files\/\d+\/download$/i.test(parsed.pathname)
+      var parsed = new URL(String(url || ''), window.location.href);
+      if (parsed.origin !== window.location.origin) return false;
+      return /\/wp-json\/sosprescription\/v1\/files\/\d+\/download$/i.test(parsed.pathname);
     } catch (e) {
-      return false
+      return false;
     }
+  }
+
+  function downloadWithNonce(url, filename) {
+    if (!url) {
+      return Promise.reject(new Error('URL de téléchargement manquante'));
+    }
+
+    return fetch(url, {
+      method: 'GET',
+      headers: { 'X-WP-Nonce': nonce },
+      credentials: 'same-origin'
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (text) {
+          throw new Error(text || ('Erreur téléchargement (' + res.status + ')'));
+        });
+      }
+
+      return res.blob();
+    }).then(function (blob) {
+      var objectUrl = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename || 'document.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(function () {
+        URL.revokeObjectURL(objectUrl);
+      }, 1500);
+    });
   }
 
   function directDownload(url, filename) {
     if (!url) {
-      return Promise.reject(new Error('URL de téléchargement manquante'))
+      return Promise.reject(new Error('URL de téléchargement manquante'));
     }
 
-    var a = document.createElement('a')
-    a.href = String(url)
-    a.rel = 'noopener'
-    a.target = '_blank'
+    var a = document.createElement('a');
+    a.href = String(url);
+    a.rel = 'noopener';
+    a.target = '_blank';
     if (filename) {
-      a.download = String(filename)
+      a.download = String(filename);
     }
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    return Promise.resolve()
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return Promise.resolve();
   }
 
   function downloadAny(url, filename) {
     if (isProtectedWpDownload(url)) {
-      return downloadWithNonce(url, filename)
+      return downloadWithNonce(url, filename);
     }
-    return directDownload(url, filename)
-  }
-
-  function fmtMoney(cents, currency) {
-    var n = typeof cents === 'number' ? cents : Number(cents || 0)
-    var cur = String(currency || 'EUR').toUpperCase()
-    return (n / 100).toFixed(2) + ' ' + cur
+    return directDownload(url, filename);
   }
 
   function statusMeta(status) {
-    var s = String(status || '').toLowerCase()
-    if (s === 'payment_pending') return { label: 'Paiement en attente', cls: 'sp-badge sp-badge-warn' }
-    if (s === 'pending') return { label: 'En attente', cls: 'sp-badge sp-badge-warn' }
-    if (s === 'in_review') return { label: 'En cours', cls: 'sp-badge' }
-    if (s === 'needs_info') return { label: 'Infos requises', cls: 'sp-badge sp-badge-warn' }
-    if (s === 'approved') return { label: 'Validée', cls: 'sp-badge sp-badge-success' }
-    if (s === 'rejected') return { label: 'Refusée', cls: 'sp-badge sp-badge-danger' }
-    return { label: status || '—', cls: 'sp-badge' }
+    var s = String(status || '').toLowerCase();
+    if (s === 'payment_pending') return { label: 'Paiement en attente', cls: 'sp-badge sp-badge-warn' };
+    if (s === 'pending') return { label: 'En attente', cls: 'sp-badge sp-badge-warn' };
+    if (s === 'in_review') return { label: 'En cours', cls: 'sp-badge' };
+    if (s === 'needs_info') return { label: 'Infos requises', cls: 'sp-badge sp-badge-warn' };
+    if (s === 'approved') return { label: 'Validée', cls: 'sp-badge sp-badge-success' };
+    if (s === 'rejected') return { label: 'Refusée', cls: 'sp-badge sp-badge-danger' };
+    return { label: status || '—', cls: 'sp-badge' };
   }
 
   function priorityMeta(priority) {
-    var p = String(priority || '').toLowerCase()
-    if (p === 'express') return { label: 'Express', cls: 'sp-badge sp-badge-warn' }
-    if (p === 'standard') return { label: 'Standard', cls: 'sp-badge' }
-    return { label: priority || '—', cls: 'sp-badge' }
+    var p = String(priority || '').toLowerCase();
+    if (p === 'express') return { label: 'Express', cls: 'sp-badge sp-badge-warn' };
+    if (p === 'standard') return { label: 'Standard', cls: 'sp-badge' };
+    return { label: priority || '—', cls: 'sp-badge' };
   }
 
   function flowMeta(flow) {
-    var f = String(flow || '')
+    var f = String(flow || '');
     if (f === 'ro_proof' || f === 'renewal') {
-      return { label: 'Renouvellement (avec preuve)', value: f }
+      return { label: 'Renouvellement (avec preuve)', value: f };
     }
     if (f === 'depannage_no_proof') {
-      return { label: 'Dépannage (sans preuve)', value: f }
+      return { label: 'Dépannage (sans preuve)', value: f };
     }
-    if (!f) return { label: '—', value: '' }
-    return { label: f, value: f }
+    if (!f) return { label: '—', value: '' };
+    return { label: f, value: f };
   }
 
-  function safeArr(x) {
-    return Array.isArray(x) ? x : []
+  function renderNoticeHtml(type, text) {
+    if (!text) return '';
+    var cls = 'sp-alert';
+    if (type === 'error') cls += ' sp-alert-error';
+    else if (type === 'success') cls += ' sp-alert-success';
+    else if (type === 'warning') cls += ' sp-alert-warning';
+    return '<div class="' + cls + '">' + escHtml(text) + '</div>';
   }
 
-  // Avoid UI "tremble" + input resets during background polling.
-  // If the doctor is interacting with critical inputs (messagerie / décision),
-  // we postpone rendering updates until the next poll tick.
-  function isUserBusy() {
-    var ae = document.activeElement
-    if (!ae) return false
-    var id = ae.id || ''
-    if (id === 'sp-compose-body' || id === 'sp-reject-reason') return true
-    try {
-      if (ae.closest && ae.closest('.sp-chat-composer')) return true
-      if (ae.closest && ae.closest('.sp-decision')) return true
-    } catch (e) {}
-    return false
+  function normalizePdfState(resp) {
+    var pdf = (resp && resp.pdf && typeof resp.pdf === 'object') ? resp.pdf : {};
+    var status = String((pdf && pdf.status) || (resp && resp.status) || '').toLowerCase();
+    var downloadUrl = String((resp && resp.download_url) || (pdf && pdf.download_url) || '');
+
+    return {
+      status: status,
+      can_download: !!((pdf && pdf.can_download) || downloadUrl),
+      download_url: downloadUrl,
+      expires_in: Number((resp && resp.expires_in) || (pdf && pdf.expires_in) || 0),
+      job_id: Number((pdf && pdf.job_id) || 0),
+      req_id: String((pdf && pdf.req_id) || (resp && resp.req_id) || ''),
+      last_error_code: String((pdf && pdf.last_error_code) || ''),
+      last_error_message: String((pdf && pdf.last_error_message) || ''),
+      s3_ready: !!(pdf && pdf.s3_ready),
+      message: String((resp && resp.message) || '')
+    };
   }
-
-
-// Signature légère (string) pour détecter si la file de dossiers a changé.
-// Objectif UX : éviter les clignotements "Chargement…" toutes les 15s.
-function listSignature(list) {
-  return safeArr(list)
-    .map(function (it) {
-      if (!it) return ''
-      var id = Number(it.id || 0)
-      if (!id) return ''
-      return [
-        String(id),
-        String(it.status || ''),
-        String(it.priority || ''),
-        String(it.flow || ''),
-        String(it.payment_status || ''),
-        String(it.doctor_user_id || '')
-      ].join(':')
-    })
-    .filter(function (x) { return x !== '' })
-    .join('|')
-}
-
-function itemSignature(it) {
-  if (!it) return ''
-  var id = Number(it.id || 0)
-  if (!id) return ''
-  return [
-    String(id),
-    String(it.status || ''),
-    String(it.priority || ''),
-    String(it.flow || ''),
-    String(it.payment_status || ''),
-    String(it.doctor_user_id || '')
-  ].join(':')
-}
-
-// Préserve le scroll de la liste pendant un refresh silencieux.
-function renderListKeepScroll() {
-  if (!el.list) {
-    renderList()
-    return
-  }
-  var top = el.list.scrollTop
-  renderList()
-  try {
-    el.list.scrollTop = top
-  } catch (e) {}
-}
-
-function normalizePdfState(resp) {
-  var pdf = (resp && resp.pdf && typeof resp.pdf === 'object') ? resp.pdf : {}
-  var status = String((pdf && pdf.status) || (resp && resp.status) || '').toLowerCase()
-  var downloadUrl = String((resp && resp.download_url) || (pdf && pdf.download_url) || '')
-
-  return {
-    status: status,
-    can_download: !!((pdf && pdf.can_download) || downloadUrl || status === 'done'),
-    download_url: downloadUrl,
-    expires_in: Number((resp && resp.expires_in) || 0),
-    job_id: Number((pdf && pdf.job_id) || 0),
-    req_id: String((pdf && pdf.req_id) || (resp && resp.req_id) || ''),
-    last_error_code: String((pdf && pdf.last_error_code) || ''),
-    last_error_message: String((pdf && pdf.last_error_message) || ''),
-    s3_ready: !!(pdf && pdf.s3_ready),
-    message: String((resp && resp.message) || '')
-  }
-}
-
-function clearPdfPolling() {
-  if (state.pdfPollingTimer) {
-    try {
-      window.clearTimeout(state.pdfPollingTimer)
-    } catch (e) {}
-  }
-  state.pdfPollingTimer = null
-  state.pdfPolling = false
-}
-
-function pdfEndpoint(id) {
-  return '/prescriptions/' + id + '/print?pdf=1&dispatch=0'
-}
-
-function fetchPdfState(opts) {
-  opts = opts || {}
-
-  if (!state.selectedId) {
-    clearPdfPolling()
-    return Promise.resolve(null)
-  }
-
-  var expectedId = Number(state.selectedId)
-
-  return apiGet(pdfEndpoint(expectedId)).then(function (resp) {
-    if (Number(state.selectedId || 0) !== expectedId) {
-      return null
-    }
-
-    state.pdfState = normalizePdfState(resp)
-    if (!opts.silent) {
-      renderDetail()
-    }
-
-    return state.pdfState
-  })
-}
-
-function schedulePdfPolling() {
-  clearPdfPolling()
-
-  if (!state.selectedId) {
-    return
-  }
-
-  state.pdfPolling = true
-  var expectedId = Number(state.selectedId)
-
-  function tick() {
-    if (!state.selectedId || Number(state.selectedId) !== expectedId) {
-      clearPdfPolling()
-      return
-    }
-
-    fetchPdfState({ silent: true })
-      .then(function (pdfState) {
-        if (!pdfState) {
-          clearPdfPolling()
-          return
-        }
-
-        if (pdfState.can_download || pdfState.status === 'done' || pdfState.status === 'failed' || pdfState.status === 'degraded') {
-          clearPdfPolling()
-          renderDetail()
-          return
-        }
-
-        state.pdfPolling = true
-        state.pdfPollingTimer = window.setTimeout(tick, 2000)
-        renderDetail()
-      })
-      .catch(function () {
-        state.pdfPolling = true
-        state.pdfPollingTimer = window.setTimeout(tick, 3000)
-      })
-  }
-
-  state.pdfPollingTimer = window.setTimeout(tick, 2000)
-}
 
   var state = {
     filterStatus: 'pending',
-    filterAssigned: 'all', // all | me | unassigned
-    filterPriority: 'all', // all | standard | express
+    filterAssigned: 'all',
+    filterPriority: 'all',
     listLoading: false,
+    detailLoading: false,
     list: [],
     selectedId: null,
     selected: null,
-    selectedLoading: false,
-    messagesLoading: false,
     messages: [],
     composeBody: '',
     composeAttachments: [],
@@ -475,1217 +355,662 @@ function schedulePdfPolling() {
     pdfState: null,
     pdfPolling: false,
     pdfPollingTimer: null,
-    info: '',
-    error: ''
-  }
+    noticeType: '',
+    noticeText: '',
+    noticeScope: 'detail'
+  };
 
   var el = {
-    msg: null,
     list: null,
     detail: null,
     statusSel: null,
     assignedSel: null,
     prioritySel: null,
     refreshBtn: null
+  };
+
+  function setNotice(type, text, scope) {
+    state.noticeType = String(type || '');
+    state.noticeText = String(text || '');
+    state.noticeScope = String(scope || 'detail');
+    renderDetail();
   }
 
-  function setError(msg) {
-    state.error = String(msg || '')
-    if (state.error) state.info = ''
-    renderMsg()
-    renderDetail()
+  function clearNotice() {
+    state.noticeType = '';
+    state.noticeText = '';
+    state.noticeScope = 'detail';
   }
 
-  function setInfo(msg) {
-    state.info = String(msg || '')
-    if (state.info) state.error = ''
-    renderMsg()
-    renderDetail()
-  }
-
-  function renderMsg() {
-    if (!el.msg) return
-    if (state.error) {
-      el.msg.innerHTML = '<div class="sp-alert sp-alert-error">' + escHtml(state.error) + '</div>'
-      return
+  function clearPdfPolling() {
+    if (state.pdfPollingTimer) {
+      window.clearTimeout(state.pdfPollingTimer);
     }
-    if (state.info) {
-      el.msg.innerHTML = '<div class="sp-alert">' + escHtml(state.info) + '</div>'
-      return
+    state.pdfPollingTimer = null;
+    state.pdfPolling = false;
+  }
+
+  function pdfEndpoint(id) {
+    return '/prescriptions/' + id + '/print?pdf=1&dispatch=0';
+  }
+
+  function fetchPdfState(options) {
+    options = options || {};
+    if (!state.selectedId) {
+      clearPdfPolling();
+      return Promise.resolve(null);
     }
-    el.msg.innerHTML = ''
+
+    var expectedId = Number(state.selectedId);
+
+    return apiGet(pdfEndpoint(expectedId)).then(function (resp) {
+      if (Number(state.selectedId || 0) !== expectedId) {
+        return null;
+      }
+
+      state.pdfState = normalizePdfState(resp);
+      if (!options.silent) {
+        renderDetail();
+      }
+      return state.pdfState;
+    });
+  }
+
+  function schedulePdfPolling() {
+    clearPdfPolling();
+
+    if (!state.selectedId) {
+      return;
+    }
+
+    state.pdfPolling = true;
+    var expectedId = Number(state.selectedId);
+
+    function tick() {
+      if (!state.selectedId || Number(state.selectedId) !== expectedId) {
+        clearPdfPolling();
+        return;
+      }
+
+      fetchPdfState({ silent: true }).then(function (pdfState) {
+        if (!pdfState) {
+          clearPdfPolling();
+          return;
+        }
+
+        if (pdfState.can_download || pdfState.status === 'done' || pdfState.status === 'failed' || pdfState.status === 'degraded') {
+          clearPdfPolling();
+          renderDetail();
+          return;
+        }
+
+        state.pdfPolling = true;
+        state.pdfPollingTimer = window.setTimeout(tick, 2000);
+        renderDetail();
+      }).catch(function () {
+        state.pdfPolling = true;
+        state.pdfPollingTimer = window.setTimeout(tick, 3000);
+      });
+    }
+
+    state.pdfPollingTimer = window.setTimeout(tick, 2000);
+  }
+
+  function isUserBusy() {
+    var ae = document.activeElement;
+    if (!ae) return false;
+    var id = ae.id || '';
+    if (id === 'sp-compose-body' || id === 'sp-reject-reason') return true;
+    try {
+      if (ae.closest && ae.closest('.sp-chat-composer')) return true;
+      if (ae.closest && ae.closest('.sp-decision-card')) return true;
+    } catch (e) {}
+    return false;
   }
 
   function renderShell() {
     if (!restBase || !nonce) {
-      root.innerHTML = '<div class="sosprescription-doctor"><div class="sp-card"><div class="sp-alert sp-alert-error">Configuration REST manquante (restBase/nonce).</div></div></div>'
-      return
+      root.innerHTML =
+        '<div class="sosprescription-doctor">' +
+        '  <div class="sp-card">' +
+        '    <div class="sp-alert sp-alert-error">Configuration REST manquante (restBase/nonce).</div>' +
+        '  </div>' +
+        '</div>';
+      return;
     }
 
-    root.innerHTML = ''
+    root.innerHTML =
+      '<div class="sosprescription-doctor">' +
+      '  <div class="sp-card">' +
+      '    <div class="sp-top">' +
+      '      <div class="sp-title"><h2>Console médecin' + (isSandbox ? ' <span class="sp-badge sp-badge-warn">Sandbox</span>' : '') + '</h2></div>' +
+      '      <div class="sp-toolbar">' +
+      '        <select id="sp-filter-status" class="sp-select">' +
+      '          <option value="pending">En attente</option>' +
+      '          <option value="payment_pending">Paiement en attente</option>' +
+      '          <option value="in_review">En cours</option>' +
+      '          <option value="needs_info">Infos requises</option>' +
+      '          <option value="approved">Validées</option>' +
+      '          <option value="rejected">Refusées</option>' +
+      '          <option value="all">Tout</option>' +
+      '        </select>' +
+      '        <select id="sp-filter-assigned" class="sp-select">' +
+      '          <option value="all">Toutes</option>' +
+      '          <option value="me">Assignées à moi</option>' +
+      '          <option value="unassigned">Non assignées</option>' +
+      '        </select>' +
+      '        <select id="sp-filter-priority" class="sp-select">' +
+      '          <option value="all">Toutes priorités</option>' +
+      '          <option value="express">Express</option>' +
+      '          <option value="standard">Standard</option>' +
+      '        </select>' +
+      '        <button id="sp-refresh" class="sp-btn sp-btn-secondary" type="button">Rafraîchir</button>' +
+      '      </div>' +
+      '    </div>' +
+      '    <div class="sp-muted" style="margin-top:8px;">Connecté : ' + escHtml(currentUserName || '—') + '</div>' +
+      '    <div class="sp-grid" style="margin-top:16px;">' +
+      '      <div class="sp-col-list">' +
+      '        <div class="sp-card-title">File</div>' +
+      '        <div id="sp-list" class="sp-list"></div>' +
+      '      </div>' +
+      '      <div class="sp-col-detail">' +
+      '        <div class="sp-card-title">Dossier</div>' +
+      '        <div id="sp-detail"></div>' +
+      '      </div>' +
+      '    </div>' +
+      '  </div>' +
+      '</div>';
 
-    var wrap = document.createElement('div')
-    wrap.className = 'sosprescription-doctor'
+    el.list = document.getElementById('sp-list');
+    el.detail = document.getElementById('sp-detail');
+    el.statusSel = document.getElementById('sp-filter-status');
+    el.assignedSel = document.getElementById('sp-filter-assigned');
+    el.prioritySel = document.getElementById('sp-filter-priority');
+    el.refreshBtn = document.getElementById('sp-refresh');
 
-    var sandboxBadge = (cfg && cfg.sandbox && cfg.sandbox.testing_mode)
-      ? ' <span class="sp-badge sp-badge-sandbox">Sandbox</span>'
-      : '';
+    el.statusSel.value = state.filterStatus;
+    el.assignedSel.value = state.filterAssigned;
+    el.prioritySel.value = state.filterPriority;
 
-    wrap.innerHTML = ''
-      + '<div class="sp-card">'
-      + '  <div class="sp-top">'
-      + '    <div class="sp-title"><h2>Console médecin' + sandboxBadge + '</h2></div>'
-      + '    <div class="sp-toolbar">'
-      + '      <select id="sp-filter-status" class="sp-select">'
-      + '        <option value="pending">En attente</option>'
-      + '        <option value="payment_pending">Paiement en attente</option>'
-      + '        <option value="in_review">En cours</option>'
-      + '        <option value="needs_info">Infos requises</option>'
-      + '        <option value="approved">Validées</option>'
-      + '        <option value="rejected">Refusées</option>'
-      + '        <option value="all">Tout</option>'
-      + '      </select>'
-      + '      <select id="sp-filter-assigned" class="sp-select">'
-      + '        <option value="all">Toutes</option>'
-      + '        <option value="me">Assignées à moi</option>'
-      + '        <option value="unassigned">Non assignées</option>'
-      + '      </select>'
-      + '      <select id="sp-filter-priority" class="sp-select">'
-      + '        <option value="all">Toutes priorités</option>'
-      + '        <option value="express">Express</option>'
-      + '        <option value="standard">Standard</option>'
-      + '      </select>'
-      + '      <button id="sp-refresh" class="sp-btn sp-btn-secondary">Rafraîchir</button>'
-      + '    </div>'
-      + '  </div>'
-      + '  <div class="sp-muted">Connecté : ' + escHtml(currentUserName || ('Utilisateur #' + currentUserId)) + '</div>'
-      + '  <div id="sp-msg" class="sp-msg"></div>'
-      + '  <div class="sp-grid">'
-      + '    <div>'
-      + '      <div class="sp-section">'
-      + '        <h3>File</h3>'
-      + '        <div id="sp-list" class="sp-list"></div>'
-      + '      </div>'
-      + '    </div>'
-      + '    <div>'
-      + '      <div class="sp-section">'
-      + '        <h3>Dossier</h3>'
-      + '        <div id="sp-detail" class="sp-detail"></div>'
-      + '      </div>'
-      + '    </div>'
-      + '  </div>'
-      + '</div>'
+    el.statusSel.addEventListener('change', function () {
+      state.filterStatus = el.statusSel.value || 'pending';
+      fetchQueue(false);
+    });
+    el.assignedSel.addEventListener('change', function () {
+      state.filterAssigned = el.assignedSel.value || 'all';
+      fetchQueue(false);
+    });
+    el.prioritySel.addEventListener('change', function () {
+      state.filterPriority = el.prioritySel.value || 'all';
+      fetchQueue(false);
+    });
+    el.refreshBtn.addEventListener('click', function () {
+      fetchQueue(true);
+    });
 
-    root.appendChild(wrap)
-
-    el.msg = document.getElementById('sp-msg')
-    el.list = document.getElementById('sp-list')
-    el.detail = document.getElementById('sp-detail')
-    el.statusSel = document.getElementById('sp-filter-status')
-    el.assignedSel = document.getElementById('sp-filter-assigned')
-    el.prioritySel = document.getElementById('sp-filter-priority')
-    el.refreshBtn = document.getElementById('sp-refresh')
-
-    if (el.statusSel) el.statusSel.value = state.filterStatus
-    if (el.assignedSel) el.assignedSel.value = state.filterAssigned
-    if (el.prioritySel) el.prioritySel.value = state.filterPriority
-
-    if (el.statusSel) {
-      el.statusSel.addEventListener('change', function () {
-        state.filterStatus = String(el.statusSel.value || 'pending')
-        fetchQueue(true)
-      })
-    }
-
-    if (el.assignedSel) {
-      el.assignedSel.addEventListener('change', function () {
-        state.filterAssigned = String(el.assignedSel.value || 'all')
-        renderList()
-      })
-    }
-
-    if (el.prioritySel) {
-      el.prioritySel.addEventListener('change', function () {
-        state.filterPriority = String(el.prioritySel.value || 'all')
-        renderList()
-      })
-    }
-
-    if (el.refreshBtn) {
-      el.refreshBtn.addEventListener('click', function (e) {
-        e.preventDefault()
-        fetchQueue(true)
-        refreshSelected()
-      })
-    }
-
-    renderMsg()
-    renderList()
-    renderDetail()
+    renderList();
+    renderDetail();
   }
 
   function renderList() {
-    if (!el.list) return
+    if (!el.list) return;
 
-    if (state.listLoading) {
-      el.list.innerHTML = '<div class="sp-empty">Chargement…</div>'
-      return
+    if (state.listLoading && !state.list.length) {
+      el.list.innerHTML = '<div class="sp-card"><div class="sp-muted">Chargement de la file…</div></div>';
+      return;
     }
 
-    var items = safeArr(state.list)
-
-    // client-side filters
-    items = items.filter(function (it) {
+    var list = safeArr(state.list).filter(function (it) {
+      if (!it) return false;
       if (state.filterAssigned === 'me') {
-        return Number(it.doctor_user_id || 0) === currentUserId
+        return Number(it.doctor_user_id || 0) === currentUserId;
       }
       if (state.filterAssigned === 'unassigned') {
-        return !it.doctor_user_id
+        return Number(it.doctor_user_id || 0) < 1;
       }
-      return true
-    })
+      return true;
+    }).filter(function (it) {
+      if (state.filterPriority === 'all') return true;
+      return String(it.priority || '').toLowerCase() === String(state.filterPriority).toLowerCase();
+    });
 
-    items = items.filter(function (it) {
-      if (state.filterPriority === 'express') return String(it.priority || '') === 'express'
-      if (state.filterPriority === 'standard') return String(it.priority || '') === 'standard'
-      return true
-    })
-
-    // sort: express first, then newest
-    items.sort(function (a, b) {
-      var pa = String(a.priority || '') === 'express' ? 0 : 1
-      var pb = String(b.priority || '') === 'express' ? 0 : 1
-      if (pa !== pb) return pa - pb
-      var da = String(a.created_at || '')
-      var db = String(b.created_at || '')
-      return db.localeCompare(da)
-    })
-
-    if (items.length === 0) {
-      el.list.innerHTML = '<div class="sp-empty">Aucune demande.</div>'
-      return
+    if (!list.length) {
+      el.list.innerHTML = '<div class="sp-card"><div class="sp-muted">Aucun dossier.</div></div>';
+      return;
     }
 
-    var html = ''
-    items.forEach(function (it) {
-      var id = Number(it.id || 0)
-      var uid = String(it.uid || ('#' + id))
-      var st = statusMeta(it.status)
-      var pr = priorityMeta(it.priority)
-      var assignedToMe = Number(it.doctor_user_id || 0) === currentUserId
-      var badgeAssigned = assignedToMe ? '<span class="sp-badge">Assignée à moi</span>' : (it.doctor_user_id ? '<span class="sp-badge">Assignée</span>' : '')
-      var selected = (state.selectedId && Number(state.selectedId) === id) ? ' is-selected' : ''
+    var html = '';
+    list.forEach(function (it) {
+      var id = Number(it.id || 0);
+      var st = statusMeta(it.status);
+      var pr = priorityMeta(it.priority);
+      var assignedBadge = Number(it.doctor_user_id || 0) > 0
+        ? '<span class="sp-badge sp-badge-soft">Assigné</span>'
+        : '<span class="sp-badge sp-badge-soft">Libre</span>';
 
-      html += ''
-        + '<button class="sp-list-item' + selected + '" data-id="' + id + '">'
-        + '  <div class="sp-row">'
-        + '    <div class="sp-uid">' + escHtml(uid) + '</div>'
-        + '    <span class="' + escHtml(st.cls) + '">' + escHtml(st.label) + '</span>'
-        + '  </div>'
-        + '  <div class="sp-row" style="margin-top:6px;">'
-        + '    <div class="sp-muted">' + escHtml(String(it.created_at || '')) + '</div>'
-        + '    <span class="' + escHtml(pr.cls) + '">' + escHtml(pr.label) + '</span>'
-        + '  </div>'
-        + '  <div class="sp-row" style="margin-top:6px;">'
-        + '    <div class="sp-muted">' + escHtml(flowMeta(it.flow).label) + '</div>'
-        + '    ' + badgeAssigned
-        + '  </div>'
-        + '</button>'
-    })
+      html +=
+        '<button type="button" class="sp-list-item' + (Number(state.selectedId || 0) === id ? ' is-selected' : '') + '" data-id="' + id + '">' +
+        '  <div class="sp-row">' +
+        '    <div class="sp-uid">' + escHtml(String(it.uid || id)) + '</div>' +
+        '    <span class="' + escAttr(st.cls) + '">' + escHtml(st.label) + '</span>' +
+        '  </div>' +
+        '  <div class="sp-row" style="margin-top:6px;">' +
+        '    <div class="sp-muted">' + escHtml(String(it.created_at || '')) + '</div>' +
+        '    <span class="' + escAttr(pr.cls) + '">' + escHtml(pr.label) + '</span>' +
+        '  </div>' +
+        '  <div class="sp-row" style="margin-top:6px;">' +
+        '    <div class="sp-muted">' + escHtml(flowMeta(it.flow).label) + '</div>' +
+        '    ' + assignedBadge +
+        '  </div>' +
+        '</button>';
+    });
 
-    el.list.innerHTML = html
-
-    // bind
+    el.list.innerHTML = html;
     Array.prototype.slice.call(el.list.querySelectorAll('button[data-id]')).forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.preventDefault()
-        var id = Number(btn.getAttribute('data-id') || 0)
-        if (!id) return
-        selectCase(id)
-      })
-    })
-  }
-
-  function fileMapFromSelected() {
-    var map = {}
-    var files = state.selected ? safeArr(state.selected.files) : []
-    files.forEach(function (f) {
-      if (f && f.id) map[Number(f.id)] = f
-    })
-    return map
+      btn.addEventListener('click', function () {
+        var id = Number(btn.getAttribute('data-id') || 0);
+        if (id > 0) {
+          selectCase(id);
+        }
+      });
+    });
   }
 
   function renderDetail() {
-  if (!el.detail) return
+    if (!el.detail) return;
 
-  // No selection yet
-  if (!state.selectedId) {
-    el.detail.innerHTML =
-      '<div class="sp-card"><div class="sp-muted">Sélectionnez un dossier dans la file.</div></div>'
-    return
-  }
+    if (!state.selectedId) {
+      el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Sélectionnez un dossier dans la file.</div></div>';
+      return;
+    }
 
-  if (state.selectedLoading) {
-    el.detail.innerHTML =
-      '<div class="sp-card"><div class="sp-muted">Chargement du dossier…</div></div>'
-    return
-  }
+    if (state.detailLoading && !state.selected) {
+      el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Chargement du dossier…</div></div>';
+      return;
+    }
 
-  var rx = state.selected
-  if (!rx) {
-    el.detail.innerHTML =
-      '<div class="sp-card"><div class="sp-muted">Dossier introuvable.</div></div>'
-    return
-  }
+    var rx = state.selected;
+    if (!rx) {
+      el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Dossier introuvable.</div></div>';
+      return;
+    }
 
-  var st = statusMeta(rx.status)
-  var pr = priorityMeta(rx.priority)
-  var fl = flowMeta(rx.flow)
+    var st = statusMeta(rx.status);
+    var pr = priorityMeta(rx.priority);
+    var fl = flowMeta(rx.flow);
+    var detailNoticeHtml = '';
+    var decisionNoticeHtml = '';
 
-  var patientName = rx.patient_name || 'Patient'
-  var age = rx.patient_age_label || ''
-  var dob = rx.patient_dob || ''
+    if (state.noticeText) {
+      if (state.noticeScope === 'decision') {
+        decisionNoticeHtml = '<div class="sp-inline-notice">' + renderNoticeHtml(state.noticeType, state.noticeText) + '</div>';
+      } else {
+        detailNoticeHtml = '<div class="sp-inline-notice">' + renderNoticeHtml(state.noticeType, state.noticeText) + '</div>';
+      }
+    }
 
-  var patientLine = escHtml(patientName)
-  if (age) patientLine += ' <span class="sp-muted">• ' + escHtml(age) + '</span>'
-  if (dob) patientLine += ' <span class="sp-muted">• ' + escHtml(dob) + '</span>'
+    var patientLine = escHtml(rx.patient_name || 'Patient');
+    if (rx.patient_age_label) patientLine += ' <span class="sp-muted">• ' + escHtml(rx.patient_age_label) + '</span>';
+    if (rx.patient_dob) patientLine += ' <span class="sp-muted">• ' + escHtml(rx.patient_dob) + '</span>';
 
-  var created = rx.created_at ? escHtml(rx.created_at) : '—'
-  var uid = rx.uid ? escHtml(rx.uid) : String(state.selectedId)
+    var uid = rx.uid ? escHtml(rx.uid) : String(state.selectedId);
+    var created = rx.created_at ? escHtml(rx.created_at) : '—';
+    var items = safeArr(rx.items);
+    var files = safeArr(rx.files);
+    var messages = safeArr(state.messages);
+    var rxPdfFiles = files.filter(function (f) { return f && f.purpose === 'rx_pdf'; });
+    var rxPdf = rxPdfFiles.length ? rxPdfFiles[rxPdfFiles.length - 1] : null;
+    var pdfState = state.pdfState || {};
+    var pdfStatus = String(pdfState.status || '').toLowerCase();
+    var pdfDownloadUrl = '';
+    var pdfDownloadName = 'ordonnance-' + uid + '.pdf';
+    var pdfCanDownload = false;
 
-  var items = Array.isArray(rx.items) ? rx.items : []
-  var medsHtml = items.length
-    ? '<ul class="sp-meds">' +
-      items
-        .map(function (it) {
-          // API retourne actuellement les items avec "denomination" (source BDPM)
-          // On garde des fallbacks pour compat.
-          var denom = it.denomination || it.label || it.name || '—'
-          var name = escHtml(denom)
-          var pos = escHtml(it.posologie || '')
-          return (
-            '<li class="sp-med">' +
-            '<div class="sp-med-name">' +
-            name +
-            '</div>' +
-            (pos ? '<div class="sp-muted sp-med-pos">' + pos + '</div>' : '') +
-            '</li>'
-          )
-        })
-        .join('') +
-      '</ul>'
-    : '<div class="sp-muted">Aucun médicament.</div>'
-
-  var files = Array.isArray(rx.files) ? rx.files : []
-  var rxpdfList = files.filter(function (f) {
-    return f.purpose === 'rx_pdf'
-  })
-  var rxpdf = rxpdfList.length ? rxpdfList[rxpdfList.length - 1] : null
-  var otherDocs = files.filter(function (f) {
-    return f.purpose !== 'rx_pdf'
-  })
-
-  // Documents (preuves + pièces jointes chat)
-  var docsHtml = ''
-  if (otherDocs.length) {
-    docsHtml =
-      '<div class="sp-card">' +
-      '<div class="sp-card-title">Documents</div>' +
-      otherDocs
-        .map(function (f) {
-          var name = escHtml(f.original_name || 'document')
-          var badge =
-            f.purpose === 'evidence'
-              ? '<span class="sp-badge sp-badge-soft">Preuve</span>'
-              : '<span class="sp-badge sp-badge-soft">PJ</span>'
-          return (
-            '<div class="sp-file-row">' +
-            '<div class="sp-file-main">' +
-            badge +
-            ' <span class="sp-file-name">' +
-            name +
-            '</span>' +
-            '<div class="sp-muted sp-file-meta">' +
-            escHtml(f.mime || '') +
-            (typeof f.size_bytes === 'number' ? ' • ' + prettyBytes(f.size_bytes) : '') +
-            '</div>' +
-            '</div>' +
-            '<div class="sp-file-actions">' +
-            '<button type="button" class="sp-btn sp-btn-secondary" data-dl-url="' +
-            escAttr(f.download_url) +
-            '" data-dl-name="' +
-            escAttr(f.original_name || 'document') +
-            '">Télécharger</button>' +
-            '</div>' +
-            '</div>'
-          )
-        })
-        .join('') +
-      '</div>'
-  }
-
-  // Messagerie (historique)
-  // Les messages sont chargés via l'endpoint /prescriptions/:id/messages.
-  // L'objet "rx" (prescription) ne contient pas l'historique.
-  var msgs = safeArr(state.messages)
-  var chatHistoryHtml = ''
-  if (msgs.length) {
-    chatHistoryHtml =
-      '<div class="sp-chat-history">' +
-      msgs
-        .map(function (m) {
-          var from = m.from === 'doctor' ? 'Médecin' : 'Patient'
-          var body = escHtml(m.body || '')
-          var ts = m.created_at ? escHtml(m.created_at) : ''
-          var attachments = Array.isArray(m.attachments) ? m.attachments : []
-          var attHtml = attachments.length
-            ? '<div class="sp-chat-att">' +
-              attachments
-                .map(function (a) {
-                  var aname = escHtml(a.original_name || 'pièce jointe')
-                  return (
-                    '<button type="button" class="sp-link" data-dl-url="' +
-                    escAttr(a.download_url) +
-                    '" data-dl-name="' +
-                    escAttr(a.original_name || 'piece-jointe') +
-                    '">📎 ' +
-                    aname +
-                    '</button>'
-                  )
-                })
-                .join('') +
-              '</div>'
-            : ''
-          return (
-            '<div class="sp-chat-msg">' +
-            '<div class="sp-chat-meta">' +
-            '<strong>' +
-            from +
-            '</strong>' +
-            (ts ? '<span class="sp-muted"> • ' + ts + '</span>' : '') +
-            '</div>' +
-            (body ? '<div class="sp-chat-body">' + body + '</div>' : '') +
-            attHtml +
-            '</div>'
-          )
-        })
-        .join('') +
-      '</div>'
-  }
-
-  // Inline messages (important on mobile / colonne étroite)
-  var inlineMsg = ''
-  if (state.error) {
-    inlineMsg = '<div class="sp-alert sp-alert-error">' + escHtml(state.error) + '</div>'
-  } else if (state.info) {
-    inlineMsg = '<div class="sp-alert sp-alert-info">' + escHtml(state.info) + '</div>'
-  }
-
-  var pdfState = state.pdfState || null
-  var pdfStatus = String(pdfState && pdfState.status ? pdfState.status : '').toLowerCase()
-
-  var pdfDownloadUrl = ''
-  var pdfDownloadName = 'ordonnance-' + uid + '.pdf'
-  var pdfCanDownload = false
-
-  if (rxpdf && rxpdf.download_url) {
-    pdfCanDownload = true
-    pdfDownloadUrl = String(rxpdf.download_url || '')
-    pdfDownloadName = String(rxpdf.original_name || pdfDownloadName)
-  }
-
-  if (pdfState && (pdfState.can_download || pdfStatus === 'done')) {
-    pdfCanDownload = !!(pdfState.download_url || pdfDownloadUrl)
+    if (rxPdf && rxPdf.download_url) {
+      pdfCanDownload = true;
+      pdfDownloadUrl = String(rxPdf.download_url || '');
+      pdfDownloadName = String(rxPdf.original_name || pdfDownloadName);
+    }
     if (pdfState.download_url) {
-      pdfDownloadUrl = String(pdfState.download_url)
+      pdfCanDownload = true;
+      pdfDownloadUrl = String(pdfState.download_url);
     }
-  }
 
-  var pdfBusy = !pdfCanDownload && (state.pdfPolling || pdfStatus === 'pending' || pdfStatus === 'processing')
-  var pdfFailed = !pdfCanDownload && (pdfStatus === 'failed' || pdfStatus === 'degraded')
+    var pdfBusy = !pdfCanDownload && (state.pdfPolling || pdfStatus === 'pending' || pdfStatus === 'processing');
+    var pdfDoneWithoutLink = !pdfCanDownload && pdfStatus === 'done';
+    var pdfFailed = !pdfCanDownload && (pdfStatus === 'failed' || pdfStatus === 'degraded');
 
-  var pdfActions = ''
-  if (pdfCanDownload && pdfDownloadUrl) {
-    pdfActions =
-      '<div class="sp-stack sp-gap">' +
-      '<div>' +
-      '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">PDF prêt au téléchargement.</div>' +
-      '</div>' +
-      '<button type="button" class="sp-btn sp-btn-primary" id="sp-download-rx" data-dl-url="' +
-      escAttr(pdfDownloadUrl) +
-      '" data-dl-name="' +
-      escAttr(pdfDownloadName) +
-      '" style="width:100%;justify-content:center">📥 Télécharger l’Ordonnance</button>' +
-      (pdfState && pdfState.expires_in ? '<div class="sp-muted">Lien sécurisé temporaire (' + escHtml(String(pdfState.expires_in)) + ' s).</div>' : '') +
-      '</div>'
-  } else if (pdfBusy) {
-    pdfActions =
-      '<div class="sp-stack sp-gap">' +
-      '<div>' +
-      '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">Le PDF est en cours de génération par le worker.</div>' +
-      '</div>' +
-      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx" disabled aria-disabled="true" aria-busy="true">⏳ Génération en cours...</button>' +
-      '<div class="sp-muted">Rafraîchissement automatique toutes les 2 secondes.</div>' +
-      '</div>'
-  } else if (pdfFailed) {
-    pdfActions =
-      '<div class="sp-stack sp-gap">' +
-      '<div>' +
-      '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">La dernière génération a échoué ou est temporairement indisponible.</div>' +
-      '</div>' +
-      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Relancer la génération</button>' +
-      (pdfState && pdfState.last_error_message ? '<div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message) + '</div>' : '') +
-      '</div>'
-  } else {
-    pdfActions =
-      '<div class="sp-stack sp-gap">' +
-      '<div>' +
-      '<div class="sp-strong">Ordonnance (PDF)</div>' +
-      '<div class="sp-muted">Avant validation, lancez la génération de l’ordonnance PDF.</div>' +
-      '</div>' +
-      '<button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Générer PDF</button>' +
-      '</div>'
-  }
+    var medsHtml = items.length
+      ? '<ul class="sp-meds">' + items.map(function (it) {
+          var denom = it.denomination || it.label || it.name || '—';
+          return '<li class="sp-med"><div class="sp-med-name">' + escHtml(denom) + '</div>' + (it.posologie ? '<div class="sp-muted">' + escHtml(it.posologie) + '</div>' : '') + '</li>';
+        }).join('') + '</ul>'
+      : '<div class="sp-muted">Aucun médicament.</div>';
 
-  var validateLabel = isSandbox ? 'Valider (mode test)' : (rx.payment_status === 'authorized' ? 'Valider (capture paiement)' : 'Valider')
-  var decisionLockedByPdf = pdfCanDownload
-  var approveDisabled = (decisionLockedByPdf || !rxpdf) ? 'disabled' : ''
-  var approveTitle = decisionLockedByPdf
-    ? ' title="Le PDF est prêt : utilisez le téléchargement." aria-disabled="true"'
-    : (rxpdf ? '' : ' title="Générez ou importez un PDF avant validation" aria-disabled="true"')
-
-  var noteHtml = rx.note ? '<div class="sp-muted">Note : ' + escHtml(rx.note) + '</div>' : ''
-
-  // Pattern "card stack" (aligné avec l'espace patient)
-  var dossierCard =
-    '<div class="sp-card">' +
-    '<div class="sp-card-title">Dossier</div>' +
-    '<div class="sp-row sp-between sp-gap sp-wrap">' +
-    '<div>' +
-    '<div class="sp-case-id"><span class="sp-mono">' +
-    uid +
-    '</span></div>' +
-    '<div class="sp-muted">' +
-    created +
-    (fl && fl.label ? ' • ' + escHtml(fl.label) : '') +
-    '</div>' +
-    '</div>' +
-    '<div class="sp-row sp-gap sp-wrap">' +
-    '<span class="sp-badge ' +
-    st.cls +
-    '">' +
-    st.label +
-    '</span>' +
-    '<span class="sp-badge ' +
-    pr.cls +
-    '">' +
-    pr.label +
-    '</span>' +
-    '</div>' +
-    '</div>' +
-    '</div>'
-
-  var patientCard =
-    '<div class="sp-card">' +
-    '<div class="sp-card-title">Patient</div>' +
-    '<div class="sp-patient-name">' +
-    patientLine +
-    '</div>' +
-    noteHtml +
-    '</div>'
-
-  var medsCard =
-    '<div class="sp-card">' +
-    '<div class="sp-card-title">Médicaments</div>' +
-    medsHtml +
-    '</div>'
-
-  // --- Messagerie (UI premium)
-  var icoChat = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>'
-  var icoPaperclip = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-8.49 8.49a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 0 1 4.95 4.95l-8.84 8.84a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg>'
-  var icoSend = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>'
-
-  var chatTitle = 'Messagerie'
-  var chatSubtitle = 'Espace d’échange sécurisé avec le patient.'
-
-  var chatHead =
-    '  <div class="sp-card-hdr sp-chat-hdr">' +
-    '    <div class="sp-chat-hdr-left">' +
-    '      <div class="sp-chat-hdr-icon" aria-hidden="true">' + icoChat + '</div>' +
-    '      <div>' +
-    '        <div class="sp-chat-title">' + escHtml(chatTitle) + '</div>' +
-    '        <div class="sp-chat-subtitle">' + escHtml(chatSubtitle) + '</div>' +
-    '      </div>' +
-    '    </div>' +
-    '    <div class="sp-pill sp-pill-success"><span class="sp-dot" aria-hidden="true"></span><span>Canal sécurisé actif</span></div>' +
-    '  </div>'
-
-  var composer =
-    '    <div class="sp-chat-composer sp-chat-composer-premium">' +
-    '      <input type="file" id="sp-compose-files" class="hidden" multiple accept="image/*,.pdf" />' +
-    '      <div class="sp-chat-input-wrap">' +
-    '        <button class="sp-chat-inset-btn" id="sp-compose-pick" type="button" aria-label="Ajouter un document">' + icoPaperclip + '</button>' +
-    '        <textarea id="sp-compose-body" class="sp-textarea sp-chat-textarea" rows="3" placeholder="Rédigez votre message ici..."></textarea>' +
-    '      </div>' +
-    '      <button class="sp-btn sp-btn-primary sp-chat-send" id="sp-send" type="button">' + icoSend + '<span>Envoyer</span></button>' +
-    '    </div>' +
-    '    <div id="sp-compose-att" class="sp-chat-attachments"></div>'
-
-  var readOnlyNote = '    <div class="sp-text-muted">La messagerie est en lecture seule pour un dossier clôturé.</div>'
-
-  // Variables attendues par le template (évite une erreur JS fatale).
-  // Historique : si vide, on affiche un placeholder discret.
-  var historyHtml = chatHistoryHtml || '<div class="sp-text-muted sp-chat-empty">Espace d’échange sécurisé avec le patient.</div>'
-  // Pour l'instant, on laisse la zone d'envoi disponible même après décision
-  // (le workflow serveur décidera d'accepter/refuser si besoin).
-  var showChat = true
-
-  var chatCard =
-    '<div class="sp-card sp-card-chat">' +
-    chatHead +
-    '  <div class="sp-card-body">' +
-    '    <div class="sp-chat-history-wrap">' + historyHtml + '</div>' +
-    (showChat ? composer : readOnlyNote) +
-    '    <div class="sp-chat-footnote">Échanges chiffrés (TLS).</div>' +
-    '  </div>' +
-    '</div>'
-
-  var actionsCard =
-    '<div class="sp-card">' +
-    '<div class="sp-card-title">Actions</div>' +
-    '<div class="sp-row sp-gap sp-wrap">' +
-    '<button type="button" class="sp-btn sp-btn-primary" id="sp-assign">Assigner à moi</button>' +
-    '<button type="button" class="sp-btn sp-btn-secondary" id="sp-set-wait">Mettre en attente</button>' +
-    '<button type="button" class="sp-btn sp-btn-secondary" id="sp-set-needs">Demander info</button>' +
-    '<button type="button" class="sp-btn sp-btn-secondary" id="sp-set-review">Marquer en cours</button>' +
-    '</div>' +
-    '</div>'
-
-  var decisionCard =
-    '<div class="sp-card">' +
-    '<div class="sp-card-title">Décision</div>' +
-    '<div class="sp-decision-card">' +
-    pdfActions +
-    (decisionLockedByPdf
-      ? ''
-      : ('<div class="sp-row sp-gap sp-wrap sp-mt">' +
-        '<button type="button" class="sp-btn sp-btn-success" id="sp-approve" ' +
-        approveDisabled +
-        approveTitle +
-        '>' +
-        validateLabel +
-        '</button>' +
-        '<button type="button" class="sp-btn sp-btn-danger" id="sp-reject">Refuser</button>' +
-        '</div>' +
-        '<div class="sp-mt">' +
-        '<label class="sp-label">Motif de refus (visible patient)</label>' +
-        '<textarea id="sp-reject-reason" rows="3" placeholder="Motif de refus…" class="sp-input"></textarea>' +
-        '</div>')) +
-    '</div>' +
-    '</div>'
-
-  el.detail.innerHTML =
-    inlineMsg +
-    '<div class="sp-stack">' +
-    dossierCard +
-    patientCard +
-    medsCard +
-    docsHtml +
-    chatCard +
-    actionsCard +
-    decisionCard +
-    '</div>'
-
-  // Bind events for new DOM
-  bind()
-}
-
-
-
-function bind() {
-  // Quick status/actions
-  var btnAssign = document.getElementById('sp-assign')
-  if (btnAssign) {
-    btnAssign.addEventListener('click', function (e) {
-      e.preventDefault()
-      doAssign()
-    })
-  }
-
-  var btnWait = document.getElementById('sp-set-wait')
-  if (btnWait) {
-    btnWait.addEventListener('click', function (e) {
-      e.preventDefault()
-      doSetStatus('pending')
-    })
-  }
-
-  var btnReview = document.getElementById('sp-set-review')
-  if (btnReview) {
-    btnReview.addEventListener('click', function (e) {
-      e.preventDefault()
-      doSetStatus('in_review')
-    })
-  }
-
-  var btnNeeds = document.getElementById('sp-set-needs')
-  if (btnNeeds) {
-    btnNeeds.addEventListener('click', function (e) {
-      e.preventDefault()
-      doSetStatus('needs_info')
-    })
-  }
-
-  // Chat composer
-  var inpBody = document.getElementById('sp-compose-body')
-  if (inpBody) {
-    inpBody.value = state.composeBody || ''
-    inpBody.addEventListener('input', function () {
-      state.composeBody = inpBody.value
-    })
-  }
-
-  var inpFiles = document.getElementById('sp-compose-files')
-  if (inpFiles) {
-    inpFiles.addEventListener('change', function () {
-      state.composeAttachments = safeArr(inpFiles.files)
-      updateComposeAttachmentHint()
-    })
-  }
-
-  var btnPick = document.getElementById('sp-compose-pick')
-  if (btnPick && inpFiles) {
-    btnPick.addEventListener('click', function (e) {
-      e.preventDefault()
-      inpFiles.click()
-    })
-  }
-
-  var btnSend = document.getElementById('sp-send')
-  if (btnSend) {
-    btnSend.addEventListener('click', function (e) {
-      e.preventDefault()
-      doSendMessage()
-    })
-  }
-
-  // Reject reason (must survive re-renders + used for API validation)
-  var inpReject = document.getElementById('sp-reject-reason')
-  if (inpReject) {
-    inpReject.value = state.rejectReason || ''
-    inpReject.addEventListener('input', function () {
-      state.rejectReason = inpReject.value
-    })
-  }
-
-  // PDF generation & upload
-  // (Robuste) Bind sur tous les boutons (dans certains layouts, plusieurs boutons peuvent coexister)
-  var genBtns = document.querySelectorAll('#sp-generate-rx')
-  genBtns.forEach(function (genBtn) {
-    genBtn.addEventListener('click', function (e) {
-      e.preventDefault()
-      if (genBtn.disabled) return
-      doGenerateRxPdf()
-    })
-  })
-
-  var rxInput = document.getElementById('sp-upload-rx')
-  if (rxInput) {
-    rxInput.addEventListener('change', function () {
-      var f = rxInput.files && rxInput.files[0]
-      if (f) uploadRxFile(f)
-    })
-  }
-
-  var btnPickRx = document.getElementById('sp-pick-rx')
-  if (btnPickRx && rxInput) {
-    btnPickRx.addEventListener('click', function (e) {
-      e.preventDefault()
-      rxInput.click()
-    })
-  }
-
-  // Decision buttons
-  var btnApprove = document.getElementById('sp-approve')
-  if (btnApprove) {
-    btnApprove.addEventListener('click', function (e) {
-      e.preventDefault()
-      doApprove()
-    })
-  }
-
-  var btnReject = document.getElementById('sp-reject')
-  if (btnReject) {
-    btnReject.addEventListener('click', function (e) {
-      e.preventDefault()
-      doReject()
-    })
-  }
-
-  // Download links/buttons
-  var dl = document.querySelectorAll('[data-dl-url]')
-  dl.forEach(function (node) {
-    node.addEventListener('click', function (e) {
-      e.preventDefault()
-      var url = node.getAttribute('data-dl-url')
-      var name = node.getAttribute('data-dl-name') || 'document'
-      if (url) downloadAny(url, name)
-    })
-  })
-}
-
-
-function updateComposeAttachmentHint() {
-  var elHint = document.getElementById('sp-compose-att')
-  if (!elHint) return
-
-  var files = safeArr(state.composeAttachments)
-  if (!files.length) {
-    elHint.textContent = ''
-    return
-  }
-
-  var names = files
-    .map(function (f) {
-      return f && f.name ? String(f.name) : 'fichier'
-    })
-    .join(', ')
-
-  elHint.textContent = 'Pièces jointes : ' + names
-}
-
-// Guards to avoid overlapping network calls (especially with auto-refresh).
-var queueInFlight = false
-var detailInFlight = false
-var lastQueueSig = ''
-var pendingQueue = null
-var pendingQueueSig = ''
-
-function fetchQueue(keepSelection, opts) {
-  opts = opts || {}
-  var silent = !!opts.silent
-
-  // Avoid overlapping calls
-  if (queueInFlight) return
-  queueInFlight = true
-
-  var initial = safeArr(state.list).length === 0
-
-  // UX: show "Chargement…" only on first load or explicit refresh.
-  if (!silent || initial) {
-    state.listLoading = true
-    renderList()
-    setError('')
-  }
-
-  var qs = '?limit=200&offset=0'
-  if (state.filterStatus && state.filterStatus !== 'all') {
-    qs += '&status=' + encodeURIComponent(state.filterStatus)
-  }
-
-  // Snapshot: used to decide if we should refresh the selected detail.
-  var prevList = safeArr(state.list)
-  var prevSelectedId = state.selectedId ? Number(state.selectedId) : null
-  var prevSelectedFromList = null
-  if (prevSelectedId) {
-    for (var i = 0; i < prevList.length; i++) {
-      var it = prevList[i]
-      if (Number(it && it.id ? it.id : 0) === prevSelectedId) {
-        prevSelectedFromList = it
-        break
-      }
+    var docsHtml = '';
+    var otherDocs = files.filter(function (f) { return f && f.purpose !== 'rx_pdf'; });
+    if (otherDocs.length) {
+      docsHtml = '<div class="sp-card"><div class="sp-card-title">Documents</div>' + otherDocs.map(function (f) {
+        return '<div class="sp-file-row">' +
+          '<div class="sp-file-main">' +
+          '<span class="sp-badge sp-badge-soft">' + escHtml(f.purpose === 'evidence' ? 'Preuve' : 'PJ') + '</span> ' +
+          '<span class="sp-file-name">' + escHtml(f.original_name || 'document') + '</span>' +
+          '<div class="sp-muted">' + escHtml(f.mime || '') + (typeof f.size_bytes === 'number' ? ' • ' + prettyBytes(f.size_bytes) : '') + '</div>' +
+          '</div>' +
+          '<div class="sp-file-actions"><button type="button" class="sp-btn sp-btn-secondary" data-dl-url="' + escAttr(f.download_url || '') + '" data-dl-name="' + escAttr(f.original_name || 'document') + '">Télécharger</button></div>' +
+          '</div>';
+      }).join('') + '</div>';
     }
-  }
-  var prevSelectedSig = itemSignature(prevSelectedFromList)
 
-  apiGet('/prescriptions' + qs)
-    .then(function (data) {
-      var newList = safeArr(data)
-      var newSig = listSignature(newList)
-      var changed = newSig !== lastQueueSig
-      lastQueueSig = newSig
+    var messagesHtml = messages.length
+      ? '<div class="sp-chat-history">' + messages.map(function (m) {
+          var attachments = safeArr(m.attachments);
+          var attHtml = attachments.length
+            ? '<div class="sp-chat-att">' + attachments.map(function (a) {
+                return '<button type="button" class="sp-link" data-dl-url="' + escAttr(a.download_url || '') + '" data-dl-name="' + escAttr(a.original_name || 'piece-jointe') + '">📎 ' + escHtml(a.original_name || 'pièce jointe') + '</button>';
+              }).join('') + '</div>'
+            : '';
+          return '<div class="sp-chat-msg"><div class="sp-chat-meta"><strong>' + escHtml(m.from === 'doctor' ? 'Médecin' : 'Patient') + '</strong>' + (m.created_at ? '<span class="sp-muted"> • ' + escHtml(m.created_at) + '</span>' : '') + '</div><div class="sp-chat-body">' + escHtml(m.body || '') + '</div>' + attHtml + '</div>';
+        }).join('') + '</div>'
+      : '<div class="sp-muted">Espace d’échange sécurisé avec le patient.</div>';
 
-      state.listLoading = false
-      queueInFlight = false
-
-      // Silent refresh: if nothing changed, do nothing (avoid UI "blink").
-      if (silent && !initial && !changed) {
-        return
-      }
-
-      // If the doctor is currently typing or editing a decision, postpone any DOM updates.
-      // This prevents the UI from "trembling" and avoids wiping in-progress text.
-      if (silent && !initial && changed && isUserBusy()) {
-        pendingQueue = newList
-        pendingQueueSig = newSig
-        return
-      }
-
-      // We are applying an update now -> clear any pending refresh snapshot.
-      pendingQueue = null
-      pendingQueueSig = ''
-
-      state.list = newList
-
-      // Selection policy
-      if (!keepSelection) {
-        if (
-          state.selectedId &&
-          safeArr(state.list).some(function (x) {
-            return Number(x.id || 0) === Number(state.selectedId)
-          })
-        ) {
-          // keep current selection
-        } else {
-          var first = safeArr(state.list)[0]
-          state.selectedId = first ? Number(first.id || 0) : null
-        }
-      } else {
-        // keep selection, but if nothing is selected yet and list has items, select first.
-        if ((!state.selectedId || Number(state.selectedId) < 1) && safeArr(state.list).length) {
-          state.selectedId = Number(state.list[0].id || 0)
-        }
-      }
-
-      // Render list (preserve scroll on silent refresh)
-      if (silent && !initial) {
-        renderListKeepScroll()
-      } else {
-        renderList()
-      }
-
-      // Refresh selected detail only when needed (avoid "Chargement du dossier…" every 15s).
-      if (state.selectedId) {
-        var sid = Number(state.selectedId)
-        var newSelectedFromList = null
-        for (var j = 0; j < newList.length; j++) {
-          var it2 = newList[j]
-          if (Number(it2 && it2.id ? it2.id : 0) === sid) {
-            newSelectedFromList = it2
-            break
-          }
-        }
-        var newSelectedSig = itemSignature(newSelectedFromList)
-
-        var shouldRefreshDetail = !silent
-        if (silent) {
-          shouldRefreshDetail = newSelectedSig !== '' && newSelectedSig !== prevSelectedSig
-        }
-
-        if (shouldRefreshDetail) {
-          refreshSelected({ silent: silent })
-        }
-      } else {
-        renderDetail()
-      }
-    })
-    .catch(function (err) {
-      state.listLoading = false
-      queueInFlight = false
-
-      if (!silent || initial) {
-        renderList()
-        setError(err && err.message ? err.message : 'Erreur chargement file')
-      } else {
-        // Silent refresh: do not spam UI, keep previous list.
-        try {
-          console.warn('[SOSPrescription] auto-refresh error', err)
-        } catch (e) {}
-      }
-    })
-}
-
-// Auto-refresh (polling) so new requests appear without manual refresh.
-// UX: refresh silencieux => pas de "blink" list/detail.
-// IMPORTANT: use setTimeout (not setInterval) to avoid overlapping ticks.
-// We also slow down slightly to make the refresh imperceptible.
-var autoRefreshTimer = null
-function startAutoRefresh() {
-  if (autoRefreshTimer) return
-
-  var intervalMs = 20000
-
-  function tick() {
-    try {
-      if (document && document.hidden) {
-        // Keep the loop alive, but do nothing when tab is hidden.
-        return
-      }
-      if (queueInFlight) return
-
-      // If a silent refresh snapshot was deferred while the doctor was typing,
-      // apply it as soon as the UI is idle (no extra network call needed).
-      if (pendingQueue && !isUserBusy()) {
-        var prevList = safeArr(state.list)
-        var prevSid = Number(state.selectedId || 0)
-        var prevIt = null
-        if (prevSid) {
-          for (var i = 0; i < prevList.length; i++) {
-            var it = prevList[i]
-            if (Number(it && it.id ? it.id : 0) === prevSid) {
-              prevIt = it
-              break
-            }
-          }
-        }
-        var prevSig = itemSignature(prevIt)
-
-        var newList = pendingQueue
-        pendingQueue = null
-        pendingQueueSig = ''
-
-        state.list = safeArr(newList)
-        state.listLoading = false
-
-        if ((!state.selectedId || Number(state.selectedId) < 1) && state.list.length) {
-          state.selectedId = Number(state.list[0].id || 0)
-        }
-
-        renderListKeepScroll()
-
-        if (state.selectedId) {
-          var sid = Number(state.selectedId)
-          var newIt = null
-          for (var j = 0; j < state.list.length; j++) {
-            var it2 = state.list[j]
-            if (Number(it2 && it2.id ? it2.id : 0) === sid) {
-              newIt = it2
-              break
-            }
-          }
-          var newSig = itemSignature(newIt)
-          if (newSig && newSig !== prevSig) {
-            refreshSelected({ silent: true })
-          }
-        } else {
-          renderDetail()
-        }
-        return
-      }
-
-      fetchQueue(true, { silent: true })
-    } catch (e) {
-      // best-effort
+    var pdfCardHtml = '';
+    if (pdfCanDownload && pdfDownloadUrl) {
+      pdfCardHtml = '<div class="sp-stack"><div><div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div><div class="sp-muted">PDF prêt au téléchargement.</div></div><button type="button" class="sp-btn sp-btn-primary sp-pdf-download" id="sp-download-rx" data-dl-url="' + escAttr(pdfDownloadUrl) + '" data-dl-name="' + escAttr(pdfDownloadName) + '">Télécharger l’Ordonnance</button>' + (pdfState.expires_in ? '<div class="sp-muted">Lien sécurisé temporaire (' + escHtml(String(pdfState.expires_in)) + ' s).</div>' : '') + '</div>';
+    } else if (pdfDoneWithoutLink) {
+      pdfCardHtml = '<div class="sp-stack"><div><div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div><div class="sp-muted">Le PDF est généré mais aucun lien de téléchargement n’est disponible.</div></div><div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).') + '</div></div>';
+    } else if (pdfBusy) {
+      pdfCardHtml = '<div class="sp-stack"><div><div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div><div class="sp-muted">Le PDF est en cours de génération par le worker.</div></div><button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx" disabled aria-disabled="true" aria-busy="true"><span class="sp-spinner">Génération en cours...</span></button><div class="sp-muted">Rafraîchissement automatique toutes les 2 secondes.</div></div>';
+    } else if (pdfFailed) {
+      pdfCardHtml = '<div class="sp-stack"><div><div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div><div class="sp-muted">La dernière génération a échoué ou est temporairement indisponible.</div></div><div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message || 'Le PDF est temporairement indisponible.') + '</div><button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Relancer la génération</button></div>';
+    } else {
+      pdfCardHtml = '<div class="sp-stack"><div><div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div><div class="sp-muted">Avant validation, générez l’ordonnance PDF.</div></div><button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx">Générer PDF</button></div>';
     }
+
+    var decisionLocked = pdfCanDownload || pdfBusy || pdfDoneWithoutLink || pdfFailed || String(rx.status || '').toLowerCase() === 'approved' || String(rx.status || '').toLowerCase() === 'rejected';
+    var validateLabel = isSandbox ? 'Valider (mode test)' : (String(rx.payment_status || '') === 'authorized' ? 'Valider (capture paiement)' : 'Valider');
+    var decisionButtons = decisionLocked ? '' : '<div class="sp-row" style="gap:10px;flex-wrap:wrap;margin-top:12px;"><button type="button" class="sp-btn sp-btn-success" id="sp-approve">' + escHtml(validateLabel) + '</button><button type="button" class="sp-btn sp-btn-danger" id="sp-reject">Refuser</button></div><div style="margin-top:12px;"><label class="sp-muted" for="sp-reject-reason">Motif de refus (visible patient)</label><textarea id="sp-reject-reason" rows="3" class="sp-input" placeholder="Motif de refus…">' + escHtml(state.rejectReason || '') + '</textarea></div>';
+
+    el.detail.innerHTML =
+      detailNoticeHtml +
+      '<div class="sp-stack">' +
+      '<div class="sp-card"><div class="sp-card-title">Dossier</div><div class="sp-row sp-wrap"><div><div class="sp-case-id"><span class="sp-mono">' + uid + '</span></div><div class="sp-muted">' + created + (fl.label ? ' • ' + escHtml(fl.label) : '') + '</div></div><div class="sp-row sp-wrap"><span class="' + escAttr(st.cls) + '">' + escHtml(st.label) + '</span><span class="' + escAttr(pr.cls) + '">' + escHtml(pr.label) + '</span></div></div></div>' +
+      '<div class="sp-card"><div class="sp-card-title">Patient</div><div>' + patientLine + '</div>' + (rx.note ? '<div class="sp-muted" style="margin-top:8px;">Note : ' + escHtml(rx.note) + '</div>' : '') + '</div>' +
+      '<div class="sp-card"><div class="sp-card-title">Médicaments</div>' + medsHtml + '</div>' +
+      docsHtml +
+      '<div class="sp-card"><div class="sp-card-title">Messagerie</div><div class="sp-muted" style="margin-bottom:10px;">Canal sécurisé actif.</div>' + messagesHtml + '<div class="sp-chat-composer" style="margin-top:12px;"><input type="file" id="sp-compose-files" class="hidden" multiple accept="image/*,.pdf" /><textarea id="sp-compose-body" class="sp-textarea" rows="3" placeholder="Rédigez votre message ici...">' + escHtml(state.composeBody || '') + '</textarea><div class="sp-row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap;"><button type="button" class="sp-btn sp-btn-secondary" id="sp-compose-pick">Ajouter un document</button><button type="button" class="sp-btn sp-btn-primary" id="sp-send">Envoyer</button></div><div id="sp-compose-att" class="sp-compose-att"></div><div class="sp-muted">Échanges chiffrés (TLS).</div></div></div>' +
+      '<div class="sp-card"><div class="sp-card-title">Actions</div><div class="sp-row" style="gap:10px;flex-wrap:wrap;"><button type="button" class="sp-btn sp-btn-primary" id="sp-assign">Assigner à moi</button><button type="button" class="sp-btn sp-btn-secondary" id="sp-set-wait">Mettre en attente</button><button type="button" class="sp-btn sp-btn-secondary" id="sp-set-needs">Demander info</button><button type="button" class="sp-btn sp-btn-secondary" id="sp-set-review">Marquer en cours</button></div></div>' +
+      '<div class="sp-card sp-decision-card"><div class="sp-card-title">Décision</div>' + decisionNoticeHtml + pdfCardHtml + decisionButtons + '</div>' +
+      '</div>';
+
+    bindDetailActions();
+    updateComposeAttachmentHint();
   }
 
-  function loop() {
-    tick()
-    autoRefreshTimer = window.setTimeout(loop, intervalMs)
+  function bindDetailActions() {
+    var btnAssign = document.getElementById('sp-assign');
+    if (btnAssign) btnAssign.addEventListener('click', doAssign);
+
+    var btnWait = document.getElementById('sp-set-wait');
+    if (btnWait) btnWait.addEventListener('click', function () { doSetStatus('pending'); });
+
+    var btnNeeds = document.getElementById('sp-set-needs');
+    if (btnNeeds) btnNeeds.addEventListener('click', function () { doSetStatus('needs_info'); });
+
+    var btnReview = document.getElementById('sp-set-review');
+    if (btnReview) btnReview.addEventListener('click', function () { doSetStatus('in_review'); });
+
+    var composeBody = document.getElementById('sp-compose-body');
+    if (composeBody) {
+      composeBody.addEventListener('input', function () {
+        state.composeBody = composeBody.value || '';
+      });
+    }
+
+    var composeFiles = document.getElementById('sp-compose-files');
+    if (composeFiles) {
+      composeFiles.addEventListener('change', function () {
+        uploadComposeFiles(composeFiles.files || []);
+        composeFiles.value = '';
+      });
+    }
+
+    var btnPick = document.getElementById('sp-compose-pick');
+    if (btnPick && composeFiles) {
+      btnPick.addEventListener('click', function () {
+        composeFiles.click();
+      });
+    }
+
+    var btnSend = document.getElementById('sp-send');
+    if (btnSend) btnSend.addEventListener('click', function () { doSendMessage(false); });
+
+    var btnGenerate = document.getElementById('sp-generate-rx');
+    if (btnGenerate) {
+      btnGenerate.addEventListener('click', function () {
+        if (!btnGenerate.disabled) doGenerateRxPdf();
+      });
+    }
+
+    var btnApprove = document.getElementById('sp-approve');
+    if (btnApprove) btnApprove.addEventListener('click', doApprove);
+
+    var btnReject = document.getElementById('sp-reject');
+    if (btnReject) {
+      btnReject.addEventListener('click', function () {
+        var textarea = document.getElementById('sp-reject-reason');
+        state.rejectReason = textarea && typeof textarea.value === 'string' ? textarea.value : '';
+        doReject();
+      });
+    }
+
+    var btnDownloadRx = document.getElementById('sp-download-rx');
+    if (btnDownloadRx) {
+      btnDownloadRx.addEventListener('click', function () {
+        var url = btnDownloadRx.getAttribute('data-dl-url') || '';
+        var name = btnDownloadRx.getAttribute('data-dl-name') || 'ordonnance.pdf';
+        downloadAny(url, name).catch(function (err) {
+          setNotice('error', err && err.message ? err.message : 'Erreur téléchargement', 'decision');
+        });
+      });
+    }
+
+    Array.prototype.slice.call(el.detail.querySelectorAll('[data-dl-url]')).forEach(function (node) {
+      if (node.id === 'sp-download-rx') return;
+      node.addEventListener('click', function () {
+        var url = node.getAttribute('data-dl-url') || '';
+        var name = node.getAttribute('data-dl-name') || 'document';
+        downloadAny(url, name).catch(function (err) {
+          setNotice('error', err && err.message ? err.message : 'Erreur téléchargement', 'detail');
+        });
+      });
+    });
   }
 
-  loop()
-}
-
-function stopAutoRefresh() {
-  if (!autoRefreshTimer) return
-  try {
-    window.clearTimeout(autoRefreshTimer)
-  } catch (e) {}
-  autoRefreshTimer = null
-}
+  function updateComposeAttachmentHint() {
+    var hint = document.getElementById('sp-compose-att');
+    if (!hint) return;
+    var ids = safeArr(state.composeAttachments);
+    hint.textContent = ids.length ? ('Pièces jointes prêtes : ' + ids.join(', ')) : '';
+  }
 
   function selectCase(id) {
-    if (!id) return
-    state.selectedId = Number(id)
-    state.selected = null
-    state.messages = []
-    state.composeAttachments = []
-    state.composeBody = ''
-    state.rejectReason = ''
-    state.pdfState = null
-    clearPdfPolling()
-
-    renderList()
-    refreshSelected()
+    state.selectedId = Number(id || 0);
+    state.selected = null;
+    state.messages = [];
+    state.composeBody = '';
+    state.composeAttachments = [];
+    state.rejectReason = '';
+    state.pdfState = null;
+    clearNotice();
+    clearPdfPolling();
+    renderList();
+    refreshSelected();
   }
 
-function refreshSelected(opts) {
-  opts = opts || {}
-  var silent = !!opts.silent
+  function refreshSelected(options) {
+    options = options || {};
+    if (!state.selectedId) {
+      renderDetail();
+      return;
+    }
 
-  if (!state.selectedId) {
-    renderDetail()
-    return
+    var selectedId = Number(state.selectedId);
+    state.detailLoading = !options.silent;
+    if (!options.silent) renderDetail();
+
+    Promise.all([
+      apiGet('/prescriptions/' + selectedId),
+      apiGet('/prescriptions/' + selectedId + '/messages?limit=200&offset=0').catch(function () { return []; }),
+      fetchPdfState({ silent: true }).catch(function () { return null; })
+    ]).then(function (results) {
+      if (Number(state.selectedId || 0) !== selectedId) return;
+      state.selected = results[0];
+      state.messages = safeArr(results[1]);
+      if (results[2]) state.pdfState = results[2];
+      state.detailLoading = false;
+      renderDetail();
+    }).catch(function (err) {
+      state.detailLoading = false;
+      setNotice('error', err && err.message ? err.message : 'Erreur chargement dossier', 'detail');
+      renderDetail();
+    });
   }
 
-  if (detailInFlight) return
-  detailInFlight = true
+  function fetchQueue(keepSelection, options) {
+    options = options || {};
+    state.listLoading = !options.silent;
+    if (!options.silent) renderList();
 
-  if (!silent) {
-    state.selectedLoading = true
-    state.messagesLoading = true
-    renderDetail()
+    var qs = '?limit=200&offset=0';
+    if (state.filterStatus && state.filterStatus !== 'all') {
+      qs += '&status=' + encodeURIComponent(state.filterStatus);
+    }
+
+    apiGet('/prescriptions' + qs).then(function (arr) {
+      state.list = safeArr(arr);
+      state.listLoading = false;
+      renderList();
+
+      if (!state.list.length) {
+        state.selectedId = null;
+        state.selected = null;
+        clearPdfPolling();
+        renderDetail();
+        return;
+      }
+
+      if (!keepSelection || !state.selectedId) {
+        state.selectedId = Number(state.list[0].id || 0);
+        refreshSelected();
+        return;
+      }
+
+      var exists = state.list.some(function (it) {
+        return Number(it.id || 0) === Number(state.selectedId || 0);
+      });
+      if (!exists) {
+        state.selectedId = Number(state.list[0].id || 0);
+      }
+
+      refreshSelected({ silent: !!options.silent });
+    }).catch(function (err) {
+      state.listLoading = false;
+      setNotice('error', err && err.message ? err.message : 'Erreur chargement file', 'detail');
+      renderList();
+      renderDetail();
+    });
   }
-
-  var id = state.selectedId
-
-  Promise.all([
-    apiGet('/prescriptions/' + id),
-    apiGet('/prescriptions/' + id + '/messages?limit=200&offset=0'),
-    fetchPdfState({ silent: true }).catch(function () { return null })
-  ])
-    .then(function (res) {
-      state.selected = res[0]
-      state.messages = safeArr(res[1])
-      if (res[2]) {
-        state.pdfState = res[2]
-      }
-      state.selectedLoading = false
-      state.messagesLoading = false
-      detailInFlight = false
-
-      // En refresh silencieux, éviter de casser la saisie en cours.
-      if (silent) {
-        var ae = document && document.activeElement
-        if (ae && (ae.id === 'sp-compose-body' || ae.id === 'sp-reject-reason')) {
-          return
-        }
-      }
-
-      renderDetail()
-    })
-    .catch(function (err) {
-      state.selectedLoading = false
-      state.messagesLoading = false
-      detailInFlight = false
-
-      if (!silent) {
-        setError(err && err.message ? err.message : 'Erreur chargement dossier')
-        // Important : sortir de l'état "Chargement du dossier…" et afficher l'erreur.
-        renderDetail()
-      } else {
-        try {
-          console.warn('[SOSPrescription] silent detail refresh error', err)
-        } catch (e) {}
-      }
-    })
-}
 
   function doAssign() {
-    if (!state.selectedId) return
-    setError('')
-    setInfo('Assignation…')
-
-    apiPostJson('/prescriptions/' + state.selectedId + '/assign', {})
-      .then(function () {
-        setInfo('Assignée à vous.')
-        fetchQueue(true)
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur assignation')
-      })
+    if (!state.selectedId) return;
+    setNotice('info', 'Assignation en cours…', 'detail');
+    apiPostJson('/prescriptions/' + state.selectedId + '/assign', {}).then(function () {
+      setNotice('success', 'Dossier assigné à vous.', 'detail');
+      fetchQueue(true, { silent: true });
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur assignation', 'detail');
+    });
   }
 
   function doSetStatus(status) {
-    if (!state.selectedId) return
-    setError('')
-    setInfo('Mise à jour statut…')
-
-    apiPostJson('/prescriptions/' + state.selectedId + '/status', { status: String(status) })
-      .then(function () {
-        setInfo('Statut mis à jour.')
-        fetchQueue(true)
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur statut')
-      })
+    if (!state.selectedId) return;
+    setNotice('info', 'Mise à jour du statut…', 'detail');
+    apiPostJson('/prescriptions/' + state.selectedId + '/status', { status: String(status) }).then(function () {
+      setNotice('success', 'Statut mis à jour.', 'detail');
+      fetchQueue(true, { silent: true });
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur statut', 'detail');
+    });
   }
 
   function uploadComposeFiles(fileList) {
-    if (!state.selectedId) return
-    var files = Array.prototype.slice.call(fileList)
-    if (files.length === 0) return
+    if (!state.selectedId) return;
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
 
-    setError('')
-    setInfo('Upload…')
+    setNotice('info', 'Upload des pièces jointes…', 'detail');
 
-    var chain = Promise.resolve([])
-    files.forEach(function (f) {
+    var chain = Promise.resolve([]);
+    files.forEach(function (file) {
       chain = chain.then(function (acc) {
-        return apiUploadFile(f, 'message', state.selectedId).then(function (uploaded) {
-          acc.push(uploaded)
-          return acc
-        })
-      })
-    })
+        return apiUploadFile(file, 'message', state.selectedId).then(function (uploaded) {
+          acc.push(uploaded);
+          return acc;
+        });
+      });
+    });
 
-    chain
-      .then(function (uploadedArr) {
-        var ids = safeArr(uploadedArr).map(function (u) { return Number(u.id || 0) }).filter(function (x) { return x > 0 })
-        state.composeAttachments = safeArr(state.composeAttachments).concat(ids)
-        setInfo(ids.length + ' fichier(s) prêt(s).')
-        updateComposeAttachmentHint()
-        // refresh to include in file list mapping
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur upload')
-      })
+    chain.then(function (uploadedArr) {
+      var ids = safeArr(uploadedArr).map(function (u) {
+        return Number(u && u.id ? u.id : 0);
+      }).filter(function (id) {
+        return id > 0;
+      });
+      state.composeAttachments = safeArr(state.composeAttachments).concat(ids);
+      setNotice('success', ids.length + ' fichier(s) prêt(s).', 'detail');
+      updateComposeAttachmentHint();
+      refreshSelected({ silent: true });
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur upload', 'detail');
+    });
   }
 
   function doSendMessage(andNeedsInfo) {
-    if (!state.selectedId) return
-    var body = String(state.composeBody || '').trim()
-    var att = safeArr(state.composeAttachments)
+    if (!state.selectedId) return;
+    var body = String(state.composeBody || '').trim();
+    var att = safeArr(state.composeAttachments);
 
     if (!body) {
-      setError('Message vide.')
-      return
+      setNotice('error', 'Message vide.', 'detail');
+      return;
     }
 
-    setError('')
-    setInfo('Envoi…')
-
+    setNotice('info', 'Envoi du message…', 'detail');
     apiPostJson('/prescriptions/' + state.selectedId + '/messages', {
       body: body,
       attachments: att.length ? att : undefined
-    })
-      .then(function () {
-        state.composeBody = ''
-        state.composeAttachments = []
-        updateComposeAttachmentHint()
-        setInfo('Message envoyé.')
-        if (andNeedsInfo) {
-          return apiPostJson('/prescriptions/' + state.selectedId + '/status', { status: 'needs_info' })
-        }
-      })
-      .then(function () {
-        fetchQueue(true)
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur envoi')
-      })
-  }
+    }).then(function () {
+      state.composeBody = '';
+      state.composeAttachments = [];
+      updateComposeAttachmentHint();
+      setNotice('success', 'Message envoyé.', 'detail');
 
-  function uploadRxFile(file) {
-    if (!state.selectedId) return
-    if (!file) return
-
-    setError('')
-    setInfo('Upload ordonnance…')
-
-    apiUploadFile(file, 'rx_pdf', state.selectedId)
-      .then(function () {
-        setInfo('Ordonnance déposée.')
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur upload ordonnance')
-      })
+      if (andNeedsInfo) {
+        return apiPostJson('/prescriptions/' + state.selectedId + '/status', { status: 'needs_info' });
+      }
+    }).then(function () {
+      refreshSelected({ silent: true });
+      renderDetail();
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur envoi', 'detail');
+    });
   }
 
   function doGenerateRxPdf() {
-    if (!state.selectedId) return
+    if (!state.selectedId) return;
 
-    clearPdfPolling()
-    setError('')
+    clearPdfPolling();
     state.pdfState = {
       status: 'pending',
       can_download: false,
@@ -1697,115 +1022,107 @@ function refreshSelected(opts) {
       last_error_message: '',
       s3_ready: false,
       message: ''
-    }
-    state.pdfPolling = true
-    setInfo('⏳ Génération PDF en cours...')
-    renderDetail()
+    };
+    state.pdfPolling = true;
+    setNotice('info', 'Génération en cours…', 'decision');
+    renderDetail();
 
-    apiPostJson('/prescriptions/' + state.selectedId + '/rx-pdf', {})
-      .then(function (resp) {
-        state.pdfState = normalizePdfState(resp)
+    apiPostJson('/prescriptions/' + state.selectedId + '/rx-pdf', {}).then(function (resp) {
+      state.pdfState = normalizePdfState(resp);
 
-        if (state.pdfState.can_download && state.pdfState.download_url) {
-          clearPdfPolling()
-          setInfo('PDF généré.')
-          refreshSelected({ silent: true })
-          renderDetail()
-          return
-        }
+      if (state.pdfState.can_download && state.pdfState.download_url) {
+        clearPdfPolling();
+        setNotice('success', 'PDF généré.', 'decision');
+        refreshSelected({ silent: true });
+        renderDetail();
+        return;
+      }
 
-        setInfo('⏳ Génération en cours...')
-        refreshSelected({ silent: true })
-        schedulePdfPolling()
-        renderDetail()
-      })
-      .catch(function (err) {
-        clearPdfPolling()
-        state.pdfState = {
-          status: 'failed',
-          can_download: false,
-          download_url: '',
-          expires_in: 0,
-          job_id: 0,
-          req_id: '',
-          last_error_code: '',
-          last_error_message: err && err.message ? err.message : 'Erreur génération PDF',
-          s3_ready: false,
-          message: ''
-        }
-        setError(err && err.message ? err.message : 'Erreur génération PDF')
-        renderDetail()
-      })
-  }
+      if (state.pdfState.status === 'done' && !state.pdfState.download_url) {
+        clearPdfPolling();
+        setNotice('error', state.pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).', 'decision');
+        renderDetail();
+        return;
+      }
 
-  function doReject() {
-    if (!state.selectedId) return
-    // Read from DOM first (polling/re-render safe), then from state fallback.
-    var reason = ''
-    var elReason = document.getElementById('sp-reject-reason')
-    if (elReason && typeof elReason.value === 'string') {
-      reason = elReason.value
-    }
-    if (!reason) {
-      reason = state.rejectReason || ''
-    }
-    reason = String(reason).trim()
-    state.rejectReason = reason
-    if (!reason) {
-      setError('Motif de refus requis.')
-      return
-    }
-    if (!window.confirm('Confirmer le refus ?')) return
-
-    setError('')
-    setInfo('Refus…')
-
-    apiPostJson('/prescriptions/' + state.selectedId + '/decision', {
-      decision: 'rejected',
-      reason: reason
-    })
-      .then(function () {
-        setInfo('Demande refusée.')
-        fetchQueue(true)
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur refus')
-      })
+      setNotice('info', 'Génération en cours…', 'decision');
+      refreshSelected({ silent: true });
+      schedulePdfPolling();
+      renderDetail();
+    }).catch(function (err) {
+      clearPdfPolling();
+      state.pdfState = {
+        status: 'failed',
+        can_download: false,
+        download_url: '',
+        expires_in: 0,
+        job_id: 0,
+        req_id: '',
+        last_error_code: '',
+        last_error_message: err && err.message ? err.message : 'Erreur génération PDF',
+        s3_ready: false,
+        message: ''
+      };
+      setNotice('error', state.pdfState.last_error_message, 'decision');
+      renderDetail();
+    });
   }
 
   function doApprove() {
-    if (!state.selectedId) return
-    if (!window.confirm('Confirmer la validation ? (capture paiement si applicable)')) return
+    if (!state.selectedId) return;
 
-    setError('')
-    setInfo('Validation…')
+    setNotice('info', 'Validation en cours…', 'decision');
+    apiPostJson('/prescriptions/' + state.selectedId + '/decision', { decision: 'approved' }).then(function (resp) {
+      if (resp && resp.pdf) {
+        state.pdfState = normalizePdfState(resp);
+      }
 
+      if (state.pdfState && state.pdfState.can_download && state.pdfState.download_url) {
+        setNotice('success', 'PDF généré.', 'decision');
+      } else if (state.pdfState && state.pdfState.status === 'done' && !state.pdfState.download_url) {
+        setNotice('error', state.pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).', 'decision');
+      } else {
+        setNotice('success', (resp && resp.message) ? resp.message : 'Ordonnance validée.', 'decision');
+      }
+
+      fetchQueue(true, { silent: true });
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur validation', 'decision');
+    });
+  }
+
+  function doReject() {
+    if (!state.selectedId) return;
+
+    var textarea = document.getElementById('sp-reject-reason');
+    var reason = textarea && typeof textarea.value === 'string' ? textarea.value : (state.rejectReason || '');
+
+    setNotice('info', 'Refus en cours…', 'decision');
     apiPostJson('/prescriptions/' + state.selectedId + '/decision', {
-      decision: 'approved'
-    })
-      .then(function (resp) {
-        var pdf = normalizePdfState(resp)
-        if (pdf && (pdf.status || pdf.can_download)) {
-          state.pdfState = pdf
-        }
-        setInfo(resp && resp.message ? resp.message : 'Demande validée.')
-        fetchQueue(true)
-        refreshSelected()
-      })
-      .catch(function (err) {
-        setError(err && err.message ? err.message : 'Erreur validation')
-      })
+      decision: 'rejected',
+      reason: reason
+    }).then(function () {
+      state.rejectReason = '';
+      setNotice('success', 'Ordonnance refusée.', 'decision');
+      clearPdfPolling();
+      fetchQueue(true, { silent: true });
+    }).catch(function (err) {
+      setNotice('error', err && err.message ? err.message : 'Erreur refus', 'decision');
+    });
   }
 
-  // init
-  renderShell()
-
-  if (!currentUserId || currentUserId < 1) {
-    setError('Connexion requise. Merci de vous connecter.')
-    return
+  function startAutoRefresh() {
+    function loop() {
+      if (!isUserBusy()) {
+        fetchQueue(true, { silent: true });
+      }
+      window.setTimeout(loop, 15000);
+    }
+    window.setTimeout(loop, 15000);
   }
 
-  fetchQueue(false)
-  startAutoRefresh()
-})()
+  ensureInlineStyle();
+  renderShell();
+  fetchQueue(false);
+  startAutoRefresh();
+})();

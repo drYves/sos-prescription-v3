@@ -103,18 +103,6 @@ final class Autoloader
         return ltrim($relative, '\\');
     }
 
-    private static function buildNominalPath(string $class): string
-    {
-        $relativeClass = self::stripRootNamespace($class);
-        if ($relativeClass === null || $relativeClass === '') {
-            return self::$baseDir;
-        }
-
-        $relativePath = str_replace('\\', DIRECTORY_SEPARATOR, $relativeClass) . '.php';
-
-        return self::normalizePath(self::$baseDir . DIRECTORY_SEPARATOR . $relativePath);
-    }
-
     /**
      * @param array<int, string> $segments
      */

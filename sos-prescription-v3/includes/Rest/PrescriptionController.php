@@ -1,5 +1,4 @@
-<?php
-// includes/Rest/PrescriptionController.php
+<?php // includes/Rest/PrescriptionController.php
 declare(strict_types=1);
 
 namespace SOSPrescription\Rest;
@@ -274,8 +273,9 @@ class PrescriptionController extends \WP_REST_Controller
             }
 
             $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
+            $pdf = $this->enrich_pdf_state_for_response($id, $pdf);
 
-            return new WP_REST_Response([
+            $response = [
                 'id' => $id,
                 'decision' => $decision,
                 'req_id' => $req_id,
@@ -284,7 +284,16 @@ class PrescriptionController extends \WP_REST_Controller
                 'dispatch' => isset($dispatch['dispatch']) && is_array($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
                 'pdf' => $pdf,
                 'message' => $this->message_for_pdf_state($pdf),
-            ], ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
+            ];
+
+            if (!empty($pdf['download_url']) && is_string($pdf['download_url'])) {
+                $response['download_url'] = $pdf['download_url'];
+            }
+            if (!empty($pdf['expires_in'])) {
+                $response['expires_in'] = (int) $pdf['expires_in'];
+            }
+
+            return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
         }
 
         return new WP_REST_Response([
@@ -393,8 +402,20 @@ class PrescriptionController extends \WP_REST_Controller
             ], 202);
         }
 
-        $status_code = (isset($dispatch['pdf']['status']) && $dispatch['pdf']['status'] === 'done') ? 200 : 202;
-        return new WP_REST_Response($dispatch, $status_code);
+        $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, $pdf);
+
+        $payload = $dispatch;
+        $payload['pdf'] = $pdf;
+        if (!empty($pdf['download_url']) && is_string($pdf['download_url'])) {
+            $payload['download_url'] = $pdf['download_url'];
+        }
+        if (!empty($pdf['expires_in'])) {
+            $payload['expires_in'] = (int) $pdf['expires_in'];
+        }
+
+        $status_code = (($pdf['status'] ?? 'pending') === 'done') ? 200 : 202;
+        return new WP_REST_Response($payload, $status_code);
     }
 
     public function get_pdf_status($request)
@@ -402,9 +423,12 @@ class PrescriptionController extends \WP_REST_Controller
         $request = $this->ensure_rest_request($request);
         $prescription_id = (int) $request->get_param('id');
 
+        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
+
         return new WP_REST_Response([
             'prescription_id' => $prescription_id,
-            'pdf' => $this->jobs->get_public_state_for_rx_id($prescription_id),
+            'pdf' => $pdf,
         ], 200);
     }
 
@@ -426,12 +450,25 @@ class PrescriptionController extends \WP_REST_Controller
         if (!empty($done_job)) {
             $download_url = $this->build_presigned_s3_url_from_job($done_job, 60);
             if (is_wp_error($download_url)) {
-                return $download_url;
+                $pdf = $this->build_pdf_error_state_from_job($done_job, $download_url);
+
+                return new WP_REST_Response([
+                    'prescription_id' => $prescription_id,
+                    'pdf' => $pdf,
+                    'message' => $pdf['last_error_message'],
+                ], 200);
             }
+
+            $pdf = $this->jobs->public_projection($done_job);
+            $pdf['can_download'] = true;
+            $pdf['download_url'] = $download_url;
+            $pdf['expires_in'] = 60;
+            $pdf['last_error_code'] = null;
+            $pdf['last_error_message'] = null;
 
             return new WP_REST_Response([
                 'prescription_id' => $prescription_id,
-                'pdf' => $this->jobs->public_projection($done_job),
+                'pdf' => $pdf,
                 'download_url' => $download_url,
                 'expires_in' => 60,
             ], 200);
@@ -456,19 +493,47 @@ class PrescriptionController extends \WP_REST_Controller
                 ], 202);
             }
 
-            return new WP_REST_Response([
+            $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
+            $pdf = $this->enrich_pdf_state_for_response($prescription_id, $pdf);
+
+            $response = [
                 'prescription_id' => $prescription_id,
-                'pdf' => isset($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'],
+                'pdf' => $pdf,
                 'dispatch' => isset($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
-                'message' => 'PDF en cours de génération.',
-            ], 202);
+                'message' => ($pdf['status'] ?? 'pending') === 'done'
+                    ? $this->message_for_pdf_state($pdf)
+                    : 'PDF en cours de génération.',
+            ];
+
+            if (!empty($pdf['download_url']) && is_string($pdf['download_url'])) {
+                $response['download_url'] = $pdf['download_url'];
+            }
+            if (!empty($pdf['expires_in'])) {
+                $response['expires_in'] = (int) $pdf['expires_in'];
+            }
+
+            return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
         }
 
-        return new WP_REST_Response([
+        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
+
+        $response = [
             'prescription_id' => $prescription_id,
-            'pdf' => $this->jobs->get_public_state_for_rx_id($prescription_id),
-            'message' => 'PDF en cours de génération.',
-        ], 202);
+            'pdf' => $pdf,
+            'message' => ($pdf['status'] ?? 'pending') === 'done'
+                ? $this->message_for_pdf_state($pdf)
+                : 'PDF en cours de génération.',
+        ];
+
+        if (!empty($pdf['download_url']) && is_string($pdf['download_url'])) {
+            $response['download_url'] = $pdf['download_url'];
+        }
+        if (!empty($pdf['expires_in'])) {
+            $response['expires_in'] = (int) $pdf['expires_in'];
+        }
+
+        return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
     }
 
     /**
@@ -512,6 +577,8 @@ class PrescriptionController extends \WP_REST_Controller
             'req_id' => $req_id,
             'can_download' => false,
             's3_ready' => false,
+            'last_error_code' => $error->get_error_code(),
+            'last_error_message' => $error->get_error_message(),
             'error' => [
                 'code' => $error->get_error_code(),
                 'message' => $error->get_error_message(),
@@ -527,6 +594,10 @@ class PrescriptionController extends \WP_REST_Controller
         $status = isset($pdf_state['status']) ? (string) $pdf_state['status'] : 'pending';
 
         if ($status === 'done') {
+            if (empty($pdf_state['can_download'])) {
+                $last_error = isset($pdf_state['last_error_message']) ? (string) $pdf_state['last_error_message'] : '';
+                return $last_error !== '' ? $last_error : 'PDF généré mais lien de téléchargement indisponible.';
+            }
             return 'Validation enregistrée. PDF disponible.';
         }
 
@@ -535,7 +606,8 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         if ($status === 'degraded') {
-            return 'Validation enregistrée. Service PDF ralenti ; le document sera disponible sous peu.';
+            $last_error = isset($pdf_state['last_error_message']) ? (string) $pdf_state['last_error_message'] : '';
+            return $last_error !== '' ? $last_error : 'Validation enregistrée. Service PDF ralenti ; le document sera disponible sous peu.';
         }
 
         return 'Validation enregistrée. PDF en cours de génération.';
@@ -554,6 +626,9 @@ class PrescriptionController extends \WP_REST_Controller
         return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'y', 'on'], true);
     }
 
+    /**
+     * @param array<string, mixed> $job
+     */
     protected function build_presigned_s3_url_from_job(array $job, $ttl = 60)
     {
         $ttl = max(1, min(604800, (int) $ttl));
@@ -569,7 +644,11 @@ class PrescriptionController extends \WP_REST_Controller
         $endpoint = $this->get_env_or_constant('SOSPRESCRIPTION_S3_ENDPOINT', $this->get_env_or_constant('AWS_ENDPOINT_URL_S3'));
 
         if ($key === '' || $bucket === '' || $region === '') {
-            return new WP_Error('sosprescription_s3_config_missing', 'Configuration S3 incomplète pour la présignature.', ['status' => 500]);
+            return new WP_Error(
+                'sosprescription_s3_config_missing',
+                'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+                ['status' => 500]
+            );
         }
 
         $credentials = $this->resolve_s3_credentials();
@@ -637,7 +716,11 @@ class PrescriptionController extends \WP_REST_Controller
         $session = $this->get_env_or_constant('SOSPRESCRIPTION_S3_SESSION_TOKEN', $this->get_env_or_constant('AWS_SESSION_TOKEN'));
 
         if ($access_key === '' || $secret_key === '') {
-            return new WP_Error('sosprescription_s3_credentials_missing', 'Identifiants S3 manquants pour la présignature.', ['status' => 500]);
+            return new WP_Error(
+                'sosprescription_s3_credentials_missing',
+                'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+                ['status' => 500]
+            );
         }
 
         return [
@@ -703,6 +786,68 @@ class PrescriptionController extends \WP_REST_Controller
     protected function aws_uri_encode(string $value): string
     {
         return str_replace('%7E', '~', rawurlencode($value));
+    }
+
+    /**
+     * @param array<string, mixed> $pdf
+     * @return array<string, mixed>
+     */
+    protected function enrich_pdf_state_for_response(int $prescription_id, array $pdf): array
+    {
+        $status = isset($pdf['status']) ? strtolower((string) $pdf['status']) : '';
+        $download_url = isset($pdf['download_url']) ? (string) $pdf['download_url'] : '';
+
+        if ($download_url !== '') {
+            $pdf['can_download'] = true;
+            if (!isset($pdf['expires_in'])) {
+                $pdf['expires_in'] = 60;
+            }
+            return $pdf;
+        }
+
+        if ($status !== 'done') {
+            return $pdf;
+        }
+
+        $done_job = $this->jobs->get_latest_done_by_rx_id($prescription_id);
+        if (empty($done_job)) {
+            return $pdf;
+        }
+
+        $presigned = $this->build_presigned_s3_url_from_job($done_job, 60);
+        if (is_wp_error($presigned)) {
+            return $this->build_pdf_error_state_from_job($done_job, $presigned, $pdf);
+        }
+
+        $pdf['status'] = 'done';
+        $pdf['can_download'] = true;
+        $pdf['s3_ready'] = true;
+        $pdf['download_url'] = $presigned;
+        $pdf['expires_in'] = 60;
+        $pdf['last_error_code'] = null;
+        $pdf['last_error_message'] = null;
+
+        return $pdf;
+    }
+
+    /**
+     * @param array<string, mixed> $job
+     * @param array<string, mixed>|null $base_pdf
+     * @return array<string, mixed>
+     */
+    protected function build_pdf_error_state_from_job(array $job, WP_Error $error, ?array $base_pdf = null): array
+    {
+        $pdf = is_array($base_pdf) ? $base_pdf : $this->jobs->public_projection($job);
+
+        $pdf['status'] = isset($pdf['status']) ? (string) $pdf['status'] : 'done';
+        $pdf['can_download'] = false;
+        $pdf['s3_ready'] = false;
+        $pdf['download_url'] = '';
+        $pdf['expires_in'] = 0;
+        $pdf['last_error_code'] = $error->get_error_code();
+        $pdf['last_error_message'] = $error->get_error_message();
+
+        return $pdf;
     }
 
     private static function str_len(string $value): int
