@@ -646,7 +646,7 @@ class PrescriptionController extends \WP_REST_Controller
         if ($key === '' || $bucket === '' || $region === '') {
             return new WP_Error(
                 'sosprescription_s3_config_missing',
-                'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+                'Erreur de configuration S3 : lien de téléchargement impossible à générer.',
                 ['status' => 500]
             );
         }
@@ -718,7 +718,7 @@ class PrescriptionController extends \WP_REST_Controller
         if ($access_key === '' || $secret_key === '') {
             return new WP_Error(
                 'sosprescription_s3_credentials_missing',
-                'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+                'Erreur de configuration S3 : lien de téléchargement impossible à générer.',
                 ['status' => 500]
             );
         }

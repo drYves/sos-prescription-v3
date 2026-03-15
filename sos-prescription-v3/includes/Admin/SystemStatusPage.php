@@ -37,7 +37,7 @@ final class SystemStatusPage
         );
 
         $summary = self::compute_summary($checks);
-        $storage = StorageCleaner::get_status_snapshot();
+        $storage = StorageCleaner::get_storage_snapshot();
 
         ?>
         <div class="wrap sp-ui">

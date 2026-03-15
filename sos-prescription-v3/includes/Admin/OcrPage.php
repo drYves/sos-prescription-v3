@@ -21,11 +21,12 @@ final class OcrPage
 
         $updated = isset($_GET['updated']) && (string) $_GET['updated'] === '1';
 
-        $enabled  = (bool) get_option(OcrConfig::OPTION_KEY_ENABLED, true);
-        $debug    = (bool) get_option(OcrConfig::OPTION_KEY_DEBUG, false);
-        $keywords = (string) get_option(OcrConfig::OPTION_KEY_KEYWORDS, '');
+        $ocr_public = OcrConfig::public_data();
+        $enabled  = OcrConfig::is_enabled();
+        $debug    = OcrConfig::is_debug_enabled();
+        $keywords = OcrConfig::get_keywords_raw();
 
-        $keywords_regex = (string) (OcrConfig::public_data()['client']['keywords_regex'] ?? '');
+        $keywords_regex = (string) ($ocr_public['client']['keywords_regex'] ?? '');
 
         $plugin_path = defined('SOSPRESCRIPTION_PATH') ? (string) SOSPRESCRIPTION_PATH : '';
         $plugin_url  = defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL : '';
@@ -153,9 +154,9 @@ final class OcrPage
             $keywords = trim($keywords);
         }
 
-        update_option(OcrConfig::OPTION_KEY_ENABLED, (bool) $enabled, false);
-        update_option(OcrConfig::OPTION_KEY_DEBUG, (bool) $debug, false);
-        update_option(OcrConfig::OPTION_KEY_KEYWORDS, $keywords, false);
+        update_option(OcrConfig::option_key_enabled(), (bool) $enabled, false);
+        update_option(OcrConfig::option_key_debug(), (bool) $debug, false);
+        update_option(OcrConfig::option_key_keywords(), $keywords, false);
 
         Audit::log('config_ocr_client_update', 'config', null, null, [
             'enabled' => (bool) $enabled,

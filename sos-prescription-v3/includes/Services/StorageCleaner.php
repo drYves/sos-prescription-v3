@@ -28,15 +28,11 @@ final class StorageCleaner
         add_action(self::CRON_HOOK, [self::class, 'run_scheduled']);
         add_action('admin_post_' . self::ACTION_FORCE_CLEANUP, [self::class, 'handle_force_cleanup']);
 
-        add_action('wp_loaded', static function (): void {
-            self::ensure_cron_scheduled();
-        }, 20);
-
         add_action('action_scheduler_init', static function (): void {
             self::ensure_cron_scheduled();
         }, 20);
 
-        if (did_action('action_scheduler_init') > 0 || did_action('wp_loaded') > 0) {
+        if (did_action('action_scheduler_init') > 0) {
             self::ensure_cron_scheduled();
         }
     }
@@ -64,7 +60,7 @@ final class StorageCleaner
             return false;
         }
 
-        if (did_action('wp_loaded') < 1) {
+        if (did_action('action_scheduler_init') < 1) {
             return false;
         }
 
@@ -195,6 +191,17 @@ final class StorageCleaner
     /**
      * @return array<string,mixed>
      */
+
+    /**
+     * Compat alias used by diagnostics/admin screens.
+     *
+     * @return array<string,mixed>
+     */
+    public static function get_status_snapshot(): array
+    {
+        return self::get_storage_snapshot();
+    }
+
     public static function get_storage_snapshot(): array
     {
         $fs = self::get_filesystem();

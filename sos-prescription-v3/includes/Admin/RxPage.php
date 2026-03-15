@@ -548,7 +548,7 @@ class RxPage
         echo '</div>';
 
         } catch (\Throwable $e) {
-            Logger::error('admin', 'rx_page_render_exception', [
+            Logger::log_scoped('runtime', 'rx', 'error', 'rx_page_render_exception', [
                 'req_id' => $req_id,
                 'error'  => $e->getMessage(),
                 'file'   => $e->getFile(),
@@ -612,7 +612,7 @@ class RxPage
         }
         if (stripos($contents, '{{UID}}') === false) {
             // Not blocking, but warn in logs
-            Logger::warning('rx_template_upload_missing_uid_placeholder', ['name' => $name]);
+            Logger::log_scoped('runtime', 'rx', 'warning', 'rx_template_upload_missing_uid_placeholder', ['name' => $name]);
         }
 
         $dir = self::upload_override_dir();

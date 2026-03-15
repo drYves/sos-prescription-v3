@@ -1,4 +1,3 @@
-// assets/doctor-console.js
 (function () {
   'use strict';
 
@@ -62,9 +61,10 @@
     var style = document.createElement('style');
     style.id = 'sp-doctor-console-inline-style';
     style.textContent = [
-      '#sosprescription-doctor-console-root .sp-grid{display:grid;grid-template-columns:minmax(320px,350px) minmax(0,1fr);gap:24px;align-items:start;}',
-      '#sosprescription-doctor-console-root .sp-col-list{min-width:0;max-width:350px;}',
+      '#sosprescription-doctor-console-root .sp-grid{display:grid;grid-template-columns:350px minmax(0,1fr);gap:24px;align-items:start;}',
+      '#sosprescription-doctor-console-root .sp-col-list{min-width:0;max-width:350px;width:100%;}',
       '#sosprescription-doctor-console-root .sp-col-detail{min-width:0;}',
+      '#sosprescription-doctor-console-root .sp-card{box-sizing:border-box;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;box-shadow:0 2px 10px rgba(17,24,39,.04);}',
       '#sosprescription-doctor-console-root .sp-toolbar{display:flex;flex-wrap:wrap;gap:10px;}',
       '#sosprescription-doctor-console-root .sp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;}',
       '#sosprescription-doctor-console-root .sp-stack{display:flex;flex-direction:column;gap:12px;}',
@@ -459,7 +459,7 @@
 
         if (pdfState.can_download && pdfState.download_url) {
           clearPdfPolling();
-          setNotice('success', 'PDF généré.', 'decision');
+          setNotice('success', 'PDF prêt au téléchargement.', 'decision');
           renderDetail();
           return;
         }
@@ -468,7 +468,7 @@
           clearPdfPolling();
           setNotice(
             'error',
-            pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+            pdfState.last_error_message || 'Erreur de configuration S3 : lien de téléchargement impossible à générer.',
             'decision'
           );
           renderDetail();
@@ -722,13 +722,9 @@
       : '<div class="sp-muted">Aucun médicament.</div>';
 
     var files = Array.isArray(rx.files) ? rx.files : [];
-    var rxpdfList = files.filter(function (f) {
-      return f && f.purpose === 'rx_pdf';
-    });
+    var rxpdfList = files.filter(function (f) { return f && f.purpose === 'rx_pdf'; });
     var rxpdf = rxpdfList.length ? rxpdfList[rxpdfList.length - 1] : null;
-    var otherDocs = files.filter(function (f) {
-      return f && f.purpose !== 'rx_pdf';
-    });
+    var otherDocs = files.filter(function (f) { return f && f.purpose !== 'rx_pdf'; });
 
     var docsHtml = '';
     if (otherDocs.length) {
@@ -739,6 +735,7 @@
             var badge = f.purpose === 'evidence'
               ? '<span class="sp-badge sp-badge-soft">Preuve</span>'
               : '<span class="sp-badge sp-badge-soft">PJ</span>';
+
             return ''
               + '<div class="sp-file-row">'
               + '  <div class="sp-file-main">'
@@ -817,19 +814,15 @@
         + '    <div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div>'
         + '    <div class="sp-muted">Le PDF est marqué comme généré, mais aucun lien de téléchargement n’est disponible.</div>'
         + '  </div>'
-        + '  <div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).') + '</div>'
+        + '  <div class="sp-alert sp-alert-error">' + escHtml(pdfState.last_error_message || 'Erreur de configuration S3 : lien de téléchargement impossible à générer.') + '</div>'
         + '</div>';
     } else if (pdfBusy) {
       pdfCardHtml = ''
         + '<div class="sp-stack">'
-        + '  <div>'
-        + '    <div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div>'
-        + '    <div class="sp-muted">Le PDF est en cours de génération par le worker.</div>'
-        + '  </div>'
+        + '  <div class="sp-card-title" style="margin-bottom:6px;">Ordonnance (PDF)</div>'
         + '  <button type="button" class="sp-btn sp-btn-secondary" id="sp-generate-rx" disabled aria-disabled="true" aria-busy="true">'
         + '    <span class="sp-spinner">Génération en cours...</span>'
         + '  </button>'
-        + '  <div class="sp-muted">Rafraîchissement automatique toutes les 2 secondes.</div>'
         + '</div>';
     } else if (pdfFailed) {
       pdfCardHtml = ''
@@ -937,13 +930,25 @@
     if (btnAssign) btnAssign.addEventListener('click', doAssign);
 
     var btnWait = document.getElementById('sp-set-wait');
-    if (btnWait) btnWait.addEventListener('click', function () { doSetStatus('pending'); });
+    if (btnWait) {
+      btnWait.addEventListener('click', function () {
+        doSetStatus('pending');
+      });
+    }
 
     var btnNeeds = document.getElementById('sp-set-needs');
-    if (btnNeeds) btnNeeds.addEventListener('click', function () { doSetStatus('needs_info'); });
+    if (btnNeeds) {
+      btnNeeds.addEventListener('click', function () {
+        doSetStatus('needs_info');
+      });
+    }
 
     var btnReview = document.getElementById('sp-set-review');
-    if (btnReview) btnReview.addEventListener('click', function () { doSetStatus('in_review'); });
+    if (btnReview) {
+      btnReview.addEventListener('click', function () {
+        doSetStatus('in_review');
+      });
+    }
 
     var composeBody = document.getElementById('sp-compose-body');
     if (composeBody) {
@@ -1116,7 +1121,6 @@
 
   function doAssign() {
     if (!state.selectedId) return;
-    setNotice('info', 'Assignation en cours…', 'detail');
 
     apiPostJson('/prescriptions/' + state.selectedId + '/assign', {}).then(function () {
       setNotice('success', 'Dossier assigné à vous.', 'detail');
@@ -1128,7 +1132,6 @@
 
   function doSetStatus(status) {
     if (!state.selectedId) return;
-    setNotice('info', 'Mise à jour du statut…', 'detail');
 
     apiPostJson('/prescriptions/' + state.selectedId + '/status', { status: String(status) }).then(function () {
       setNotice('success', 'Statut mis à jour.', 'detail');
@@ -1143,8 +1146,6 @@
 
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
-
-    setNotice('info', 'Upload des pièces jointes…', 'detail');
 
     var chain = Promise.resolve([]);
     files.forEach(function (file) {
@@ -1182,8 +1183,6 @@
       setNotice('error', 'Message vide.', 'detail');
       return;
     }
-
-    setNotice('info', 'Envoi du message…', 'detail');
 
     apiPostJson('/prescriptions/' + state.selectedId + '/messages', {
       body: body,
@@ -1231,7 +1230,7 @@
 
       if (state.pdfState.can_download && state.pdfState.download_url) {
         clearPdfPolling();
-        setNotice('success', 'PDF généré.', 'decision');
+        setNotice('success', 'PDF prêt au téléchargement.', 'decision');
         refreshSelected({ silent: true });
         renderDetail();
         return;
@@ -1241,7 +1240,7 @@
         clearPdfPolling();
         setNotice(
           'error',
-          state.pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+          state.pdfState.last_error_message || 'Erreur de configuration S3 : lien de téléchargement impossible à générer.',
           'decision'
         );
         renderDetail();
@@ -1273,7 +1272,7 @@
   function doApprove() {
     if (!state.selectedId) return;
 
-    setNotice('info', 'Validation en cours…', 'decision');
+    clearNotice();
 
     apiPostJson('/prescriptions/' + state.selectedId + '/decision', { decision: 'approved' }).then(function (resp) {
       if (resp && resp.pdf) {
@@ -1281,17 +1280,15 @@
       }
 
       if (state.pdfState && state.pdfState.can_download && state.pdfState.download_url) {
-        setNotice('success', 'PDF généré.', 'decision');
+        setNotice('success', 'PDF prêt au téléchargement.', 'decision');
       } else if (state.pdfState && state.pdfState.status === 'done' && !state.pdfState.download_url) {
         setNotice(
           'error',
-          state.pdfState.last_error_message || 'Erreur : Impossible de générer le lien de téléchargement (Configuration S3 manquante sur le serveur).',
+          state.pdfState.last_error_message || 'Erreur de configuration S3 : lien de téléchargement impossible à générer.',
           'decision'
         );
       } else if (state.pdfState && (state.pdfState.status === 'pending' || state.pdfState.status === 'processing')) {
         clearNotice();
-      } else {
-        setNotice('success', (resp && resp.message) ? resp.message : 'Ordonnance validée.', 'decision');
       }
 
       fetchQueue(true, { silent: true });
@@ -1305,8 +1302,6 @@
 
     var textarea = document.getElementById('sp-reject-reason');
     var reason = textarea && typeof textarea.value === 'string' ? textarea.value : (state.rejectReason || '');
-
-    setNotice('info', 'Refus en cours…', 'decision');
 
     apiPostJson('/prescriptions/' + state.selectedId + '/decision', {
       decision: 'rejected',

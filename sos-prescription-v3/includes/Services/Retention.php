@@ -23,15 +23,11 @@ final class Retention
 
         add_action(self::CRON_HOOK, [self::class, 'run_daily']);
 
-        add_action('wp_loaded', static function (): void {
-            self::ensure_cron_scheduled();
-        }, 20);
-
         add_action('action_scheduler_init', static function (): void {
             self::ensure_cron_scheduled();
         }, 20);
 
-        if (did_action('action_scheduler_init') > 0 || did_action('wp_loaded') > 0) {
+        if (did_action('action_scheduler_init') > 0) {
             self::ensure_cron_scheduled();
         }
     }
@@ -59,7 +55,7 @@ final class Retention
             return false;
         }
 
-        if (did_action('wp_loaded') < 1) {
+        if (did_action('action_scheduler_init') < 1) {
             return false;
         }
 

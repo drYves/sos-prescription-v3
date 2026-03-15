@@ -24,6 +24,36 @@ final class OcrConfig
      */
     private const TRANSIENT_OCR_ASSET_ALERT = 'sosprescription_ocr_alert_sent';
 
+    public static function is_enabled(): bool
+    {
+        return (bool) get_option(self::OPTION_KEY_ENABLED, true);
+    }
+
+    public static function is_debug_enabled(): bool
+    {
+        return (bool) get_option(self::OPTION_KEY_DEBUG, false);
+    }
+
+    public static function get_keywords_raw(): string
+    {
+        return (string) get_option(self::OPTION_KEY_KEYWORDS, '');
+    }
+
+    public static function option_key_enabled(): string
+    {
+        return self::OPTION_KEY_ENABLED;
+    }
+
+    public static function option_key_debug(): string
+    {
+        return self::OPTION_KEY_DEBUG;
+    }
+
+    public static function option_key_keywords(): string
+    {
+        return self::OPTION_KEY_KEYWORDS;
+    }
+
     /**
      * Returns keywords regex (without delimiters), built from admin option.
      *
@@ -31,7 +61,7 @@ final class OcrConfig
      */
     public static function get_keywords_regex(): string
     {
-        $raw = (string) get_option(self::OPTION_KEY_KEYWORDS, '');
+        $raw = self::get_keywords_raw();
 
         $keywords = self::parse_keywords_input($raw);
         if ($keywords === []) {
@@ -107,8 +137,8 @@ final class OcrConfig
      */
     public static function public_data(): array
     {
-        $enabled = (bool) get_option(self::OPTION_KEY_ENABLED, true);
-        $debug   = (bool) get_option(self::OPTION_KEY_DEBUG, false);
+        $enabled = self::is_enabled();
+        $debug   = self::is_debug_enabled();
 
         $base = trailingslashit((string) (defined('SOSPRESCRIPTION_URL') ? SOSPRESCRIPTION_URL : plugins_url('/', __FILE__)));
 
@@ -196,12 +226,15 @@ final class OcrConfig
 
         // NDJSON (preferred)
         if (class_exists(Logger::class)) {
-            Logger::log(
-                'system',
+            Logger::log_scoped(
+                'runtime',
                 'ocr',
-                'ERROR',
-                'OCR client-side assets missing (Tesseract.js) — OCR will be degraded/disabled in browser',
-                $context
+                'error',
+                'ocr_client_assets_missing',
+                [
+                    'message' => 'OCR client-side assets missing (Tesseract.js) — OCR will be degraded/disabled in browser',
+                    'missing_assets' => array_values($missingAssets),
+                ]
             );
         } else {
             // Fallback (should be rare)
