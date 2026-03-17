@@ -130,6 +130,11 @@ export class RestJobsRepo {
     url.searchParams.set("lease_seconds", String(Math.max(30, opts.leaseMinutes * 60)));
     url.searchParams.set("worker_ref", opts.workerId);
 
+    // Cache-buster CDN/LiteSpeed : la query string change à chaque poll pour éviter
+    // la mise en cache des 404/200 de claim. La signature HMAC reste valide car
+    // buildCanonicalGetHeaders() signe exclusivement url.pathname, jamais les query params.
+    url.searchParams.set("_ts", `${Date.now()}_${base64UrlEncode(randomBytes(6))}`);
+
     const headers = this.buildCanonicalGetHeaders(url);
     const res = await this.fetchJson(url, {
       method: "GET",
@@ -284,6 +289,10 @@ export class RestJobsRepo {
   private buildCanonicalGetHeaders(url: URL): Record<string, string> {
     const tsMs = Date.now();
     const nonce = base64UrlEncode(randomBytes(16));
+
+    // Important : on signe uniquement pathname pour rester compatible avec la
+    // vérification Canonical GET côté WordPress. Les query params comme _ts
+    // servent uniquement de cache-buster CDN et ne doivent pas entrer dans la signature.
     const canonical = Buffer.from(`GET|${url.pathname}|${tsMs}|${nonce}`, "utf8");
 
     return {
