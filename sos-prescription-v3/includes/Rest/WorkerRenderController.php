@@ -33,8 +33,8 @@ final class WorkerRenderController
     {
         add_action('rest_api_init', static function (): void {
             $db = $GLOBALS['wpdb'];
-            $siteId = getenv('ML_SITE_ID') ?: 'unknown_site';
-            $env = getenv('SOSPRESCRIPTION_ENV') ?: 'prod';
+            $siteId = self::readConfigString('ML_SITE_ID', 'unknown_site');
+            $env = self::readConfigString('SOSPRESCRIPTION_ENV', 'prod');
 
             $logger = new NdjsonLogger('web', $siteId, $env);
             $nonceStore = new NonceStore($db, $siteId);
@@ -54,6 +54,27 @@ final class WorkerRenderController
 
             add_filter('rest_pre_serve_request', [$controller, 'maybeServeHtml'], 10, 4);
         });
+    }
+
+
+    private static function readConfigString(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                return $value;
+            }
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $default;
     }
 
     public function handle(WP_REST_Request $request): WP_REST_Response|WP_Error

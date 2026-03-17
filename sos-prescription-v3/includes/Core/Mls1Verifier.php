@@ -21,17 +21,20 @@ final class Mls1Verifier
 
     public static function fromEnv(NonceStore $nonceStore, NdjsonLogger $logger): self
     {
-        $siteId = getenv('ML_SITE_ID') ?: 'unknown_site';
-        $secret = getenv('ML_HMAC_SECRET');
-        if (!$secret) {
+        $siteId = self::readConfigString('ML_SITE_ID', 'unknown_site');
+        $secret = self::readConfigString('ML_HMAC_SECRET');
+        if ($secret === '') {
             throw new RuntimeException('Missing ML_HMAC_SECRET');
         }
+
+        $previousSecret = self::readConfigString('ML_HMAC_SECRET_PREVIOUS');
+        $skewWindowMs = self::readConfigInt('ML_AUTH_SKEW_WINDOW_MS', 30000);
 
         return new self(
             $siteId,
             $secret,
-            getenv('ML_HMAC_SECRET_PREVIOUS') ?: null,
-            (int) (getenv('ML_AUTH_SKEW_WINDOW_MS') ?: 30000),
+            $previousSecret !== '' ? $previousSecret : null,
+            $skewWindowMs,
             $nonceStore,
             $logger
         );
@@ -159,6 +162,37 @@ final class Mls1Verifier
             'nonce' => $nonce,
             'canonical' => $payload,
         ];
+    }
+
+
+    private static function readConfigString(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                return $value;
+            }
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $default;
+    }
+
+    private static function readConfigInt(string $name, int $default): int
+    {
+        $value = self::readConfigString($name, '');
+        if ($value === '') {
+            return $default;
+        }
+
+        return is_numeric($value) ? (int) $value : $default;
     }
 
     private function verifyHmacHex(string $rawBytes, string $sigHex): bool

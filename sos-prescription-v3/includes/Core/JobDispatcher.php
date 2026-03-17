@@ -22,18 +22,42 @@ final class JobDispatcher
 
     public static function fromEnv(wpdb $db, NdjsonLogger $logger): self
     {
-        $secret = getenv('ML_HMAC_SECRET');
-        if (!$secret) {
+        $secret = self::readConfigString('ML_HMAC_SECRET');
+        if ($secret === '') {
             throw new RuntimeException('Missing ML_HMAC_SECRET');
         }
+
+        $siteId = self::readConfigString('ML_SITE_ID', 'unknown_site');
+        $kid = self::readConfigString('ML_HMAC_KID');
 
         return new self(
             $db,
             $logger,
-            getenv('ML_SITE_ID') ?: 'unknown_site',
+            $siteId,
             $secret,
-            getenv('ML_HMAC_KID') ?: null
+            $kid !== '' ? $kid : null
         );
+    }
+
+
+    private static function readConfigString(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                return $value;
+            }
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $default;
     }
 
     /**
