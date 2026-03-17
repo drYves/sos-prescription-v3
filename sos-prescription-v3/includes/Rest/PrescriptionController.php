@@ -8,10 +8,11 @@ use SOSPrescription\Repositories\PrescriptionRepository;
 use SOSPrescription\Services\AccessPolicy;
 use SOSPrescription\Services\Audit;
 use SOSPrescription\Services\RestGuard;
-use SOSPrescription\Services\RxPdfGenerator;
 use SOSPrescription\Services\StripeConfig;
 use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Services\UidGenerator;
+use SosPrescription\Core\JobDispatcher;
+use SosPrescription\Core\NdjsonLogger;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -26,8 +27,8 @@ class PrescriptionController extends \WP_REST_Controller
     /** @var JobRepository */
     protected $jobs;
 
-    /** @var RxPdfGenerator */
-    protected $rx_pdf_generator;
+    /** @var JobDispatcher|null */
+    protected $job_dispatcher;
 
     /** @var PrescriptionRepository */
     protected $prescriptions;
@@ -38,7 +39,7 @@ class PrescriptionController extends \WP_REST_Controller
     /** @var string */
     protected $rest_base = 'prescriptions';
 
-    public function __construct($rx_pdf_generator = null, $jobs = null, $wpdb = null)
+    public function __construct($job_dispatcher = null, $jobs = null, $wpdb = null)
     {
         if ($wpdb instanceof \wpdb) {
             $this->wpdb = $wpdb;
@@ -48,9 +49,7 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $this->jobs = $jobs instanceof JobRepository ? $jobs : new JobRepository($this->wpdb);
-        $this->rx_pdf_generator = $rx_pdf_generator instanceof RxPdfGenerator
-            ? $rx_pdf_generator
-            : new RxPdfGenerator($this->jobs, $this->wpdb);
+        $this->job_dispatcher = $job_dispatcher instanceof JobDispatcher ? $job_dispatcher : null;
         $this->prescriptions = new PrescriptionRepository();
     }
 
@@ -256,10 +255,7 @@ class PrescriptionController extends \WP_REST_Controller
 
         if ($decision === 'approved') {
             $req_id = $this->build_req_id();
-            $dispatch = $this->rx_pdf_generator->generate($id, [
-                'source' => 'doctor_approval',
-                'req_id' => $req_id,
-            ]);
+            $dispatch = $this->dispatch_pdf_generation($id, 'doctor_approval', $req_id);
 
             if (is_wp_error($dispatch)) {
                 return new WP_REST_Response([
@@ -282,6 +278,7 @@ class PrescriptionController extends \WP_REST_Controller
                 'prescription' => $row,
                 'verification' => isset($dispatch['verification']) && is_array($dispatch['verification']) ? $dispatch['verification'] : [],
                 'dispatch' => isset($dispatch['dispatch']) && is_array($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
+                'job_payload' => isset($dispatch['job_payload']) && is_array($dispatch['job_payload']) ? $dispatch['job_payload'] : [],
                 'pdf' => $pdf,
                 'message' => $this->message_for_pdf_state($pdf),
             ];
@@ -386,10 +383,7 @@ class PrescriptionController extends \WP_REST_Controller
         $prescription_id = (int) $request->get_param('id');
         $req_id = $this->build_req_id();
 
-        $dispatch = $this->rx_pdf_generator->generate($prescription_id, [
-            'source' => 'manual_dispatch',
-            'req_id' => $req_id,
-        ]);
+        $dispatch = $this->dispatch_pdf_generation($prescription_id, 'manual_dispatch', $req_id);
 
         if (is_wp_error($dispatch)) {
             return new WP_REST_Response([
@@ -480,15 +474,13 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         if ($auto_dispatch) {
-            $dispatch = $this->rx_pdf_generator->generate($prescription_id, [
-                'source' => 'download_probe',
-                'req_id' => $this->build_req_id(),
-            ]);
+            $req_id = $this->build_req_id();
+            $dispatch = $this->dispatch_pdf_generation($prescription_id, 'download_probe', $req_id);
 
             if (is_wp_error($dispatch)) {
                 return new WP_REST_Response([
                     'prescription_id' => $prescription_id,
-                    'pdf' => $this->build_degraded_pdf_state($dispatch, $this->build_req_id()),
+                    'pdf' => $this->build_degraded_pdf_state($dispatch, $req_id),
                     'message' => 'PDF temporairement indisponible.',
                 ], 202);
             }
@@ -499,7 +491,8 @@ class PrescriptionController extends \WP_REST_Controller
             $response = [
                 'prescription_id' => $prescription_id,
                 'pdf' => $pdf,
-                'dispatch' => isset($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
+                'dispatch' => isset($dispatch['dispatch']) && is_array($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
+                'job_payload' => isset($dispatch['job_payload']) && is_array($dispatch['job_payload']) ? $dispatch['job_payload'] : [],
                 'message' => ($pdf['status'] ?? 'pending') === 'done'
                     ? $this->message_for_pdf_state($pdf)
                     : 'PDF en cours de génération.',
@@ -848,6 +841,182 @@ class PrescriptionController extends \WP_REST_Controller
         $pdf['last_error_message'] = $error->get_error_message();
 
         return $pdf;
+    }
+
+    /**
+     * @return array<string, mixed>|WP_Error
+     */
+    protected function dispatch_pdf_generation(int $prescription_id, string $source, ?string $req_id = null): array|WP_Error
+    {
+        $prescription_id = (int) $prescription_id;
+        $req_id = is_string($req_id) && $req_id !== '' ? $req_id : $this->build_req_id();
+
+        if ($prescription_id < 1) {
+            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        }
+
+        $verification = $this->ensure_verification_payload($prescription_id);
+        if (is_wp_error($verification)) {
+            return $verification;
+        }
+
+        try {
+            $dispatcher = $this->get_job_dispatcher();
+            $result = $dispatcher->dispatch_pdf_generation($prescription_id, $req_id);
+        } catch (\Throwable $e) {
+            return new WP_Error(
+                'sosprescription_pdf_dispatch_failed',
+                'La mise en file du PDF a échoué.',
+                [
+                    'status' => 500,
+                    'req_id' => $req_id,
+                    'error' => $e->getMessage(),
+                ]
+            );
+        }
+
+        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
+
+        return [
+            'ok' => true,
+            'mode' => 'stateless',
+            'site_id' => $this->jobs->get_site_id(),
+            'req_id' => $req_id,
+            'prescription_id' => $prescription_id,
+            'verification' => [
+                'verify_token' => (string) ($verification['verify_token'] ?? ''),
+                'verify_code' => (string) ($verification['verify_code'] ?? ''),
+            ],
+            'dispatch' => [
+                'action' => !empty($result['dedup']) ? 'reused' : 'created',
+                'job_id' => isset($pdf['job_id']) ? (int) $pdf['job_id'] : 0,
+                'worker_job_id' => (string) ($result['job_id'] ?? ''),
+                'status' => isset($pdf['status']) ? (string) $pdf['status'] : 'pending',
+                'dedup' => !empty($result['dedup']),
+                'source' => $source,
+                'req_id' => $req_id,
+            ],
+            'job_payload' => [
+                'schema_version' => '2026.5',
+                'site_id' => $this->jobs->get_site_id(),
+                'job_id' => (string) ($result['job_id'] ?? ''),
+                'job_type' => 'PDF_GEN',
+                'rx_id' => $prescription_id,
+                'source' => $source,
+            ],
+            'pdf' => $pdf,
+        ];
+    }
+
+    protected function get_job_dispatcher(): JobDispatcher
+    {
+        if ($this->job_dispatcher instanceof JobDispatcher) {
+            return $this->job_dispatcher;
+        }
+
+        $secret = $this->get_env_or_constant('ML_HMAC_SECRET');
+        if ($secret === '') {
+            throw new \RuntimeException('Missing ML_HMAC_SECRET');
+        }
+
+        $kid = $this->get_env_or_constant('ML_HMAC_KID', 'primary');
+        $siteId = $this->jobs->get_site_id();
+        $logger = new NdjsonLogger('web', $siteId, $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
+
+        $this->job_dispatcher = new JobDispatcher(
+            $this->wpdb,
+            $logger,
+            $siteId,
+            $secret,
+            $kid !== '' ? $kid : null
+        );
+
+        return $this->job_dispatcher;
+    }
+
+    /**
+     * @return array<string, mixed>|WP_Error
+     */
+    protected function ensure_verification_payload(int $prescription_id): array|WP_Error
+    {
+        $prescription_id = (int) $prescription_id;
+        if ($prescription_id < 1) {
+            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id, verify_token, verify_code FROM `{$table}` WHERE id = %d LIMIT 1",
+                $prescription_id
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($row)) {
+            return new WP_Error('sosprescription_prescription_not_found', 'Prescription introuvable.', ['status' => 404]);
+        }
+
+        $verifyToken = isset($row['verify_token']) ? trim((string) $row['verify_token']) : '';
+        $verifyCode = isset($row['verify_code']) ? trim((string) $row['verify_code']) : '';
+
+        if ($verifyToken !== '' && $verifyCode !== '') {
+            return [
+                'verify_token' => $verifyToken,
+                'verify_code' => $verifyCode,
+            ];
+        }
+
+        if ($verifyToken === '') {
+            $verifyToken = $this->generate_verify_token();
+        }
+        if ($verifyCode === '') {
+            $verifyCode = $this->generate_verify_code();
+        }
+
+        $updated = $this->wpdb->update(
+            $table,
+            [
+                'verify_token' => $verifyToken,
+                'verify_code' => $verifyCode,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $prescription_id],
+            ['%s', '%s', '%s'],
+            ['%d']
+        );
+
+        if ($updated === false) {
+            return new WP_Error(
+                'sosprescription_verification_update_failed',
+                'Impossible de préparer les données de vérification.',
+                ['status' => 500]
+            );
+        }
+
+        return [
+            'verify_token' => $verifyToken,
+            'verify_code' => $verifyCode,
+        ];
+    }
+
+    protected function generate_verify_token(): string
+    {
+        try {
+            return rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+        } catch (\Throwable $e) {
+            return wp_generate_password(32, false, false);
+        }
+    }
+
+    protected function generate_verify_code(): string
+    {
+        try {
+            return str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        } catch (\Throwable $e) {
+            return str_pad((string) wp_rand(0, 999999), 6, '0', STR_PAD_LEFT);
+        }
     }
 
     private static function str_len(string $value): int
