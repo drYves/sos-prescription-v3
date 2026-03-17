@@ -1,19 +1,12 @@
-import mysql from "mysql2/promise";
-import { MysqlConfig } from "../config";
+// src/db/mysql.ts
+export interface MysqlConn {
+  release(): void;
+}
 
-export type MysqlPool = mysql.Pool;
-export type MysqlConn = mysql.PoolConnection;
+export interface MysqlPool {
+  end(): Promise<void>;
+}
 
-export function createMysqlPool(cfg: MysqlConfig): MysqlPool {
-  return mysql.createPool({
-    host: cfg.host,
-    port: cfg.port,
-    user: cfg.user,
-    password: cfg.password,
-    database: cfg.database,
-    waitForConnections: true,
-    connectionLimit: 5,
-    queueLimit: 0,
-    enableKeepAlive: true,
-  });
+export function createMysqlPool(): never {
+  throw new Error("Direct MySQL access has been removed. Use the REST bridge instead.");
 }

@@ -20,6 +20,7 @@ use SosPrescription\Admin\VerificationTemplatePage;
 use SosPrescription\Admin\SystemStatusPage;
 use SosPrescription\Rest\Routes;
 use SosPrescription\Rest\WorkerCallbackController;
+use SosPrescription\Rest\WorkerClaimController;
 use SosPrescription\Rest\WorkerRenderController;
 use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
@@ -66,7 +67,8 @@ final class Plugin
         add_action('init', [self::class, 'register_shortcodes']);
         add_action('rest_api_init', [Routes::class, 'register']);
 
-        // Routes worker v3 (signed render + callback).
+        // Routes worker v3 (signed claim + render + callback).
+        WorkerClaimController::register();
         WorkerRenderController::register();
         WorkerCallbackController::register();
 

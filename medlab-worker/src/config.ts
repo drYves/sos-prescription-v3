@@ -1,15 +1,7 @@
+// src/config.ts
 import os from "node:os";
 
 export type EnvName = "prod" | "staging" | "dev";
-
-export interface MysqlConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  tablePrefix: string;
-}
 
 export interface S3Config {
   endpoint: string;
@@ -34,15 +26,16 @@ export interface WorkerConfig {
   port: number;
   leaseMinutes: number;
   pollIntervalMs: number;
-  zombieSweepIntervalMs: number;
   ramGuardMaxMb: number;
   ramGuardResumeMb: number;
   wpBaseUrl: string;
+  jobClaimPath: string;
+  jobCallbackPathTemplate: string;
   pdfRenderPathTemplate: string;
   chromeExecutablePath: string;
   pdfRenderTimeoutMs: number;
   pdfReadyTimeoutMs: number;
-  mysql: MysqlConfig;
+  restRequestTimeoutMs: number;
   s3: S3Config;
   security: SecurityConfig;
 }
@@ -70,42 +63,15 @@ function parseIntEnv(key: string, def: number): number {
   return Number.isFinite(n) ? n : def;
 }
 
-function parseDatabaseUrl(urlStr: string): MysqlConfig {
-  const u = new URL(urlStr);
-  if (u.protocol !== "mysql:") throw new Error("DATABASE_URL must start with mysql://");
-
-  const tablePrefix = getEnv("WP_TABLE_PREFIX") ?? "wp_";
-
-  return {
-    host: u.hostname,
-    port: u.port ? Number(u.port) : 3306,
-    database: u.pathname.replace(/^\//, ""),
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    tablePrefix,
-  };
-}
-
-function loadMysqlConfig(): MysqlConfig {
-  const dbUrl = getEnv("DATABASE_URL");
-  if (dbUrl) return parseDatabaseUrl(dbUrl);
-
-  const tablePrefix = getEnv("WP_TABLE_PREFIX") ?? "wp_";
-
-  return {
-    host: mustGetEnv("MYSQL_HOST"),
-    port: Number.parseInt(mustGetEnv("MYSQL_PORT"), 10),
-    database: mustGetEnv("MYSQL_DATABASE"),
-    user: mustGetEnv("MYSQL_USER"),
-    password: mustGetEnv("MYSQL_PASSWORD"),
-    tablePrefix,
-  };
+function normalizePath(path: string, fallback: string): string {
+  const raw = (path || fallback).trim();
+  if (raw === "") return fallback;
+  return raw.startsWith("/") ? raw : `/${raw}`;
 }
 
 export function loadConfig(): WorkerConfig {
   const siteId = mustGetEnv("ML_SITE_ID");
   const env = (getEnv("SOSPRESCRIPTION_ENV") ?? "prod") as EnvName;
-
   const workerId = getEnv("WORKER_ID") ?? `${os.hostname()}-${process.pid}`;
 
   const security: SecurityConfig = {
@@ -114,7 +80,6 @@ export function loadConfig(): WorkerConfig {
     authSkewWindowMs: parseIntEnv("ML_AUTH_SKEW_WINDOW_MS", 30_000),
   };
 
-  const mysql = loadMysqlConfig();
   const wpBaseUrl = mustGetEnv("ML_WP_BASE_URL").replace(/\/+$/g, "");
 
   const s3: S3Config = {
@@ -134,19 +99,28 @@ export function loadConfig(): WorkerConfig {
     port: parseIntEnv("PORT", 8080),
     leaseMinutes: parseIntEnv("JOB_LEASE_MINUTES", 10),
     pollIntervalMs: parseIntEnv("POLL_INTERVAL_MS", 1000),
-    zombieSweepIntervalMs: parseIntEnv("ZOMBIE_SWEEP_INTERVAL_MS", 60_000),
     ramGuardMaxMb: parseIntEnv("RAM_GUARD_MAX_MB", 512),
     ramGuardResumeMb: parseIntEnv("RAM_GUARD_RESUME_MB", 450),
     wpBaseUrl,
-    pdfRenderPathTemplate:
+    jobClaimPath: normalizePath(
+      getEnv("JOB_CLAIM_PATH_TEMPLATE") ?? "/wp-json/sosprescription/v3/worker/jobs/claim",
+      "/wp-json/sosprescription/v3/worker/jobs/claim",
+    ),
+    jobCallbackPathTemplate: normalizePath(
+      getEnv("JOB_CALLBACK_PATH_TEMPLATE") ?? "/wp-json/sosprescription/v3/worker/jobs/{job_id}/callback",
+      "/wp-json/sosprescription/v3/worker/jobs/{job_id}/callback",
+    ),
+    pdfRenderPathTemplate: normalizePath(
       getEnv("PDF_RENDER_PATH_TEMPLATE") ?? "/wp-json/sosprescription/v3/worker/render/rx/{rx_id}",
+      "/wp-json/sosprescription/v3/worker/render/rx/{rx_id}",
+    ),
     chromeExecutablePath:
       getEnv("CHROME_EXECUTABLE_PATH")
       ?? getEnv("PUPPETEER_EXECUTABLE_PATH")
       ?? mustGetEnv("CHROME_EXECUTABLE_PATH"),
     pdfRenderTimeoutMs: parseIntEnv("PDF_RENDER_TIMEOUT_MS", 45_000),
     pdfReadyTimeoutMs: parseIntEnv("PDF_READY_TIMEOUT_MS", 15_000),
-    mysql,
+    restRequestTimeoutMs: parseIntEnv("WP_REST_REQUEST_TIMEOUT_MS", 15_000),
     s3,
     security,
   };

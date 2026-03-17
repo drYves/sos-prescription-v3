@@ -1,8 +1,9 @@
+// src/http/pulseServer.ts
 import http from "node:http";
 import { URL } from "node:url";
 import { MemoryGuard } from "../admission/memoryGuard";
-import { JobsRepo } from "../db/jobsRepo";
 import { NdjsonLogger } from "../logger";
+import { QueueMetrics, RestJobsRepo } from "../jobs/restJobsRepo";
 import { buildMls1Token, parseMls1Token, parseCanonicalGet, verifyMls1Payload } from "../security/mls1";
 import { NonceCache } from "../security/nonceCache";
 
@@ -10,7 +11,7 @@ export interface PulseServerDeps {
   port: number;
   siteId: string;
   workerId: string;
-  jobsRepo: JobsRepo;
+  jobsRepo: RestJobsRepo;
   memGuard: MemoryGuard;
   nonceCache: NonceCache;
   secrets: string[];
@@ -66,7 +67,12 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
         deps.memGuard.tick();
         const rssMb = deps.memGuard.rssMb();
         const state = deps.memGuard.getState();
-        const queue = await deps.jobsRepo.getQueueMetrics(deps.siteId);
+        let queue: QueueMetrics = { pending: 0, claimed: 0 };
+        try {
+          queue = await deps.jobsRepo.getQueueMetrics(deps.siteId);
+        } catch (_err) {
+          queue = { pending: 0, claimed: 0 };
+        }
 
         return sendJson(
           res,
@@ -76,6 +82,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
             schema_version: "2026.5",
             server_time_ms: now,
             worker_id: deps.workerId,
+            queue_mode: "rest",
             state,
             rss_mb: rssMb,
             queue,

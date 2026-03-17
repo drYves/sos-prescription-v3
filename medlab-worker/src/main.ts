@@ -1,9 +1,9 @@
+// src/main.ts
 import { MemoryGuard } from "./admission/memoryGuard";
 import { loadConfig } from "./config";
-import { JobsRepo } from "./db/jobsRepo";
-import { createMysqlPool } from "./db/mysql";
 import { startPulseServer } from "./http/pulseServer";
 import { failOrRetry, processJob } from "./jobs/processor";
+import { RestJobsRepo } from "./jobs/restJobsRepo";
 import { PdfRenderer } from "./pdf/pdfRenderer";
 import { NdjsonLogger } from "./logger";
 import { NonceCache } from "./security/nonceCache";
@@ -11,12 +11,18 @@ import { S3Service } from "./s3/s3Service";
 import { sleep } from "./utils/sleep";
 
 async function main(): Promise<void> {
-  process.stderr.write("Vérification de DATABASE_URL...\n");
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
 
-  const pool = createMysqlPool(cfg.mysql);
-  const jobsRepo = new JobsRepo(pool, cfg.mysql.tablePrefix);
+  const jobsRepo = new RestJobsRepo({
+    siteId: cfg.siteId,
+    wpBaseUrl: cfg.wpBaseUrl,
+    claimPath: cfg.jobClaimPath,
+    callbackPathTemplate: cfg.jobCallbackPathTemplate,
+    hmacSecretActive: cfg.security.hmacSecretActive,
+    requestTimeoutMs: cfg.restRequestTimeoutMs,
+    logger,
+  });
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -44,18 +50,6 @@ async function main(): Promise<void> {
     logger,
   });
 
-  const zombieTimer = setInterval(async () => {
-    try {
-      const r = await jobsRepo.sweepZombies(cfg.siteId, 50);
-      if (r.requeued || r.failed) {
-        logger.warning("job.zombie_sweep", { requeued: r.requeued, failed: r.failed }, undefined);
-      }
-    } catch (_err) {
-      logger.error("job.zombie_sweep_failed", { message: "Zombie sweep failed" }, undefined);
-    }
-  }, cfg.zombieSweepIntervalMs);
-  zombieTimer.unref();
-
   const shutdown = async (signal: string) => {
     logger.warning("system.shutdown", { signal }, undefined);
     try {
@@ -63,18 +57,9 @@ async function main(): Promise<void> {
     } catch (_err) {
       // noop
     }
-    try {
-      clearInterval(zombieTimer);
-    } catch (_err) {
-      // noop
-    }
-    try {
-      await pool.end();
-    } catch (_err) {
-      // noop
-    }
     process.exit(0);
   };
+
   process.on("SIGTERM", () => {
     void shutdown("SIGTERM");
   });
@@ -86,7 +71,9 @@ async function main(): Promise<void> {
     "system.worker_started",
     {
       worker_id: cfg.workerId,
-      table: jobsRepo.getTableName(),
+      queue_mode: "rest",
+      claim_path: cfg.jobClaimPath,
+      callback_path: cfg.jobCallbackPathTemplate,
       lease_min: cfg.leaseMinutes,
       poll_ms: cfg.pollIntervalMs,
     },
@@ -138,6 +125,7 @@ async function main(): Promise<void> {
         jobsRepo,
         s3,
         s3BucketPdf: cfg.s3.bucketPdf,
+        s3Region: cfg.s3.region,
         hmacSecrets: secrets,
         hmacSecretActive: cfg.security.hmacSecretActive,
         workerId: cfg.workerId,
@@ -159,6 +147,7 @@ async function main(): Promise<void> {
           jobsRepo,
           s3,
           s3BucketPdf: cfg.s3.bucketPdf,
+          s3Region: cfg.s3.region,
           hmacSecrets: secrets,
           hmacSecretActive: cfg.security.hmacSecretActive,
           workerId: cfg.workerId,

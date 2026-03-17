@@ -1,19 +1,21 @@
+// src/jobs/processor.ts
 import fs from "node:fs/promises";
-import { JobRow, JobsRepo } from "../db/jobsRepo";
 import { NdjsonLogger } from "../logger";
 import { PdfRenderer } from "../pdf/pdfRenderer";
 import { parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { S3Service } from "../s3/s3Service";
 import { HardError, SoftError } from "./errors";
+import { JobRow, RestJobsRepo } from "./restJobsRepo";
 
 export interface JobProcessorDeps {
   siteId: string;
   wpBaseUrl: string;
   renderPathTemplate: string;
   chromeExecutablePath: string;
-  jobsRepo: JobsRepo;
+  jobsRepo: RestJobsRepo;
   s3: S3Service;
   s3BucketPdf: string;
+  s3Region: string;
   hmacSecrets: string[];
   hmacSecretActive: string;
   workerId: string;
@@ -115,8 +117,12 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
 
   await deps.jobsRepo.markDone({
     jobId: job.job_id,
+    reqId,
+    workerRef: deps.workerId,
     s3KeyRef: s3Key,
-    artifactSha256: Buffer.from(render.sha256Hex, "hex"),
+    s3Bucket: deps.s3BucketPdf,
+    s3Region: deps.s3Region,
+    artifactSha256Hex: render.sha256Hex,
     artifactSizeBytes: render.sizeBytes,
     contentType: render.contentType,
   });
@@ -141,6 +147,8 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
     if (job.attempts >= job.max_attempts) {
       await deps.jobsRepo.markFailed({
         jobId: job.job_id,
+        reqId,
+        workerRef: deps.workerId,
         errorCode: err.code,
         messageSafe: err.messageSafe,
       });
@@ -150,6 +158,8 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
 
     await deps.jobsRepo.requeueWithBackoff({
       jobId: job.job_id,
+      reqId,
+      workerRef: deps.workerId,
       delaySeconds: Math.floor(delay),
       errorCode: err.code,
       messageSafe: err.messageSafe,
@@ -174,6 +184,8 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
 
   await deps.jobsRepo.markFailed({
     jobId: job.job_id,
+    reqId,
+    workerRef: deps.workerId,
     errorCode: hard.code,
     messageSafe: hard.messageSafe,
   });
