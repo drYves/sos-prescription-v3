@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 // src/pdf/pdfRenderer.ts
 import fs from "node:fs";
 import fsp from "node:fs/promises";
