@@ -42,13 +42,13 @@ final class WorkerClaimController
                 $controller = new self($db, $logger, $verifier, $siteId);
 
                 register_rest_route('sosprescription/v3', '/worker/jobs/claim', [
-                    'methods' => 'GET',
+                    'methods' => 'POST',
                     'permission_callback' => '__return_true',
                     'callback' => [$controller, 'handle'],
                 ]);
             } catch (\Throwable $e) {
                 register_rest_route('sosprescription/v3', '/worker/jobs/claim', [
-                    'methods' => 'GET',
+                    'methods' => 'POST',
                     'permission_callback' => '__return_true',
                     'callback' => static function (): WP_Error {
                         return new WP_Error(
@@ -64,15 +64,30 @@ final class WorkerClaimController
 
     public function handle(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
-        $expectedPath = $this->expectedCanonicalPath();
-        $verified = $this->verifier->verifyCanonicalGet($request, $expectedPath, 'worker_claim');
+        $verified = $this->verifier->verifyJsonBodySigned($request, 'worker_claim');
         if (is_wp_error($verified)) {
             return $verified;
         }
 
-        $reqId = ReqId::coalesce(null);
-        $workerRef = $this->sanitizeWorkerRef((string) ($request->get_param('worker_ref') ?? ''));
-        $leaseSeconds = $this->sanitizeLeaseSeconds((int) ($request->get_param('lease_seconds') ?? 600));
+        $data = is_array($verified['data'] ?? null) ? $verified['data'] : [];
+        $reqId = ReqId::coalesce(isset($verified['req_id']) && is_string($verified['req_id']) ? $verified['req_id'] : null);
+
+        if (($data['schema_version'] ?? null) !== '2026.5') {
+            return new WP_Error('ml_schema', 'Schema mismatch', ['status' => 400]);
+        }
+        if (($data['site_id'] ?? null) !== $this->siteId) {
+            return new WP_Error('ml_site', 'Site mismatch', ['status' => 403]);
+        }
+
+        $workerRef = $this->extractWorkerRef($data);
+        if (is_wp_error($workerRef)) {
+            return $workerRef;
+        }
+
+        $leaseSeconds = $this->extractLeaseSeconds($data);
+        if (is_wp_error($leaseSeconds)) {
+            return $leaseSeconds;
+        }
 
         $recovered = $this->recoverExpiredClaims($reqId);
         if ($recovered['requeued'] > 0 || $recovered['failed'] > 0) {
@@ -115,13 +130,6 @@ final class WorkerClaimController
             'job' => $job,
             'req_id' => $jobReqId,
         ], 200);
-    }
-
-    private function expectedCanonicalPath(): string
-    {
-        $base = parse_url(rest_url(), PHP_URL_PATH);
-        $base = is_string($base) && $base !== '' ? rtrim($base, '/') : '/wp-json';
-        return $base . '/sosprescription/v3/worker/jobs/claim';
     }
 
     /**
@@ -393,6 +401,47 @@ final class WorkerClaimController
             'created_at' => isset($row['created_at']) && $row['created_at'] !== null ? (string) $row['created_at'] : null,
             'updated_at' => isset($row['updated_at']) && $row['updated_at'] !== null ? (string) $row['updated_at'] : null,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function extractWorkerRef(array $data): string|WP_Error
+    {
+        if (!array_key_exists('worker_ref', $data) || $data['worker_ref'] === null) {
+            return '';
+        }
+
+        if (!is_scalar($data['worker_ref'])) {
+            return new WP_Error('ml_worker_ref', 'Invalid worker_ref', ['status' => 400]);
+        }
+
+        return $this->sanitizeWorkerRef((string) $data['worker_ref']);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function extractLeaseSeconds(array $data): int|WP_Error
+    {
+        if (!array_key_exists('lease_seconds', $data)) {
+            return 600;
+        }
+
+        $raw = $data['lease_seconds'];
+        if (is_int($raw)) {
+            return $this->sanitizeLeaseSeconds($raw);
+        }
+
+        if (is_string($raw) && ctype_digit($raw)) {
+            return $this->sanitizeLeaseSeconds((int) $raw);
+        }
+
+        if (is_float($raw) && is_finite($raw)) {
+            return $this->sanitizeLeaseSeconds((int) $raw);
+        }
+
+        return new WP_Error('ml_lease_seconds', 'Invalid lease_seconds', ['status' => 400]);
     }
 
     private function sanitizeWorkerRef(string $workerRef): string

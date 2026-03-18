@@ -6,6 +6,11 @@ import { base64UrlEncode, buildMls1Token } from "../security/mls1";
 
 export type JobStatus = "PENDING" | "CLAIMED" | "DONE" | "FAILED";
 
+const BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const BROWSER_ACCEPT_LANGUAGE = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7";
+const BROWSER_ACCEPT_ENCODING = "gzip, deflate, br";
+const API_ACCEPT = "application/json, text/plain, */*";
+
 export interface JobRow {
   id?: number;
   job_id: string;
@@ -113,9 +118,9 @@ export class RestJobsRepo {
 
   constructor(cfg: RestJobsRepoConfig) {
     this.siteId = cfg.siteId;
-    this.wpBaseUrl = cfg.wpBaseUrl.replace(/\/+$/g, "");
-    this.claimPath = ensureLeadingSlash(cfg.claimPath);
-    this.callbackPathTemplate = ensureLeadingSlash(cfg.callbackPathTemplate);
+    this.wpBaseUrl = normalizeBaseUrl(cfg.wpBaseUrl);
+    this.claimPath = normalizeApiPath(cfg.claimPath);
+    this.callbackPathTemplate = normalizeApiPath(cfg.callbackPathTemplate);
     this.hmacSecretActive = cfg.hmacSecretActive;
     this.requestTimeoutMs = Math.max(1_000, cfg.requestTimeoutMs);
     this.logger = cfg.logger;
@@ -126,19 +131,18 @@ export class RestJobsRepo {
   }
 
   async claimNextPendingJob(opts: ClaimJobOptions): Promise<JobRow | null> {
-    const url = new URL(this.claimPath, this.wpBaseUrl);
-    url.searchParams.set("lease_seconds", String(Math.max(30, opts.leaseMinutes * 60)));
-    url.searchParams.set("worker_ref", opts.workerId);
+    const url = this.buildAbsoluteUrl(this.claimPath);
+    const body = this.buildClaimBody(opts);
+    const rawBody = Buffer.from(JSON.stringify(body));
 
-    // Cache-buster CDN/LiteSpeed : la query string change à chaque poll pour éviter
-    // la mise en cache des 404/200 de claim. La signature HMAC reste valide car
-    // buildCanonicalGetHeaders() signe exclusivement url.pathname, jamais les query params.
-    url.searchParams.set("_ts", `${Date.now()}_${base64UrlEncode(randomBytes(6))}`);
-
-    const headers = this.buildCanonicalGetHeaders(url);
     const res = await this.fetchJson(url, {
-      method: "GET",
-      headers,
+      method: "POST",
+      headers: {
+        accept: API_ACCEPT,
+        "content-type": "application/json; charset=utf-8",
+        "x-medlab-signature": buildMls1Token(rawBody, this.hmacSecretActive),
+      },
+      body: rawBody,
     });
 
     if (res.status === 204) {
@@ -167,14 +171,14 @@ export class RestJobsRepo {
   }
 
   async updateJobStatus(input: UpdateJobStatusInput): Promise<void> {
-    const url = new URL(this.renderCallbackPath(input.jobId), this.wpBaseUrl);
+    const url = this.buildAbsoluteUrl(this.renderCallbackPath(input.jobId));
     const body = this.buildCallbackBody(input);
     const rawBody = Buffer.from(JSON.stringify(body));
 
     const res = await this.fetchJson(url, {
       method: "POST",
       headers: {
-        accept: "application/json",
+        accept: API_ACCEPT,
         "content-type": "application/json; charset=utf-8",
         "x-medlab-signature": buildMls1Token(rawBody, this.hmacSecretActive),
       },
@@ -232,6 +236,20 @@ export class RestJobsRepo {
     return { requeued: 0, failed: 0 };
   }
 
+  private buildClaimBody(opts: ClaimJobOptions): Record<string, unknown> {
+    const tsMs = Date.now();
+    const nonce = base64UrlEncode(randomBytes(16));
+
+    return {
+      schema_version: "2026.5",
+      site_id: opts.siteId,
+      ts_ms: tsMs,
+      nonce,
+      worker_ref: opts.workerId,
+      lease_seconds: Math.max(30, opts.leaseMinutes * 60),
+    };
+  }
+
   private buildCallbackBody(input: UpdateJobStatusInput): Record<string, unknown> {
     const tsMs = Date.now();
     const nonce = base64UrlEncode(randomBytes(16));
@@ -286,23 +304,23 @@ export class RestJobsRepo {
     };
   }
 
-  private buildCanonicalGetHeaders(url: URL): Record<string, string> {
-    const tsMs = Date.now();
-    const nonce = base64UrlEncode(randomBytes(16));
-
-    // Important : on signe uniquement pathname pour rester compatible avec la
-    // vérification Canonical GET côté WordPress. Les query params comme _ts
-    // servent uniquement de cache-buster CDN et ne doivent pas entrer dans la signature.
-    const canonical = Buffer.from(`GET|${url.pathname}|${tsMs}|${nonce}`, "utf8");
-
-    return {
-      accept: "application/json",
-      "x-medlab-signature": buildMls1Token(canonical, this.hmacSecretActive),
-    };
-  }
-
   private renderCallbackPath(jobId: string): string {
     return this.callbackPathTemplate.replace("{job_id}", encodeURIComponent(jobId));
+  }
+
+  private buildAbsoluteUrl(path: string): URL {
+    return new URL(path, `${this.wpBaseUrl}/`);
+  }
+
+  private buildBrowserLikeHeaders(acceptValue = API_ACCEPT): Record<string, string> {
+    return {
+      accept: acceptValue,
+      "accept-language": BROWSER_ACCEPT_LANGUAGE,
+      "accept-encoding": BROWSER_ACCEPT_ENCODING,
+      "cache-control": "no-cache",
+      pragma: "no-cache",
+      "user-agent": BROWSER_USER_AGENT,
+    };
   }
 
   private async fetchJson(
@@ -314,9 +332,14 @@ export class RestJobsRepo {
     (timer as NodeJS.Timeout).unref?.();
 
     try {
+      const headers: Record<string, string> = {
+        ...this.buildBrowserLikeHeaders(API_ACCEPT),
+        ...init.headers,
+      };
+
       const response = await fetch(url, {
         method: init.method,
-        headers: init.headers,
+        headers,
         body: init.body,
         signal: controller.signal,
       });
@@ -384,8 +407,15 @@ export class RestJobsRepo {
   }
 }
 
-function ensureLeadingSlash(path: string): string {
-  return path.startsWith("/") ? path : `/${path}`;
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/g, "");
+}
+
+function normalizeApiPath(path: string): string {
+  const trimmed = path.trim();
+  const withoutLeading = trimmed.replace(/^\/+/, "");
+  const normalized = withoutLeading.replace(/\/+/g, "/");
+  return `/${normalized}`;
 }
 
 function safeJsonParse(text: string): unknown {
