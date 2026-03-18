@@ -1,9 +1,10 @@
+// src/pdf/pdfRenderer.ts
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { URL } from "node:url";
-import puppeteer, { Browser, BrowserContext, Page } from "puppeteer-core";
+import puppeteer, { Browser, BrowserContext, HTTPResponse, Page } from "puppeteer-core";
 
 import { MemoryGuard } from "../admission/memoryGuard";
 import { HardError } from "../jobs/errors";
@@ -129,7 +130,9 @@ export class PdfRenderer {
       });
 
       await withTimeout(async () => {
-        await page!.goto(renderUrl, { waitUntil: "networkidle0" });
+        const navResponse = await page!.goto(renderUrl, { waitUntil: "networkidle0" });
+
+        await assertDocumentIsRenderable(page!, navResponse, renderUrl);
 
         await page!.evaluate(`
           (async () => {
@@ -147,6 +150,8 @@ export class PdfRenderer {
         } catch (_err) {
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
+
+        await assertDocumentIsRenderable(page!, navResponse, renderUrl);
 
         if (abortedByOverload) {
           throw new HardError("ML_ADMISSION_OVERLOAD", "Admission overload");
@@ -224,6 +229,90 @@ export class PdfRenderer {
       await safeUnlink(tmpPdfPath);
     }
   }
+}
+
+async function assertDocumentIsRenderable(
+  page: Page,
+  response: HTTPResponse | null,
+  expectedUrl: string,
+): Promise<void> {
+  const status = response?.status() ?? 0;
+  if (status >= 400) {
+    throw new HardError("ML_PDF_WAF_BLOCKED", `Render blocked upstream (HTTP ${status})`);
+  }
+
+  const probe = await page.evaluate(() => {
+    const title = typeof document.title === "string" ? document.title : "";
+    const bodyText =
+      (document.body && typeof document.body.innerText === "string" ? document.body.innerText : "") ||
+      (document.documentElement && typeof document.documentElement.innerText === "string"
+        ? document.documentElement.innerText
+        : "");
+
+    return {
+      href: location.href,
+      title,
+      bodyText: bodyText.slice(0, 4000),
+      readyGlobal: (globalThis as any).__ML_PDF_READY__ === true,
+      readyMarker: !!document.querySelector("[data-ml-pdf-ready='1']"),
+    };
+  });
+
+  const normalized = normalizeProbeText(`${probe.title}\n${probe.bodyText}`);
+
+  const wafMarkers = [
+    "403 forbidden",
+    "access denied",
+    "access to this page has been denied",
+    "request forbidden",
+    "verify you are human",
+    "security check",
+    "web application firewall",
+    "your request has been blocked",
+    "automated queries",
+    "bot detection",
+    "bot detected",
+    "litespeed",
+    "hostinger",
+    "captcha",
+  ];
+
+  if (wafMarkers.some((marker) => normalized.includes(marker))) {
+    throw new HardError("ML_PDF_WAF_BLOCKED", "Render blocked by upstream WAF");
+  }
+
+  const expectedPath = normalizePathname(pathFromUrlSafe(expectedUrl));
+  const actualPath = normalizePathname(pathFromUrlSafe(probe.href));
+
+  if (expectedPath !== "" && actualPath !== "" && expectedPath !== actualPath) {
+    if (!probe.readyGlobal && !probe.readyMarker) {
+      throw new HardError("ML_PDF_WAF_BLOCKED", "Render redirected away from expected document");
+    }
+  }
+}
+
+function pathFromUrlSafe(value: string): string {
+  try {
+    return new URL(value).pathname || "";
+  } catch (_err) {
+    return "";
+  }
+}
+
+function normalizePathname(value: string): string {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (trimmed === "/") return "/";
+  return trimmed.replace(/\/+$/, "");
+}
+
+function normalizeProbeText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function chromeArgs(): string[] {
