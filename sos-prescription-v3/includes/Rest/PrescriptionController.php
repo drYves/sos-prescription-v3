@@ -11,8 +11,8 @@ use SOSPrescription\Services\RestGuard;
 use SOSPrescription\Services\StripeConfig;
 use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Services\UidGenerator;
-use SosPrescription\Core\JobDispatcher;
-use SosPrescription\Core\NdjsonLogger;
+use SOSPrescription\Core\JobDispatcher;
+use SOSPrescription\Core\NdjsonLogger;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -566,7 +566,7 @@ class PrescriptionController extends \WP_REST_Controller
     {
         return [
             'status' => 'degraded',
-            'job_id' => 0,
+            'job_id' => '',
             'req_id' => $req_id,
             'can_download' => false,
             's3_ready' => false,
@@ -878,6 +878,17 @@ class PrescriptionController extends \WP_REST_Controller
         $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
         $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
 
+        $dispatch_job_id = '';
+        if (!empty($pdf['job_id']) && is_scalar($pdf['job_id'])) {
+            $dispatch_job_id = (string) $pdf['job_id'];
+        } elseif (!empty($result['job_id'])) {
+            $dispatch_job_id = (string) $result['job_id'];
+        }
+
+        if ($dispatch_job_id !== '' && (empty($pdf['job_id']) || !is_scalar($pdf['job_id']))) {
+            $pdf['job_id'] = $dispatch_job_id;
+        }
+
         return [
             'ok' => true,
             'mode' => 'stateless',
@@ -890,7 +901,7 @@ class PrescriptionController extends \WP_REST_Controller
             ],
             'dispatch' => [
                 'action' => !empty($result['dedup']) ? 'reused' : 'created',
-                'job_id' => isset($pdf['job_id']) ? (int) $pdf['job_id'] : 0,
+                'job_id' => $dispatch_job_id,
                 'worker_job_id' => (string) ($result['job_id'] ?? ''),
                 'status' => isset($pdf['status']) ? (string) $pdf['status'] : 'pending',
                 'dedup' => !empty($result['dedup']),

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace SosPrescription\Core;
+namespace SOSPrescription\Core;
 
 use RuntimeException;
 use wpdb;
@@ -160,7 +160,7 @@ final class JobDispatcher
                   AND status IN ('PENDING','CLAIMED')
                   AND job_id IS NOT NULL
                   AND job_id <> ''
-                ORDER BY created_at DESC, id DESC
+                ORDER BY created_at DESC, updated_at DESC, job_id DESC
                 LIMIT 1";
 
         $row = $this->db->get_row($this->db->prepare($sql, $this->siteId, $rx_id), ARRAY_A);

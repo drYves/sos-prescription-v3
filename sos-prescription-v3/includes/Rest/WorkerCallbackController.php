@@ -1,12 +1,12 @@
 <?php // includes/Rest/WorkerCallbackController.php
 declare(strict_types=1);
 
-namespace SosPrescription\Rest;
+namespace SOSPrescription\Rest;
 
-use SosPrescription\Core\Mls1Verifier;
-use SosPrescription\Core\NdjsonLogger;
-use SosPrescription\Core\NonceStore;
-use SosPrescription\Core\ReqId;
+use SOSPrescription\Core\Mls1Verifier;
+use SOSPrescription\Core\NdjsonLogger;
+use SOSPrescription\Core\NonceStore;
+use SOSPrescription\Core\ReqId;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -113,7 +113,7 @@ final class WorkerCallbackController
 
         $row = $this->db->get_row(
             $this->db->prepare(
-                "SELECT id, job_id, status, req_id, site_id, attempts, max_attempts FROM `{$this->jobsTable}` WHERE job_id = %s AND site_id = %s LIMIT 1",
+                "SELECT job_id, status, req_id, site_id, attempts, max_attempts FROM `{$this->jobsTable}` WHERE job_id = %s AND site_id = %s LIMIT 1",
                 $jobId,
                 $this->siteId
             ),

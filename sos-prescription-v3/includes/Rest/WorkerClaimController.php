@@ -1,12 +1,12 @@
 <?php // includes/Rest/WorkerClaimController.php
 declare(strict_types=1);
 
-namespace SosPrescription\Rest;
+namespace SOSPrescription\Rest;
 
-use SosPrescription\Core\Mls1Verifier;
-use SosPrescription\Core\NdjsonLogger;
-use SosPrescription\Core\NonceStore;
-use SosPrescription\Core\ReqId;
+use SOSPrescription\Core\Mls1Verifier;
+use SOSPrescription\Core\NdjsonLogger;
+use SOSPrescription\Core\NonceStore;
+use SOSPrescription\Core\ReqId;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -203,8 +203,8 @@ final class WorkerClaimController
                 return null;
             }
 
-            $id = isset($row['id']) ? (int) $row['id'] : 0;
-            if ($id < 1) {
+            $jobId = isset($row['job_id']) ? trim((string) $row['job_id']) : '';
+            if ($jobId === '') {
                 $this->db->query('ROLLBACK');
                 return new WP_Error('ml_worker_claim_row', 'Invalid queued job row.', ['status' => 500]);
             }
@@ -221,13 +221,13 @@ final class WorkerClaimController
                     worker_ref = %s,
                     started_at = IF(started_at IS NULL, NOW(3), started_at),
                     updated_at = NOW(3)
-                 WHERE id = %d
+                 WHERE job_id = %s
                    AND site_id = %s
                    AND status = 'PENDING'",
                 $leaseSeconds,
                 $lockedBy,
                 $lockedBy,
-                $id,
+                $jobId,
                 $this->siteId
             ));
 
@@ -236,7 +236,7 @@ final class WorkerClaimController
                 return null;
             }
 
-            $claimed = $this->getJobRowById($id);
+            $claimed = $this->getJobRowByJobId($jobId);
             if ($claimed === null) {
                 $this->db->query('ROLLBACK');
                 return new WP_Error('ml_worker_claim_reload', 'Unable to reload claimed job.', ['status' => 500]);
@@ -283,7 +283,6 @@ final class WorkerClaimController
     {
         $sql = $this->db->prepare(
             "SELECT
-                id,
                 job_id,
                 site_id,
                 req_id,
@@ -313,7 +312,7 @@ final class WorkerClaimController
                AND available_at <= NOW(3)
                AND job_id IS NOT NULL
                AND job_id <> ''
-             ORDER BY available_at ASC, priority ASC, created_at ASC, id ASC
+             ORDER BY available_at ASC, priority ASC, created_at ASC, job_id ASC
              LIMIT 1
              {$lockClause}",
             $this->siteId
@@ -326,11 +325,15 @@ final class WorkerClaimController
     /**
      * @return array<string, mixed>|null
      */
-    private function getJobRowById(int $id): ?array
+    private function getJobRowByJobId(string $jobId): ?array
     {
+        $jobId = trim($jobId);
+        if ($jobId === '') {
+            return null;
+        }
+
         $sql = $this->db->prepare(
             "SELECT
-                id,
                 job_id,
                 site_id,
                 req_id,
@@ -354,9 +357,9 @@ final class WorkerClaimController
                 created_at,
                 updated_at
              FROM `{$this->jobsTable}`
-             WHERE id = %d
+             WHERE job_id = %s
              LIMIT 1",
-            $id
+            $jobId
         );
 
         $row = $this->db->get_row($sql, ARRAY_A);
@@ -376,7 +379,6 @@ final class WorkerClaimController
         }
 
         return [
-            'id' => isset($row['id']) ? (int) $row['id'] : 0,
             'job_id' => isset($row['job_id']) ? (string) $row['job_id'] : '',
             'site_id' => isset($row['site_id']) ? (string) $row['site_id'] : $this->siteId,
             'req_id' => isset($row['req_id']) && $row['req_id'] !== null ? (string) $row['req_id'] : null,

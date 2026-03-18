@@ -76,6 +76,7 @@ class JobRepository
         $available_at       = isset($options['available_at']) && $options['available_at'] !== ''
             ? (string) $options['available_at']
             : $this->now_mysql();
+        $job_id             = $this->generate_job_id();
 
         $mls1_token = $this->build_mls1_token($raw_json, $kid);
         if (\is_wp_error($mls1_token)) {
@@ -86,6 +87,7 @@ class JobRepository
             $sql = $this->wpdb->prepare(
                 "INSERT INTO `{$this->table}`
                 (
+                    `job_id`,
                     `site_id`,
                     `job_type`,
                     `payload`,
@@ -110,6 +112,7 @@ class JobRepository
                     %s,
                     %s,
                     %s,
+                    %s,
                     UNHEX(%s),
                     %s,
                     %s,
@@ -126,6 +129,7 @@ class JobRepository
                     UTC_TIMESTAMP(),
                     UTC_TIMESTAMP()
                 )",
+                $job_id,
                 $this->site_id,
                 $job_type,
                 $raw_json,
@@ -147,8 +151,6 @@ class JobRepository
             $this->wpdb->suppress_errors($previous_suppress);
 
             if ($insert_result !== false) {
-                $job_id = (int) $this->wpdb->insert_id;
-
                 return array(
                     'action'             => 'created',
                     'job'                => $this->get_by_id($job_id),
@@ -197,13 +199,18 @@ class JobRepository
 
     public function get_by_id($job_id)
     {
-        $job_id = (int) $job_id;
-        if ($job_id < 1) {
+        return $this->get_by_job_id($job_id);
+    }
+
+    public function get_by_job_id($job_id)
+    {
+        $job_id = $this->normalize_job_id($job_id);
+        if ($job_id === '') {
             return null;
         }
 
         $sql = $this->wpdb->prepare(
-            $this->base_select_sql() . " WHERE `id` = %d LIMIT 1",
+            $this->base_select_sql() . " WHERE `job_id` = %s LIMIT 1",
             $job_id
         );
 
@@ -217,7 +224,7 @@ class JobRepository
         $job_type = $this->normalize_job_type($job_type);
 
         $sql = $this->wpdb->prepare(
-            $this->base_select_sql() . " WHERE `site_id` = %s AND `job_type` = %s AND `payload_sha256` = UNHEX(%s) ORDER BY `id` DESC LIMIT 1",
+            $this->base_select_sql() . " WHERE `site_id` = %s AND `job_type` = %s AND `payload_sha256` = UNHEX(%s) ORDER BY `created_at` DESC, `updated_at` DESC, `job_id` DESC LIMIT 1",
             $this->site_id,
             $job_type,
             $payload_sha256_hex
@@ -245,7 +252,7 @@ class JobRepository
             $args         = array_merge($args, $statuses);
         }
 
-        $sql .= " ORDER BY `id` DESC LIMIT 1";
+        $sql .= " ORDER BY `created_at` DESC, `updated_at` DESC, `job_id` DESC LIMIT 1";
 
         $prepared = $this->wpdb->prepare($sql, $args);
         $row      = $this->wpdb->get_row($prepared, ARRAY_A);
@@ -261,7 +268,7 @@ class JobRepository
         }
 
         $sql = $this->wpdb->prepare(
-            $this->base_select_sql() . " WHERE `site_id` = %s AND `rx_id` = %d AND `status` = 'DONE' AND `s3_key_ref` <> '' ORDER BY `id` DESC LIMIT 1",
+            $this->base_select_sql() . " WHERE `site_id` = %s AND `rx_id` = %d AND `status` = 'DONE' AND `s3_key_ref` <> '' ORDER BY `created_at` DESC, `updated_at` DESC, `job_id` DESC LIMIT 1",
             $this->site_id,
             $rx_id
         );
@@ -282,7 +289,7 @@ class JobRepository
         }
 
         $sql = $this->wpdb->prepare(
-            $this->base_select_sql() . " WHERE `site_id` = %s AND `rx_id` = %d ORDER BY `id` DESC LIMIT %d",
+            $this->base_select_sql() . " WHERE `site_id` = %s AND `rx_id` = %d ORDER BY `created_at` DESC, `updated_at` DESC, `job_id` DESC LIMIT %d",
             $this->site_id,
             $rx_id,
             $limit
@@ -304,7 +311,7 @@ class JobRepository
         if (empty($job)) {
             return array(
                 'status'       => 'absent',
-                'job_id'       => 0,
+                'job_id'       => '',
                 'req_id'       => '',
                 'can_download' => false,
                 's3_ready'     => false,
@@ -329,7 +336,7 @@ class JobRepository
 
         return array(
             'status'             => $public,
-            'job_id'             => isset($job['id']) ? (int) $job['id'] : 0,
+            'job_id'             => isset($job['job_id']) ? (string) $job['job_id'] : '',
             'req_id'             => isset($job['req_id']) ? (string) $job['req_id'] : '',
             'can_download'       => $can_download,
             's3_ready'           => $can_download,
@@ -360,7 +367,7 @@ class JobRepository
             $args         = array_merge($args, $job_types);
         }
 
-        $sql .= " ORDER BY `priority` ASC, `id` ASC LIMIT 1 FOR UPDATE";
+        $sql .= " ORDER BY `priority` ASC, `available_at` ASC, `created_at` ASC, `job_id` ASC LIMIT 1 FOR UPDATE";
 
         $this->wpdb->query('START TRANSACTION');
 
@@ -371,7 +378,11 @@ class JobRepository
             return null;
         }
 
-        $job_id = (int) $row['id'];
+        $job_id = isset($row['job_id']) ? $this->normalize_job_id($row['job_id']) : '';
+        if ($job_id === '') {
+            $this->wpdb->query('ROLLBACK');
+            return null;
+        }
 
         $updated = $this->wpdb->query(
             $this->wpdb->prepare(
@@ -384,10 +395,11 @@ class JobRepository
                     `lock_expires_at` = DATE_ADD(UTC_TIMESTAMP(), INTERVAL %d SECOND),
                     `started_at` = IF(`started_at` IS NULL, UTC_TIMESTAMP(), `started_at`),
                     `updated_at` = UTC_TIMESTAMP()
-                 WHERE `id` = %d AND `status` IN ('PENDING', 'RETRY')",
+                 WHERE `job_id` = %s AND `site_id` = %s AND `status` IN ('PENDING', 'RETRY')",
                 $worker_ref,
                 $lease_seconds,
-                $job_id
+                $job_id,
+                $this->site_id
             )
         );
 
@@ -403,11 +415,11 @@ class JobRepository
 
     public function touch_running($job_id, $worker_ref = '', $lease_seconds = 120)
     {
-        $job_id        = (int) $job_id;
+        $job_id        = $this->normalize_job_id($job_id);
         $lease_seconds = max(30, (int) $lease_seconds);
         $worker_ref    = $worker_ref !== '' ? (string) $worker_ref : $this->default_worker_ref();
 
-        if ($job_id < 1) {
+        if ($job_id === '') {
             return false;
         }
 
@@ -418,7 +430,7 @@ class JobRepository
                 `locked_by` = %s,
                 `lock_expires_at` = DATE_ADD(UTC_TIMESTAMP(), INTERVAL %d SECOND),
                 `updated_at` = UTC_TIMESTAMP()
-             WHERE `id` = %d",
+             WHERE `job_id` = %s",
             $worker_ref,
             $lease_seconds,
             $job_id
@@ -429,8 +441,8 @@ class JobRepository
 
     public function mark_done($job_id, array $artifact = array())
     {
-        $job_id = (int) $job_id;
-        if ($job_id < 1) {
+        $job_id = $this->normalize_job_id($job_id);
+        if ($job_id === '') {
             return false;
         }
 
@@ -458,7 +470,7 @@ class JobRepository
                 `last_error_code` = '',
                 `last_error_message` = NULL,
                 `updated_at` = UTC_TIMESTAMP()
-             WHERE `id` = %d",
+             WHERE `job_id` = %s",
             $s3_key_ref,
             $s3_bucket,
             $s3_region,
@@ -473,11 +485,11 @@ class JobRepository
 
     public function mark_failed($job_id, $error_code, $error_message)
     {
-        $job_id        = (int) $job_id;
+        $job_id        = $this->normalize_job_id($job_id);
         $error_code    = (string) $error_code;
         $error_message = (string) $error_message;
 
-        if ($job_id < 1) {
+        if ($job_id === '') {
             return false;
         }
 
@@ -492,7 +504,7 @@ class JobRepository
                 `lock_expires_at` = NULL,
                 `finished_at` = UTC_TIMESTAMP(),
                 `updated_at` = UTC_TIMESTAMP()
-             WHERE `id` = %d",
+             WHERE `job_id` = %s",
             $error_code,
             $error_message,
             $job_id
@@ -503,12 +515,12 @@ class JobRepository
 
     public function requeue($job_id, $delay_seconds = 30, $error_code = '', $error_message = '')
     {
-        $job_id        = (int) $job_id;
+        $job_id        = $this->normalize_job_id($job_id);
         $delay_seconds = max(0, (int) $delay_seconds);
         $error_code    = (string) $error_code;
         $error_message = (string) $error_message;
 
-        if ($job_id < 1) {
+        if ($job_id === '') {
             return false;
         }
 
@@ -525,7 +537,7 @@ class JobRepository
                 `locked_at` = NULL,
                 `lock_expires_at` = NULL,
                 `updated_at` = UTC_TIMESTAMP()
-             WHERE `id` = %d",
+             WHERE `job_id` = %s",
             $available_at,
             $error_code,
             $error_message,
@@ -537,48 +549,61 @@ class JobRepository
 
     protected function base_select_sql()
     {
+        $columns = array(
+            '`job_id`',
+            '`site_id`',
+            '`job_type`',
+            '`payload`',
+            'HEX(`payload_sha256`) AS `payload_sha256_hex`',
+            '`mls1_token`',
+            '`nonce`',
+            '`kid`',
+            '`exp_ms`',
+            '`status`',
+            '`priority`',
+            '`attempts`',
+            '`max_attempts`',
+            '`locked_at`',
+            '`lock_expires_at`',
+            '`locked_by`',
+            '`available_at`',
+            $this->select_column_sql('started_at', 'NULL', '`started_at`'),
+            $this->select_column_sql('finished_at', $this->column_exists('completed_at') ? '`completed_at`' : 'NULL', '`finished_at`'),
+            '`last_error_code`',
+            $this->select_column_sql('last_error_message', $this->column_exists('last_error_message_safe') ? '`last_error_message_safe`' : 'NULL', '`last_error_message`'),
+            '`rx_id`',
+            '`s3_key_ref`',
+            $this->select_column_sql('s3_bucket', "''", '`s3_bucket`'),
+            $this->select_column_sql('s3_region', "''", '`s3_region`'),
+            '`artifact_sha256`',
+            $this->select_column_sql('artifact_size_bytes', $this->column_exists('artifact_size') ? '`artifact_size`' : '0', '`artifact_size_bytes`'),
+            $this->select_column_sql('worker_ref', "''", '`worker_ref`'),
+            '`req_id`',
+            '`created_by`',
+            '`created_at`',
+            '`updated_at`'
+        );
+
+        if ($this->column_exists('id')) {
+            $columns[] = '`id`';
+        }
+
         return "SELECT
-                    `id`,
-                    `site_id`,
-                    `job_type`,
-                    `payload`,
-                    HEX(`payload_sha256`) AS `payload_sha256_hex`,
-                    `mls1_token`,
-                    `nonce`,
-                    `kid`,
-                    `exp_ms`,
-                    `status`,
-                    `priority`,
-                    `attempts`,
-                    `max_attempts`,
-                    `locked_at`,
-                    `lock_expires_at`,
-                    `locked_by`,
-                    `available_at`,
-                    `started_at`,
-                    `finished_at`,
-                    `last_error_code`,
-                    `last_error_message`,
-                    `rx_id`,
-                    `s3_key_ref`,
-                    `s3_bucket`,
-                    `s3_region`,
-                    `artifact_sha256`,
-                    `artifact_size`,
-                    `worker_ref`,
-                    `req_id`,
-                    `created_by`,
-                    `created_at`,
-                    `updated_at`
+                    " . implode(",
+                    ", $columns) . "
                 FROM `{$this->table}`";
     }
 
     protected function hydrate_row(array $row)
     {
-        foreach (array('id', 'exp_ms', 'priority', 'attempts', 'max_attempts', 'rx_id', 'artifact_size', 'created_by') as $int_key) {
+        foreach (array('exp_ms', 'priority', 'attempts', 'max_attempts', 'rx_id', 'artifact_size_bytes', 'created_by') as $int_key) {
             if (isset($row[$int_key])) {
                 $row[$int_key] = (int) $row[$int_key];
             }
+        }
+
+        if (isset($row['id'])) {
+            $row['id'] = (int) $row['id'];
         }
 
         if (isset($row['payload']) && is_string($row['payload']) && $row['payload'] !== '') {
@@ -589,6 +614,43 @@ class JobRepository
         }
 
         return $row;
+    }
+
+
+    protected function select_column_sql($column, $fallback_sql, $alias_sql = '')
+    {
+        if ($this->column_exists($column)) {
+            return $alias_sql !== '' ? "`{$column}` AS {$alias_sql}" : "`{$column}`";
+        }
+
+        if ($alias_sql !== '') {
+            return "{$fallback_sql} AS {$alias_sql}";
+        }
+
+        return $fallback_sql;
+    }
+
+    protected function column_exists($column)
+    {
+        $column = (string) $column;
+        if ($column === '') {
+            return false;
+        }
+
+        if (!isset($this->column_cache[$this->table])) {
+            $this->column_cache[$this->table] = array();
+            $rows = $this->wpdb->get_results('SHOW COLUMNS FROM `' . esc_sql($this->table) . '`', ARRAY_A);
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    if (!is_array($row) || empty($row['Field'])) {
+                        continue;
+                    }
+                    $this->column_cache[$this->table][(string) $row['Field']] = (string) $row['Field'];
+                }
+            }
+        }
+
+        return isset($this->column_cache[$this->table][$column]);
     }
 
     protected function table_exists()
@@ -706,6 +768,40 @@ class JobRepository
         }
 
         return 'req_' . $random;
+    }
+
+
+    protected function generate_job_id()
+    {
+        if (function_exists('wp_generate_uuid4')) {
+            $uuid = (string) wp_generate_uuid4();
+            if ($uuid !== '') {
+                return $uuid;
+            }
+        }
+
+        try {
+            $bytes = random_bytes(16);
+            $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+            $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+
+            return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+        } catch (\Exception $e) {
+            return sprintf(
+                '%08x-%04x-%04x-%04x-%012x',
+                wp_rand(0, 0xffffffff),
+                wp_rand(0, 0xffff),
+                wp_rand(0x4000, 0x4fff),
+                wp_rand(0x8000, 0xbfff),
+                wp_rand(0, 0xffffffffffff)
+            );
+        }
+    }
+
+    protected function normalize_job_id($job_id)
+    {
+        $job_id = is_scalar($job_id) ? trim((string) $job_id) : '';
+        return $job_id;
     }
 
     protected function build_mls1_token($raw_payload_bytes, $kid)
