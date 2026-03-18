@@ -108,7 +108,7 @@ export class PdfRenderer {
       await page.setRequestInterception(true);
       page.on("request", (req) => {
         try {
-          const u = new URL(url());
+          const u = new URL(req.url());
 
           if (u.protocol === "data:" || u.protocol === "blob:") {
             return req.continue();
