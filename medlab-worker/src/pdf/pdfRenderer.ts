@@ -62,6 +62,10 @@ export class PdfRenderer {
     let browser: Browser | null = null;
     let context: BrowserContext | null = null;
     let page: Page | null = null;
+    
+    const safeWorkerId = sanitizeId(input.workerId || "worker");
+    const safeJobId = sanitizeId(input.jobId || "job");
+    const userDir = path.join("/tmp", `medlab-chrome-${safeWorkerId}-${safeJobId}`);
 
     let abortedByOverload = false;
     const memTimer = setInterval(() => {
@@ -84,10 +88,10 @@ export class PdfRenderer {
       );
 
       browser = await puppeteer.launch({
-        executablePath: input.chromeExecutablePath,
+        executablePath: input.chromeExecutablePath || undefined,
         headless: true,
         args: chromeArgs(),
-        userDataDir: path.join("/tmp", `medlab-chrome-${sanitizeId(input.workerId)}`),
+        userDataDir: userDir,
       });
 
       context = await browser.createBrowserContext();
@@ -97,13 +101,16 @@ export class PdfRenderer {
       await page.emulateMediaType("print");
       await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 2 });
 
-      const renderPath = input.renderPathTemplate.replace("{rx_id}", String(input.rxId));
+      const wpBaseUrl = input.wpBaseUrl || "[https://sosprescription.fr](https://sosprescription.fr)";
+      const tmpl = input.renderPathTemplate || "/wp-json/sosprescription/v3/worker/render/rx/{rx_id}";
+      const renderPath = tmpl.replace("{rx_id}", String(input.rxId));
+      
       const tsMs = Date.now();
       const nonce = base64Url(randomBytes(16));
       const canonical = `GET|${renderPath}|${tsMs}|${nonce}`;
       const token = buildMls1Token(Buffer.from(canonical, "utf8"), input.hmacSecret);
-      const renderUrl = input.wpBaseUrl + renderPath;
-      const allowedOrigin = new URL(input.wpBaseUrl).origin;
+      const renderUrl = wpBaseUrl.replace(/\/+$/, "") + renderPath;
+      const allowedOrigin = new URL(wpBaseUrl).origin;
 
       await page.setRequestInterception(true);
       page.on("request", (req) => {
@@ -216,6 +223,8 @@ export class PdfRenderer {
         {
           job_id: input.jobId,
           rx_id: input.rxId,
+          error_message: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
         },
         input.reqId,
       );
@@ -228,6 +237,7 @@ export class PdfRenderer {
       await safeClose(context);
       await safeClose(browser);
       await safeUnlink(tmpPdfPath);
+      await safeRmDir(userDir);
     }
   }
 }
@@ -430,6 +440,14 @@ async function safeMkdir(dir: string): Promise<void> {
 async function safeUnlink(p: string): Promise<void> {
   try {
     await fsp.unlink(p);
+  } catch (_err) {
+    // noop
+  }
+}
+
+async function safeRmDir(dir: string): Promise<void> {
+  try {
+    await fsp.rm(dir, { recursive: true, force: true });
   } catch (_err) {
     // noop
   }
