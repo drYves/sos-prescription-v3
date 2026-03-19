@@ -4,7 +4,7 @@ import os from "node:os";
 export type EnvName = "prod" | "staging" | "dev";
 
 export interface S3Config {
-  endpoint: string;
+  endpoint?: string;
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
@@ -83,7 +83,7 @@ export function loadConfig(): WorkerConfig {
   const wpBaseUrl = mustGetEnv("ML_WP_BASE_URL").replace(/\/+$/g, "");
 
   const s3: S3Config = {
-    endpoint: mustGetEnv("S3_ENDPOINT"),
+    endpoint: getEnv("S3_ENDPOINT") ?? undefined,
     region: mustGetEnv("S3_REGION"),
     accessKeyId: mustGetEnv("S3_ACCESS_KEY_ID"),
     secretAccessKey: mustGetEnv("S3_SECRET_ACCESS_KEY"),
