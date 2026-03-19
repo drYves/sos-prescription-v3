@@ -42,13 +42,15 @@ export interface WorkerConfig {
 
 function mustGetEnv(key: string): string {
   const v = process.env[key];
-  if (!v) throw new Error(`Missing required env var: ${key}`);
-  return v;
+  if (!v || v.trim() === "") throw new Error(`Missing required env var: ${key}`);
+  return v.trim();
 }
 
 function getEnv(key: string): string | undefined {
   const v = process.env[key];
-  return v && v.length > 0 ? v : undefined;
+  if (!v) return undefined;
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function parseBool(v: string | undefined, def: boolean): boolean {
