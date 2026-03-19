@@ -107,7 +107,10 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     });
   } catch (err) {
     const details = extractErrorDetails(err);
-    throw withErrorDetails(new SoftError("ML_S3_UPLOAD_FAILED", "S3 upload failed"), details);
+    throw withErrorDetails(
+      new SoftError("ML_S3_UPLOAD_FAILED", extractNativeAwsMessage(err)),
+      details,
+    );
   } finally {
     try {
       await fs.unlink(render.filePath);
@@ -222,6 +225,32 @@ function buildPdfS3Key(siteId: string, jobId: string, now: Date): string {
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   return `unit/${siteId}/rx-pdf/${yyyy}/${mm}/${jobId}.pdf`;
+}
+
+function extractNativeAwsMessage(err: unknown): string {
+  if (err && typeof err === "object") {
+    const rec = err as Record<string, unknown>;
+    const name = typeof rec.name === "string" ? rec.name : "";
+    const message = typeof rec.message === "string" ? rec.message : "";
+
+    if (rec.$metadata && name && message) {
+      return `[${name}] ${message}`;
+    }
+
+    if (name && message) {
+      return `[${name}] ${message}`;
+    }
+
+    if (message) {
+      return message;
+    }
+  }
+
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+
+  return String(err);
 }
 
 function withErrorDetails<T extends Error>(err: T, details: ErrorDetails): T {
