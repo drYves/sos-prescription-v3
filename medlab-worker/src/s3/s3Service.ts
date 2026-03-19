@@ -52,13 +52,13 @@ export class S3Service {
 
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
     const bodyBuffer = await fsp.readFile(input.filePath);
-    const bodyUint8Array = new Uint8Array(bodyBuffer);
 
     const cmd = new PutObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
-      Body: bodyUint8Array,
+      Body: bodyBuffer,
       ContentType: input.contentType,
+      ContentLength: bodyBuffer.length,
       ServerSideEncryption: this.sse as never,
       Metadata: normalizeMetadata(input.metadata),
     });
