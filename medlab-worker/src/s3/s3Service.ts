@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fsp from "node:fs/promises";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3Config } from "../config";
 
@@ -51,12 +51,12 @@ export class S3Service {
   }
 
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
-    const bodyStream = fs.createReadStream(input.filePath);
+    const bodyBuffer = await fsp.readFile(input.filePath);
 
     const cmd = new PutObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
-      Body: bodyStream,
+      Body: bodyBuffer,
       ContentType: input.contentType,
       ContentLength: input.contentLength,
       ServerSideEncryption: this.sse as never,
