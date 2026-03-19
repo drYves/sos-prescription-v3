@@ -105,8 +105,9 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
         req_id: reqId ?? "",
       },
     });
-  } catch (_err) {
-    throw new SoftError("ML_S3_UPLOAD_FAILED", "S3 upload failed");
+  } catch (err) {
+    const details = extractErrorDetails(err);
+    throw withErrorDetails(new SoftError("ML_S3_UPLOAD_FAILED", "S3 upload failed"), details);
   } finally {
     try {
       await fs.unlink(render.filePath);
@@ -142,6 +143,7 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
   const reqId = job.req_id ?? undefined;
 
   if (err instanceof SoftError) {
+    const details = extractErrorDetails(err);
     const attempt = Math.max(1, job.attempts);
     const delay = Math.min(10 * Math.pow(2, attempt - 1), 900);
     if (job.attempts >= job.max_attempts) {
@@ -152,7 +154,17 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
         errorCode: err.code,
         messageSafe: err.messageSafe,
       });
-      deps.logger.error("job.failed_hard", { job_id: job.job_id, error_code: err.code }, reqId);
+      deps.logger.error(
+        "job.failed_hard",
+        {
+          job_id: job.job_id,
+          error_code: err.code,
+          error_message: details.error_message,
+          error_stack: details.error_stack,
+          aws_code: details.aws_code,
+        },
+        reqId,
+      );
       return;
     }
 
@@ -173,6 +185,9 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
         delay_s: Math.floor(delay),
         attempt: job.attempts,
         max_attempts: job.max_attempts,
+        error_message: details.error_message,
+        error_stack: details.error_stack,
+        aws_code: details.aws_code,
       },
       reqId,
     );
@@ -195,6 +210,9 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
     {
       job_id: job.job_id,
       error_code: hard.code,
+      error_message: hard.message,
+      error_stack: hard.stack,
+      aws_code: extractAwsCode(hard),
     },
     reqId,
   );
@@ -204,4 +222,40 @@ function buildPdfS3Key(siteId: string, jobId: string, now: Date): string {
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   return `unit/${siteId}/rx-pdf/${yyyy}/${mm}/${jobId}.pdf`;
+}
+
+function withErrorDetails<T extends Error>(err: T, details: ErrorDetails): T {
+  Object.assign(err as Record<string, unknown>, details);
+  return err;
+}
+
+function extractErrorDetails(err: unknown): ErrorDetails {
+  const error = err as Record<string, unknown> | undefined;
+
+  return {
+    error_message: err instanceof Error ? err.message : String(err),
+    error_stack: err instanceof Error ? err.stack : undefined,
+    aws_code: extractAwsCode(error),
+  };
+}
+
+function extractAwsCode(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+
+  const rec = err as Record<string, unknown>;
+  const awsCode =
+    rec.Code ??
+    rec.code ??
+    rec.name ??
+    (typeof rec.$metadata === "object" && rec.$metadata && "httpStatusCode" in (rec.$metadata as Record<string, unknown>)
+      ? undefined
+      : undefined);
+
+  return typeof awsCode === "string" && awsCode !== "" ? awsCode : undefined;
+}
+
+interface ErrorDetails {
+  error_message: string;
+  error_stack?: string;
+  aws_code?: string;
 }
