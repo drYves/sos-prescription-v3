@@ -5,7 +5,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { URL } from "node:url";
-import puppeteer, { Browser, BrowserContext, HTTPResponse, Page } from "puppeteer-core";
+import puppeteer, { Browser, BrowserContext, HTTPResponse, Page } from "puppeteer";
 
 import { MemoryGuard } from "../admission/memoryGuard";
 import { HardError } from "../jobs/errors";
@@ -62,7 +62,7 @@ export class PdfRenderer {
     let browser: Browser | null = null;
     let context: BrowserContext | null = null;
     let page: Page | null = null;
-    
+
     const safeWorkerId = sanitizeId(input.workerId || "worker");
     const safeJobId = sanitizeId(input.jobId || "job");
     const userDir = path.join("/tmp", `medlab-chrome-${safeWorkerId}-${safeJobId}`);
@@ -87,8 +87,12 @@ export class PdfRenderer {
         input.reqId,
       );
 
+      const safeExecutablePath = (input.chromeExecutablePath && fs.existsSync(input.chromeExecutablePath))
+        ? input.chromeExecutablePath
+        : undefined;
+
       browser = await puppeteer.launch({
-        executablePath: input.chromeExecutablePath || undefined,
+        executablePath: safeExecutablePath,
         headless: true,
         args: chromeArgs(),
         userDataDir: userDir,
