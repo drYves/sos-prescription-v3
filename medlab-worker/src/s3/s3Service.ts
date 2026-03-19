@@ -58,7 +58,6 @@ export class S3Service {
       Key: input.key,
       Body: bodyBuffer,
       ContentType: input.contentType,
-      ContentLength: input.contentLength,
       ServerSideEncryption: this.sse as never,
       Metadata: normalizeMetadata(input.metadata),
     });
