@@ -45,13 +45,14 @@ export class S3Service {
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
     const bodyBuffer = await fsp.readFile(input.filePath);
 
+    // Baremetal Payload : On délègue totalement le calcul de signature au SDK V3.
+    // L'envoi de ContentLength ou ServerSideEncryption avec un Buffer sur Node 24
+    // provoque un SignatureDoesNotMatch.
     const cmd = new PutObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
       Body: bodyBuffer,
       ContentType: input.contentType,
-      ContentLength: bodyBuffer.length,
-      ServerSideEncryption: this.sse as never,
       Metadata: normalizeMetadata(input.metadata),
     });
 
