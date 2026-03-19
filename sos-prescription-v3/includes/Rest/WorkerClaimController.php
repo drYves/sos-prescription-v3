@@ -89,10 +89,8 @@ final class WorkerClaimController
             return $leaseSeconds;
         }
 
-        $recovered = $this->recoverExpiredClaims($reqId);
-        if ($recovered['requeued'] > 0 || $recovered['failed'] > 0) {
-            $this->logger->warning('worker.claim.recovered_expired_claims', $recovered, $reqId);
-        }
+        // CHIRURGIE : Désactivation du Sweeper lourd sur le endpoint de Claim
+        // $recovered = $this->recoverExpiredClaims($reqId);
 
         $job = $this->claimOnePendingJob($workerRef, $leaseSeconds, $reqId);
         if (is_wp_error($job)) {
@@ -100,11 +98,6 @@ final class WorkerClaimController
         }
 
         if ($job === null) {
-            $this->logger->info('worker.claim.empty', [
-                'worker_ref' => $workerRef !== '' ? $workerRef : null,
-                'lease_seconds' => $leaseSeconds,
-            ], $reqId);
-
             return new WP_REST_Response([
                 'ok' => true,
                 'job' => null,
@@ -122,7 +115,6 @@ final class WorkerClaimController
             'worker_ref' => $workerRef !== '' ? $workerRef : null,
             'lease_seconds' => $leaseSeconds,
             'attempts' => (int) ($job['attempts'] ?? 0),
-            'max_attempts' => (int) ($job['max_attempts'] ?? 0),
         ], $jobReqId);
 
         return new WP_REST_Response([
@@ -130,60 +122,6 @@ final class WorkerClaimController
             'job' => $job,
             'req_id' => $jobReqId,
         ], 200);
-    }
-
-    /**
-     * @return array{requeued:int,failed:int}
-     */
-    private function recoverExpiredClaims(string $reqId): array
-    {
-        $requeued = $this->db->query($this->db->prepare(
-            "UPDATE `{$this->jobsTable}`
-             SET
-                status = 'PENDING',
-                available_at = DATE_ADD(NOW(3), INTERVAL 30 SECOND),
-                last_error_code = 'ML_LEASE_EXPIRED',
-                last_error_message = 'Lease expired; job requeued by claim controller.',
-                last_error_message_safe = 'Lease expirée ; job remis en file.',
-                last_error_at = NOW(3),
-                locked_at = NULL,
-                lock_expires_at = NULL,
-                locked_by = NULL,
-                updated_at = NOW(3)
-             WHERE site_id = %s
-               AND status = 'CLAIMED'
-               AND lock_expires_at IS NOT NULL
-               AND lock_expires_at < NOW(3)
-               AND attempts < max_attempts",
-            $this->siteId
-        ));
-
-        $failed = $this->db->query($this->db->prepare(
-            "UPDATE `{$this->jobsTable}`
-             SET
-                status = 'FAILED',
-                last_error_code = 'ML_MAX_ATTEMPTS_EXCEEDED',
-                last_error_message = 'Maximum attempts reached after lease expiry.',
-                last_error_message_safe = 'Nombre maximal de tentatives atteint.',
-                last_error_at = NOW(3),
-                completed_at = NOW(3),
-                finished_at = NOW(3),
-                locked_at = NULL,
-                lock_expires_at = NULL,
-                locked_by = NULL,
-                updated_at = NOW(3)
-             WHERE site_id = %s
-               AND status = 'CLAIMED'
-               AND lock_expires_at IS NOT NULL
-               AND lock_expires_at < NOW(3)
-               AND attempts >= max_attempts",
-            $this->siteId
-        ));
-
-        return [
-            'requeued' => is_int($requeued) && $requeued > 0 ? $requeued : 0,
-            'failed' => is_int($failed) && $failed > 0 ? $failed : 0,
-        ];
     }
 
     /**
@@ -246,11 +184,6 @@ final class WorkerClaimController
             return $this->serializeJobRow($claimed);
         } catch (\Throwable $e) {
             $this->db->query('ROLLBACK');
-            $this->logger->error('worker.claim.exception', [
-                'message' => 'Unhandled claim exception',
-                'db_error' => (string) $this->db->last_error,
-            ], $reqId, $e);
-
             return new WP_Error('ml_worker_claim_exception', 'Unhandled worker claim exception.', ['status' => 500]);
         }
     }
@@ -265,14 +198,8 @@ final class WorkerClaimController
             return $row;
         }
 
-        $lastError = (string) $this->db->last_error;
-        if ($lastError !== '') {
-            $this->logger->warning('worker.claim.skip_locked_fallback', [
-                'db_error' => $lastError,
-            ]);
-            return $this->selectPendingJobWithClause('FOR UPDATE');
-        }
-
+        // CHIRURGIE : On supprime le fallback "FOR UPDATE" qui cause le Deadlock/504
+        // Si SKIP LOCKED ne trouve rien ou échoue, on retourne null immédiatement.
         return null;
     }
 
@@ -282,30 +209,7 @@ final class WorkerClaimController
     private function selectPendingJobWithClause(string $lockClause): ?array
     {
         $sql = $this->db->prepare(
-            "SELECT
-                id,
-                job_id,
-                site_id,
-                req_id,
-                job_type,
-                status,
-                priority,
-                available_at,
-                rx_id,
-                nonce,
-                kid,
-                exp_ms,
-                payload,
-                mls1_token,
-                s3_key_ref,
-                attempts,
-                max_attempts,
-                locked_at,
-                lock_expires_at,
-                locked_by,
-                worker_ref,
-                created_at,
-                updated_at
+            "SELECT id, job_id, site_id, req_id, job_type, status, priority, available_at, rx_id, nonce, kid, exp_ms, payload, mls1_token, s3_key_ref, attempts, max_attempts, locked_at, lock_expires_at, locked_by, worker_ref, created_at, updated_at
              FROM `{$this->jobsTable}`
              WHERE site_id = %s
                AND job_type = 'PDF_GEN'
@@ -329,33 +233,9 @@ final class WorkerClaimController
     private function getJobRowById(int $id): ?array
     {
         $sql = $this->db->prepare(
-            "SELECT
-                id,
-                job_id,
-                site_id,
-                req_id,
-                job_type,
-                status,
-                priority,
-                available_at,
-                rx_id,
-                nonce,
-                kid,
-                exp_ms,
-                payload,
-                mls1_token,
-                s3_key_ref,
-                attempts,
-                max_attempts,
-                locked_at,
-                lock_expires_at,
-                locked_by,
-                worker_ref,
-                created_at,
-                updated_at
+            "SELECT id, job_id, site_id, req_id, job_type, status, priority, available_at, rx_id, nonce, kid, exp_ms, payload, mls1_token, s3_key_ref, attempts, max_attempts, locked_at, lock_expires_at, locked_by, worker_ref, created_at, updated_at
              FROM `{$this->jobsTable}`
-             WHERE id = %d
-             LIMIT 1",
+             WHERE id = %d LIMIT 1",
             $id
         );
 
@@ -450,7 +330,6 @@ final class WorkerClaimController
         if ($workerRef === '') {
             return '';
         }
-
         return substr(sanitize_text_field($workerRef), 0, 191);
     }
 
