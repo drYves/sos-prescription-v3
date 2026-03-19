@@ -203,8 +203,8 @@ final class WorkerClaimController
                 return null;
             }
 
-            $jobId = isset($row['job_id']) ? trim((string) $row['job_id']) : '';
-            if ($jobId === '') {
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            if ($id < 1) {
                 $this->db->query('ROLLBACK');
                 return new WP_Error('ml_worker_claim_row', 'Invalid queued job row.', ['status' => 500]);
             }
@@ -221,13 +221,13 @@ final class WorkerClaimController
                     worker_ref = %s,
                     started_at = IF(started_at IS NULL, NOW(3), started_at),
                     updated_at = NOW(3)
-                 WHERE job_id = %s
+                 WHERE id = %d
                    AND site_id = %s
                    AND status = 'PENDING'",
                 $leaseSeconds,
                 $lockedBy,
                 $lockedBy,
-                $jobId,
+                $id,
                 $this->siteId
             ));
 
@@ -236,7 +236,7 @@ final class WorkerClaimController
                 return null;
             }
 
-            $claimed = $this->getJobRowByJobId($jobId);
+            $claimed = $this->getJobRowById($id);
             if ($claimed === null) {
                 $this->db->query('ROLLBACK');
                 return new WP_Error('ml_worker_claim_reload', 'Unable to reload claimed job.', ['status' => 500]);
@@ -283,6 +283,7 @@ final class WorkerClaimController
     {
         $sql = $this->db->prepare(
             "SELECT
+                id,
                 job_id,
                 site_id,
                 req_id,
@@ -312,7 +313,7 @@ final class WorkerClaimController
                AND available_at <= NOW(3)
                AND job_id IS NOT NULL
                AND job_id <> ''
-             ORDER BY available_at ASC, priority ASC, created_at ASC, job_id ASC
+             ORDER BY available_at ASC, priority ASC, created_at ASC, id ASC
              LIMIT 1
              {$lockClause}",
             $this->siteId
@@ -325,15 +326,11 @@ final class WorkerClaimController
     /**
      * @return array<string, mixed>|null
      */
-    private function getJobRowByJobId(string $jobId): ?array
+    private function getJobRowById(int $id): ?array
     {
-        $jobId = trim($jobId);
-        if ($jobId === '') {
-            return null;
-        }
-
         $sql = $this->db->prepare(
             "SELECT
+                id,
                 job_id,
                 site_id,
                 req_id,
@@ -357,9 +354,9 @@ final class WorkerClaimController
                 created_at,
                 updated_at
              FROM `{$this->jobsTable}`
-             WHERE job_id = %s
+             WHERE id = %d
              LIMIT 1",
-            $jobId
+            $id
         );
 
         $row = $this->db->get_row($sql, ARRAY_A);
@@ -379,6 +376,7 @@ final class WorkerClaimController
         }
 
         return [
+            'id' => isset($row['id']) ? (int) $row['id'] : 0,
             'job_id' => isset($row['job_id']) ? (string) $row['job_id'] : '',
             'site_id' => isset($row['site_id']) ? (string) $row['site_id'] : $this->siteId,
             'req_id' => isset($row['req_id']) && $row['req_id'] !== null ? (string) $row['req_id'] : null,

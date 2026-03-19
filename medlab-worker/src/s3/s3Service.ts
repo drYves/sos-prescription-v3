@@ -1,53 +1,45 @@
+import { PutObjectCommand, S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
 import fsp from "node:fs/promises";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { S3Config } from "../config";
+import { normalizeMetadata } from "./s3Utils";
 
-export interface UploadPdfInput {
-  bucket: string;
-  key: string;
-  body: Buffer;
-  contentType: string;
-  metadata: Record<string, string>;
+export interface S3ServiceConfig {
+  endpoint?: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  sse: string;
+  forcePathStyle: boolean;
 }
 
 export interface UploadPdfFileInput {
   bucket: string;
   key: string;
   filePath: string;
-  contentType: string;
+  contentType: "application/pdf";
   contentLength: number;
-  metadata: Record<string, string>;
+  metadata?: Record<string, string>;
 }
 
 export class S3Service {
   private readonly client: S3Client;
   private readonly sse: string;
 
-  constructor(cfg: S3Config) {
-    this.sse = cfg.sse;
-
-    this.client = new S3Client({
+  constructor(cfg: S3ServiceConfig) {
+    const s3Cfg: S3ClientConfig = {
       region: cfg.region,
-      endpoint: cfg.endpoint,
-      forcePathStyle: cfg.forcePathStyle,
       credentials: {
         accessKeyId: cfg.accessKeyId,
         secretAccessKey: cfg.secretAccessKey,
       },
-    });
-  }
+      forcePathStyle: cfg.forcePathStyle,
+    };
 
-  async uploadPdf(input: UploadPdfInput): Promise<void> {
-    const cmd = new PutObjectCommand({
-      Bucket: input.bucket,
-      Key: input.key,
-      Body: input.body,
-      ContentType: input.contentType,
-      ServerSideEncryption: this.sse as never,
-      Metadata: normalizeMetadata(input.metadata),
-    });
+    if (cfg.endpoint) {
+      s3Cfg.endpoint = cfg.endpoint;
+    }
 
-    await this.client.send(cmd);
+    this.client = new S3Client(s3Cfg);
+    this.sse = cfg.sse;
   }
 
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
@@ -65,13 +57,8 @@ export class S3Service {
 
     await this.client.send(cmd);
   }
-}
 
-function normalizeMetadata(meta: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(meta)) {
-    const key = k.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
-    out[key] = String(v).slice(0, 256);
+  async close(): Promise<void> {
+    this.client.destroy();
   }
-  return out;
 }
