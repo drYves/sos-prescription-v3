@@ -56,13 +56,13 @@ export class S3Service {
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
     const bodyBuffer = await fsp.readFile(input.filePath);
 
+    // On ne passe plus CONTENT-LENGTH ni rien d'autre qui pourrait
+    // corrompre la signature V4 calculée par le NodeHttpHandler.
     const cmd = new PutObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
       Body: bodyBuffer,
-      ContentType: input.contentType,
-      ContentLength: bodyBuffer.length,
-      Metadata: normalizeMetadata(input.metadata),
+      ContentType: "application/pdf",
     });
 
     await this.client.send(cmd);
