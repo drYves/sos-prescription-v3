@@ -1,24 +1,188 @@
 <?php // includes/Services/Retention.php
 declare(strict_types=1);
+
 namespace SOSPrescription\Services;
+
 use SOSPrescription\Repositories\AuditRepository;
 use SOSPrescription\Repositories\FileRepository;
 
-final class Retention {
+final class Retention
+{
     public const CRON_HOOK = 'sosprescription_daily_retention';
-    private static bool $hooks_registered = false;
 
-    public static function register_hooks(): void {
-        if (self::$hooks_registered) return;
+    private static bool $hooks_registered = false;
+    private static bool $cron_registered = false;
+
+    public static function register_hooks(): void
+    {
+        if (self::$hooks_registered) {
+            return;
+        }
+
         self::$hooks_registered = true;
+
         add_action(self::CRON_HOOK, [self::class, 'run_daily']);
-        // Les crons seront déclenchés manuellement via l'interface serveur ou WP Crontrol
-        // On supprime totalement les appels toxiques à wp_next_scheduled au boot.
     }
 
-    public static function run_daily(): void { self::run(); }
+    public static function ensure_cron_scheduled(): void
+    {
+        if (self::$cron_registered) {
+            return;
+        }
 
-    public static function run(): array {
-        return ['audit_purged' => 0, 'orphan_files_purged' => 0, 'logs_purged' => 0, 'logs_bytes_freed' => 0];
+        if (!self::scheduling_is_ready()) {
+            return;
+        }
+
+        if (!wp_next_scheduled(self::CRON_HOOK)) {
+            wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
+        }
+
+        self::$cron_registered = true;
+    }
+
+    private static function scheduling_is_ready(): bool
+    {
+        if (function_exists('wp_installing') && wp_installing()) {
+            return false;
+        }
+
+        if (!class_exists('ActionScheduler_DataStore')) {
+            return false;
+        }
+
+        if (!function_exists('did_action') || did_action('init') < 1) {
+            return false;
+        }
+
+        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static function run_daily(): void
+    {
+        self::run();
+    }
+
+    private static function purge_runtime_logs(int $days): array
+    {
+        $dir = Logger::dir();
+        if ($dir === '' || !is_dir($dir)) {
+            return ['deleted' => 0, 'bytes' => 0, 'cutoff' => 0];
+        }
+
+        $cutoff = time() - ($days * DAY_IN_SECONDS);
+        $deleted = 0;
+        $bytes = 0;
+
+        $files = glob($dir . '/*.log') ?: [];
+        foreach ($files as $file) {
+            $mtime = @filemtime($file);
+            if ($mtime === false) {
+                continue;
+            }
+
+            if ($mtime < $cutoff) {
+                $bytes += (int) (@filesize($file) ?: 0);
+                if (@unlink($file)) {
+                    $deleted++;
+                }
+            }
+        }
+
+        return [
+            'deleted' => $deleted,
+            'bytes' => $bytes,
+            'cutoff' => $cutoff,
+        ];
+    }
+
+    public static function run(): array
+    {
+        $cfg = ComplianceConfig::get();
+
+        $out = [
+            'audit_purged' => 0,
+            'orphan_files_purged' => 0,
+            'logs_purged' => 0,
+            'logs_bytes_freed' => 0,
+        ];
+
+        if (!empty($cfg['audit_purge_enabled'])) {
+            try {
+                $days = (int) ($cfg['audit_retention_days'] ?? 3650);
+                $repo = new AuditRepository();
+                $deleted = $repo->purge_older_than_days(max(1, $days));
+                $out['audit_purged'] = (int) $deleted;
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        if (!empty($cfg['orphan_files_purge_enabled'])) {
+            try {
+                $days = (int) ($cfg['orphan_files_retention_days'] ?? 7);
+                $repo = new FileRepository();
+                $total = 0;
+
+                for ($i = 0; $i < 10; $i++) {
+                    $batch = $repo->list_orphans_older_than_days(max(1, $days), 200);
+                    if (count($batch) < 1) {
+                        break;
+                    }
+
+                    foreach ($batch as $row) {
+                        $id = isset($row['id']) ? (int) $row['id'] : 0;
+                        $storageKey = isset($row['storage_key']) ? (string) $row['storage_key'] : '';
+                        if ($id < 1 || $storageKey === '') {
+                            continue;
+                        }
+
+                        FileStorage::delete_by_storage_key($storageKey);
+                        $repo->delete($id);
+                        $total++;
+                    }
+
+                    if ($total >= 2000) {
+                        break;
+                    }
+                }
+
+                $out['orphan_files_purged'] = (int) $total;
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        try {
+            $daysDefault = defined('SOSPRESCRIPTION_LOG_RETENTION_DAYS') ? (int) constant('SOSPRESCRIPTION_LOG_RETENTION_DAYS') : 30;
+            $days = (int) apply_filters('sosprescription_log_retention_days', $daysDefault);
+
+            if ($days > 0) {
+                $days = max(1, min(3650, $days));
+                $res = self::purge_runtime_logs($days);
+                $out['logs_purged'] = (int) ($res['deleted'] ?? 0);
+                $out['logs_bytes_freed'] = (int) ($res['bytes'] ?? 0);
+
+                if ($out['logs_purged'] > 0) {
+                    try {
+                        Logger::ndjson_scoped('runtime', 'retention', 'info', 'logs_purged', [
+                            'days' => $days,
+                            'deleted' => $out['logs_purged'],
+                            'bytes_freed' => $out['logs_bytes_freed'],
+                        ]);
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Never block the request for retention issues.
+        }
+
+        return $out;
     }
 }

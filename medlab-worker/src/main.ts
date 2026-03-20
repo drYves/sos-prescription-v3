@@ -13,6 +13,8 @@ import { sleep } from "./utils/sleep";
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
+  const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
+  const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
 
   const jobsRepo = new RestJobsRepo({
     siteId: cfg.siteId,
@@ -75,7 +77,7 @@ async function main(): Promise<void> {
       claim_path: cfg.jobClaimPath,
       callback_path: cfg.jobCallbackPathTemplate,
       lease_min: cfg.leaseMinutes,
-      poll_ms: cfg.pollIntervalMs,
+      poll_ms: idlePollMs,
     },
     undefined,
   );
@@ -94,7 +96,7 @@ async function main(): Promise<void> {
         undefined,
       );
 
-      await sleep(2000);
+      await sleep(withJitter(Math.min(idlePollMs, 5_000), 500));
       continue;
     }
 
@@ -107,12 +109,12 @@ async function main(): Promise<void> {
       });
     } catch (_err) {
       logger.error("job.claim_failed", { message: "Failed to claim job" }, undefined);
-      await sleep(1000);
+      await sleep(withJitter(claimFailureBackoffMs, 1_000));
       continue;
     }
 
     if (!job) {
-      await sleep(cfg.pollIntervalMs);
+      await sleep(withJitter(idlePollMs, 1_000));
       continue;
     }
 
@@ -162,6 +164,15 @@ async function main(): Promise<void> {
       );
     }
   }
+}
+
+function withJitter(baseMs: number, jitterMs: number): number {
+  if (jitterMs <= 0) {
+    return baseMs;
+  }
+
+  const extra = Math.floor(Math.random() * (jitterMs + 1));
+  return baseMs + extra;
 }
 
 void main().catch((error: unknown) => {
