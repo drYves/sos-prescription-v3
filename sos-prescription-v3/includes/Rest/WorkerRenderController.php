@@ -7,8 +7,11 @@ use SosPrescription\Core\Mls1Verifier;
 use SosPrescription\Core\NdjsonLogger;
 use SosPrescription\Core\NonceStore;
 use SosPrescription\Core\ReqId;
+use SosPrescription\Lib\InlineCode39Svg;
+use SosPrescription\Lib\InlineQrSvg;
 use SosPrescription\Repositories\FileRepository;
 use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Services\Posology;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -234,17 +237,22 @@ final class WorkerRenderController
         $verifyUrl = $this->buildVerificationUrl($rx);
         $qrDataUri = $this->buildQrDataUri($verifyUrl !== '' ? $verifyUrl : ('rx:' . $rxId));
         $signatureDataUri = $this->buildSignatureDataUri($doctor);
+        $rppsBarcodeDataUri = $this->buildRppsBarcodeDataUri($doctor);
+
         $signatureImgHtml = $signatureDataUri !== ''
-            ? '<img class="sig-img" src="' . esc_attr($signatureDataUri) . '" alt="Signature" />'
+            ? '<img class="sig-img" src="' . esc_attr($signatureDataUri) . '" alt="Signature du médecin" />'
             : '<div class="sig-fallback">Signature non renseignée.</div>';
         $qrImgHtml = '<img class="qr-img" src="' . esc_attr($qrDataUri) . '" alt="QR Code de vérification" />';
+        $rppsBarcodeHtml = $rppsBarcodeDataUri !== ''
+            ? '<img class="doctor-rpps-barcode" src="' . esc_attr($rppsBarcodeDataUri) . '" alt="Code barre RPPS" />'
+            : '';
 
         $patientName = trim((string) ($rx['patient_name'] ?? 'Patient'));
         $patientBirthLabel = trim((string) ($rx['patient_birthdate_fr'] ?? ($rx['patient_dob'] ?? '')));
         $patientWhLabel = '—';
         $issueLine = $this->buildIssueLine($doctor, $rx);
         $footerBlock = $this->buildFooterBlockHtml($rx, $reqId, $jobId, $verifyUrl, $doctor);
-        $doctorBlock = $this->buildDoctorBlockHtml($doctor, $rx, $issueLine);
+        $doctorBlock = $this->buildDoctorBlockHtml($doctor, $rx, $issueLine, $rppsBarcodeDataUri);
         $patientBlock = $this->buildPatientBlockHtml($rx, $verifyUrl);
         $medRows = $this->buildMedicationRowsHtml($rx);
         $medBlocks = $this->buildLegacyMedicationBlocksHtml($rx);
@@ -254,13 +262,13 @@ final class WorkerRenderController
             '{{DOCTOR_BLOCK}}' => $doctorBlock,
             '{{PATIENT_BLOCK}}' => $patientBlock,
             '{{MEDICATIONS_LIST}}' => $medRows,
-            '{{QR_CODE}}' => esc_attr($qrDataUri),
+            '{{QR_CODE}}' => esc_attr($qrDataUri !== '' ? $qrDataUri : $this->blankImageDataUri()),
             '{{SIGNATURE_IMAGE}}' => esc_attr($signatureDataUri !== '' ? $signatureDataUri : $this->blankImageDataUri()),
             '{{FOOTER_BLOCK}}' => $footerBlock,
 
             // Compatibilité templates variantes A/B/C.
             '{{ADDRESS}}' => nl2br(esc_html((string) ($doctor['address'] ?? '—'))),
-            '{{BARCODE_HTML}}' => $qrImgHtml,
+            '{{BARCODE_HTML}}' => $rppsBarcodeHtml !== '' ? $rppsBarcodeHtml : $qrImgHtml,
             '{{DELIVERY_CODE}}' => esc_html((string) ($rx['verify_code'] ?? '—')),
             '{{DIPLOMA_LINE}}' => esc_html((string) ($doctor['diploma_line'] ?? '')),
             '{{DOCTOR_DISPLAY}}' => esc_html((string) ($doctor['full_name'] ?? 'SOS Prescription')),
@@ -274,6 +282,8 @@ final class WorkerRenderController
             '{{PHONE}}' => esc_html((string) ($doctor['phone'] ?? '—')),
             '{{QR_IMG_HTML}}' => $qrImgHtml,
             '{{RPPS}}' => esc_html((string) ($doctor['rpps'] ?? '—')),
+            '{{RPPS_BARCODE}}' => esc_attr($rppsBarcodeDataUri),
+            '{{RPPS_BARCODE_HTML}}' => $rppsBarcodeHtml,
             '{{RX_PUBLIC_ID}}' => esc_html($verifyUrl !== '' ? $verifyUrl : ((string) ($rx['uid'] ?? ('RX-' . $rxId)))),
             '{{SIGNATURE_IMG_HTML}}' => $signatureImgHtml,
             '{{SPECIALTY}}' => esc_html((string) ($doctor['specialty'] ?? 'Médecin prescripteur')),
@@ -358,54 +368,54 @@ final class WorkerRenderController
         $doctorUserId = isset($rx['doctor_user_id']) ? (int) $rx['doctor_user_id'] : 0;
         $user = $doctorUserId > 0 ? get_userdata($doctorUserId) : null;
 
-        $displayName = '';
-        if ($user instanceof \WP_User) {
+        $firstName = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['first_name']) : '';
+        $lastName = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['last_name']) : '';
+        if ($firstName === '' && $user instanceof \WP_User) {
+            $firstName = trim((string) $user->first_name);
+        }
+        if ($lastName === '' && $user instanceof \WP_User) {
+            $lastName = trim((string) $user->last_name);
+        }
+
+        $displayName = trim($firstName . ' ' . $lastName);
+        if ($displayName === '' && $user instanceof \WP_User) {
             $displayName = trim((string) $user->display_name);
-            if ($displayName === '') {
-                $displayName = trim((string) $user->first_name . ' ' . (string) $user->last_name);
-            }
+        }
+        if ($displayName === '' && $user instanceof \WP_User) {
+            $displayName = trim((string) $user->user_nicename);
         }
         if ($displayName === '') {
             $displayName = 'Médecin prescripteur';
         }
 
-        $title = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_doctor_title', true)) : '';
-        $specialty = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_specialty', true)) : '';
-        if ($specialty === '' && $doctorUserId > 0) {
-            $specialty = trim((string) get_user_meta($doctorUserId, 'sosprescription_doctor_specialty', true));
-        }
-        $rpps = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_rpps', true)) : '';
-        if ($rpps === '' && $doctorUserId > 0) {
-            $rpps = trim((string) get_user_meta($doctorUserId, 'sosprescription_doctor_rpps', true));
-        }
-        $address = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_professional_address', true)) : '';
-        $phone = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_professional_phone', true)) : '';
-        $diplomaLabel = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_diploma_label', true)) : '';
-        $diplomaLocation = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_diploma_university_location', true)) : '';
-        $diplomaHonors = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_diploma_honors', true)) : '';
-        $issuePlace = $doctorUserId > 0 ? trim((string) get_user_meta($doctorUserId, 'sosprescription_issue_place', true)) : '';
-        $signatureFileId = $doctorUserId > 0 ? (int) get_user_meta($doctorUserId, 'sosprescription_signature_file_id', true) : 0;
-
-        if ($diplomaLabel === '' && $doctorUserId > 0) {
-            $diplomaLabel = trim((string) get_user_meta($doctorUserId, 'sosprescription_doctor_diploma_line', true));
-        }
+        $titleRaw = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_doctor_title']) : '';
+        $titleDisplay = $this->mapDoctorTitle($titleRaw);
+        $specialty = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_specialty', 'sosprescription_doctor_specialty']) : '';
+        $rpps = $doctorUserId > 0 ? $this->sanitizeDigits($this->readUserMetaString($doctorUserId, ['sosprescription_rpps', 'sosprescription_doctor_rpps'])) : '';
+        $address = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_professional_address']) : '';
+        $phone = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_professional_phone']) : '';
+        $diplomaLabel = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_diploma_label', 'sosprescription_doctor_diploma_line']) : '';
+        $diplomaLocation = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_diploma_university_location']) : '';
+        $diplomaHonors = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_diploma_honors']) : '';
+        $issuePlace = $doctorUserId > 0 ? $this->readUserMetaString($doctorUserId, ['sosprescription_issue_place', 'sosprescription_doctor_issue_place']) : '';
+        $signatureFileId = $doctorUserId > 0 ? (int) $this->readUserMetaString($doctorUserId, ['sosprescription_signature_file_id']) : 0;
+        $signatureAttachmentId = $doctorUserId > 0 ? (int) $this->readUserMetaString($doctorUserId, ['sosprescription_signature_attachment_id', 'sosprescription_signature_media_id']) : 0;
 
         $fullName = $displayName;
-        if ($title !== '') {
-            $prefix = trim($title);
-            if (stripos($displayName, $prefix) !== 0) {
-                $fullName = trim($prefix . ' ' . $displayName);
-            }
+        if ($titleDisplay !== '' && stripos($displayName, $titleDisplay) !== 0) {
+            $fullName = trim($titleDisplay . ' ' . $displayName);
         }
 
-        $diplomaParts = array_values(array_filter([$diplomaLabel, $diplomaLocation, $diplomaHonors], static fn ($value): bool => trim((string) $value) !== ''));
+        $diplomaParts = array_values(array_filter([$diplomaLabel, $diplomaLocation, $diplomaHonors], static fn($value): bool => trim((string) $value) !== ''));
         $diplomaLine = trim(implode(' — ', $diplomaParts));
 
         return [
             'user_id' => $doctorUserId,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
             'full_name' => $fullName,
             'display_name' => $displayName,
-            'title' => $title,
+            'title' => $titleDisplay,
             'specialty' => $specialty !== '' ? $specialty : 'Médecin prescripteur',
             'rpps' => $rpps,
             'address' => $address,
@@ -413,6 +423,7 @@ final class WorkerRenderController
             'diploma_line' => $diplomaLine,
             'issue_place' => $issuePlace,
             'signature_file_id' => $signatureFileId,
+            'signature_attachment_id' => $signatureAttachmentId,
         ];
     }
 
@@ -420,28 +431,42 @@ final class WorkerRenderController
      * @param array<string, mixed> $doctor
      * @param array<string, mixed> $rx
      */
-    private function buildDoctorBlockHtml(array $doctor, array $rx, string $issueLine): string
+    private function buildDoctorBlockHtml(array $doctor, array $rx, string $issueLine, string $rppsBarcodeDataUri): string
     {
         $lines = [];
-        $lines[] = '<div style="font-size:12.5pt;font-weight:800;margin:0 0 1.5mm 0;">' . esc_html((string) ($doctor['full_name'] ?? 'Médecin prescripteur')) . '</div>';
+        $lines[] = '<div class="doctor-name">' . esc_html((string) ($doctor['full_name'] ?? 'Médecin prescripteur')) . '</div>';
 
         if (!empty($doctor['specialty'])) {
-            $lines[] = '<div><strong>Spécialité :</strong> ' . esc_html((string) $doctor['specialty']) . '</div>';
-        }
-        if (!empty($doctor['rpps'])) {
-            $lines[] = '<div><strong>RPPS :</strong> ' . esc_html((string) $doctor['rpps']) . '</div>';
+            $lines[] = '<div class="doctor-specialty">' . esc_html((string) $doctor['specialty']) . '</div>';
         }
         if (!empty($doctor['diploma_line'])) {
-            $lines[] = '<div>' . esc_html((string) $doctor['diploma_line']) . '</div>';
+            $lines[] = '<div class="doctor-diploma">' . esc_html((string) $doctor['diploma_line']) . '</div>';
         }
+
+        $metaRows = [];
         if (!empty($doctor['address'])) {
-            $lines[] = '<div><strong>Adresse pro :</strong><br>' . nl2br(esc_html((string) $doctor['address'])) . '</div>';
+            $metaRows[] = $this->buildLabeledValueRowHtml('Adresse', nl2br(esc_html((string) $doctor['address'])), true);
         }
         if (!empty($doctor['phone'])) {
-            $lines[] = '<div><strong>Tél :</strong> ' . esc_html((string) $doctor['phone']) . '</div>';
+            $metaRows[] = $this->buildLabeledValueRowHtml('Téléphone', esc_html((string) $doctor['phone']), true);
+        }
+        if (!empty($doctor['rpps'])) {
+            $metaRows[] = $this->buildLabeledValueRowHtml('RPPS', esc_html((string) $doctor['rpps']), true);
         }
         if ($issueLine !== '') {
-            $lines[] = '<div style="margin-top:1.5mm;color:#475569;">' . esc_html($issueLine) . '</div>';
+            $metaRows[] = $this->buildLabeledValueRowHtml('Émission', esc_html($issueLine), true);
+        }
+
+        if ($metaRows !== []) {
+            $lines[] = '<div class="doctor-meta-grid">' . implode("\n", $metaRows) . '</div>';
+        }
+
+        if (!empty($doctor['rpps']) && $rppsBarcodeDataUri !== '') {
+            $lines[] = '<div class="doctor-rpps-panel">'
+                . '<div class="doctor-rpps-heading">Code barre RPPS</div>'
+                . '<div class="doctor-rpps-value">' . esc_html((string) $doctor['rpps']) . '</div>'
+                . '<img class="doctor-rpps-barcode" src="' . esc_attr($rppsBarcodeDataUri) . '" alt="Code barre RPPS ' . esc_attr((string) $doctor['rpps']) . '" />'
+                . '</div>';
         }
 
         return implode("\n", $lines);
@@ -459,26 +484,26 @@ final class WorkerRenderController
         $verifyCode = trim((string) ($rx['verify_code'] ?? ''));
         $createdAt = $this->formatDateFr((string) ($rx['created_at'] ?? ''));
 
-        $html = '';
-        $html .= '<div><strong>Nom :</strong> ' . esc_html($patientName !== '' ? $patientName : 'Patient') . '</div>';
-        $html .= '<div><strong>Date de naissance :</strong> ' . esc_html($birthLabel !== '' ? $birthLabel : '—') . '</div>';
+        $rows = [];
+        $rows[] = $this->buildLabeledValueRowHtml('Nom', esc_html($patientName !== '' ? $patientName : 'Patient'), true);
+        $rows[] = $this->buildLabeledValueRowHtml('Date de naissance', esc_html($birthLabel !== '' ? $birthLabel : '—'), true);
         if ($ageLabel !== '') {
-            $html .= '<div><strong>Âge :</strong> ' . esc_html($ageLabel) . '</div>';
+            $rows[] = $this->buildLabeledValueRowHtml('Âge', esc_html($ageLabel), true);
         }
         if ($uid !== '') {
-            $html .= '<div><strong>Référence :</strong> ' . esc_html($uid) . '</div>';
+            $rows[] = $this->buildLabeledValueRowHtml('Référence', '<code>' . esc_html($uid) . '</code>', true);
         }
         if ($createdAt !== '') {
-            $html .= '<div><strong>Créée le :</strong> ' . esc_html($createdAt) . '</div>';
+            $rows[] = $this->buildLabeledValueRowHtml('Créée le', esc_html($createdAt), true);
         }
         if ($verifyCode !== '') {
-            $html .= '<div><strong>Code délivrance :</strong> ' . esc_html($verifyCode) . '</div>';
+            $rows[] = $this->buildLabeledValueRowHtml('Code délivrance', '<strong>' . esc_html($verifyCode) . '</strong>', true);
         }
         if ($verifyUrl !== '') {
-            $html .= '<div style="margin-top:1.5mm;color:#475569;word-break:break-all;">' . esc_html($verifyUrl) . '</div>';
+            $rows[] = $this->buildLabeledValueRowHtml('URL de vérification', '<span class="verify-link">' . esc_html($verifyUrl) . '</span>', true);
         }
 
-        return $html;
+        return '<div class="patient-grid">' . implode("\n", $rows) . '</div>';
     }
 
     /**
@@ -497,23 +522,16 @@ final class WorkerRenderController
                 continue;
             }
 
-            $label = trim((string) ($item['denomination'] ?? 'Médicament'));
-            $posology = trim((string) ($item['posologie'] ?? ''));
-            $quantity = trim((string) ($item['quantite'] ?? ''));
-            if ($label === '') {
-                $label = 'Médicament';
-            }
-            if ($posology === '') {
-                $posology = '—';
-            }
-            if ($quantity === '') {
-                $quantity = '—';
+            $view = $this->buildMedicationViewModel($item);
+            $nameHtml = '<div class="med-name">' . esc_html($view['label']) . '</div>';
+            if ($view['meta'] !== '') {
+                $nameHtml .= '<div class="med-meta">' . esc_html($view['meta']) . '</div>';
             }
 
             $rows[] = '<tr>'
-                . '<td>' . esc_html($label) . '</td>'
-                . '<td>' . esc_html($posology) . '</td>'
-                . '<td>' . esc_html($quantity) . '</td>'
+                . '<td>' . $nameHtml . '</td>'
+                . '<td><div class="med-posology">' . esc_html($view['posology']) . '</div></td>'
+                . '<td><div class="med-duration">' . esc_html($view['duration']) . '</div></td>'
                 . '</tr>';
         }
 
@@ -538,19 +556,16 @@ final class WorkerRenderController
                 continue;
             }
 
-            $label = trim((string) ($item['denomination'] ?? 'Médicament'));
-            $posology = trim((string) ($item['posologie'] ?? ''));
-            $quantity = trim((string) ($item['quantite'] ?? ''));
-            if ($label === '') {
-                $label = 'Médicament';
-            }
-
+            $view = $this->buildMedicationViewModel($item);
             $detailParts = [];
-            if ($posology !== '') {
-                $detailParts[] = 'Posologie : ' . $posology;
+            if ($view['posology'] !== '—') {
+                $detailParts[] = 'Posologie : ' . $view['posology'];
             }
-            if ($quantity !== '') {
-                $detailParts[] = 'Durée / Qté : ' . $quantity;
+            if ($view['duration'] !== '—') {
+                $detailParts[] = 'Durée : ' . $view['duration'];
+            }
+            if ($view['meta'] !== '') {
+                $detailParts[] = $view['meta'];
             }
             if ($detailParts === []) {
                 $detailParts[] = 'Sans précision complémentaire.';
@@ -561,7 +576,7 @@ final class WorkerRenderController
                 . '<tr>'
                 . '<td class="med-dot-cell"><div class="med-dot"></div></td>'
                 . '<td>'
-                . '<div class="med-name-wrap"><span class="med-name">' . esc_html($label) . '</span></div>'
+                . '<div class="med-name-wrap"><span class="med-name">' . esc_html($view['label']) . '</span></div>'
                 . '<div class="med-posology">' . esc_html(implode(' — ', $detailParts)) . '</div>'
                 . '</td>'
                 . '</tr>'
@@ -643,29 +658,8 @@ final class WorkerRenderController
             $text = 'SOS Prescription';
         }
 
-        $lib = rtrim((string) SOSPRESCRIPTION_PATH, '/') . '/includes/Lib/phpqrcode/phpqrcode.php';
-        if (!class_exists('QRcode') && is_readable($lib)) {
-            require_once $lib;
-        }
-
-        if (!class_exists('QRcode')) {
-            return $this->blankImageDataUri();
-        }
-
-        try {
-            ob_start();
-            \QRcode::png($text, false, QR_ECLEVEL_M, 4, 2);
-            $png = ob_get_clean();
-            if (is_string($png) && $png !== '') {
-                return 'data:image/png;base64,' . base64_encode($png);
-            }
-        } catch (\Throwable $e) {
-            if (ob_get_level() > 0) {
-                @ob_end_clean();
-            }
-        }
-
-        return $this->blankImageDataUri();
+        $dataUri = InlineQrSvg::dataUri($text);
+        return $dataUri !== '' ? $dataUri : $this->blankImageDataUri();
     }
 
     /**
@@ -676,6 +670,21 @@ final class WorkerRenderController
         $doctorUserId = isset($doctor['user_id']) ? (int) $doctor['user_id'] : 0;
         if ($doctorUserId < 1) {
             return '';
+        }
+
+        $attachmentId = isset($doctor['signature_attachment_id']) ? (int) $doctor['signature_attachment_id'] : 0;
+        if ($attachmentId > 0) {
+            $attachmentPath = get_attached_file($attachmentId);
+            if (is_string($attachmentPath) && $attachmentPath !== '' && is_file($attachmentPath)) {
+                $bytes = @file_get_contents($attachmentPath);
+                if (is_string($bytes) && $bytes !== '') {
+                    $mime = get_post_mime_type($attachmentId);
+                    if (!is_string($mime) || strpos($mime, 'image/') !== 0) {
+                        $mime = 'image/png';
+                    }
+                    return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+                }
+            }
         }
 
         $repo = new FileRepository();
@@ -715,6 +724,143 @@ final class WorkerRenderController
         }
 
         return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+    }
+
+    private function buildRppsBarcodeDataUri(array $doctor): string
+    {
+        $rpps = $this->sanitizeDigits((string) ($doctor['rpps'] ?? ''));
+        if ($rpps === '') {
+            return '';
+        }
+
+        return InlineCode39Svg::dataUri($rpps);
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array{label:string,posology:string,duration:string,meta:string}
+     */
+    private function buildMedicationViewModel(array $item): array
+    {
+        $raw = isset($item['raw']) && is_array($item['raw']) ? $item['raw'] : [];
+        $schedule = isset($raw['schedule']) && is_array($raw['schedule']) ? $raw['schedule'] : [];
+
+        $label = trim((string) ($item['denomination'] ?? ($raw['label'] ?? 'Médicament')));
+        if ($label === '') {
+            $label = 'Médicament';
+        }
+
+        $posology = trim((string) ($item['posologie'] ?? ''));
+        if ($posology === '' && $schedule !== []) {
+            try {
+                $posology = trim(Posology::schedule_to_text($schedule));
+            } catch (\Throwable $e) {
+                $posology = '';
+            }
+        }
+        if ($posology === '') {
+            $posology = '—';
+        }
+
+        $duration = trim((string) ($item['quantite'] ?? ''));
+        if ($duration === '') {
+            $duration = $this->extractDurationLabelFromSchedule($schedule);
+        }
+        if ($duration === '') {
+            $duration = '—';
+        }
+
+        $metaParts = [];
+        $cip13 = trim((string) ($item['cip13'] ?? ($raw['cip13'] ?? '')));
+        if ($cip13 !== '') {
+            $metaParts[] = 'CIP13 ' . $cip13;
+        }
+        $scheduleNote = trim((string) ($schedule['note'] ?? ($raw['note'] ?? '')));
+        if ($scheduleNote !== '') {
+            $metaParts[] = $scheduleNote;
+        }
+
+        return [
+            'label' => $label,
+            'posology' => $posology,
+            'duration' => $duration,
+            'meta' => implode(' — ', $metaParts),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $schedule
+     */
+    private function extractDurationLabelFromSchedule(array $schedule): string
+    {
+        $value = isset($schedule['durationVal']) ? (int) $schedule['durationVal'] : 0;
+        $unit = isset($schedule['durationUnit']) ? trim((string) $schedule['durationUnit']) : '';
+        if ($value < 1 || $unit === '') {
+            return '';
+        }
+
+        return $value . ' ' . $this->pluralizeDurationUnit($unit, $value);
+    }
+
+    private function pluralizeDurationUnit(string $unit, int $value): string
+    {
+        $unit = strtolower(trim($unit));
+        if ($unit === '') {
+            return '';
+        }
+        if ($value <= 1) {
+            return $unit;
+        }
+        if ($unit === 'mois') {
+            return 'mois';
+        }
+        return $unit . 's';
+    }
+
+    private function buildLabeledValueRowHtml(string $label, string $valueHtml, bool $allowHtml = false): string
+    {
+        $labelHtml = esc_html($label);
+        $value = $allowHtml ? $valueHtml : esc_html($valueHtml);
+
+        return '<div class="kv-row">'
+            . '<div class="kv-label">' . $labelHtml . '</div>'
+            . '<div class="kv-value">' . $value . '</div>'
+            . '</div>';
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private function readUserMetaString(int $userId, array $keys): string
+    {
+        foreach ($keys as $key) {
+            $value = get_user_meta($userId, $key, true);
+            if (is_scalar($value)) {
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function mapDoctorTitle(string $titleRaw): string
+    {
+        $titleRaw = strtolower(trim($titleRaw));
+        if ($titleRaw === 'professeur' || $titleRaw === 'pr') {
+            return 'Pr';
+        }
+        if ($titleRaw === 'docteur' || $titleRaw === 'dr' || $titleRaw === 'docteur en médecine') {
+            return 'Dr';
+        }
+        return '';
+    }
+
+    private function sanitizeDigits(string $value): string
+    {
+        return preg_replace('/\D+/', '', $value) ?? '';
     }
 
     private function blankImageDataUri(): string

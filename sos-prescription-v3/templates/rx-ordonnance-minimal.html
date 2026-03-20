@@ -17,7 +17,20 @@
     .rule { height: 0; border: none; border-top: 0.35mm solid #111827; margin: 0 0 4mm 0; }
     .block { border: 0.25mm solid #e5e7eb; padding: 3.5mm; }
     .label { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6pt; margin: 0 0 2mm 0; }
+    .doctor-name { font-size: 12.5pt; font-weight: 800; line-height: 1.2; margin: 0 0 1.5mm 0; color: #111827; }
+    .doctor-specialty { font-size: 10.1pt; font-weight: 700; color: #1f2937; margin: 0 0 1.2mm 0; }
+    .doctor-diploma { font-size: 9pt; color: #6b7280; margin: 0 0 2.2mm 0; }
+    .doctor-meta-grid, .patient-grid { display: block; }
+    .kv-row { display: table; width: 100%; table-layout: fixed; margin: 0 0 1.1mm 0; }
+    .kv-label, .kv-value { display: table-cell; vertical-align: top; }
+    .kv-label { width: 33%; font-size: 8.6pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.35pt; color: #4b5563; padding-right: 2mm; }
+    .kv-value { font-size: 9.5pt; color: #111827; word-break: break-word; }
+    .doctor-rpps-panel { margin-top: 2.6mm; padding-top: 2.6mm; border-top: 0.25mm dashed #d1d5db; }
+    .doctor-rpps-heading { font-size: 8.6pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.45pt; color: #374151; margin-bottom: 1mm; }
+    .doctor-rpps-value { font-size: 10.3pt; font-weight: 700; color: #111827; margin-bottom: 1.2mm; }
+    .doctor-rpps-barcode { display: block; width: 100%; max-width: 60mm; height: 15mm; object-fit: contain; background: #ffffff; }
     .qr { width: 24mm; height: 24mm; object-fit: contain; display: inline-block; border: 0.25mm solid #e5e7eb; padding: 1mm; background: #ffffff; }
+    .verify-link { font-size: 8.8pt; color: #111827; word-break: break-all; }
     table.med-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4mm; }
     table.med-table thead { display: table-header-group; }
     table.med-table th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.6pt; padding: 2.5mm 0; border-bottom: 0.35mm solid #111827; }
@@ -25,10 +38,16 @@
     table.med-table tr { break-inside: avoid; page-break-inside: avoid; }
     table.med-table tr:last-child td { border-bottom: none; }
     .col-med { width: 56%; } .col-pos { width: 28%; } .col-dur { width: 16%; }
+    .med-name { font-weight: 800; color: #111827; margin: 0 0 1mm 0; }
+    .med-meta { font-size: 8.8pt; color: #6b7280; line-height: 1.25; }
+    .med-posology, .med-duration { white-space: pre-wrap; word-break: break-word; }
     .footer { margin-top: 8mm; padding-top: 4mm; border-top: 0.35mm solid #111827; display: table; width: 100%; table-layout: fixed; }
     .footer .cell { display: table-cell; vertical-align: bottom; }
     .footer-left { width: 62%; padding-right: 6mm; } .footer-right { width: 38%; text-align: right; }
-    .signature { width: 55mm; height: 18mm; object-fit: contain; display: inline-block; border: 0.25mm solid #e5e7eb; padding: 1mm; background: #ffffff; }
+    .signature-wrap { display: inline-block; min-width: 55mm; min-height: 18mm; }
+    .signature, .sig-img { width: 55mm; height: 18mm; object-fit: contain; display: inline-block; border: 0.25mm solid #e5e7eb; padding: 1mm; background: #ffffff; }
+    .sig-fallback { width: 55mm; min-height: 18mm; display: inline-flex; align-items: center; justify-content: center; text-align: center; border: 0.25mm dashed #d1d5db; padding: 2mm; background: #ffffff; color: #6b7280; font-size: 8.8pt; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9pt; }
     @media print { a { color: inherit; text-decoration: none; } }
   </style>
 </head>
@@ -50,7 +69,7 @@
   </div>
   <div class="footer">
     <div class="cell footer-left">{{FOOTER_BLOCK}}</div>
-    <div class="cell footer-right"><div class="label" style="margin-bottom:2mm;">Signature</div><img class="signature" src="{{SIGNATURE_IMAGE}}" alt="Signature" /></div>
+    <div class="cell footer-right"><div class="label" style="margin-bottom:2mm;">Signature</div><div class="signature-wrap">{{SIGNATURE_IMG_HTML}}</div></div>
   </div>
 </body>
 </html>
