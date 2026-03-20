@@ -1,4 +1,6 @@
+// src/s3/s3Service.ts
 import { PutObjectCommand, S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import fsp from "node:fs/promises";
 import { normalizeMetadata } from "./s3Utils";
 
@@ -25,13 +27,22 @@ export class S3Service {
   private readonly sse: string;
 
   constructor(cfg: S3ServiceConfig) {
+    // PURIFICATION STRICTE DES CLÉS (Éradication des espaces invisibles ZWSP, \n, \r)
+    const cleanAccessKey = cfg.accessKeyId.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
+    const cleanSecretKey = cfg.secretAccessKey.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
+
     const s3Cfg: S3ClientConfig = {
       region: cfg.region,
       credentials: {
-        accessKeyId: cfg.accessKeyId,
-        secretAccessKey: cfg.secretAccessKey,
+        accessKeyId: cleanAccessKey,
+        secretAccessKey: cleanSecretKey,
       },
       forcePathStyle: cfg.forcePathStyle,
+      // LE FIX ABSOLU : Contournement du bug fetch Node 24
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: 30000,
+        socketTimeout: 30000,
+      }),
     };
 
     if (cfg.endpoint) {
@@ -45,14 +56,12 @@ export class S3Service {
   async uploadPdfFromFile(input: UploadPdfFileInput): Promise<void> {
     const bodyBuffer = await fsp.readFile(input.filePath);
 
-    // Baremetal Payload : On délègue totalement le calcul de signature au SDK V3.
-    // L'envoi de ContentLength ou ServerSideEncryption avec un Buffer sur Node 24
-    // provoque un SignatureDoesNotMatch.
     const cmd = new PutObjectCommand({
       Bucket: input.bucket,
       Key: input.key,
       Body: bodyBuffer,
       ContentType: input.contentType,
+      ContentLength: bodyBuffer.length,
       Metadata: normalizeMetadata(input.metadata),
     });
 

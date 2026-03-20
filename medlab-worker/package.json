@@ -14,6 +14,7 @@
     "tsx": "4.21.0"
   },
   "dependencies": {
+    "@smithy/node-http-handler": "^4.5.0",
     "puppeteer": "^24.39.1"
   }
 }
