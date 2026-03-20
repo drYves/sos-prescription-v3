@@ -11,7 +11,6 @@ final class Retention
     public const CRON_HOOK = 'sosprescription_daily_retention';
 
     private static bool $hooks_registered = false;
-    private static bool $cron_registered = false;
 
     public static function register_hooks(): void
     {
@@ -21,45 +20,8 @@ final class Retention
 
         self::$hooks_registered = true;
 
-        add_action(self::CRON_HOOK, [self::class, 'run_daily']);
-    }
-
-    public static function ensure_cron_scheduled(): void
-    {
-        if (self::$cron_registered) {
-            return;
-        }
-
-        if (!self::scheduling_is_ready()) {
-            return;
-        }
-
-        if (!wp_next_scheduled(self::CRON_HOOK)) {
-            wp_schedule_event(time() + 600, 'daily', self::CRON_HOOK);
-        }
-
-        self::$cron_registered = true;
-    }
-
-    private static function scheduling_is_ready(): bool
-    {
-        if (function_exists('wp_installing') && wp_installing()) {
-            return false;
-        }
-
-        if (!class_exists('ActionScheduler_DataStore')) {
-            return false;
-        }
-
-        if (!function_exists('did_action') || did_action('init') < 1) {
-            return false;
-        }
-
-        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
-            return false;
-        }
-
-        return true;
+        // WP-Cron est TOTALEMENT DÉSACTIVÉ en v3.3.27.
+        // On conserve l'API manuelle pour le bouton de nettoyage du Back-Office.
     }
 
     public static function run_daily(): void
