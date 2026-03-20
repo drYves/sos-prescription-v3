@@ -22,6 +22,11 @@ export interface UploadPdfFileInput {
   metadata?: Record<string, string>;
 }
 
+type S3ClientConfigWithChecksum = S3ClientConfig & {
+  requestChecksumCalculation?: "WHEN_REQUIRED" | "ALWAYS";
+  responseChecksumValidation?: "WHEN_REQUIRED" | "ALWAYS";
+};
+
 export class S3Service {
   private readonly client: S3Client;
   private readonly sse: string;
@@ -31,7 +36,7 @@ export class S3Service {
     const cleanAccessKey = cfg.accessKeyId.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
     const cleanSecretKey = cfg.secretAccessKey.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
 
-    const s3Cfg: S3ClientConfig = {
+    const s3Cfg: S3ClientConfigWithChecksum = {
       region: cfg.region,
       credentials: {
         accessKeyId: cleanAccessKey,
@@ -43,13 +48,16 @@ export class S3Service {
         connectionTimeout: 30000,
         socketTimeout: 30000,
       }),
+      // LE FIX ULTIME POUR NODE 24 : Empêche l'ajout de headers variables qui cassent la signature V4
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     };
 
     if (cfg.endpoint) {
       s3Cfg.endpoint = cfg.endpoint;
     }
 
-    this.client = new S3Client(s3Cfg);
+    this.client = new S3Client(s3Cfg as S3ClientConfig);
     this.sse = cfg.sse;
   }
 
