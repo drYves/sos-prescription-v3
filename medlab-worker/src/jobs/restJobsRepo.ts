@@ -3,99 +3,40 @@ import { randomBytes } from "node:crypto";
 import { URL } from "node:url";
 import { NdjsonLogger } from "../logger";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
+import type {
+  ClaimJobOptions,
+  IngestPrescriptionRequest,
+  IngestPrescriptionResult,
+  JobRow,
+  JobStatus,
+  JobsRepo,
+  MarkDoneOptions,
+  MarkFailedOptions,
+  QueueMetrics,
+  RequeueWithBackoffOptions,
+  SweepZombiesResult,
+  UpdateJobStatusInput,
+} from "./jobsRepo";
 
-export type JobStatus = "PENDING" | "CLAIMED" | "DONE" | "FAILED";
+export type {
+  ClaimJobOptions,
+  IngestPrescriptionRequest,
+  IngestPrescriptionResult,
+  JobRow,
+  JobStatus,
+  JobsRepo,
+  MarkDoneOptions,
+  MarkFailedOptions,
+  QueueMetrics,
+  RequeueWithBackoffOptions,
+  SweepZombiesResult,
+  UpdateJobStatusInput,
+} from "./jobsRepo";
 
 const BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const BROWSER_ACCEPT_LANGUAGE = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7";
 const BROWSER_ACCEPT_ENCODING = "gzip, deflate, br";
 const API_ACCEPT = "application/json, text/plain, */*";
-
-export interface JobRow {
-  id?: number;
-  job_id: string;
-  site_id: string;
-  req_id: string | null;
-  job_type: string;
-  status: JobStatus;
-  priority: number;
-  available_at: string | null;
-  rx_id: number;
-  nonce: string;
-  kid: string | null;
-  exp_ms: string;
-  payload?: unknown;
-  payload_json?: string;
-  mls1_token: string;
-  s3_key_ref: string | null;
-  attempts: number;
-  max_attempts: number;
-  locked_at: string | null;
-  lock_expires_at: string | null;
-  locked_by: string | null;
-  worker_ref?: string | null;
-}
-
-export interface QueueMetrics {
-  pending: number;
-  claimed: number;
-}
-
-export interface ClaimJobOptions {
-  siteId: string;
-  workerId: string;
-  leaseMinutes: number;
-}
-
-export interface MarkDoneOptions {
-  jobId: string;
-  reqId?: string;
-  workerRef?: string;
-  s3KeyRef: string;
-  s3Bucket?: string;
-  s3Region?: string;
-  artifactSha256Hex: string;
-  artifactSizeBytes: number;
-  contentType: string;
-}
-
-export interface MarkFailedOptions {
-  jobId: string;
-  reqId?: string;
-  workerRef?: string;
-  errorCode: string;
-  messageSafe: string;
-}
-
-export interface RequeueWithBackoffOptions {
-  jobId: string;
-  reqId?: string;
-  workerRef?: string;
-  delaySeconds: number;
-  errorCode: string;
-  messageSafe: string;
-}
-
-export interface UpdateJobStatusInput {
-  jobId: string;
-  reqId?: string;
-  workerRef?: string;
-  status: "DONE" | "FAILED" | "PENDING";
-  s3KeyRef?: string;
-  s3Bucket?: string;
-  s3Region?: string;
-  artifactSha256Hex?: string;
-  artifactSizeBytes?: number;
-  artifactContentType?: string;
-  errorCode?: string;
-  lastErrorMessageSafe?: string;
-  retryAfterSeconds?: number;
-}
-
-export interface SweepZombiesResult {
-  requeued: number;
-  failed: number;
-}
 
 export interface RestJobsRepoConfig {
   siteId: string;
@@ -107,7 +48,9 @@ export interface RestJobsRepoConfig {
   logger?: NdjsonLogger;
 }
 
-export class RestJobsRepo {
+export class RestJobsRepo implements JobsRepo {
+  readonly mode = "rest" as const;
+
   private readonly siteId: string;
   private readonly wpBaseUrl: string;
   private readonly claimPath: string;
@@ -170,26 +113,6 @@ export class RestJobsRepo {
     return job;
   }
 
-  async updateJobStatus(input: UpdateJobStatusInput): Promise<void> {
-    const url = this.buildAbsoluteUrl(this.renderCallbackPath(input.jobId));
-    const body = this.buildCallbackBody(input);
-    const rawBody = Buffer.from(JSON.stringify(body));
-
-    const res = await this.fetchJson(url, {
-      method: "POST",
-      headers: {
-        accept: API_ACCEPT,
-        "content-type": "application/json; charset=utf-8",
-        "x-medlab-signature": buildMls1Token(rawBody, this.hmacSecretActive),
-      },
-      body: rawBody,
-    });
-
-    if (res.status < 200 || res.status >= 300) {
-      throw new Error(`Callback failed with HTTP ${res.status}${res.errorMessage ? `: ${res.errorMessage}` : ""}`);
-    }
-  }
-
   async markDone(opts: MarkDoneOptions): Promise<void> {
     await this.updateJobStatus({
       jobId: opts.jobId,
@@ -234,6 +157,34 @@ export class RestJobsRepo {
 
   async sweepZombies(_siteId: string, _limit = 50): Promise<SweepZombiesResult> {
     return { requeued: 0, failed: 0 };
+  }
+
+  async ingestPrescription(_input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
+    throw new Error("Ingress is not available when QUEUE_MODE=rest");
+  }
+
+  async close(): Promise<void> {
+    // no-op
+  }
+
+  private async updateJobStatus(input: UpdateJobStatusInput): Promise<void> {
+    const url = this.buildAbsoluteUrl(this.renderCallbackPath(input.jobId));
+    const body = this.buildCallbackBody(input);
+    const rawBody = Buffer.from(JSON.stringify(body));
+
+    const res = await this.fetchJson(url, {
+      method: "POST",
+      headers: {
+        accept: API_ACCEPT,
+        "content-type": "application/json; charset=utf-8",
+        "x-medlab-signature": buildMls1Token(rawBody, this.hmacSecretActive),
+      },
+      body: rawBody,
+    });
+
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`Callback failed with HTTP ${res.status}${res.errorMessage ? `: ${res.errorMessage}` : ""}`);
+    }
   }
 
   private buildClaimBody(opts: ClaimJobOptions): Record<string, unknown> {
@@ -349,12 +300,16 @@ export class RestJobsRepo {
       const errorMessage = extractErrorMessage(data, text);
 
       if (!response.ok && this.logger) {
-        this.logger.warning("rest.bridge.http_error", {
-          method: init.method,
-          path: url.pathname,
-          status: response.status,
-          error_message: errorMessage ?? undefined,
-        }, undefined);
+        this.logger.warning(
+          "rest.bridge.http_error",
+          {
+            method: init.method,
+            path: url.pathname,
+            status: response.status,
+            error_message: errorMessage ?? undefined,
+          },
+          undefined,
+        );
       }
 
       return {

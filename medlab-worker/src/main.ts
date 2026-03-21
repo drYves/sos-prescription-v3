@@ -2,6 +2,8 @@
 import { MemoryGuard } from "./admission/memoryGuard";
 import { loadConfig } from "./config";
 import { startPulseServer } from "./http/pulseServer";
+import type { JobsRepo } from "./jobs/jobsRepo";
+import { PrismaJobsRepo } from "./jobs/prismaJobsRepo";
 import { failOrRetry, processJob } from "./jobs/processor";
 import { RestJobsRepo } from "./jobs/restJobsRepo";
 import { PdfRenderer } from "./pdf/pdfRenderer";
@@ -13,18 +15,32 @@ import { sleep } from "./utils/sleep";
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
+  const queueMode = resolveQueueMode(process.env.QUEUE_MODE);
   const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
   const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
 
-  const jobsRepo = new RestJobsRepo({
-    siteId: cfg.siteId,
-    wpBaseUrl: cfg.wpBaseUrl,
-    claimPath: cfg.jobClaimPath,
-    callbackPathTemplate: cfg.jobCallbackPathTemplate,
-    hmacSecretActive: cfg.security.hmacSecretActive,
-    requestTimeoutMs: cfg.restRequestTimeoutMs,
-    logger,
-  });
+  const restJobsRepo = queueMode === "rest"
+    ? new RestJobsRepo({
+        siteId: cfg.siteId,
+        wpBaseUrl: cfg.wpBaseUrl,
+        claimPath: cfg.jobClaimPath,
+        callbackPathTemplate: cfg.jobCallbackPathTemplate,
+        hmacSecretActive: cfg.security.hmacSecretActive,
+        requestTimeoutMs: cfg.restRequestTimeoutMs,
+        logger,
+      })
+    : null;
+
+  const prismaJobsRepo = queueMode === "postgres"
+    ? new PrismaJobsRepo({
+        siteId: cfg.siteId,
+        workerId: cfg.workerId,
+        hmacSecretActive: cfg.security.hmacSecretActive,
+        logger,
+      })
+    : null;
+
+  const jobsRepo: JobsRepo = restJobsRepo ?? prismaJobsRepo!;
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -53,12 +69,26 @@ async function main(): Promise<void> {
   });
 
   const shutdown = async (signal: string) => {
-    logger.warning("system.shutdown", { signal }, undefined);
+    logger.warning("system.shutdown", { signal, queue_mode: jobsRepo.mode }, undefined);
+
     try {
       server.close();
     } catch (_err) {
       // noop
     }
+
+    try {
+      await jobsRepo.close();
+    } catch (_err) {
+      // noop
+    }
+
+    try {
+      await s3.close();
+    } catch (_err) {
+      // noop
+    }
+
     process.exit(0);
   };
 
@@ -73,14 +103,27 @@ async function main(): Promise<void> {
     "system.worker_started",
     {
       worker_id: cfg.workerId,
-      queue_mode: "rest",
-      claim_path: cfg.jobClaimPath,
-      callback_path: cfg.jobCallbackPathTemplate,
+      queue_mode: jobsRepo.mode,
+      queue_table: jobsRepo.getTableName(),
+      claim_path: jobsRepo.mode === "rest" ? cfg.jobClaimPath : undefined,
+      callback_path: jobsRepo.mode === "rest" ? cfg.jobCallbackPathTemplate : undefined,
       lease_min: cfg.leaseMinutes,
       poll_ms: idlePollMs,
+      render_mode: "wordpress-rest-bridge",
     },
     undefined,
   );
+
+  if (jobsRepo.mode === "postgres") {
+    logger.warning(
+      "system.phase1_ingest_only",
+      {
+        queue_mode: jobsRepo.mode,
+        message: "PostgreSQL ingress is enabled. Local PDF processing stays disabled until Phase 2 render is integrated.",
+      },
+      undefined,
+    );
+  }
 
   while (true) {
     memGuard.tick();
@@ -100,15 +143,28 @@ async function main(): Promise<void> {
       continue;
     }
 
+    if (jobsRepo.mode === "postgres") {
+      await sleep(withJitter(idlePollMs, 1_000));
+      continue;
+    }
+
     let job = null;
     try {
-      job = await jobsRepo.claimNextPendingJob({
+      job = await restJobsRepo!.claimNextPendingJob({
         siteId: cfg.siteId,
         workerId: cfg.workerId,
         leaseMinutes: cfg.leaseMinutes,
       });
-    } catch (_err) {
-      logger.error("job.claim_failed", { message: "Failed to claim job" }, undefined);
+    } catch (err: unknown) {
+      logger.error(
+        "job.claim_failed",
+        {
+          message: err instanceof Error ? err.message : "Failed to claim job",
+          queue_mode: jobsRepo.mode,
+          queue_table: jobsRepo.getTableName(),
+        },
+        undefined,
+      );
       await sleep(withJitter(claimFailureBackoffMs, 1_000));
       continue;
     }
@@ -124,7 +180,7 @@ async function main(): Promise<void> {
         wpBaseUrl: cfg.wpBaseUrl,
         renderPathTemplate: cfg.pdfRenderPathTemplate,
         chromeExecutablePath: cfg.chromeExecutablePath,
-        jobsRepo,
+        jobsRepo: restJobsRepo!,
         s3,
         s3BucketPdf: cfg.s3.bucketPdf,
         s3Region: cfg.s3.region,
@@ -146,7 +202,7 @@ async function main(): Promise<void> {
           wpBaseUrl: cfg.wpBaseUrl,
           renderPathTemplate: cfg.pdfRenderPathTemplate,
           chromeExecutablePath: cfg.chromeExecutablePath,
-          jobsRepo,
+          jobsRepo: restJobsRepo!,
           s3,
           s3BucketPdf: cfg.s3.bucketPdf,
           s3Region: cfg.s3.region,
@@ -164,6 +220,11 @@ async function main(): Promise<void> {
       );
     }
   }
+}
+
+function resolveQueueMode(value: string | undefined): "rest" | "postgres" {
+  const raw = (value ?? "rest").trim().toLowerCase();
+  return raw === "postgres" ? "postgres" : "rest";
 }
 
 function withJitter(baseMs: number, jitterMs: number): number {

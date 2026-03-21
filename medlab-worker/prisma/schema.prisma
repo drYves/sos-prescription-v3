@@ -10,7 +10,7 @@ datasource db {
 
 model Doctor {
   id             String         @id @default(uuid())
-  wpUserId       Int            @unique
+  wpUserId       Int            @unique // Pont avec le login Hostinger
   firstName      String?
   lastName       String?
   email          String?        @unique
@@ -18,11 +18,11 @@ model Doctor {
   title          String?
   specialty      String?
   rpps           String?        @unique
-  amNumber       String?
+  amNumber       String?        // Numéro Assurance Maladie
   address        String?
   city           String?
   zipCode        String?
-  signatureS3Key String?
+  signatureS3Key String?        // Fichier stocké sécurisé sur S3 (Plus d'image WP)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   prescriptions  Prescription[]
@@ -42,18 +42,33 @@ model Patient {
 }
 
 model Prescription {
-  id           String   @id @default(uuid())
-  uid          String   @unique
-  doctorId     String
-  patientId    String
-  doctor       Doctor   @relation(fields: [doctorId], references: [id])
-  patient      Patient  @relation(fields: [patientId], references: [id])
-  status       String   @default("PENDING")
-  items        Json
-  privateNotes String?
-  s3PdfKey     String?
-  verifyCode   String?
-  verifyToken  String?  @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  uid                  String   @unique // Référence publique courte (ex: QEZT4VS62H)
+  doctorId             String
+  patientId            String
+  doctor               Doctor   @relation(fields: [doctorId], references: [id])
+  patient              Patient  @relation(fields: [patientId], references: [id])
+  status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  items                Json     // Tableau JSONB natif contenant la posologie
+  privateNotes         String?
+  s3PdfKey             String?  // Lien vers l'artefact généré
+  verifyCode           String?
+  verifyToken          String?  @unique
+  processingStatus     String   @default("PENDING")
+  availableAt          DateTime @default(now())
+  claimedAt            DateTime?
+  lockExpiresAt        DateTime?
+  workerRef            String?
+  attempts             Int      @default(0)
+  maxAttempts          Int      @default(5)
+  lastErrorCode        String?
+  lastErrorMessageSafe String?
+  sourceReqId          String?  @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([processingStatus, availableAt, lockExpiresAt, createdAt])
+  @@index([workerRef, lockExpiresAt])
 }
