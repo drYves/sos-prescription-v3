@@ -11,6 +11,10 @@ import { NdjsonLogger } from "./logger";
 import { NonceCache } from "./security/nonceCache";
 import { S3Service } from "./s3/s3Service";
 import { sleep } from "./utils/sleep";
+import { TemplateRegistry } from "./pdf/templateRegistry";
+import { SignatureDataUriLoader } from "./pdf/assets/signatureDataUri";
+import { PrescriptionHtmlBuilder } from "./pdf/prescriptionHtmlBuilder";
+import { PrismaPrescriptionStore } from "./prescriptions/prismaPrescriptionStore";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -50,6 +54,32 @@ async function main(): Promise<void> {
 
   const memGuard = new MemoryGuard(cfg.ramGuardMaxMb, cfg.ramGuardResumeMb);
   const nonceCache = new NonceCache(cfg.security.authSkewWindowMs * 2);
+  const templateRegistry = new TemplateRegistry();
+
+  const signatureLoader = queueMode === "postgres"
+    ? new SignatureDataUriLoader({
+        endpoint: cfg.s3.endpoint,
+        region: cfg.s3.region,
+        accessKeyId: cfg.s3.accessKeyId,
+        secretAccessKey: cfg.s3.secretAccessKey,
+        forcePathStyle: cfg.s3.forcePathStyle,
+        bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
+      })
+    : null;
+
+  const prescriptionStore = queueMode === "postgres"
+    ? new PrismaPrescriptionStore({ logger })
+    : null;
+
+  const htmlBuilder = queueMode === "postgres"
+    ? new PrescriptionHtmlBuilder({
+        templateRegistry,
+        signatureLoader,
+        logger,
+        verifyBaseUrl: process.env.ML_VERIFY_BASE_URL ?? "https://sosprescription.fr",
+        defaultTemplateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
+      })
+    : null;
 
   const secrets = [
     cfg.security.hmacSecretActive,
@@ -73,19 +103,31 @@ async function main(): Promise<void> {
 
     try {
       server.close();
-    } catch (_err) {
+    } catch {
+      // noop
+    }
+
+    try {
+      await prescriptionStore?.close();
+    } catch {
+      // noop
+    }
+
+    try {
+      await signatureLoader?.close();
+    } catch {
       // noop
     }
 
     try {
       await jobsRepo.close();
-    } catch (_err) {
+    } catch {
       // noop
     }
 
     try {
       await s3.close();
-    } catch (_err) {
+    } catch {
       // noop
     }
 
@@ -109,21 +151,11 @@ async function main(): Promise<void> {
       callback_path: jobsRepo.mode === "rest" ? cfg.jobCallbackPathTemplate : undefined,
       lease_min: cfg.leaseMinutes,
       poll_ms: idlePollMs,
-      render_mode: "wordpress-rest-bridge",
+      render_mode: jobsRepo.mode === "postgres" ? "local-inline-html" : "wordpress-rest-bridge",
+      template_default: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
     },
     undefined,
   );
-
-  if (jobsRepo.mode === "postgres") {
-    logger.warning(
-      "system.phase1_ingest_only",
-      {
-        queue_mode: jobsRepo.mode,
-        message: "PostgreSQL ingress is enabled. Local PDF processing stays disabled until Phase 2 render is integrated.",
-      },
-      undefined,
-    );
-  }
 
   while (true) {
     memGuard.tick();
@@ -143,14 +175,9 @@ async function main(): Promise<void> {
       continue;
     }
 
-    if (jobsRepo.mode === "postgres") {
-      await sleep(withJitter(idlePollMs, 1_000));
-      continue;
-    }
-
     let job = null;
     try {
-      job = await restJobsRepo!.claimNextPendingJob({
+      job = await jobsRepo.claimNextPendingJob({
         siteId: cfg.siteId,
         workerId: cfg.workerId,
         leaseMinutes: cfg.leaseMinutes,
@@ -180,7 +207,7 @@ async function main(): Promise<void> {
         wpBaseUrl: cfg.wpBaseUrl,
         renderPathTemplate: cfg.pdfRenderPathTemplate,
         chromeExecutablePath: cfg.chromeExecutablePath,
-        jobsRepo: restJobsRepo!,
+        jobsRepo,
         s3,
         s3BucketPdf: cfg.s3.bucketPdf,
         s3Region: cfg.s3.region,
@@ -193,6 +220,8 @@ async function main(): Promise<void> {
         admissionMaxMb: cfg.ramGuardMaxMb,
         pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
         pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
+        prescriptionStore,
+        htmlBuilder,
       });
     } catch (err) {
       await failOrRetry(
@@ -202,7 +231,7 @@ async function main(): Promise<void> {
           wpBaseUrl: cfg.wpBaseUrl,
           renderPathTemplate: cfg.pdfRenderPathTemplate,
           chromeExecutablePath: cfg.chromeExecutablePath,
-          jobsRepo: restJobsRepo!,
+          jobsRepo,
           s3,
           s3BucketPdf: cfg.s3.bucketPdf,
           s3Region: cfg.s3.region,
@@ -215,6 +244,8 @@ async function main(): Promise<void> {
           admissionMaxMb: cfg.ramGuardMaxMb,
           pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
           pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
+          prescriptionStore,
+          htmlBuilder,
         },
         err,
       );

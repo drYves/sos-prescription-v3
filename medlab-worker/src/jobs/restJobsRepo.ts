@@ -291,7 +291,7 @@ export class RestJobsRepo implements JobsRepo {
       const response = await fetch(url, {
         method: init.method,
         headers,
-        body: init.body,
+        body: init.body ? new Uint8Array(init.body) : undefined,
         signal: controller.signal,
       });
 

@@ -1,18 +1,20 @@
 // src/jobs/processor.ts
 import fs from "node:fs/promises";
+import type { JobsRepo, JobRow } from "./jobsRepo";
 import { NdjsonLogger } from "../logger";
 import { PdfRenderer } from "../pdf/pdfRenderer";
 import { parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { S3Service } from "../s3/s3Service";
 import { HardError, SoftError } from "./errors";
-import { JobRow, RestJobsRepo } from "./restJobsRepo";
+import { PrismaPrescriptionStore } from "../prescriptions/prismaPrescriptionStore";
+import { PrescriptionHtmlBuilder } from "../pdf/prescriptionHtmlBuilder";
 
 export interface JobProcessorDeps {
   siteId: string;
   wpBaseUrl: string;
   renderPathTemplate: string;
   chromeExecutablePath: string;
-  jobsRepo: RestJobsRepo;
+  jobsRepo: JobsRepo;
   s3: S3Service;
   s3BucketPdf: string;
   s3Region: string;
@@ -25,56 +27,42 @@ export interface JobProcessorDeps {
   admissionMaxMb: number;
   pdfRenderTimeoutMs: number;
   pdfReadyTimeoutMs: number;
+  prescriptionStore?: PrismaPrescriptionStore | null;
+  htmlBuilder?: PrescriptionHtmlBuilder | null;
 }
 
 export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<void> {
-  const reqId = job.req_id ?? undefined;
+  const reqId = resolveReqId(job);
 
   deps.logger.info(
     "job.claimed",
     {
       job_id: job.job_id,
       job_type: job.job_type,
+      queue_mode: deps.jobsRepo.mode,
       attempts: job.attempts,
       max_attempts: job.max_attempts,
     },
     reqId,
   );
 
-  const parsed = parseMls1Token(job.mls1_token);
-  if (!parsed) {
-    throw new HardError("ML_JOB_BAD_MLS1", "Job signature format invalid");
-  }
-
-  const okSig = verifyMls1Payload(parsed.payloadBytes, parsed.sigHex, deps.hmacSecrets);
-  if (!okSig) {
-    throw new HardError("ML_JOB_BAD_SIG", "Job signature invalid");
-  }
-
-  let payloadObj: any;
-  try {
-    payloadObj = JSON.parse(parsed.payloadBytes.toString("utf8"));
-  } catch (_err) {
-    throw new HardError("ML_JOB_BAD_PAYLOAD", "Job payload is not valid JSON");
-  }
-
-  if (payloadObj?.schema_version !== "2026.5") {
-    throw new HardError("ML_JOB_SCHEMA_MISMATCH", "Job schema_version mismatch");
-  }
-  if (payloadObj?.site_id !== deps.siteId) {
-    throw new HardError("ML_JOB_SITE_MISMATCH", "Job site_id mismatch");
-  }
-
-  const payloadJobId = payloadObj?.job?.job_id;
-  if (payloadJobId && payloadJobId !== job.job_id) {
-    throw new HardError("ML_JOB_ID_MISMATCH", "Job ID mismatch");
-  }
-
   if (job.job_type !== "PDF_GEN") {
     throw new HardError("ML_JOB_TYPE_UNSUPPORTED", "Unsupported job type");
   }
 
+  if (deps.jobsRepo.mode === "rest") {
+    await processRestBridgeJob(job, deps, reqId);
+    return;
+  }
+
+  await processLocalDbJob(job, deps, reqId);
+}
+
+async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?: string): Promise<void> {
+  assertRestJobSignature(job, deps);
+
   const render = await deps.pdfRenderer.renderToTmpPdf({
+    mode: "remote-wordpress",
     siteId: deps.siteId,
     wpBaseUrl: deps.wpBaseUrl,
     renderPathTemplate: deps.renderPathTemplate,
@@ -90,6 +78,50 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     admissionMaxMb: deps.admissionMaxMb,
   });
 
+  await finalizeSuccessfulRender(job, deps, render, reqId, "remote-wordpress", undefined);
+}
+
+async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: string): Promise<void> {
+  if (!deps.prescriptionStore) {
+    throw new HardError("ML_PRESCRIPTION_STORE_MISSING", "Prescription store is not configured");
+  }
+  if (!deps.htmlBuilder) {
+    throw new HardError("ML_HTML_BUILDER_MISSING", "Prescription HTML builder is not configured");
+  }
+
+  const aggregate = await deps.prescriptionStore.getRenderablePrescription(job.job_id);
+  const built = await deps.htmlBuilder.buildHtml({
+    aggregate,
+    jobId: job.job_id,
+    reqId,
+    templateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
+  });
+
+  const render = await deps.pdfRenderer.renderToTmpPdf({
+    mode: "inline-html",
+    workerId: deps.workerId,
+    jobId: job.job_id,
+    reqId,
+    chromeExecutablePath: deps.chromeExecutablePath,
+    renderTimeoutMs: deps.pdfRenderTimeoutMs,
+    readyTimeoutMs: deps.pdfReadyTimeoutMs,
+    memGuard: deps.memGuard,
+    admissionMaxMb: deps.admissionMaxMb,
+    html: built.html,
+    templateName: built.templateName,
+  });
+
+  await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName);
+}
+
+async function finalizeSuccessfulRender(
+  job: JobRow,
+  deps: JobProcessorDeps,
+  render: { filePath: string; sha256Hex: string; sizeBytes: number; contentType: "application/pdf" },
+  reqId: string | undefined,
+  renderMode: "remote-wordpress" | "inline-html",
+  templateName?: string,
+): Promise<void> {
   const s3Key = buildPdfS3Key(deps.siteId, job.job_id, new Date());
 
   try {
@@ -100,7 +132,7 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
       contentType: render.contentType,
       contentLength: render.sizeBytes,
       metadata: {
-        schema_version: "2026.5",
+        schema_version: deps.jobsRepo.mode === "postgres" ? "2026.6" : "2026.5",
         job_id: job.job_id,
         req_id: reqId ?? "",
       },
@@ -114,7 +146,7 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
   } finally {
     try {
       await fs.unlink(render.filePath);
-    } catch (_err) {
+    } catch {
       // noop
     }
   }
@@ -135,6 +167,9 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
     "job.done",
     {
       job_id: job.job_id,
+      queue_mode: deps.jobsRepo.mode,
+      render_mode: renderMode,
+      template: templateName ?? undefined,
       s3_key_ref: s3Key,
       artifact_size_bytes: render.sizeBytes,
     },
@@ -143,7 +178,7 @@ export async function processJob(job: JobRow, deps: JobProcessorDeps): Promise<v
 }
 
 export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unknown): Promise<void> {
-  const reqId = job.req_id ?? undefined;
+  const reqId = resolveReqId(job);
 
   if (err instanceof SoftError) {
     const details = extractErrorDetails(err);
@@ -161,6 +196,7 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
         "job.failed_hard",
         {
           job_id: job.job_id,
+          queue_mode: deps.jobsRepo.mode,
           error_code: err.code,
           error_message: details.error_message,
           error_stack: details.error_stack,
@@ -184,6 +220,7 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
       "job.requeued",
       {
         job_id: job.job_id,
+        queue_mode: deps.jobsRepo.mode,
         error_code: err.code,
         delay_s: Math.floor(delay),
         attempt: job.attempts,
@@ -212,6 +249,7 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
     "job.failed_hard",
     {
       job_id: job.job_id,
+      queue_mode: deps.jobsRepo.mode,
       error_code: hard.code,
       error_message: hard.message,
       error_stack: hard.stack,
@@ -219,6 +257,42 @@ export async function failOrRetry(job: JobRow, deps: JobProcessorDeps, err: unkn
     },
     reqId,
   );
+}
+
+function assertRestJobSignature(job: JobRow, deps: JobProcessorDeps): void {
+  const parsed = parseMls1Token(job.mls1_token);
+  if (!parsed) {
+    throw new HardError("ML_JOB_BAD_MLS1", "Job signature format invalid");
+  }
+
+  const okSig = verifyMls1Payload(parsed.payloadBytes, parsed.sigHex, deps.hmacSecrets);
+  if (!okSig) {
+    throw new HardError("ML_JOB_BAD_SIG", "Job signature invalid");
+  }
+
+  let payloadObj: Record<string, unknown>;
+  try {
+    payloadObj = JSON.parse(parsed.payloadBytes.toString("utf8")) as Record<string, unknown>;
+  } catch {
+    throw new HardError("ML_JOB_BAD_PAYLOAD", "Job payload is not valid JSON");
+  }
+
+  if (payloadObj.schema_version !== "2026.5") {
+    throw new HardError("ML_JOB_SCHEMA_MISMATCH", "Job schema_version mismatch");
+  }
+  if (payloadObj.site_id !== deps.siteId) {
+    throw new HardError("ML_JOB_SITE_MISMATCH", "Job site_id mismatch");
+  }
+
+  const payloadJob = payloadObj.job as Record<string, unknown> | undefined;
+  const payloadJobId = typeof payloadJob?.job_id === "string" ? payloadJob.job_id : null;
+  if (payloadJobId && payloadJobId !== job.job_id) {
+    throw new HardError("ML_JOB_ID_MISMATCH", "Job ID mismatch");
+  }
+}
+
+function resolveReqId(job: JobRow): string | undefined {
+  return job.req_id ?? job.source_req_id ?? undefined;
 }
 
 function buildPdfS3Key(siteId: string, jobId: string, now: Date): string {
@@ -272,14 +346,7 @@ function extractAwsCode(err: unknown): string | undefined {
   if (!err || typeof err !== "object") return undefined;
 
   const rec = err as Record<string, unknown>;
-  const awsCode =
-    rec.Code ??
-    rec.code ??
-    rec.name ??
-    (typeof rec.$metadata === "object" && rec.$metadata && "httpStatusCode" in (rec.$metadata as Record<string, unknown>)
-      ? undefined
-      : undefined);
-
+  const awsCode = rec.Code ?? rec.code ?? rec.name;
   return typeof awsCode === "string" && awsCode !== "" ? awsCode : undefined;
 }
 
