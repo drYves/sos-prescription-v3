@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@types/node": "20.19.37",
+    "prisma": "^6.19.2",
     "tsx": "4.21.0"
   },
   "dependencies": {

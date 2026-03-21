@@ -1,0 +1,59 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Doctor {
+  id             String         @id @default(uuid())
+  wpUserId       Int            @unique
+  firstName      String?
+  lastName       String?
+  email          String?        @unique
+  phone          String?
+  title          String?
+  specialty      String?
+  rpps           String?        @unique
+  amNumber       String?
+  address        String?
+  city           String?
+  zipCode        String?
+  signatureS3Key String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  prescriptions  Prescription[]
+}
+
+model Patient {
+  id             String         @id @default(uuid())
+  firstName      String
+  lastName       String
+  birthDate      String
+  gender         String?
+  email          String?
+  phone          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  prescriptions  Prescription[]
+}
+
+model Prescription {
+  id           String   @id @default(uuid())
+  uid          String   @unique
+  doctorId     String
+  patientId    String
+  doctor       Doctor   @relation(fields: [doctorId], references: [id])
+  patient      Patient  @relation(fields: [patientId], references: [id])
+  status       String   @default("PENDING")
+  items        Json
+  privateNotes String?
+  s3PdfKey     String?
+  verifyCode   String?
+  verifyToken  String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
