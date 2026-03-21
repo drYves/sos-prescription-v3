@@ -12,13 +12,14 @@ use wpdb;
 final class JobDispatcher
 {
     private const CURRENT_SCHEMA_VERSION = '2026.6';
+    private const JOB_TYPE = 'PDF_GEN';
+    private const DEFAULT_PRIORITY = 50;
+    private const DEFAULT_MAX_ATTEMPTS = 5;
+    private const DEFAULT_EXPIRATION_MS = 86400000;
     private const DEFAULT_INGEST_PATH = '/api/v1/prescriptions';
-    private const DEFAULT_TIMEOUT_S = 12;
 
-    private string $workerBaseUrl;
-    private string $ingestPath;
-    private int $timeoutS;
-    private ?string $hmacSecretPrevious;
+    /** @var array<string, true>|null */
+    private ?array $jobsColumns = null;
 
     public function __construct(
         private wpdb $db,
@@ -31,13 +32,7 @@ final class JobDispatcher
         ?int $timeoutS = null,
         ?string $hmacSecretPrevious = null
     ) {
-        $resolvedBaseUrl = trim((string) ($workerBaseUrl !== null ? $workerBaseUrl : self::readConfigString('ML_WORKER_BASE_URL')));
-        $this->workerBaseUrl = rtrim($resolvedBaseUrl, '/');
-        $this->ingestPath = self::normalizeIngressPath($ingestPath ?? self::readConfigString('ML_WORKER_INGEST_PATH', self::DEFAULT_INGEST_PATH));
-        $this->timeoutS = max(2, (int) ($timeoutS ?? (int) self::readConfigString('ML_WORKER_INGEST_TIMEOUT_S', (string) self::DEFAULT_TIMEOUT_S)));
-
-        $previous = trim((string) ($hmacSecretPrevious !== null ? $hmacSecretPrevious : self::readConfigString('ML_HMAC_SECRET_PREVIOUS')));
-        $this->hmacSecretPrevious = $previous !== '' ? $previous : null;
+        unset($workerBaseUrl, $ingestPath, $timeoutS, $hmacSecretPrevious);
     }
 
     public static function fromEnv(wpdb $db, NdjsonLogger $logger): self
@@ -49,21 +44,13 @@ final class JobDispatcher
 
         $siteId = self::readConfigString('ML_SITE_ID', 'unknown_site');
         $kid = self::readConfigString('ML_HMAC_KID');
-        $workerBaseUrl = self::readConfigString('ML_WORKER_BASE_URL');
-        $ingestPath = self::readConfigString('ML_WORKER_INGEST_PATH', self::DEFAULT_INGEST_PATH);
-        $timeoutS = (int) self::readConfigString('ML_WORKER_INGEST_TIMEOUT_S', (string) self::DEFAULT_TIMEOUT_S);
-        $previous = self::readConfigString('ML_HMAC_SECRET_PREVIOUS');
 
         return new self(
             $db,
             $logger,
             $siteId,
             $secret,
-            $kid !== '' ? $kid : null,
-            $workerBaseUrl !== '' ? $workerBaseUrl : null,
-            $ingestPath !== '' ? $ingestPath : self::DEFAULT_INGEST_PATH,
-            $timeoutS > 0 ? $timeoutS : self::DEFAULT_TIMEOUT_S,
-            $previous !== '' ? $previous : null
+            $kid !== '' ? $kid : null
         );
     }
 
@@ -88,7 +75,7 @@ final class JobDispatcher
     }
 
     /**
-     * @return array{ok:true,job_id:string,dedup:bool,req_id:string,mode?:string,status?:string,processing_status?:string,uid?:string,verify_token?:string|null}
+     * @return array{ok:true,job_id:string,dedup:bool,req_id:string,mode:string,status:string,processing_status:string,uid:string,verify_token:string|null}
      */
     public function dispatch_pdf_generation(int $rx_id, ?string $reqId = null): array
     {
@@ -97,9 +84,8 @@ final class JobDispatcher
             throw new RuntimeException('Invalid rx_id');
         }
 
-        if ($this->workerBaseUrl === '') {
-            throw new RuntimeException('Missing ML_WORKER_BASE_URL');
-        }
+        $jobsTable = $this->jobsTableName();
+        $this->ensureJobsTableReady($jobsTable);
 
         $payload = $this->buildIngressPayload($rx_id, $reqId);
         $rawJson = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -107,37 +93,114 @@ final class JobDispatcher
             throw new RuntimeException('JSON encode failed');
         }
 
-        $response = $this->postIngressPayload($rawJson, $reqId);
-        $data = $this->decodeWorkerResponse($response, $reqId);
+        $jobId = $this->generateJobId();
+        $jobNonce = $this->generateUrlSafeRandom(24);
+        $payloadSha256Binary = hash('sha256', $rawJson, true);
+        $mls1Token = $this->buildMls1Token($rawJson);
+        $nowMysql = $this->dbNowMysql();
+        $expMs = $this->nowMs() + $this->defaultExpirationMs();
 
-        $jobId = trim((string) ($data['job_id'] ?? ($data['prescription_id'] ?? '')));
-        if ($jobId === '') {
-            throw new RuntimeException('Worker response missing job_id');
+        $insertData = $this->buildInsertData(
+            $jobId,
+            $reqId,
+            $rx_id,
+            $jobNonce,
+            $rawJson,
+            $payloadSha256Binary,
+            $mls1Token,
+            $nowMysql,
+            $expMs
+        );
+        $insertFormats = $this->buildInsertFormats($insertData);
+
+        $inserted = false;
+        $lastError = '';
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            if ($attempt > 0) {
+                $jobId = $this->generateJobId();
+                $jobNonce = $this->generateUrlSafeRandom(24);
+
+                $insertData = $this->buildInsertData(
+                    $jobId,
+                    $reqId,
+                    $rx_id,
+                    $jobNonce,
+                    $rawJson,
+                    $payloadSha256Binary,
+                    $mls1Token,
+                    $nowMysql,
+                    $expMs
+                );
+                $insertFormats = $this->buildInsertFormats($insertData);
+            }
+
+            $previousSuppress = $this->db->suppress_errors(true);
+            $result = $this->db->insert($jobsTable, $insertData, $insertFormats);
+            $this->db->suppress_errors($previousSuppress);
+
+            if ($result !== false) {
+                $inserted = true;
+                break;
+            }
+
+            $lastError = trim((string) $this->db->last_error);
+            if (!$this->isRetryableInsertCollision($lastError)) {
+                break;
+            }
         }
 
-        $mode = trim((string) ($data['mode'] ?? 'created'));
-        $processingStatus = trim((string) ($data['processing_status'] ?? 'PENDING'));
-        $businessStatus = trim((string) ($data['status'] ?? 'PENDING'));
-        $uid = isset($data['uid']) && is_scalar($data['uid']) ? (string) $data['uid'] : '';
-        $verifyToken = isset($data['verify_token']) && $data['verify_token'] !== null ? (string) $data['verify_token'] : null;
-        $dedup = ($mode === 'replay');
+        if (!$inserted) {
+            $message = $lastError !== '' ? $lastError : 'Local job insert failed';
 
-        $this->logger->info('job.dispatch.ingest_ok', [
+            $this->logger->error('job.dispatch.local_insert_failed', [
+                'rx_id' => $rx_id,
+                'job_id' => $jobId,
+                'table' => $jobsTable,
+                'db_error' => $message,
+            ], $reqId);
+
+            throw new RuntimeException('Failed to insert local PDF job');
+        }
+
+        $uid = '';
+        if (
+            isset($payload['prescription'])
+            && is_array($payload['prescription'])
+            && isset($payload['prescription']['wpPrescriptionUid'])
+            && is_scalar($payload['prescription']['wpPrescriptionUid'])
+        ) {
+            $uid = (string) $payload['prescription']['wpPrescriptionUid'];
+        }
+
+        $verifyToken = null;
+        if (
+            isset($payload['prescription'])
+            && is_array($payload['prescription'])
+            && array_key_exists('verifyToken', $payload['prescription'])
+        ) {
+            $candidate = $payload['prescription']['verifyToken'];
+            if ($candidate !== null && is_scalar($candidate)) {
+                $verifyToken = (string) $candidate;
+            }
+        }
+
+        $this->logger->info('job.dispatch.local_enqueued', [
             'rx_id' => $rx_id,
             'job_id' => $jobId,
-            'mode' => $mode !== '' ? $mode : 'created',
-            'processing_status' => $processingStatus !== '' ? $processingStatus : 'PENDING',
-            'http_status' => (int) ($response['status'] ?? 0),
+            'table' => $jobsTable,
+            'status' => 'PENDING',
+            'processing_status' => 'PENDING',
         ], $reqId);
 
         return [
             'ok' => true,
             'job_id' => $jobId,
-            'dedup' => $dedup,
+            'dedup' => false,
             'req_id' => $reqId,
-            'mode' => $mode !== '' ? $mode : 'created',
-            'status' => $businessStatus !== '' ? $businessStatus : 'PENDING',
-            'processing_status' => $processingStatus !== '' ? $processingStatus : 'PENDING',
+            'mode' => 'created',
+            'status' => 'PENDING',
+            'processing_status' => 'PENDING',
             'uid' => $uid,
             'verify_token' => $verifyToken,
         ];
@@ -159,14 +222,13 @@ final class JobDispatcher
         }
 
         $patientUserId = isset($rx['patient_user_id']) ? (int) $rx['patient_user_id'] : 0;
-
         $tsMs = (int) floor(microtime(true) * 1000);
 
         return [
             'schema_version' => self::CURRENT_SCHEMA_VERSION,
             'site_id' => $this->siteId,
             'ts_ms' => $tsMs,
-            'nonce' => Base64Url::encode(random_bytes(16)),
+            'nonce' => $this->generateUrlSafeRandom(16),
             'req_id' => $reqId,
             'doctor' => $this->buildDoctorPayload($doctorUserId),
             'patient' => $this->buildPatientPayload($rx, $patientUserId),
@@ -476,156 +538,247 @@ final class JobDispatcher
     }
 
     /**
-     * @return array{status:int,body:string,headers:mixed}
-     */
-    private function postIngressPayload(string $rawJson, string $reqId): array
-    {
-        $url = $this->workerBaseUrl . $this->ingestPath;
-        $headers = [
-            'Accept' => 'application/json',
-            'Content-Type' => 'application/json; charset=utf-8',
-            'X-MedLab-Signature' => MedLabConnector::mls1Token($rawJson, $this->hmacSecret),
-        ];
-
-        if ($this->kid !== null && $this->kid !== '') {
-            $headers['X-MedLab-Kid'] = $this->kid;
-        }
-
-        $response = wp_remote_post($url, [
-            'headers' => $headers,
-            'body' => $rawJson,
-            'method' => 'POST',
-            'timeout' => $this->timeoutS,
-            'redirection' => 0,
-            'blocking' => true,
-            'data_format' => 'body',
-        ]);
-
-        if (is_wp_error($response)) {
-            $this->logger->error('job.dispatch.ingest_http_error', [
-                'http_status' => 0,
-                'error_code' => $response->get_error_code(),
-            ], $reqId);
-            throw new RuntimeException('Worker ingestion HTTP request failed');
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($response);
-        $body = (string) wp_remote_retrieve_body($response);
-        $responseHeaders = wp_remote_retrieve_headers($response);
-
-        if ($status < 200 || $status >= 300) {
-            $decoded = json_decode($body, true);
-            $code = is_array($decoded) && isset($decoded['code']) ? (string) $decoded['code'] : 'ML_INGEST_FAILED';
-
-            $this->logger->error('job.dispatch.ingest_rejected', [
-                'http_status' => $status,
-                'error_code' => $code,
-            ], $reqId);
-
-            throw new RuntimeException(sprintf('Worker ingestion failed with HTTP %d', $status));
-        }
-
-        $sigHeader = $this->getHeaderValue($responseHeaders, 'x-medlab-signature');
-        if (!$this->verifyMls1SignedBody($sigHeader, $body)) {
-            $this->logger->error('job.dispatch.ingest_bad_signature', [
-                'http_status' => $status,
-            ], $reqId);
-            throw new RuntimeException('Invalid Worker response signature');
-        }
-
-        return [
-            'status' => $status,
-            'body' => $body,
-            'headers' => $responseHeaders,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $response
      * @return array<string, mixed>
      */
-    private function decodeWorkerResponse(array $response, string $reqId): array
-    {
-        $body = isset($response['body']) ? (string) $response['body'] : '';
-        $data = json_decode($body, true);
-        if (!is_array($data)) {
-            $this->logger->error('job.dispatch.ingest_bad_json', [
-                'http_status' => isset($response['status']) ? (int) $response['status'] : 0,
-            ], $reqId);
-            throw new RuntimeException('Invalid Worker JSON response');
-        }
+    private function buildInsertData(
+        string $jobId,
+        string $reqId,
+        int $rxId,
+        string $jobNonce,
+        string $rawJson,
+        string $payloadSha256Binary,
+        string $mls1Token,
+        string $nowMysql,
+        int $expMs
+    ): array {
+        $columns = $this->jobsTableColumns();
 
-        if (array_key_exists('ok', $data) && $data['ok'] !== true) {
-            $code = isset($data['code']) && is_scalar($data['code']) ? (string) $data['code'] : 'ML_INGEST_FAILED';
-            $this->logger->error('job.dispatch.ingest_bad_payload', [
-                'http_status' => isset($response['status']) ? (int) $response['status'] : 0,
-                'error_code' => $code,
-            ], $reqId);
-            throw new RuntimeException('Worker ingestion returned an error payload');
+        $data = [
+            'job_id' => $jobId,
+            'site_id' => $this->siteId,
+            'req_id' => $reqId,
+            'job_type' => self::JOB_TYPE,
+            'status' => 'PENDING',
+            'priority' => self::DEFAULT_PRIORITY,
+            'available_at' => $nowMysql,
+            'rx_id' => $rxId,
+            'nonce' => $jobNonce,
+            'payload' => $rawJson,
+            'mls1_token' => $mls1Token,
+            'created_at' => $nowMysql,
+            'updated_at' => $nowMysql,
+        ];
+
+        if (isset($columns['kid'])) {
+            $data['kid'] = $this->kid ?? '';
+        }
+        if (isset($columns['exp_ms'])) {
+            $data['exp_ms'] = $expMs;
+        }
+        if (isset($columns['payload_sha256'])) {
+            $data['payload_sha256'] = $payloadSha256Binary;
+        }
+        if (isset($columns['attempts'])) {
+            $data['attempts'] = 0;
+        }
+        if (isset($columns['max_attempts'])) {
+            $data['max_attempts'] = self::DEFAULT_MAX_ATTEMPTS;
+        }
+        if (isset($columns['created_by'])) {
+            $data['created_by'] = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        }
+        if (isset($columns['worker_ref'])) {
+            $data['worker_ref'] = '';
+        }
+        if (isset($columns['locked_by'])) {
+            $data['locked_by'] = '';
+        }
+        if (isset($columns['last_error_code'])) {
+            $data['last_error_code'] = '';
+        }
+        if (isset($columns['last_error_message_safe'])) {
+            $data['last_error_message_safe'] = null;
+        } elseif (isset($columns['last_error_message'])) {
+            $data['last_error_message'] = null;
         }
 
         return $data;
     }
 
-    private function verifyMls1SignedBody(?string $token, string $rawBody): bool
+    /**
+     * @param array<string, mixed> $data
+     * @return array<int, string>
+     */
+    private function buildInsertFormats(array $data): array
     {
-        $token = is_string($token) ? trim($token) : '';
-        if ($token === '') {
-            return false;
+        $formats = [];
+
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                $formats[] = '%s';
+                continue;
+            }
+
+            if (in_array($key, ['priority', 'rx_id', 'exp_ms', 'attempts', 'max_attempts', 'created_by'], true)) {
+                $formats[] = '%d';
+                continue;
+            }
+
+            $formats[] = '%s';
         }
 
-        $parts = explode('.', $token);
-        if (count($parts) !== 3 || strtolower((string) $parts[0]) !== 'mls1') {
-            return false;
-        }
-
-        $payload = Base64Url::decode((string) $parts[1]);
-        if (!is_string($payload) || !hash_equals($payload, $rawBody)) {
-            return false;
-        }
-
-        $sigHex = strtolower((string) $parts[2]);
-        if (!preg_match('/^[0-9a-f]{64}$/', $sigHex)) {
-            return false;
-        }
-
-        $expected = hash_hmac('sha256', $rawBody, $this->hmacSecret, false);
-        if (hash_equals(strtolower($expected), $sigHex)) {
-            return true;
-        }
-
-        if ($this->hmacSecretPrevious !== null && $this->hmacSecretPrevious !== '') {
-            $expectedPrevious = hash_hmac('sha256', $rawBody, $this->hmacSecretPrevious, false);
-            return hash_equals(strtolower($expectedPrevious), $sigHex);
-        }
-
-        return false;
+        return $formats;
     }
 
-    private function getHeaderValue(mixed $headers, string $name): ?string
+    /**
+     * @return array<string, true>
+     */
+    private function jobsTableColumns(): array
     {
-        $needle = strtolower($name);
+        if (is_array($this->jobsColumns)) {
+            return $this->jobsColumns;
+        }
 
-        if (is_array($headers)) {
-            foreach ($headers as $key => $value) {
-                if (strtolower((string) $key) === $needle) {
-                    return is_array($value) ? (string) ($value[0] ?? '') : (string) $value;
-                }
+        $table = $this->jobsTableName();
+        $rows = $this->db->get_results('SHOW COLUMNS FROM `' . esc_sql($table) . '`', ARRAY_A);
+        if (!is_array($rows)) {
+            $this->jobsColumns = [];
+            return $this->jobsColumns;
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['Field'])) {
+                continue;
+            }
+            $out[(string) $row['Field']] = true;
+        }
+
+        $this->jobsColumns = $out;
+        return $this->jobsColumns;
+    }
+
+    private function ensureJobsTableReady(string $table): void
+    {
+        $exists = $this->db->get_var($this->db->prepare('SHOW TABLES LIKE %s', $table));
+        if (!is_string($exists) || $exists !== $table) {
+            throw new RuntimeException('Jobs table is missing');
+        }
+
+        $columns = $this->jobsTableColumns();
+        $required = [
+            'job_id',
+            'site_id',
+            'job_type',
+            'status',
+            'priority',
+            'available_at',
+            'rx_id',
+            'nonce',
+            'payload',
+            'mls1_token',
+            'req_id',
+            'created_at',
+            'updated_at',
+        ];
+
+        foreach ($required as $column) {
+            if (!isset($columns[$column])) {
+                throw new RuntimeException(sprintf('Jobs table is missing required column: %s', $column));
+            }
+        }
+    }
+
+    private function jobsTableName(): string
+    {
+        return $this->db->prefix . 'sosprescription_jobs';
+    }
+
+    private function buildMls1Token(string $rawJson): string
+    {
+        $b64Payload = self::base64UrlEncode($rawJson);
+        $signature = hash_hmac('sha256', $rawJson, $this->hmacSecret, false);
+
+        return sprintf('mls1.%s.%s', $b64Payload, $signature);
+    }
+
+    private function dbNowMysql(): string
+    {
+        $value = $this->db->get_var("SELECT DATE_FORMAT(NOW(3), '%Y-%m-%d %H:%i:%s')");
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        return gmdate('Y-m-d H:i:s');
+    }
+
+    private function nowMs(): int
+    {
+        return (int) floor(microtime(true) * 1000);
+    }
+
+    private function defaultExpirationMs(): int
+    {
+        return (int) apply_filters('sosprescription_jobs_default_expiration_ms', self::DEFAULT_EXPIRATION_MS);
+    }
+
+    private function generateJobId(): string
+    {
+        if (function_exists('wp_generate_uuid4')) {
+            $uuid = (string) wp_generate_uuid4();
+            if ($uuid !== '') {
+                return $uuid;
             }
         }
 
-        if (is_object($headers) && method_exists($headers, 'getAll')) {
-            $all = $headers->getAll();
-            if (is_array($all)) {
-                foreach ($all as $key => $value) {
-                    if (strtolower((string) $key) === $needle) {
-                        return is_array($value) ? (string) ($value[0] ?? '') : (string) $value;
-                    }
-                }
+        $hex = bin2hex($this->randomBytes(16));
+
+        return sprintf(
+            '%s-%s-4%s-%s%s-%s',
+            substr($hex, 0, 8),
+            substr($hex, 8, 4),
+            substr($hex, 13, 3),
+            dechex((hexdec($hex[16]) & 0x3) | 0x8),
+            substr($hex, 17, 3),
+            substr($hex, 20, 12)
+        );
+    }
+
+    private function generateUrlSafeRandom(int $bytesLength): string
+    {
+        return self::base64UrlEncode($this->randomBytes(max(8, $bytesLength)));
+    }
+
+    private function randomBytes(int $length): string
+    {
+        try {
+            return random_bytes($length);
+        } catch (\Throwable) {
+            $fallback = '';
+            while (strlen($fallback) < $length) {
+                $fallback .= hash('sha256', (string) wp_rand() . microtime(true), true);
             }
+            return substr($fallback, 0, $length);
+        }
+    }
+
+    private static function base64UrlEncode(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
+
+    private function isRetryableInsertCollision(string $lastError): bool
+    {
+        if ($lastError === '') {
+            return false;
         }
 
-        return null;
+        $haystack = strtolower($lastError);
+
+        return str_contains($haystack, 'duplicate')
+            || str_contains($haystack, 'uq_site_nonce')
+            || str_contains($haystack, 'uq_site_type_payloadhash')
+            || str_contains($haystack, 'job_id');
     }
 
     private function readUserMetaFirst(int $userId, array $keys): string
