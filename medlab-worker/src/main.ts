@@ -44,7 +44,7 @@ async function main(): Promise<void> {
       })
     : null;
 
-  const jobsRepo: JobsRepo = restJobsRepo ?? prismaJobsRepo!;
+  const jobsRepo: JobsRepo = queueMode === "postgres" ? prismaJobsRepo! : restJobsRepo!;
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -56,30 +56,26 @@ async function main(): Promise<void> {
   const nonceCache = new NonceCache(cfg.security.authSkewWindowMs * 2);
   const templateRegistry = new TemplateRegistry();
 
-  const signatureLoader = queueMode === "postgres"
-    ? new SignatureDataUriLoader({
-        endpoint: cfg.s3.endpoint,
-        region: cfg.s3.region,
-        accessKeyId: cfg.s3.accessKeyId,
-        secretAccessKey: cfg.s3.secretAccessKey,
-        forcePathStyle: cfg.s3.forcePathStyle,
-        bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
-      })
-    : null;
+  const signatureLoader = new SignatureDataUriLoader({
+    endpoint: cfg.s3.endpoint,
+    region: cfg.s3.region,
+    accessKeyId: cfg.s3.accessKeyId,
+    secretAccessKey: cfg.s3.secretAccessKey,
+    forcePathStyle: cfg.s3.forcePathStyle,
+    bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
+  });
 
   const prescriptionStore = queueMode === "postgres"
     ? new PrismaPrescriptionStore({ logger })
     : null;
 
-  const htmlBuilder = queueMode === "postgres"
-    ? new PrescriptionHtmlBuilder({
-        templateRegistry,
-        signatureLoader,
-        logger,
-        verifyBaseUrl: process.env.ML_VERIFY_BASE_URL ?? "https://sosprescription.fr",
-        defaultTemplateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
-      })
-    : null;
+  const htmlBuilder = new PrescriptionHtmlBuilder({
+    templateRegistry,
+    signatureLoader,
+    logger,
+    verifyBaseUrl: process.env.ML_VERIFY_BASE_URL ?? "https://sosprescription.fr",
+    defaultTemplateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
+  });
 
   const secrets = [
     cfg.security.hmacSecretActive,
@@ -114,7 +110,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      await signatureLoader?.close();
+      await signatureLoader.close();
     } catch {
       // noop
     }
@@ -151,8 +147,10 @@ async function main(): Promise<void> {
       callback_path: jobsRepo.mode === "rest" ? cfg.jobCallbackPathTemplate : undefined,
       lease_min: cfg.leaseMinutes,
       poll_ms: idlePollMs,
-      render_mode: jobsRepo.mode === "postgres" ? "local-inline-html" : "wordpress-rest-bridge",
+      render_mode: "local-inline-html",
       template_default: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
+      html_builder_ready: true,
+      signature_loader_ready: true,
     },
     undefined,
   );
