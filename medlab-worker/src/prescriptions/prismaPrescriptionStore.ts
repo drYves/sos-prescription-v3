@@ -98,6 +98,11 @@ export class PrismaPrescriptionStore {
       throw new HardError("ML_PRESCRIPTION_NOT_FOUND", "Prescription not found");
     }
 
+    if (!row.doctor) {
+      this.logger?.warning("db.prescription.doctor_missing", { prescription_id: id }, undefined);
+      throw new HardError("ML_PRESCRIPTION_DOCTOR_MISSING", "Prescription doctor not assigned");
+    }
+
     return {
       doctor: {
         id: row.doctor.id,

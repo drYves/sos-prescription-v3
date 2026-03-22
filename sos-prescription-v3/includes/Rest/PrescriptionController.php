@@ -77,13 +77,9 @@ class PrescriptionController extends \WP_REST_Controller
     {
         $params = $this->request_data($request);
 
-        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
-        $fullname = trim((string) ($patient['fullname'] ?? ''));
-        $birthdate = trim((string) ($patient['birthdate'] ?? ''));
-        $note = isset($patient['note']) ? trim((string) $patient['note']) : null;
-        if ($note === '') {
-            $note = null;
-        }
+        $patientIdentity = $this->extract_patient_identity_from_params($params);
+        $fullname = $patientIdentity['full_name'];
+        $birthdate = $patientIdentity['birth_date'];
 
         if (self::str_len($fullname) < 2) {
             return new WP_Error('sosprescription_patient_name_required', 'Nom du patient manquant.', ['status' => 400]);
@@ -107,71 +103,64 @@ class PrescriptionController extends \WP_REST_Controller
             }
         }
 
-        $flow = strtolower(trim((string) ($params['flow'] ?? 'ro_proof')));
-        if ($flow === '') {
-            $flow = 'ro_proof';
+        $req_id = $this->build_req_id();
+        $workerPayload = $this->build_worker_ingress_payload_from_create_params($params, $req_id);
+        if (is_wp_error($workerPayload)) {
+            return $workerPayload;
         }
 
-        $priority = strtolower(trim((string) ($params['priority'] ?? 'standard')));
-        if ($priority !== 'express') {
-            $priority = 'standard';
-        }
-
-        $client_request_id = isset($params['client_request_id']) ? trim((string) $params['client_request_id']) : null;
-        if ($client_request_id === '') {
-            $client_request_id = null;
-        }
-
-        $evidence_file_ids = isset($params['evidence_file_ids']) && is_array($params['evidence_file_ids'])
-            ? array_values(array_filter(array_map('intval', $params['evidence_file_ids']), static fn ($value): bool => $value > 0))
-            : [];
-
-        $payload = [
-            'patient' => [
-                'fullname' => $fullname,
-                'birthdate' => $birthdate,
-                'note' => $note,
-            ],
-            'consent' => isset($params['consent']) && is_array($params['consent']) ? $params['consent'] : null,
-            'attestation_no_proof' => !empty($params['attestation_no_proof']),
-        ];
-
-        $uid = UidGenerator::generate(10);
-        $stripe = StripeConfig::get();
-        $initial_status = !empty($stripe['enabled']) ? 'payment_pending' : 'pending';
-
-        $result = $this->prescriptions->create(
-            (int) get_current_user_id(),
-            $uid,
-            $payload,
-            $items,
-            $flow,
-            $priority,
-            $client_request_id,
-            $evidence_file_ids,
-            $initial_status
-        );
-
-        if (isset($result['error'])) {
+        try {
+            $dispatcher = $this->get_job_dispatcher();
+            $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
+        } catch (\Throwable $e) {
             return new WP_Error(
-                'sosprescription_prescription_create_failed',
-                isset($result['message']) && is_string($result['message']) && $result['message'] !== ''
-                    ? $result['message']
-                    : 'Erreur interne lors de la création de la demande.',
-                ['status' => 500]
+                'sosprescription_worker_ingest_failed',
+                'La transmission sécurisée vers le coffre-fort HDS a échoué.',
+                [
+                    'status' => 502,
+                    'req_id' => $req_id,
+                    'error' => $e->getMessage(),
+                ]
             );
         }
 
-        if (isset($result['id'])) {
-            Audit::log('prescription_create', 'prescription', (int) $result['id'], (int) $result['id'], [
-                'uid' => (string) ($result['uid'] ?? $uid),
-                'flow' => $flow,
-                'priority' => $priority,
+        $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
+        if (is_wp_error($shadow)) {
+            return $shadow;
+        }
+
+        if (isset($shadow['id'])) {
+            Audit::log('prescription_create_proxy', 'prescription', (int) $shadow['id'], (int) $shadow['id'], [
+                'uid' => (string) ($shadow['uid'] ?? ''),
+                'worker_prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
+                'worker_job_id' => (string) ($workerResult['job_id'] ?? ''),
+                'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
             ]);
         }
 
-        return rest_ensure_response($result);
+        $response = [
+            'id' => (int) ($shadow['id'] ?? 0),
+            'uid' => (string) ($shadow['uid'] ?? ''),
+            'status' => (string) ($shadow['status'] ?? 'pending'),
+            'mode' => 'worker-postgres',
+            'req_id' => $req_id,
+            'worker' => [
+                'prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
+                'job_id' => (string) ($workerResult['job_id'] ?? ''),
+                'status' => (string) ($workerResult['status'] ?? 'PENDING'),
+                'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
+                'verify_token' => isset($workerResult['verify_token']) && is_scalar($workerResult['verify_token']) ? (string) $workerResult['verify_token'] : '',
+                'verify_code' => isset($workerResult['verify_code']) && is_scalar($workerResult['verify_code']) ? (string) $workerResult['verify_code'] : '',
+            ],
+            'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
+            'shadow' => [
+                'zero_pii' => true,
+            ],
+        ];
+
+        return rest_ensure_response($response);
     }
+
 
     public function list(WP_REST_Request $request)
     {
@@ -243,63 +232,82 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_auth_required', 'Connexion requise.', ['status' => 401]);
         }
 
-        $ok = $this->prescriptions->decide($id, $doctor_id, $decision, $reason);
+        $row = $this->prescriptions->get($id);
+        if (!is_array($row)) {
+            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        $currentStatus = strtolower(trim((string) ($row['status'] ?? '')));
+        if (in_array($currentStatus, ['approved', 'rejected'], true) && $currentStatus !== $decision) {
+            return new WP_Error('sosprescription_decision_conflict', 'Décision impossible pour cette ordonnance.', ['status' => 409]);
+        }
+
+        $req_id = $this->build_req_id();
+        $workerMeta = $this->extract_worker_shadow_state($row);
+        $workerPrescriptionId = isset($workerMeta['prescription_id']) ? trim((string) $workerMeta['prescription_id']) : '';
+        if ($workerPrescriptionId === '') {
+            return new WP_Error('sosprescription_worker_reference_missing', 'Référence Worker introuvable.', ['status' => 409]);
+        }
+
+        try {
+            $dispatcher = $this->get_job_dispatcher();
+            if ($decision === 'approved') {
+                $doctorPayload = $dispatcher->buildDoctorPayloadFromUserId($doctor_id);
+                $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id);
+            } else {
+                $workerResult = $dispatcher->rejectPrescription($workerPrescriptionId, $reason, $req_id);
+            }
+        } catch (\Throwable $e) {
+            return new WP_Error(
+                'sosprescription_worker_transition_failed',
+                $decision === 'approved'
+                    ? 'La validation HDS a échoué côté Worker.'
+                    : 'Le rejet HDS a échoué côté Worker.',
+                [
+                    'status' => 502,
+                    'req_id' => $req_id,
+                    'error' => $e->getMessage(),
+                ]
+            );
+        }
+
+        $ok = true;
+        if (!in_array($currentStatus, ['approved', 'rejected'], true)) {
+            $ok = $this->prescriptions->decide($id, $doctor_id, $decision, $reason);
+        }
+
         if (!$ok) {
             return new WP_Error('sosprescription_decision_conflict', 'Décision impossible pour cette ordonnance.', ['status' => 409]);
         }
+
+        $this->store_shadow_worker_state($id, $workerResult);
 
         $row = $this->prescriptions->get($id);
         if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
 
-        if ($decision === 'approved') {
-            $req_id = $this->build_req_id();
-            $dispatch = $this->dispatch_pdf_generation($id, 'doctor_approval', $req_id);
-
-            if (is_wp_error($dispatch)) {
-                return new WP_REST_Response([
-                    'id' => $id,
-                    'decision' => $decision,
-                    'req_id' => $req_id,
-                    'prescription' => $row,
-                    'pdf' => $this->build_degraded_pdf_state($dispatch, $req_id),
-                    'message' => 'Validation enregistrée. PDF temporairement indisponible.',
-                ], 202);
-            }
-
-            $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
-            $pdf = $this->enrich_pdf_state_for_response($id, $pdf);
-
-            $response = [
-                'id' => $id,
-                'decision' => $decision,
-                'req_id' => $req_id,
-                'prescription' => $row,
-                'verification' => isset($dispatch['verification']) && is_array($dispatch['verification']) ? $dispatch['verification'] : [],
-                'dispatch' => isset($dispatch['dispatch']) && is_array($dispatch['dispatch']) ? $dispatch['dispatch'] : [],
-                'job_payload' => isset($dispatch['job_payload']) && is_array($dispatch['job_payload']) ? $dispatch['job_payload'] : [],
-                'pdf' => $pdf,
-                'message' => $this->message_for_pdf_state($pdf),
-            ];
-
-            if (!empty($pdf['download_url']) && is_string($pdf['download_url'])) {
-                $response['download_url'] = $pdf['download_url'];
-            }
-            if (!empty($pdf['expires_in'])) {
-                $response['expires_in'] = (int) $pdf['expires_in'];
-            }
-
-            return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
-        }
+        $pdf = $this->build_shadow_pdf_state($id, $row);
 
         return new WP_REST_Response([
             'id' => $id,
             'decision' => $decision,
+            'req_id' => $req_id,
             'prescription' => $row,
-            'pdf' => $this->jobs->get_public_state_for_rx_id($id),
+            'worker' => [
+                'prescription_id' => (string) ($workerResult['prescription_id'] ?? $workerPrescriptionId),
+                'status' => (string) ($workerResult['status'] ?? strtoupper($decision)),
+                'processing_status' => (string) ($workerResult['processing_status'] ?? ($decision === 'approved' ? 'PENDING' : 'FAILED')),
+                'verify_token' => isset($workerResult['verify_token']) && is_scalar($workerResult['verify_token']) ? (string) $workerResult['verify_token'] : '',
+                'verify_code' => isset($workerResult['verify_code']) && is_scalar($workerResult['verify_code']) ? (string) $workerResult['verify_code'] : '',
+            ],
+            'pdf' => $pdf,
+            'message' => $decision === 'approved'
+                ? 'Validation enregistrée. Le Worker peut maintenant générer le PDF.'
+                : 'Rejet enregistré.',
         ], 200);
     }
+
 
     public function assign(WP_REST_Request $request)
     {
@@ -417,14 +425,23 @@ class PrescriptionController extends \WP_REST_Controller
         $request = $this->ensure_rest_request($request);
         $prescription_id = (int) $request->get_param('id');
 
-        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
-        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
+        $row = $this->prescriptions->get($prescription_id);
+        if (!is_array($row)) {
+            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
+            return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
+        }
+
+        $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
 
         return new WP_REST_Response([
             'prescription_id' => $prescription_id,
             'pdf' => $pdf,
         ], 200);
     }
+
 
     public function get_rx_pdf($request)
     {
@@ -438,34 +455,6 @@ class PrescriptionController extends \WP_REST_Controller
 
         if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
             return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
-        }
-
-        $done_job = $this->jobs->get_latest_done_by_rx_id($prescription_id);
-        if (!empty($done_job)) {
-            $download_url = $this->build_presigned_s3_url_from_job($done_job, 60);
-            if (is_wp_error($download_url)) {
-                $pdf = $this->build_pdf_error_state_from_job($done_job, $download_url);
-
-                return new WP_REST_Response([
-                    'prescription_id' => $prescription_id,
-                    'pdf' => $pdf,
-                    'message' => $pdf['last_error_message'],
-                ], 200);
-            }
-
-            $pdf = $this->jobs->public_projection($done_job);
-            $pdf['can_download'] = true;
-            $pdf['download_url'] = $download_url;
-            $pdf['expires_in'] = 60;
-            $pdf['last_error_code'] = null;
-            $pdf['last_error_message'] = null;
-
-            return new WP_REST_Response([
-                'prescription_id' => $prescription_id,
-                'pdf' => $pdf,
-                'download_url' => $download_url,
-                'expires_in' => 60,
-            ], 200);
         }
 
         $auto_dispatch = true;
@@ -486,8 +475,6 @@ class PrescriptionController extends \WP_REST_Controller
             }
 
             $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
-            $pdf = $this->enrich_pdf_state_for_response($prescription_id, $pdf);
-
             $response = [
                 'prescription_id' => $prescription_id,
                 'pdf' => $pdf,
@@ -508,8 +495,7 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
         }
 
-        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
-        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
+        $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
 
         $response = [
             'prescription_id' => $prescription_id,
@@ -528,6 +514,7 @@ class PrescriptionController extends \WP_REST_Controller
 
         return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
     }
+
 
     /**
      * @return array<string, mixed>
@@ -787,6 +774,8 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function enrich_pdf_state_for_response(int $prescription_id, array $pdf): array
     {
+        unset($prescription_id);
+
         $status = isset($pdf['status']) ? strtolower((string) $pdf['status']) : '';
         $download_url = isset($pdf['download_url']) ? (string) $pdf['download_url'] : '';
 
@@ -798,27 +787,16 @@ class PrescriptionController extends \WP_REST_Controller
             return $pdf;
         }
 
-        if ($status !== 'done') {
-            return $pdf;
+        if ($status === 'done') {
+            $pdf['can_download'] = false;
+            $pdf['s3_ready'] = false;
+            if (!isset($pdf['last_error_code'])) {
+                $pdf['last_error_code'] = null;
+            }
+            if (!isset($pdf['last_error_message'])) {
+                $pdf['last_error_message'] = 'Le PDF est prêt côté Worker, mais le lien de téléchargement n’est pas encore synchronisé.';
+            }
         }
-
-        $done_job = $this->jobs->get_latest_done_by_rx_id($prescription_id);
-        if (empty($done_job)) {
-            return $pdf;
-        }
-
-        $presigned = $this->build_presigned_s3_url_from_job($done_job, 60);
-        if (is_wp_error($presigned)) {
-            return $this->build_pdf_error_state_from_job($done_job, $presigned, $pdf);
-        }
-
-        $pdf['status'] = 'done';
-        $pdf['can_download'] = true;
-        $pdf['s3_ready'] = true;
-        $pdf['download_url'] = $presigned;
-        $pdf['expires_in'] = 60;
-        $pdf['last_error_code'] = null;
-        $pdf['last_error_message'] = null;
 
         return $pdf;
     }
@@ -830,7 +808,11 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_pdf_error_state_from_job(array $job, WP_Error $error, ?array $base_pdf = null): array
     {
-        $pdf = is_array($base_pdf) ? $base_pdf : $this->jobs->public_projection($job);
+        $pdf = is_array($base_pdf) ? $base_pdf : [
+            'status' => 'done',
+            'job_id' => isset($job['job_id']) && is_scalar($job['job_id']) ? (string) $job['job_id'] : '',
+            'worker_prescription_id' => isset($job['prescription_id']) && is_scalar($job['prescription_id']) ? (string) $job['prescription_id'] : '',
+        ];
 
         $pdf['status'] = isset($pdf['status']) ? (string) $pdf['status'] : 'done';
         $pdf['can_download'] = false;
@@ -846,6 +828,9 @@ class PrescriptionController extends \WP_REST_Controller
     /**
      * @return array<string, mixed>|WP_Error
      */
+    /**
+     * @return array<string, mixed>|WP_Error
+     */
     protected function dispatch_pdf_generation(int $prescription_id, string $source, ?string $req_id = null): array|WP_Error
     {
         $prescription_id = (int) $prescription_id;
@@ -855,69 +840,440 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $verification = $this->ensure_verification_payload($prescription_id);
-        if (is_wp_error($verification)) {
-            return $verification;
+        $row = $this->prescriptions->get($prescription_id);
+        if (!is_array($row)) {
+            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
 
-        try {
-            $dispatcher = $this->get_job_dispatcher();
-            $result = $dispatcher->dispatch_pdf_generation($prescription_id, $req_id);
-        } catch (\Throwable $e) {
-            return new WP_Error(
-                'sosprescription_pdf_dispatch_failed',
-                'La mise en file du PDF a échoué.',
-                [
-                    'status' => 500,
-                    'req_id' => $req_id,
-                    'error' => $e->getMessage(),
-                ]
-            );
+        $workerMeta = $this->extract_worker_shadow_state($row);
+        $workerPrescriptionId = isset($workerMeta['prescription_id']) ? trim((string) $workerMeta['prescription_id']) : '';
+        if ($workerPrescriptionId === '') {
+            return new WP_Error('sosprescription_worker_reference_missing', 'Référence Worker introuvable.', ['status' => 409]);
         }
 
-        $pdf = $this->jobs->get_public_state_for_rx_id($prescription_id);
-        $pdf = $this->enrich_pdf_state_for_response($prescription_id, is_array($pdf) ? $pdf : []);
-
-        $dispatch_job_id = '';
-        if (!empty($pdf['job_id']) && is_scalar($pdf['job_id'])) {
-            $dispatch_job_id = (string) $pdf['job_id'];
-        } elseif (!empty($result['job_id'])) {
-            $dispatch_job_id = (string) $result['job_id'];
-        }
-
-        if ($dispatch_job_id !== '' && (empty($pdf['job_id']) || !is_scalar($pdf['job_id']))) {
-            $pdf['job_id'] = $dispatch_job_id;
-        }
+        $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
 
         return [
             'ok' => true,
-            'mode' => 'stateless',
-            'site_id' => $this->jobs->get_site_id(),
+            'mode' => 'worker-postgres',
+            'site_id' => $this->get_worker_site_id(),
             'req_id' => $req_id,
             'prescription_id' => $prescription_id,
             'verification' => [
-                'verify_token' => (string) ($verification['verify_token'] ?? ''),
-                'verify_code' => (string) ($verification['verify_code'] ?? ''),
+                'verify_token' => isset($row['verify_token']) && is_scalar($row['verify_token']) ? (string) $row['verify_token'] : '',
+                'verify_code' => isset($row['verify_code']) && is_scalar($row['verify_code']) ? (string) $row['verify_code'] : '',
             ],
             'dispatch' => [
-                'action' => !empty($result['dedup']) ? 'reused' : 'created',
-                'job_id' => $dispatch_job_id,
-                'worker_job_id' => (string) ($result['job_id'] ?? ''),
-                'status' => isset($pdf['status']) ? (string) $pdf['status'] : 'pending',
-                'dedup' => !empty($result['dedup']),
+                'action' => 'noop',
+                'job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
+                'worker_job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
+                'worker_prescription_id' => $workerPrescriptionId,
+                'status' => isset($workerMeta['processing_status']) ? strtolower((string) $workerMeta['processing_status']) : 'pending',
                 'source' => $source,
                 'req_id' => $req_id,
             ],
             'job_payload' => [
-                'schema_version' => '2026.5',
-                'site_id' => $this->jobs->get_site_id(),
-                'job_id' => (string) ($result['job_id'] ?? ''),
+                'schema_version' => '2026.6',
+                'site_id' => $this->get_worker_site_id(),
+                'job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
                 'job_type' => 'PDF_GEN',
-                'rx_id' => $prescription_id,
+                'worker_prescription_id' => $workerPrescriptionId,
                 'source' => $source,
             ],
             'pdf' => $pdf,
         ];
+    }
+
+
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|WP_Error
+     */
+    protected function build_worker_ingress_payload_from_create_params(array $params, string $req_id): array|WP_Error
+    {
+        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
+        $patientIdentity = $this->extract_patient_identity_from_params($params);
+        $fullname = $patientIdentity['full_name'];
+        $birthdate = $patientIdentity['birth_date'];
+        if (self::str_len($fullname) < 2) {
+            return new WP_Error('sosprescription_patient_name_required', 'Nom du patient manquant.', ['status' => 400]);
+        }
+        if ($birthdate === '') {
+            return new WP_Error('sosprescription_patient_birthdate_required', 'Date de naissance manquante.', ['status' => 400]);
+        }
+
+        $firstName = $patientIdentity['first_name'];
+        $lastName = $patientIdentity['last_name'];
+
+        $items = isset($params['items']) && is_array($params['items']) ? array_values($params['items']) : [];
+        if ($items === []) {
+            return new WP_Error('sosprescription_items_required', 'Au moins un médicament est requis.', ['status' => 400]);
+        }
+
+        $note = isset($patient['note']) ? trim((string) $patient['note']) : '';
+        $flow = strtolower(trim((string) ($params['flow'] ?? 'ro_proof')));
+        if ($flow === '') {
+            $flow = 'ro_proof';
+        }
+
+        $priority = strtolower(trim((string) ($params['priority'] ?? 'standard')));
+        if ($priority !== 'express') {
+            $priority = 'standard';
+        }
+
+        $client_request_id = isset($params['client_request_id']) ? trim((string) $params['client_request_id']) : null;
+        if ($client_request_id === '') {
+            $client_request_id = null;
+        }
+
+        $email = isset($patient['email']) ? sanitize_email((string) $patient['email']) : '';
+        $phone = isset($patient['phone']) ? trim((string) $patient['phone']) : '';
+        $gender = isset($patient['gender']) ? trim((string) $patient['gender']) : '';
+
+        $doctorPayload = $this->resolve_doctor_payload_from_create_params($params);
+
+        return [
+            'schema_version' => '2026.6',
+            'site_id' => $this->get_worker_site_id(),
+            'ts_ms' => (int) floor(microtime(true) * 1000),
+            'nonce' => $this->generate_verify_token(),
+            'req_id' => $req_id,
+            'doctor' => $doctorPayload,
+            'patient' => [
+                'firstName' => $firstName,
+                'lastName' => $lastName,
+                'birthDate' => $birthdate,
+                'gender' => $gender !== '' ? $gender : null,
+                'email' => $email !== '' ? $email : null,
+                'phone' => $phone !== '' ? $phone : null,
+            ],
+            'prescription' => [
+                'items' => $items,
+                'privateNotes' => $note !== '' ? $note : null,
+                'source' => 'wordpress_capture',
+                'flow' => $flow,
+                'priority' => $priority,
+                'clientRequestId' => $client_request_id,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $workerResult
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|WP_Error
+     */
+    protected function create_shadow_prescription_from_worker_result(array $workerResult, array $params): array|WP_Error
+    {
+        $flow = strtolower(trim((string) ($params['flow'] ?? 'ro_proof')));
+        if ($flow === '') {
+            $flow = 'ro_proof';
+        }
+
+        $priority = strtolower(trim((string) ($params['priority'] ?? 'standard')));
+        if ($priority !== 'express') {
+            $priority = 'standard';
+        }
+
+        $client_request_id = isset($params['client_request_id']) ? trim((string) $params['client_request_id']) : null;
+        if ($client_request_id === '') {
+            $client_request_id = null;
+        }
+
+        $stripe = StripeConfig::get();
+        $initial_status = !empty($stripe['enabled']) ? 'payment_pending' : 'pending';
+
+        $uid = isset($workerResult['uid']) && is_scalar($workerResult['uid']) && (string) $workerResult['uid'] !== ''
+            ? (string) $workerResult['uid']
+            : UidGenerator::generate(10);
+
+        $payload = [
+            'shadow' => [
+                'zero_pii' => true,
+                'mode' => 'worker-postgres',
+            ],
+            'worker' => $this->build_worker_shadow_payload($workerResult),
+        ];
+
+        $result = $this->prescriptions->create(
+            (int) get_current_user_id(),
+            $uid,
+            $payload,
+            [],
+            $flow,
+            $priority,
+            $client_request_id,
+            [],
+            $initial_status
+        );
+
+        if (isset($result['error'])) {
+            return new WP_Error(
+                'sosprescription_shadow_create_failed',
+                isset($result['message']) && is_string($result['message']) && $result['message'] !== ''
+                    ? $result['message']
+                    : 'Erreur interne lors de la création du shadow record.',
+                ['status' => 500]
+            );
+        }
+
+        $localId = isset($result['id']) ? (int) $result['id'] : 0;
+        if ($localId < 1) {
+            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 500]);
+        }
+
+        $this->store_shadow_worker_state($localId, $workerResult);
+
+        $row = $this->prescriptions->get($localId);
+        if (!is_array($row)) {
+            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 500]);
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $workerData
+     * @return array<string, mixed>
+     */
+    protected function build_worker_shadow_payload(array $workerData): array
+    {
+        return [
+            'prescription_id' => isset($workerData['prescription_id']) && is_scalar($workerData['prescription_id']) ? (string) $workerData['prescription_id'] : '',
+            'job_id' => isset($workerData['job_id']) && is_scalar($workerData['job_id']) ? (string) $workerData['job_id'] : '',
+            'uid' => isset($workerData['uid']) && is_scalar($workerData['uid']) ? (string) $workerData['uid'] : '',
+            'status' => isset($workerData['status']) && is_scalar($workerData['status']) ? (string) $workerData['status'] : 'PENDING',
+            'processing_status' => isset($workerData['processing_status']) && is_scalar($workerData['processing_status']) ? (string) $workerData['processing_status'] : 'PENDING',
+            'source_req_id' => isset($workerData['source_req_id']) && is_scalar($workerData['source_req_id']) ? (string) $workerData['source_req_id'] : '',
+            'verify_token' => isset($workerData['verify_token']) && is_scalar($workerData['verify_token']) ? (string) $workerData['verify_token'] : '',
+            'verify_code' => isset($workerData['verify_code']) && is_scalar($workerData['verify_code']) ? (string) $workerData['verify_code'] : '',
+            'last_sync_at' => current_time('mysql'),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function extract_worker_shadow_state(array $row): array
+    {
+        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        return $worker;
+    }
+
+    /**
+     * @param array<string, mixed> $workerData
+     */
+    protected function store_shadow_worker_state(int $prescription_id, array $workerData): bool
+    {
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id, payload_json FROM `{$table}` WHERE id = %d LIMIT 1",
+                $prescription_id
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($row)) {
+            return false;
+        }
+
+        $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $payload['shadow'] = [
+            'zero_pii' => true,
+            'mode' => 'worker-postgres',
+        ];
+        $payload['worker'] = array_merge(
+            isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [],
+            $this->build_worker_shadow_payload($workerData)
+        );
+
+        $update = [
+            'payload_json' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated_at' => current_time('mysql'),
+        ];
+        $formats = ['%s', '%s'];
+
+        if (isset($workerData['verify_token']) && is_scalar($workerData['verify_token']) && (string) $workerData['verify_token'] !== '') {
+            $update['verify_token'] = (string) $workerData['verify_token'];
+            $formats[] = '%s';
+        }
+        if (isset($workerData['verify_code']) && is_scalar($workerData['verify_code']) && (string) $workerData['verify_code'] !== '') {
+            $update['verify_code'] = (string) $workerData['verify_code'];
+            $formats[] = '%s';
+        }
+
+        $updated = $this->wpdb->update(
+            $table,
+            $update,
+            ['id' => $prescription_id],
+            $formats,
+            ['%d']
+        );
+
+        return $updated !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function build_shadow_pdf_state(int $prescription_id, array $row): array
+    {
+        $worker = $this->extract_worker_shadow_state($row);
+        $processing = strtolower(trim((string) ($worker['processing_status'] ?? 'pending')));
+        $workerStatus = strtoupper(trim((string) ($worker['status'] ?? 'PENDING')));
+
+        $status = 'pending';
+        if ($processing === 'done') {
+            $status = 'done';
+        } elseif ($processing === 'failed' || $workerStatus === 'REJECTED') {
+            $status = 'failed';
+        } elseif ($processing === 'claimed') {
+            $status = 'processing';
+        } else {
+            $status = 'pending';
+        }
+
+        $pdf = [
+            'status' => $status,
+            'job_id' => isset($worker['job_id']) ? (string) $worker['job_id'] : '',
+            'worker_prescription_id' => isset($worker['prescription_id']) ? (string) $worker['prescription_id'] : '',
+            'worker_status' => $workerStatus !== '' ? $workerStatus : 'PENDING',
+            'processing_status' => $processing !== '' ? $processing : 'pending',
+            'verify_token' => isset($row['verify_token']) && is_scalar($row['verify_token']) ? (string) $row['verify_token'] : '',
+            'verify_code' => isset($row['verify_code']) && is_scalar($row['verify_code']) ? (string) $row['verify_code'] : '',
+            's3_ready' => false,
+            'can_download' => false,
+            'download_url' => '',
+            'expires_in' => 0,
+            'last_error_code' => null,
+            'last_error_message' => null,
+        ];
+
+        if ($status === 'pending' && $workerStatus !== 'APPROVED') {
+            $pdf['message'] = 'En attente de validation médecin.';
+        } elseif ($status === 'pending') {
+            $pdf['message'] = 'PDF en file d’attente.';
+        } elseif ($status === 'processing') {
+            $pdf['message'] = 'Génération du PDF en cours.';
+        } elseif ($status === 'failed') {
+            $pdf['message'] = 'Le PDF n’est pas disponible pour cette ordonnance.';
+            $pdf['last_error_code'] = $workerStatus === 'REJECTED' ? 'rejected' : 'worker_failed';
+            $pdf['last_error_message'] = $workerStatus === 'REJECTED'
+                ? 'L’ordonnance a été rejetée.'
+                : 'Le Worker a signalé un échec de génération.';
+        }
+
+        return $pdf;
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array{first_name:string,last_name:string,full_name:string,birth_date:string}
+     */
+    protected function extract_patient_identity_from_params(array $params): array
+    {
+        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
+
+        $firstName = trim((string) ($patient['firstName'] ?? $patient['first_name'] ?? ''));
+        $lastName = trim((string) ($patient['lastName'] ?? $patient['last_name'] ?? ''));
+        $fullName = trim((string) ($patient['fullname'] ?? $patient['fullName'] ?? ''));
+        $birthDate = trim((string) ($patient['birthdate'] ?? $patient['birthDate'] ?? ''));
+
+        if ($fullName === '' && ($firstName !== '' || $lastName !== '')) {
+            $fullName = trim($firstName . ' ' . $lastName);
+        }
+
+        if (($firstName === '' || $lastName === '') && $fullName !== '') {
+            [$splitFirstName, $splitLastName] = $this->split_fullname_for_worker($fullName);
+            if ($firstName === '') {
+                $firstName = $splitFirstName;
+            }
+            if ($lastName === '') {
+                $lastName = $splitLastName;
+            }
+        }
+
+        return [
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'full_name' => $fullName,
+            'birth_date' => $birthDate,
+        ];
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    protected function split_fullname_for_worker(string $fullname): array
+    {
+        $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($fullname, true)) ?? '');
+        if ($clean === '') {
+            return ['Patient', 'Inconnu'];
+        }
+
+        $parts = preg_split('/\s+/u', $clean) ?: [];
+        $parts = array_values(array_filter(array_map('trim', $parts), static fn (string $part): bool => $part !== ''));
+        if ($parts === []) {
+            return ['Patient', 'Inconnu'];
+        }
+        if (count($parts) === 1) {
+            return [$parts[0], 'Inconnu'];
+        }
+
+        $firstName = (string) array_shift($parts);
+        $lastName = trim(implode(' ', $parts));
+        if ($lastName === '') {
+            $lastName = 'Inconnu';
+        }
+
+        return [$firstName, $lastName];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function resolve_doctor_payload_from_create_params(array $params): ?array
+    {
+        $doctorUserId = 0;
+
+        foreach (['doctor_user_id', 'doctor_id', 'assigned_doctor_id'] as $key) {
+            if (isset($params[$key]) && is_numeric($params[$key])) {
+                $doctorUserId = max($doctorUserId, (int) $params[$key]);
+            }
+        }
+
+        if ($doctorUserId < 1 && AccessPolicy::is_doctor()) {
+            $doctorUserId = (int) get_current_user_id();
+        }
+
+        if ($doctorUserId < 1) {
+            return null;
+        }
+
+        try {
+            return $this->get_job_dispatcher()->buildDoctorPayloadFromUserId($doctorUserId);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    protected function get_worker_site_id(): string
+    {
+        $siteId = $this->get_env_or_constant('ML_SITE_ID');
+        if ($siteId === '') {
+            $siteId = 'mls1';
+        }
+
+        return $siteId;
     }
 
     protected function get_job_dispatcher(): JobDispatcher
@@ -932,7 +1288,7 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $kid = $this->get_env_or_constant('ML_HMAC_KID', 'primary');
-        $siteId = $this->jobs->get_site_id();
+        $siteId = $this->get_worker_site_id();
         $logger = new NdjsonLogger('web', $siteId, $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
 
         $this->job_dispatcher = new JobDispatcher(

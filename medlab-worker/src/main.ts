@@ -5,7 +5,6 @@ import { startPulseServer } from "./http/pulseServer";
 import type { JobsRepo } from "./jobs/jobsRepo";
 import { PrismaJobsRepo } from "./jobs/prismaJobsRepo";
 import { failOrRetry, processJob } from "./jobs/processor";
-import { RestJobsRepo } from "./jobs/restJobsRepo";
 import { PdfRenderer } from "./pdf/pdfRenderer";
 import { NdjsonLogger } from "./logger";
 import { NonceCache } from "./security/nonceCache";
@@ -19,32 +18,16 @@ import { PrismaPrescriptionStore } from "./prescriptions/prismaPrescriptionStore
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
-  const queueMode = resolveQueueMode(process.env.QUEUE_MODE);
+  const queueMode = resolveForcedQueueMode(process.env.QUEUE_MODE);
   const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
   const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
 
-  const restJobsRepo = queueMode === "rest"
-    ? new RestJobsRepo({
-        siteId: cfg.siteId,
-        wpBaseUrl: cfg.wpBaseUrl,
-        claimPath: cfg.jobClaimPath,
-        callbackPathTemplate: cfg.jobCallbackPathTemplate,
-        hmacSecretActive: cfg.security.hmacSecretActive,
-        requestTimeoutMs: cfg.restRequestTimeoutMs,
-        logger,
-      })
-    : null;
-
-  const prismaJobsRepo = queueMode === "postgres"
-    ? new PrismaJobsRepo({
-        siteId: cfg.siteId,
-        workerId: cfg.workerId,
-        hmacSecretActive: cfg.security.hmacSecretActive,
-        logger,
-      })
-    : null;
-
-  const jobsRepo: JobsRepo = queueMode === "postgres" ? prismaJobsRepo! : restJobsRepo!;
+  const jobsRepo: JobsRepo = new PrismaJobsRepo({
+    siteId: cfg.siteId,
+    workerId: cfg.workerId,
+    hmacSecretActive: cfg.security.hmacSecretActive,
+    logger,
+  });
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -65,9 +48,7 @@ async function main(): Promise<void> {
     bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
   });
 
-  const prescriptionStore = queueMode === "postgres"
-    ? new PrismaPrescriptionStore({ logger })
-    : null;
+  const prescriptionStore = new PrismaPrescriptionStore({ logger });
 
   const htmlBuilder = new PrescriptionHtmlBuilder({
     templateRegistry,
@@ -104,7 +85,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      await prescriptionStore?.close();
+      await prescriptionStore.close();
     } catch {
       // noop
     }
@@ -141,10 +122,8 @@ async function main(): Promise<void> {
     "system.worker_started",
     {
       worker_id: cfg.workerId,
-      queue_mode: jobsRepo.mode,
+      queue_mode: queueMode,
       queue_table: jobsRepo.getTableName(),
-      claim_path: jobsRepo.mode === "rest" ? cfg.jobClaimPath : undefined,
-      callback_path: jobsRepo.mode === "rest" ? cfg.jobCallbackPathTemplate : undefined,
       lease_min: cfg.leaseMinutes,
       poll_ms: idlePollMs,
       render_mode: "local-inline-html",
@@ -251,9 +230,12 @@ async function main(): Promise<void> {
   }
 }
 
-function resolveQueueMode(value: string | undefined): "rest" | "postgres" {
-  const raw = (value ?? "rest").trim().toLowerCase();
-  return raw === "postgres" ? "postgres" : "rest";
+function resolveForcedQueueMode(value: string | undefined): "postgres" {
+  const raw = (value ?? "postgres").trim().toLowerCase();
+  if (raw !== "postgres") {
+    throw new Error(`QUEUE_MODE must be 'postgres' for Zero-PII mode, received: ${raw || "<empty>"}`);
+  }
+  return "postgres";
 }
 
 function withJitter(baseMs: number, jitterMs: number): number {

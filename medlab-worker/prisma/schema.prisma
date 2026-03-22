@@ -42,30 +42,30 @@ model Patient {
 }
 
 model Prescription {
-  id                   String   @id @default(uuid())
-  uid                  String   @unique // Référence publique courte (ex: QEZT4VS62H)
-  doctorId             String
+  id                   String    @id @default(uuid())
+  uid                  String    @unique // Référence publique courte (ex: QEZT4VS62H)
+  doctorId             String?
   patientId            String
-  doctor               Doctor   @relation(fields: [doctorId], references: [id])
-  patient              Patient  @relation(fields: [patientId], references: [id])
-  status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  items                Json     // Tableau JSONB natif contenant la posologie
+  doctor               Doctor?   @relation(fields: [doctorId], references: [id])
+  patient              Patient   @relation(fields: [patientId], references: [id])
+  status               String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  items                Json      // Tableau JSONB natif contenant la posologie
   privateNotes         String?
-  s3PdfKey             String?  // Lien vers l'artefact généré
+  s3PdfKey             String?   // Lien vers l'artefact généré
   verifyCode           String?
-  verifyToken          String?  @unique
-  processingStatus     String   @default("PENDING")
-  availableAt          DateTime @default(now())
+  verifyToken          String?   @unique
+  processingStatus     String    @default("PENDING")
+  availableAt          DateTime  @default(now())
   claimedAt            DateTime?
   lockExpiresAt        DateTime?
   workerRef            String?
-  attempts             Int      @default(0)
-  maxAttempts          Int      @default(5)
+  attempts             Int       @default(0)
+  maxAttempts          Int       @default(5)
   lastErrorCode        String?
   lastErrorMessageSafe String?
-  sourceReqId          String?  @unique
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  sourceReqId          String?   @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([doctorId])
   @@index([patientId])

@@ -4,6 +4,8 @@ import { URL } from "node:url";
 import { NdjsonLogger } from "../logger";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
 import type {
+  ApprovePrescriptionRequest,
+  ApprovePrescriptionResult,
   ClaimJobOptions,
   IngestPrescriptionRequest,
   IngestPrescriptionResult,
@@ -13,12 +15,17 @@ import type {
   MarkDoneOptions,
   MarkFailedOptions,
   QueueMetrics,
+  QueueMode,
+  RejectPrescriptionRequest,
+  RejectPrescriptionResult,
   RequeueWithBackoffOptions,
   SweepZombiesResult,
   UpdateJobStatusInput,
 } from "./jobsRepo";
 
 export type {
+  ApprovePrescriptionRequest,
+  ApprovePrescriptionResult,
   ClaimJobOptions,
   IngestPrescriptionRequest,
   IngestPrescriptionResult,
@@ -28,6 +35,9 @@ export type {
   MarkDoneOptions,
   MarkFailedOptions,
   QueueMetrics,
+  QueueMode,
+  RejectPrescriptionRequest,
+  RejectPrescriptionResult,
   RequeueWithBackoffOptions,
   SweepZombiesResult,
   UpdateJobStatusInput,
@@ -161,6 +171,14 @@ export class RestJobsRepo implements JobsRepo {
 
   async ingestPrescription(_input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
     throw new Error("Ingress is not available when QUEUE_MODE=rest");
+  }
+
+  async approvePrescription(_prescriptionId: string, _input: ApprovePrescriptionRequest): Promise<ApprovePrescriptionResult> {
+    throw new Error("Approval is not available when QUEUE_MODE=rest");
+  }
+
+  async rejectPrescription(_prescriptionId: string, _input: RejectPrescriptionRequest): Promise<RejectPrescriptionResult> {
+    throw new Error("Rejection is not available when QUEUE_MODE=rest");
   }
 
   async close(): Promise<void> {
@@ -433,8 +451,8 @@ function toInt(value: unknown, fallback: number): number {
 
 function normalizeStatus(value: unknown): JobStatus {
   const v = typeof value === "string" ? value.toUpperCase() : "";
-  if (v === "PENDING" || v === "CLAIMED" || v === "DONE" || v === "FAILED") {
-    return v;
+  if (v === "WAITING_APPROVAL" || v === "PENDING" || v === "CLAIMED" || v === "DONE" || v === "FAILED") {
+    return v as JobStatus;
   }
   return "PENDING";
 }

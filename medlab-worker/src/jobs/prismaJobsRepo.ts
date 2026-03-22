@@ -4,16 +4,21 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
 import type {
+  ApprovePrescriptionRequest,
+  ApprovePrescriptionResult,
   ClaimJobOptions,
   IngestDoctorInput,
   IngestPatientInput,
   IngestPrescriptionRequest,
   IngestPrescriptionResult,
   JobRow,
+  JobStatus,
   JobsRepo,
   MarkDoneOptions,
   MarkFailedOptions,
   QueueMetrics,
+  RejectPrescriptionRequest,
+  RejectPrescriptionResult,
   RequeueWithBackoffOptions,
   SweepZombiesResult,
 } from "./jobsRepo";
@@ -27,6 +32,7 @@ const TX_MAX_WAIT_MS = 2_000;
 const TX_TIMEOUT_MS = 5_000;
 const UID_LENGTH = 10;
 const VERIFY_TOKEN_BYTES = 24;
+const WAITING_APPROVAL = "WAITING_APPROVAL";
 
 interface PrismaJobsRepoConfig {
   siteId: string;
@@ -47,7 +53,7 @@ interface ClaimedPrescriptionRow {
   attempts: number;
   maxAttempts: number;
   verifyToken: string | null;
-  doctorId: string;
+  doctorId: string | null;
   patientId: string;
   sourceReqId: string | null;
   s3PdfKey: string | null;
@@ -59,8 +65,11 @@ interface IngestSelectRow {
   status: string;
   processingStatus: string;
   verifyToken: string | null;
+  verifyCode: string | null;
   sourceReqId: string | null;
 }
+
+interface DecisionSelectRow extends IngestSelectRow {}
 
 export class PrismaJobsRepo implements JobsRepo {
   readonly mode = "postgres" as const;
@@ -93,7 +102,7 @@ export class PrismaJobsRepo implements JobsRepo {
 
     for (let attempt = 1; attempt <= 5; attempt++) {
       try {
-        const created = await this.prisma.$transaction<IngestPrescriptionResult>(async (tx: any) => {
+        const created = await this.prisma.$transaction<IngestPrescriptionResult>(async (tx) => {
           const replay = await tx.prescription.findUnique({
             where: { sourceReqId: input.req_id },
             select: ingestSelect(),
@@ -103,12 +112,16 @@ export class PrismaJobsRepo implements JobsRepo {
             return mapIngestResult(replay, "replay", input.req_id);
           }
 
-          const doctor = await tx.doctor.upsert({
-            where: { wpUserId: normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId") },
-            create: buildDoctorCreate(input.doctor),
-            update: buildDoctorUpdate(input.doctor),
-            select: { id: true },
-          });
+          let doctorId: string | null = null;
+          if (hasDoctorIdentity(input.doctor)) {
+            const doctor = await tx.doctor.upsert({
+              where: { wpUserId: normalizeRequiredInt(input.doctor!.wpUserId, "doctor.wpUserId") },
+              create: buildDoctorCreate(input.doctor!),
+              update: buildDoctorUpdate(input.doctor!),
+              select: { id: true },
+            });
+            doctorId = doctor.id;
+          }
 
           const patient = await tx.patient.create({
             data: buildPatientCreate(input.patient),
@@ -118,7 +131,7 @@ export class PrismaJobsRepo implements JobsRepo {
           const createdPrescription = await tx.prescription.create({
             data: {
               uid: generatePublicUid(),
-              doctorId: doctor.id,
+              doctorId,
               patientId: patient.id,
               status: "PENDING",
               items: toInputJsonArray(input.prescription.items),
@@ -154,7 +167,7 @@ export class PrismaJobsRepo implements JobsRepo {
               prescription_uid: created.uid,
               processing_status: created.processing_status,
               source_req_id: created.source_req_id,
-              doctor_wp_user_id: input.doctor.wpUserId,
+              doctor_wp_user_id: hasDoctorIdentity(input.doctor) ? input.doctor?.wpUserId : undefined,
             },
             input.req_id,
           );
@@ -206,6 +219,136 @@ export class PrismaJobsRepo implements JobsRepo {
     throw new Error("Unreachable ingestion state");
   }
 
+  async approvePrescription(prescriptionId: string, input: ApprovePrescriptionRequest): Promise<ApprovePrescriptionResult> {
+    assertDecisionRequest(input, this.siteId, "approve");
+    const normalizedPrescriptionId = normalizeRequiredString(prescriptionId, "prescription_id");
+
+    const result = await this.prisma.$transaction<ApprovePrescriptionResult>(async (tx) => {
+      const existing = await tx.prescription.findUnique({
+        where: { id: normalizedPrescriptionId },
+        select: {
+          ...ingestSelect(),
+          doctorId: true,
+        },
+      });
+
+      if (!existing) {
+        throw new Error("prescription_id not found");
+      }
+
+      if (existing.status.toUpperCase() === "REJECTED") {
+        throw new Error("prescription is rejected");
+      }
+
+      const doctor = await tx.doctor.upsert({
+        where: { wpUserId: normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId") },
+        create: buildDoctorCreate(input.doctor),
+        update: buildDoctorUpdate(input.doctor),
+        select: { id: true },
+      });
+
+      if (existing.status.toUpperCase() !== "APPROVED") {
+        const updated = await tx.prescription.update({
+          where: { id: normalizedPrescriptionId },
+          data: {
+            doctorId: doctor.id,
+            status: "APPROVED",
+            processingStatus: existing.processingStatus === WAITING_APPROVAL ? "PENDING" : normalizeDecisionProcessingStatus(existing.processingStatus),
+            availableAt: new Date(),
+            claimedAt: null,
+            lockExpiresAt: null,
+            workerRef: null,
+            lastErrorCode: null,
+            lastErrorMessageSafe: null,
+          },
+          select: ingestSelect(),
+        });
+
+        return mapApproveResult(updated, "approved", input.req_id);
+      }
+
+      const replay = await tx.prescription.update({
+        where: { id: normalizedPrescriptionId },
+        data: {
+          doctorId: doctor.id,
+        },
+        select: ingestSelect(),
+      });
+
+      return mapApproveResult(replay, "replay", input.req_id);
+    }, {
+      maxWait: TX_MAX_WAIT_MS,
+      timeout: TX_TIMEOUT_MS,
+    });
+
+    this.logger?.info(
+      result.mode === "approved" ? "ingest.approved" : "ingest.approve_replayed",
+      {
+        job_id: result.job_id,
+        prescription_uid: result.uid,
+        processing_status: result.processing_status,
+        source_req_id: result.source_req_id,
+        doctor_wp_user_id: input.doctor.wpUserId,
+      },
+      input.req_id,
+    );
+
+    return result;
+  }
+
+  async rejectPrescription(prescriptionId: string, input: RejectPrescriptionRequest): Promise<RejectPrescriptionResult> {
+    assertDecisionRequest(input, this.siteId, "reject");
+    const normalizedPrescriptionId = normalizeRequiredString(prescriptionId, "prescription_id");
+    const safeReason = normalizeNonEmptyString(input.reason, "Prescription rejected before rendering");
+
+    const result = await this.prisma.$transaction<RejectPrescriptionResult>(async (tx) => {
+      const existing = await tx.prescription.findUnique({
+        where: { id: normalizedPrescriptionId },
+        select: ingestSelect(),
+      });
+
+      if (!existing) {
+        throw new Error("prescription_id not found");
+      }
+
+      if (existing.status.toUpperCase() === "REJECTED") {
+        return mapRejectResult(existing, "replay", input.req_id);
+      }
+
+      const updated = await tx.prescription.update({
+        where: { id: normalizedPrescriptionId },
+        data: {
+          status: "REJECTED",
+          processingStatus: "FAILED",
+          claimedAt: null,
+          lockExpiresAt: null,
+          workerRef: null,
+          lastErrorCode: "ML_PRESCRIPTION_REJECTED",
+          lastErrorMessageSafe: safeReason,
+        },
+        select: ingestSelect(),
+      });
+
+      return mapRejectResult(updated, "rejected", input.req_id);
+    }, {
+      maxWait: TX_MAX_WAIT_MS,
+      timeout: TX_TIMEOUT_MS,
+    });
+
+    this.logger?.info(
+      result.mode === "rejected" ? "ingest.rejected" : "ingest.reject_replayed",
+      {
+        job_id: result.job_id,
+        prescription_uid: result.uid,
+        processing_status: result.processing_status,
+        source_req_id: result.source_req_id,
+      },
+      input.req_id,
+    );
+
+    return result;
+  }
+
   async claimNextPendingJob(opts: ClaimJobOptions): Promise<JobRow | null> {
     if (opts.siteId !== this.siteId) {
       throw new Error("Claim siteId mismatch");
@@ -227,12 +370,14 @@ export class PrismaJobsRepo implements JobsRepo {
 
     const leaseSeconds = Math.max(30, Math.floor(opts.leaseMinutes * 60));
 
-    const rows = await this.prisma.$transaction<Array<ClaimedPrescriptionRow>>(async (tx: any) => {
+    const rows = await this.prisma.$transaction<Array<ClaimedPrescriptionRow>>(async (tx) => {
       return tx.$queryRaw<Array<ClaimedPrescriptionRow>>`
         WITH next_job AS (
           SELECT id
           FROM "Prescription"
           WHERE "processingStatus" = 'PENDING'
+            AND "status" = 'APPROVED'
+            AND "doctorId" IS NOT NULL
             AND COALESCE("availableAt", NOW()) <= NOW()
             AND ("lockExpiresAt" IS NULL OR "lockExpiresAt" <= NOW())
           ORDER BY COALESCE("availableAt", NOW()) ASC, "createdAt" ASC
@@ -345,7 +490,7 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error(`markFailed lost job ownership for ${opts.jobId}`);
     }
 
-    this.logger?.error(
+    this.logger?.warning(
       "db.job.failed",
       {
         job_id: opts.jobId,
@@ -357,24 +502,25 @@ export class PrismaJobsRepo implements JobsRepo {
   }
 
   async requeueWithBackoff(opts: RequeueWithBackoffOptions): Promise<void> {
-    const updated = await this.prisma.prescription.updateMany({
-      where: {
-        id: opts.jobId,
-        processingStatus: "CLAIMED",
-        workerRef: opts.workerRef ?? this.workerId,
-      },
-      data: {
-        processingStatus: "PENDING",
-        availableAt: new Date(Date.now() + clampDelaySeconds(opts.delaySeconds) * 1_000),
-        claimedAt: null,
-        lockExpiresAt: null,
-        workerRef: null,
-        lastErrorCode: normalizeNonEmptyString(opts.errorCode, "ML_WORKER_RETRY"),
-        lastErrorMessageSafe: normalizeNonEmptyString(opts.messageSafe, "Worker retry scheduled"),
-      },
-    });
+    const delaySeconds = clampDelaySeconds(opts.delaySeconds);
 
-    if (updated.count !== 1) {
+    const rows = await this.prisma.$executeRaw`
+      UPDATE "Prescription"
+      SET
+        "processingStatus" = 'PENDING',
+        "claimedAt" = NULL,
+        "lockExpiresAt" = NULL,
+        "workerRef" = NULL,
+        "availableAt" = NOW() + (${delaySeconds}::int * INTERVAL '1 second'),
+        "lastErrorCode" = ${normalizeNonEmptyString(opts.errorCode, "ML_WORKER_RETRY")},
+        "lastErrorMessageSafe" = ${normalizeNonEmptyString(opts.messageSafe, "Worker requested retry")},
+        "updatedAt" = NOW()
+      WHERE id = ${opts.jobId}
+        AND "processingStatus" = 'CLAIMED'
+        AND "workerRef" = ${opts.workerRef ?? this.workerId};
+    `;
+
+    if (Number(rows ?? 0) !== 1) {
       throw new Error(`requeueWithBackoff lost job ownership for ${opts.jobId}`);
     }
 
@@ -383,7 +529,7 @@ export class PrismaJobsRepo implements JobsRepo {
       {
         job_id: opts.jobId,
         worker_ref: opts.workerRef ?? this.workerId,
-        delay_seconds: clampDelaySeconds(opts.delaySeconds),
+        delay_seconds: delaySeconds,
         error_code: opts.errorCode,
       },
       opts.reqId,
@@ -395,15 +541,28 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error("Queue metrics siteId mismatch");
     }
 
-    const [pending, claimed] = await Promise.all([
-      this.prisma.prescription.count({ where: { processingStatus: "PENDING" } }),
-      this.prisma.prescription.count({ where: { processingStatus: "CLAIMED" } }),
-    ]);
+    const grouped = await this.prisma.prescription.groupBy({
+      by: ["processingStatus"],
+      _count: { _all: true },
+      where: {
+        OR: [
+          { processingStatus: "PENDING", status: "APPROVED" },
+          { processingStatus: "CLAIMED" },
+        ],
+      },
+    });
 
-    return {
-      pending: Number(pending ?? 0),
-      claimed: Number(claimed ?? 0),
-    };
+    let pending = 0;
+    let claimed = 0;
+    for (const row of grouped) {
+      if (row.processingStatus === "PENDING") {
+        pending += row._count._all;
+      } else if (row.processingStatus === "CLAIMED") {
+        claimed += row._count._all;
+      }
+    }
+
+    return { pending, claimed };
   }
 
   async sweepZombies(siteId: string, limit = 50): Promise<SweepZombiesResult> {
@@ -411,7 +570,7 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error("Sweep siteId mismatch");
     }
 
-    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
 
     const failed = await this.prisma.$executeRaw<number>`
       WITH expired AS (
@@ -528,6 +687,7 @@ function ingestSelect() {
     status: true,
     processingStatus: true,
     verifyToken: true,
+    verifyCode: true,
     sourceReqId: true,
   } as const;
 }
@@ -539,8 +699,37 @@ function mapIngestResult(row: IngestSelectRow, mode: "created" | "replay", reqId
     prescription_id: row.id,
     uid: row.uid,
     verify_token: row.verifyToken,
+    verify_code: row.verifyCode,
     processing_status: normalizeJobStatus(row.processingStatus),
     status: typeof row.status === "string" && row.status !== "" ? row.status : "PENDING",
+    source_req_id: row.sourceReqId ?? reqId,
+  };
+}
+
+function mapApproveResult(row: DecisionSelectRow, mode: "approved" | "replay", reqId: string): ApprovePrescriptionResult {
+  return {
+    mode,
+    job_id: row.id,
+    prescription_id: row.id,
+    uid: row.uid,
+    verify_token: row.verifyToken,
+    verify_code: row.verifyCode,
+    processing_status: normalizeJobStatus(row.processingStatus),
+    status: typeof row.status === "string" && row.status !== "" ? row.status : "APPROVED",
+    source_req_id: row.sourceReqId ?? reqId,
+  };
+}
+
+function mapRejectResult(row: DecisionSelectRow, mode: "rejected" | "replay", reqId: string): RejectPrescriptionResult {
+  return {
+    mode,
+    job_id: row.id,
+    prescription_id: row.id,
+    uid: row.uid,
+    verify_token: row.verifyToken,
+    verify_code: row.verifyCode,
+    processing_status: normalizeJobStatus(row.processingStatus),
+    status: typeof row.status === "string" && row.status !== "" ? row.status : "REJECTED",
     source_req_id: row.sourceReqId ?? reqId,
   };
 }
@@ -649,16 +838,36 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   return s ?? fallback;
 }
 
-function normalizeJobStatus(value: unknown): JobRow["status"] {
+function normalizeDecisionProcessingStatus(value: unknown): "PENDING" | "CLAIMED" | "DONE" | "FAILED" {
   const raw = typeof value === "string" ? value.toUpperCase() : "";
-  if (raw === "PENDING" || raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
+  if (raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
     return raw;
+  }
+  return "PENDING";
+}
+
+function normalizeJobStatus(value: unknown): JobStatus {
+  const raw = typeof value === "string" ? value.toUpperCase() : "";
+  if (raw === WAITING_APPROVAL || raw === "PENDING" || raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
+    return raw as JobStatus;
   }
   return "PENDING";
 }
 
 function toIsoOrNull(value: Date | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : null;
+}
+
+function hasDoctorIdentity(value: IngestDoctorInput | null | undefined): value is IngestDoctorInput {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const n = typeof value.wpUserId === "number"
+    ? Math.trunc(value.wpUserId)
+    : Number.parseInt(String(value.wpUserId ?? ""), 10);
+
+  return Number.isFinite(n) && n > 0;
 }
 
 function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): void {
@@ -679,9 +888,6 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
   normalizeRequiredString(input.nonce, "nonce");
   normalizeRequiredInt(input.ts_ms, "ts_ms");
 
-  if (!input.doctor || typeof input.doctor !== "object") {
-    throw new Error("doctor block is required");
-  }
   if (!input.patient || typeof input.patient !== "object") {
     throw new Error("patient block is required");
   }
@@ -689,13 +895,46 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
     throw new Error("prescription block is required");
   }
 
-  normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId");
+  if (input.doctor != null && typeof input.doctor !== "object") {
+    throw new Error("doctor block must be an object when provided");
+  }
+  if (hasDoctorIdentity(input.doctor)) {
+    normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId");
+  }
+
   normalizeRequiredString(input.patient.firstName, "patient.firstName");
   normalizeRequiredString(input.patient.lastName, "patient.lastName");
   normalizeRequiredString(input.patient.birthDate, "patient.birthDate");
 
   if (!Array.isArray(input.prescription.items)) {
     throw new Error("prescription.items must be an array");
+  }
+}
+
+function assertDecisionRequest(input: ApprovePrescriptionRequest | RejectPrescriptionRequest, siteId: string, mode: "approve" | "reject"): void {
+  if (!input || typeof input !== "object") {
+    throw new Error(`${mode} payload is missing`);
+  }
+
+  const acceptedSchemaVersions = new Set([CURRENT_INGEST_SCHEMA_VERSION, COMPAT_JOB_SCHEMA_VERSION]);
+  if (!acceptedSchemaVersions.has(String(input.schema_version ?? ""))) {
+    throw new Error("schema_version mismatch");
+  }
+
+  if (String(input.site_id ?? "") !== siteId) {
+    throw new Error("site_id mismatch");
+  }
+
+  normalizeRequiredString(input.req_id, "req_id");
+  normalizeRequiredString(input.nonce, "nonce");
+  normalizeRequiredInt(input.ts_ms, "ts_ms");
+
+  if (mode === "approve") {
+    const approveInput = input as ApprovePrescriptionRequest;
+    if (!approveInput.doctor || typeof approveInput.doctor !== "object") {
+      throw new Error("doctor block is required");
+    }
+    normalizeRequiredInt(approveInput.doctor.wpUserId, "doctor.wpUserId");
   }
 }
 

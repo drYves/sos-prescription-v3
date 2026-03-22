@@ -1,6 +1,6 @@
 // src/jobs/jobsRepo.ts
 export type QueueMode = "rest" | "postgres";
-export type JobStatus = "PENDING" | "CLAIMED" | "DONE" | "FAILED";
+export type JobStatus = "WAITING_APPROVAL" | "PENDING" | "CLAIMED" | "DONE" | "FAILED";
 
 export interface JobRow {
   id?: number | string;
@@ -93,7 +93,7 @@ export interface SweepZombiesResult {
 }
 
 export interface IngestDoctorInput {
-  wpUserId: number;
+  wpUserId?: number | null;
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
@@ -128,7 +128,7 @@ export interface IngestPrescriptionRequest {
   ts_ms: number;
   nonce: string;
   req_id: string;
-  doctor: IngestDoctorInput;
+  doctor?: IngestDoctorInput | null;
   patient: IngestPatientInput;
   prescription: IngestPrescriptionPayload;
 }
@@ -139,6 +139,49 @@ export interface IngestPrescriptionResult {
   prescription_id: string;
   uid: string;
   verify_token: string | null;
+  verify_code: string | null;
+  processing_status: JobStatus;
+  status: string;
+  source_req_id: string;
+}
+
+export interface ApprovePrescriptionRequest {
+  schema_version: string;
+  site_id: string;
+  ts_ms: number;
+  nonce: string;
+  req_id: string;
+  doctor: IngestDoctorInput;
+}
+
+export interface ApprovePrescriptionResult {
+  mode: "approved" | "replay";
+  job_id: string;
+  prescription_id: string;
+  uid: string;
+  verify_token: string | null;
+  verify_code: string | null;
+  processing_status: JobStatus;
+  status: string;
+  source_req_id: string;
+}
+
+export interface RejectPrescriptionRequest {
+  schema_version: string;
+  site_id: string;
+  ts_ms: number;
+  nonce: string;
+  req_id: string;
+  reason?: string | null;
+}
+
+export interface RejectPrescriptionResult {
+  mode: "rejected" | "replay";
+  job_id: string;
+  prescription_id: string;
+  uid: string;
+  verify_token: string | null;
+  verify_code: string | null;
   processing_status: JobStatus;
   status: string;
   source_req_id: string;
@@ -154,5 +197,7 @@ export interface JobsRepo {
   getQueueMetrics(siteId: string): Promise<QueueMetrics>;
   sweepZombies(siteId: string, limit?: number): Promise<SweepZombiesResult>;
   ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult>;
+  approvePrescription(prescriptionId: string, input: ApprovePrescriptionRequest): Promise<ApprovePrescriptionResult>;
+  rejectPrescription(prescriptionId: string, input: RejectPrescriptionRequest): Promise<RejectPrescriptionResult>;
   close(): Promise<void>;
 }
