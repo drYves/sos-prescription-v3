@@ -389,7 +389,13 @@ final class JobDispatcher
             return false;
         }
 
-        $payload = Base64Url::decode((string) $parts[1]);
+        $b64 = strtr((string) $parts[1], '-_', '+/');
+        $padding = strlen($b64) % 4;
+        if ($padding > 0) {
+            $b64 .= str_repeat('=', 4 - $padding);
+        }
+
+        $payload = base64_decode($b64, true);
         if (!is_string($payload) || !hash_equals($payload, $rawBody)) {
             return false;
         }
@@ -786,9 +792,11 @@ final class JobDispatcher
     private function generateUrlSafeRandom(int $bytesLength): string
     {
         try {
-            return Base64Url::encode(random_bytes(max(8, $bytesLength)));
+            $bytes = random_bytes(max(8, $bytesLength));
         } catch (\Throwable $e) {
-            return Base64Url::encode(wp_generate_password(max(8, $bytesLength), true, true));
+            $bytes = wp_generate_password(max(8, $bytesLength), true, true);
         }
+
+        return rtrim(strtr(base64_encode((string) $bytes), '+/', '-_'), '=');
     }
 }

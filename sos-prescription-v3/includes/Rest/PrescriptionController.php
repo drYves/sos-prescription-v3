@@ -13,6 +13,7 @@ use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Services\UidGenerator;
 use SOSPrescription\Core\JobDispatcher;
 use SOSPrescription\Core\NdjsonLogger;
+use SOSPrescription\Core\ReqId;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -539,11 +540,7 @@ class PrescriptionController extends \WP_REST_Controller
 
     protected function build_req_id(): string
     {
-        try {
-            return 'req_' . bin2hex(random_bytes(8));
-        } catch (\Throwable $e) {
-            return 'req_' . md5((string) wp_rand() . microtime(true));
-        }
+        return ReqId::coalesce();
     }
 
     /**
