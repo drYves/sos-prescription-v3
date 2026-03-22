@@ -1,17 +1,23 @@
-<?php
+<?php // includes/Core/ReqId.php
 declare(strict_types=1);
 
-namespace SosPrescription\Core;
+namespace SOSPrescription\Core;
 
 final class ReqId
 {
     public static function new(): string
     {
-        return Base64Url::encode(random_bytes(6));
+        try {
+            return 'req_' . bin2hex(random_bytes(8));
+        } catch (\Throwable $e) {
+            return 'req_' . md5((string) wp_rand() . microtime(true));
+        }
     }
 
-    public static function coalesce(?string $reqId): string
+    public static function coalesce(?string $reqId = null): string
     {
-        return (is_string($reqId) && $reqId !== '') ? $reqId : self::new();
+        $reqId = is_string($reqId) ? trim($reqId) : '';
+
+        return $reqId !== '' ? $reqId : self::new();
     }
 }
