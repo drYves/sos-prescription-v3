@@ -896,6 +896,10 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
+        $dispatchStatus = isset($workerMeta['processing_status']) ? strtolower((string) $workerMeta['processing_status']) : 'pending';
+        if ($dispatchStatus === 'pending' && strtoupper(trim((string) ($workerMeta['status'] ?? 'PENDING'))) === 'PENDING') {
+            $dispatchStatus = 'waiting_approval';
+        }
 
         return [
             'ok' => true,
@@ -912,7 +916,7 @@ class PrescriptionController extends \WP_REST_Controller
                 'job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
                 'worker_job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
                 'worker_prescription_id' => $workerPrescriptionId,
-                'status' => isset($workerMeta['processing_status']) ? strtolower((string) $workerMeta['processing_status']) : 'pending',
+                'status' => $dispatchStatus,
                 'source' => $source,
                 'req_id' => $req_id,
             ],
@@ -1251,7 +1255,9 @@ class PrescriptionController extends \WP_REST_Controller
             'job_id' => isset($worker['job_id']) ? (string) $worker['job_id'] : '',
             'worker_prescription_id' => isset($worker['prescription_id']) ? (string) $worker['prescription_id'] : '',
             'worker_status' => $workerStatus !== '' ? $workerStatus : 'PENDING',
-            'processing_status' => $processing !== '' ? $processing : 'pending',
+            'processing_status' => $status === 'waiting_approval'
+                ? 'waiting_approval'
+                : ($processing !== '' ? $processing : 'pending'),
             'verify_token' => isset($row['verify_token']) && is_scalar($row['verify_token']) ? (string) $row['verify_token'] : '',
             'verify_code' => isset($row['verify_code']) && is_scalar($row['verify_code']) ? (string) $row['verify_code'] : '',
             's3_ready' => false,
