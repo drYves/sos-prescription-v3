@@ -114,13 +114,16 @@ class PrescriptionController extends \WP_REST_Controller
             $dispatcher = $this->get_job_dispatcher();
             $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
         } catch (\Throwable $e) {
+            $errorMessage = $e->getMessage();
+            error_log('[SOSPrescription] Ingest Failed: ' . $errorMessage);
+
             return new WP_Error(
                 'sosprescription_worker_ingest_failed',
-                'La transmission sécurisée vers le coffre-fort HDS a échoué.',
+                'Échec de transmission HDS. Détail : ' . $errorMessage,
                 [
                     'status' => 502,
                     'req_id' => $req_id,
-                    'error' => $e->getMessage(),
+                    'error' => $errorMessage,
                 ]
             );
         }
@@ -259,15 +262,16 @@ class PrescriptionController extends \WP_REST_Controller
                 $workerResult = $dispatcher->rejectPrescription($workerPrescriptionId, $reason, $req_id);
             }
         } catch (\Throwable $e) {
+            $errorMessage = $e->getMessage();
+            error_log('[SOSPrescription] Decision Failed: ' . $errorMessage);
+
             return new WP_Error(
                 'sosprescription_worker_transition_failed',
-                $decision === 'approved'
-                    ? 'La validation HDS a échoué côté Worker.'
-                    : 'Le rejet HDS a échoué côté Worker.',
+                'Échec HDS : ' . $errorMessage,
                 [
                     'status' => 502,
                     'req_id' => $req_id,
-                    'error' => $e->getMessage(),
+                    'error' => $errorMessage,
                 ]
             );
         }

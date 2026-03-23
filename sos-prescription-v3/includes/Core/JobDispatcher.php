@@ -44,7 +44,7 @@ final class JobDispatcher
     {
         $secret = self::readConfigString('ML_HMAC_SECRET');
         if ($secret === '') {
-            throw new RuntimeException('Missing ML_HMAC_SECRET');
+            throw new RuntimeException('La clé ML_HMAC_SECRET est manquante.');
         }
 
         $siteId = self::readConfigString('ML_SITE_ID', 'unknown_site');
@@ -88,7 +88,7 @@ final class JobDispatcher
         $reqId = ReqId::coalesce($reqId);
         $prescriptionId = trim($workerPrescriptionId);
         if ($prescriptionId === '') {
-            throw new RuntimeException('Missing worker prescription id');
+            throw new RuntimeException('ID de prescription Worker manquant.');
         }
 
         $body = $this->normalizeEnvelope([
@@ -107,7 +107,7 @@ final class JobDispatcher
         $reqId = ReqId::coalesce($reqId);
         $prescriptionId = trim($workerPrescriptionId);
         if ($prescriptionId === '') {
-            throw new RuntimeException('Missing worker prescription id');
+            throw new RuntimeException('ID de prescription Worker manquant.');
         }
 
         $body = $this->normalizeEnvelope([
@@ -124,7 +124,7 @@ final class JobDispatcher
     public function buildDoctorPayloadFromUserId(int $doctorUserId): array
     {
         if ($doctorUserId <= 0) {
-            throw new RuntimeException('Invalid doctor user ID');
+            throw new RuntimeException('ID de docteur invalide');
         }
 
         $doctorUser = get_userdata($doctorUserId);
@@ -289,7 +289,7 @@ final class JobDispatcher
     private function postSignedJson(string $path, array $payload, string $reqId, string $scope): array
     {
         if ($this->workerBaseUrl === '') {
-            throw new RuntimeException('Missing ML_WORKER_BASE_URL');
+            throw new RuntimeException('La constante ML_WORKER_BASE_URL est manquante ou vide dans wp-config.php');
         }
 
         $normalizedPath = self::normalizeApiPath($path);
@@ -318,12 +318,14 @@ final class JobDispatcher
         ]);
 
         if (is_wp_error($response)) {
+            $errMsg = $response->get_error_message();
             $this->logger->error('worker.bridge.http_error', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
                 'error_code' => $response->get_error_code(),
+                'error_message' => $errMsg,
             ], $reqId);
-            throw new RuntimeException('Worker HTTP request failed');
+            throw new RuntimeException('Requête bloquée par WordPress : ' . $errMsg);
         }
 
         $status = (int) wp_remote_retrieve_response_code($response);
@@ -352,13 +354,14 @@ final class JobDispatcher
 
         if ($status < 200 || $status >= 300 || (!empty($decoded['ok']) && $decoded['ok'] !== true)) {
             $code = isset($decoded['code']) && is_scalar($decoded['code']) ? (string) $decoded['code'] : 'ML_WORKER_REJECTED';
+            $msg = isset($decoded['message']) && is_scalar($decoded['message']) ? (string) $decoded['message'] : 'Rejeté';
             $this->logger->error('worker.bridge.rejected', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
                 'http_status' => $status,
                 'error_code' => $code,
             ], $reqId);
-            throw new RuntimeException(sprintf('Worker request rejected (%s)', $code));
+            throw new RuntimeException(sprintf('Worker HTTP %d : %s (%s)', $status, $msg, $code));
         }
 
         $this->logger->info('worker.bridge.accepted', [
