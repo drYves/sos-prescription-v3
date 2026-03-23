@@ -599,6 +599,10 @@ class PrescriptionController extends \WP_REST_Controller
             return $last_error !== '' ? $last_error : 'Validation enregistrée. Service PDF ralenti ; le document sera disponible sous peu.';
         }
 
+        if ($status === 'waiting_approval') {
+            return 'En attente de validation médecin.';
+        }
+
         return 'Validation enregistrée. PDF en cours de génération.';
     }
 
@@ -860,6 +864,37 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_worker_reference_missing', 'Référence Worker introuvable.', ['status' => 409]);
         }
 
+        $workerResult = null;
+        $workerStatus = strtoupper(trim((string) ($workerMeta['status'] ?? 'PENDING')));
+        $canAutoApprove = in_array($source, ['doctor_approval', 'manual_dispatch'], true)
+            && (AccessPolicy::is_doctor() || AccessPolicy::is_admin());
+
+        if ($workerStatus === 'PENDING' && $canAutoApprove) {
+            $doctorId = (int) get_current_user_id();
+            if ($doctorId < 1) {
+                return new WP_Error('sosprescription_auth_required', 'Connexion requise.', ['status' => 401]);
+            }
+
+            try {
+                $dispatcher = $this->get_job_dispatcher();
+                $doctorPayload = $dispatcher->buildDoctorPayloadFromUserId($doctorId);
+                $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id);
+                $this->store_shadow_worker_state($prescription_id, $workerResult);
+                $row = $this->prescriptions->get($prescription_id) ?: $row;
+                $workerMeta = $this->extract_worker_shadow_state($row);
+            } catch (\Throwable $e) {
+                return new WP_Error(
+                    'sosprescription_pdf_dispatch_failed',
+                    'La libération du job PDF a échoué.',
+                    [
+                        'status' => 502,
+                        'req_id' => $req_id,
+                        'error' => $e->getMessage(),
+                    ]
+                );
+            }
+        }
+
         $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
 
         return [
@@ -873,7 +908,7 @@ class PrescriptionController extends \WP_REST_Controller
                 'verify_code' => isset($row['verify_code']) && is_scalar($row['verify_code']) ? (string) $row['verify_code'] : '',
             ],
             'dispatch' => [
-                'action' => 'noop',
+                'action' => $workerResult !== null ? 'released' : 'noop',
                 'job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
                 'worker_job_id' => isset($workerMeta['job_id']) ? (string) $workerMeta['job_id'] : '',
                 'worker_prescription_id' => $workerPrescriptionId,
@@ -1147,6 +1182,8 @@ class PrescriptionController extends \WP_REST_Controller
             $status = 'failed';
         } elseif ($processing === 'claimed') {
             $status = 'processing';
+        } elseif ($workerStatus === 'PENDING') {
+            $status = 'waiting_approval';
         } else {
             $status = 'pending';
         }
@@ -1167,7 +1204,9 @@ class PrescriptionController extends \WP_REST_Controller
             'last_error_message' => null,
         ];
 
-        if ($status === 'pending' && $workerStatus !== 'APPROVED') {
+        if ($status === 'waiting_approval') {
+            $pdf['message'] = 'En attente de validation médecin.';
+        } elseif ($status === 'pending' && $workerStatus !== 'APPROVED') {
             $pdf['message'] = 'En attente de validation médecin.';
         } elseif ($status === 'pending') {
             $pdf['message'] = 'PDF en file d’attente.';
