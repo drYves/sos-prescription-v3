@@ -158,7 +158,7 @@ class PrescriptionController extends \WP_REST_Controller
             ],
             'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
             'shadow' => [
-                'zero_pii' => true,
+                'zero_pii' => false,
             ],
         ];
 
@@ -1032,19 +1032,19 @@ class PrescriptionController extends \WP_REST_Controller
             ? (string) $workerResult['uid']
             : UidGenerator::generate(10);
 
-        $payload = [
+        $payload = array_merge($this->build_business_cache_payload($params), [
             'shadow' => [
-                'zero_pii' => true,
+                'zero_pii' => false,
                 'mode' => 'worker-postgres',
             ],
             'worker' => $this->build_worker_shadow_payload($workerResult),
-        ];
+        ]);
 
         $result = $this->prescriptions->create(
             (int) get_current_user_id(),
             $uid,
             $payload,
-            [],
+            $this->build_business_cache_items($params),
             $flow,
             $priority,
             $client_request_id,
@@ -1131,7 +1131,7 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $payload['shadow'] = [
-            'zero_pii' => true,
+            'zero_pii' => false,
             'mode' => 'worker-postgres',
         ];
         $payload['worker'] = array_merge(
@@ -1163,6 +1163,64 @@ class PrescriptionController extends \WP_REST_Controller
         );
 
         return $updated !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     */
+    protected function build_business_cache_payload(array $params): array
+    {
+        $patientIdentity = $this->extract_patient_identity_from_params($params);
+        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
+        $note = isset($patient['note']) ? trim((string) $patient['note']) : '';
+
+        return [
+            'patient' => [
+                'fullname' => $patientIdentity['full_name'],
+                'birthdate' => $patientIdentity['birth_date'],
+            ],
+            'patient_name' => $patientIdentity['full_name'],
+            'patient_birthdate' => $patientIdentity['birth_date'],
+            'prescription' => [
+                'privateNotes' => $note !== '' ? $note : null,
+            ],
+            'cache' => [
+                'mode' => 'business',
+                'fields' => ['patient_identity', 'medication_lines'],
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<int, array<string, mixed>>
+     */
+    protected function build_business_cache_items(array $params): array
+    {
+        $items = isset($params['items']) && is_array($params['items']) ? array_values($params['items']) : [];
+        $normalized = [];
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $label = trim((string) ($item['label'] ?? $item['denomination'] ?? $item['name'] ?? ''));
+            if ($label === '') {
+                $label = 'Médicament';
+            }
+
+            $normalized[] = [
+                'cis' => isset($item['cis']) && $item['cis'] !== '' ? (string) $item['cis'] : null,
+                'cip13' => isset($item['cip13']) && $item['cip13'] !== '' ? (string) $item['cip13'] : null,
+                'label' => $label,
+                'schedule' => isset($item['schedule']) && is_array($item['schedule']) ? $item['schedule'] : [],
+                'quantite' => isset($item['quantite']) && trim((string) $item['quantite']) !== '' ? trim((string) $item['quantite']) : null,
+            ];
+        }
+
+        return $normalized;
     }
 
     /**
