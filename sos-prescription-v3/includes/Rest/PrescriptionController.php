@@ -1036,6 +1036,13 @@ class PrescriptionController extends \WP_REST_Controller
 
         $firstName = $patientIdentity['first_name'];
         $lastName = $patientIdentity['last_name'];
+        if ($firstName === '' || $lastName === '') {
+            return new WP_Error(
+                'sosprescription_patient_identity_invalid',
+                'Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.',
+                ['status' => 400]
+            );
+        }
 
         $items = isset($params['items']) && is_array($params['items']) ? array_values($params['items']) : [];
         if ($items === []) {
@@ -1431,9 +1438,9 @@ class PrescriptionController extends \WP_REST_Controller
     {
         $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
 
-        $firstName = trim((string) ($patient['firstName'] ?? $patient['first_name'] ?? ''));
-        $lastName = trim((string) ($patient['lastName'] ?? $patient['last_name'] ?? ''));
-        $fullName = trim((string) ($patient['fullname'] ?? $patient['fullName'] ?? ''));
+        $firstName = $this->sanitize_person_name_token((string) ($patient['firstName'] ?? $patient['first_name'] ?? ''));
+        $lastName = $this->sanitize_person_name_token((string) ($patient['lastName'] ?? $patient['last_name'] ?? ''));
+        $fullName = $this->sanitize_full_name_string((string) ($patient['fullname'] ?? $patient['fullName'] ?? ''));
         $birthDate = trim((string) ($patient['birthdate'] ?? $patient['birthDate'] ?? ''));
 
         if ($fullName === '' && ($firstName !== '' || $lastName !== '')) {
@@ -1450,6 +1457,10 @@ class PrescriptionController extends \WP_REST_Controller
             }
         }
 
+        $firstName = $this->sanitize_person_name_token($firstName);
+        $lastName = $this->sanitize_person_name_token($lastName);
+        $fullName = ($firstName !== '' || $lastName !== '') ? trim($firstName . ' ' . $lastName) : $fullName;
+
         return [
             'first_name' => $firstName,
             'last_name' => $lastName,
@@ -1463,27 +1474,55 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function split_fullname_for_worker(string $fullname): array
     {
-        $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($fullname, true)) ?? '');
+        $clean = $this->sanitize_full_name_string($fullname);
         if ($clean === '') {
-            return ['Patient', 'Inconnu'];
+            return ['', ''];
         }
 
         $parts = preg_split('/\s+/u', $clean) ?: [];
         $parts = array_values(array_filter(array_map('trim', $parts), static fn (string $part): bool => $part !== ''));
         if ($parts === []) {
-            return ['Patient', 'Inconnu'];
+            return ['', ''];
         }
-        if (count($parts) === 1) {
-            return [$parts[0], 'Inconnu'];
+        if (count($parts) < 2) {
+            return [$this->sanitize_person_name_token($parts[0] ?? ''), ''];
         }
 
-        $firstName = (string) array_shift($parts);
-        $lastName = trim(implode(' ', $parts));
-        if ($lastName === '') {
-            $lastName = 'Inconnu';
-        }
+        $firstName = $this->sanitize_person_name_token((string) array_shift($parts));
+        $lastName = $this->sanitize_person_name_token(trim(implode(' ', $parts)));
 
         return [$firstName, $lastName];
+    }
+
+
+    protected function sanitize_full_name_string(string $value): string
+    {
+        $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($value, true)) ?? '');
+        if ($clean === '' || $this->looks_like_email_string($clean)) {
+            return '';
+        }
+
+        return $clean;
+    }
+
+    protected function sanitize_person_name_token(string $value): string
+    {
+        $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($value, true)) ?? '');
+        if ($clean === '' || $this->looks_like_email_string($clean)) {
+            return '';
+        }
+
+        return $clean;
+    }
+
+    protected function looks_like_email_string(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '' || strpos($value, '@') === false) {
+            return false;
+        }
+
+        return (bool) is_email($value);
     }
 
     /**

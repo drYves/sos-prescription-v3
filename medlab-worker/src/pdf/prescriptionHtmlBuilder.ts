@@ -161,15 +161,15 @@ export class PrescriptionHtmlBuilder {
 
 function buildDoctorProfile(aggregate: PrescriptionRenderAggregate): DoctorProfile {
   const doctor = aggregate.doctor;
-  const firstName = normalizeString(doctor.firstName);
-  const lastName = normalizeString(doctor.lastName);
+  const firstName = sanitizeRenderableNamePart(doctor.firstName);
+  const lastName = sanitizeRenderableNamePart(doctor.lastName);
   let displayName = [firstName, lastName].filter(Boolean).join(" ").trim();
   if (displayName === "") {
-    displayName = "Médecin prescripteur";
+    displayName = "Médecin";
   }
 
   const title = mapDoctorTitle(doctor.title);
-  const specialty = normalizeString(doctor.specialty) || "Médecin prescripteur";
+  const specialty = normalizeString(doctor.specialty) || "—";
   const rpps = sanitizeDigits(doctor.rpps);
   const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
   const phone = normalizeString(doctor.phone);
@@ -526,7 +526,7 @@ function buildLabeledValueRowHtml(label: string, valueHtml: string, allowHtml = 
 }
 
 function buildPatientName(aggregate: PrescriptionRenderAggregate): string {
-  return [normalizeString(aggregate.patient.firstName), normalizeString(aggregate.patient.lastName)]
+  return [sanitizeRenderableNamePart(aggregate.patient.firstName), sanitizeRenderableNamePart(aggregate.patient.lastName)]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -641,6 +641,20 @@ function escapeHtml(value: unknown): string {
 
 function escapeHtmlAttr(value: unknown): string {
   return escapeHtml(value);
+}
+
+function sanitizeRenderableNamePart(value: unknown): string {
+  const text = normalizeString(value);
+  if (text === "") {
+    return "";
+  }
+
+  return looksLikeEmailValue(text) ? "" : text;
+}
+
+function looksLikeEmailValue(value: string): boolean {
+  const text = value.trim();
+  return text !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(text);
 }
 
 function normalizeString(value: unknown): string {

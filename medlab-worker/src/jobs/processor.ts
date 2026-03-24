@@ -347,8 +347,8 @@ function buildRestAggregate(job: JobRow): PrescriptionRenderAggregate {
     doctor: {
       id: pickString(doctor, ["id"]) ?? (doctorWpUserId > 0 ? `wp:${doctorWpUserId}` : `rest:${job.job_id}:doctor`),
       wpUserId: doctorWpUserId,
-      firstName: nullableString(pickUnknown(doctor, ["firstName", "first_name"])),
-      lastName: nullableString(pickUnknown(doctor, ["lastName", "last_name"])),
+      firstName: sanitizeRenderableNameValue(pickUnknown(doctor, ["firstName", "first_name"])),
+      lastName: sanitizeRenderableNameValue(pickUnknown(doctor, ["lastName", "last_name"])),
       email: nullableString(pickUnknown(doctor, ["email"])),
       phone: nullableString(pickUnknown(doctor, ["phone", "telephone", "tel"])),
       title: nullableString(pickUnknown(doctor, ["title"])),
@@ -364,8 +364,8 @@ function buildRestAggregate(job: JobRow): PrescriptionRenderAggregate {
     },
     patient: {
       id: pickString(patient, ["id"]) ?? `rest:${job.job_id}:patient`,
-      firstName: pickString(patient, ["firstName", "first_name"]) ?? "Patient",
-      lastName: pickString(patient, ["lastName", "last_name"]) ?? "Inconnu",
+      firstName: sanitizeRenderableNameValue(pickUnknown(patient, ["firstName", "first_name"])) ?? "",
+      lastName: sanitizeRenderableNameValue(pickUnknown(patient, ["lastName", "last_name"])) ?? "",
       birthDate: pickString(patient, ["birthDate", "birthdate", "birth_date"]) ?? "",
       gender: nullableString(pickUnknown(patient, ["gender"])),
       email: nullableString(pickUnknown(patient, ["email"])),
@@ -552,6 +552,20 @@ function nullableString(value: unknown): string | null {
   return text !== "" ? text : null;
 }
 
+
+function sanitizeRenderableNameValue(value: unknown): string | null {
+  const text = normalizeString(value);
+  if (text === "") {
+    return null;
+  }
+
+  return looksLikeEmailValue(text) ? null : text;
+}
+
+function looksLikeEmailValue(value: string): boolean {
+  const text = value.trim();
+  return text !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(text);
+}
 function toFiniteNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
