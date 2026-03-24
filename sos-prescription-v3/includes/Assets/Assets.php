@@ -83,6 +83,14 @@ final class Assets
             true
         );
 
+        wp_enqueue_script(
+            'sosprescription-patient-profile-enhancements',
+            SOSPRESCRIPTION_URL . 'assets/patient-profile-enhancements.js',
+            [],
+            SOSPRESCRIPTION_VERSION,
+            true
+        );
+
         $turnstile_config = [
             'configured' => Turnstile::is_configured(),
             'enabled' => Turnstile::is_enabled(),
@@ -382,15 +390,37 @@ final class Assets
     private static function localize_app(string $handle): void
     {
         $user = wp_get_current_user();
+        $user_id = ($user instanceof \WP_User) ? (int) $user->ID : 0;
 
-        $birth_iso = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate', true) : '';
-        $birth_precision = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_birthdate_precision', true) : '';
+        $first_name = $user_id > 0 ? sanitize_text_field((string) get_user_meta($user_id, 'first_name', true)) : '';
+        $last_name = $user_id > 0 ? sanitize_text_field((string) get_user_meta($user_id, 'last_name', true)) : '';
+        $display_name = $user instanceof \WP_User ? (string) $user->display_name : '';
+
+        if (($first_name === '' || $last_name === '') && self::is_human_display_name($display_name)) {
+            $parts = self::split_human_name($display_name);
+            if ($first_name === '') {
+                $first_name = $parts['first_name'];
+            }
+            if ($last_name === '') {
+                $last_name = $parts['last_name'];
+            }
+        }
+
+        $birth_iso = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_birthdate', true) : '';
+        $birth_precision = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_birthdate_precision', true) : '';
         $birth_fr = $birth_iso !== '' ? Date::iso_to_fr($birth_iso) : '';
-        $weight_kg = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_weight_kg', true) : '';
-        $height_cm = $user && $user->ID ? (string) get_user_meta((int) $user->ID, 'sosp_height_cm', true) : '';
+        $phone = $user_id > 0 ? self::read_user_meta_first($user_id, ['sosp_phone', 'phone', 'billing_phone', 'telephone', 'mobile']) : '';
+        $weight_kg = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_weight_kg', true) : '';
+        $height_cm = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_height_cm', true) : '';
+
+        $full_name = trim($first_name . ' ' . $last_name);
+        $public_display_name = self::is_human_display_name($display_name)
+            ? $display_name
+            : ($full_name !== '' ? $full_name : '');
 
         $turnstile_enabled = Turnstile::is_enabled();
         $turnstile_site_key = $turnstile_enabled ? Turnstile::site_key() : '';
+        $patient_portal_url = NotificationsConfig::patient_portal_url();
 
         $cap_manage = current_user_can('sosprescription_manage') || current_user_can('manage_options');
         $cap_manage_data = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
@@ -401,9 +431,12 @@ final class Assets
             'nonce' => wp_create_nonce('wp_rest'),
             'site' => [
                 'urls' => [
-                    'patientPortal' => NotificationsConfig::patient_portal_url(),
+                    'patientPortal' => $patient_portal_url,
                 ],
                 'url' => home_url('/'),
+            ],
+            'urls' => [
+                'patientPortal' => $patient_portal_url,
             ],
             'turnstile' => [
                 'siteKey' => $turnstile_site_key,
@@ -411,15 +444,27 @@ final class Assets
                 'configured' => Turnstile::is_configured(),
             ],
             'currentUser' => [
-                'id' => (int) $user->ID,
-                'displayName' => (string) $user->display_name,
-                'email' => (string) $user->user_email,
-                'roles' => array_values((array) $user->roles),
+                'id' => $user_id,
+                'displayName' => $public_display_name,
+                'email' => ($user instanceof \WP_User) ? (string) $user->user_email : '',
+                'roles' => ($user instanceof \WP_User) ? array_values((array) $user->roles) : [],
+                'firstName' => $first_name,
+                'lastName' => $last_name,
+                'first_name' => $first_name,
+                'last_name' => $last_name,
+                'birthDate' => $birth_iso,
+                'birthdate' => $birth_iso,
+                'sosp_birthdate' => $birth_iso,
+                'phone' => $phone,
             ],
             'patientProfile' => [
+                'first_name' => $first_name,
+                'last_name' => $last_name,
+                'fullname' => $full_name,
                 'birthdate_iso' => $birth_iso,
                 'birthdate_fr' => $birth_fr,
                 'birthdate_precision' => $birth_precision,
+                'phone' => $phone,
                 'weight_kg' => $weight_kg,
                 'height_cm' => $height_cm,
             ],
@@ -441,5 +486,66 @@ final class Assets
 
         $script = 'window.SOSPrescription = ' . $json . ';window.SosPrescription = window.SOSPrescription;';
         wp_add_inline_script($handle, $script, 'before');
+    }
+
+    private static function read_user_meta_first(int $user_id, array $keys): string
+    {
+        if ($user_id < 1) {
+            return '';
+        }
+
+        foreach ($keys as $key) {
+            $value = get_user_meta($user_id, (string) $key, true);
+            if (is_scalar($value)) {
+                $text = trim((string) $value);
+                if ($text !== '') {
+                    return $text;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private static function is_human_display_name(string $value): bool
+    {
+        $clean = trim($value);
+        return $clean !== '' && !self::looks_like_email($clean);
+    }
+
+    /**
+     * @return array{first_name:string,last_name:string}
+     */
+    private static function split_human_name(string $value): array
+    {
+        $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($value, true)) ?? '');
+        if ($clean === '' || self::looks_like_email($clean)) {
+            return ['first_name' => '', 'last_name' => ''];
+        }
+
+        $parts = preg_split('/\s+/u', $clean) ?: [];
+        $parts = array_values(array_filter(array_map('trim', $parts), static fn (string $part): bool => $part !== ''));
+        if ($parts === []) {
+            return ['first_name' => '', 'last_name' => ''];
+        }
+        if (count($parts) === 1) {
+            return ['first_name' => $parts[0], 'last_name' => ''];
+        }
+
+        $first_name = (string) array_shift($parts);
+        return [
+            'first_name' => $first_name,
+            'last_name' => implode(' ', $parts),
+        ];
+    }
+
+    private static function looks_like_email(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '' || strpos($value, '@') === false) {
+            return false;
+        }
+
+        return (bool) is_email($value);
     }
 }

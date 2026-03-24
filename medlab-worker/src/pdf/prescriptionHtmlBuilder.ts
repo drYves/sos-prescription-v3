@@ -161,15 +161,15 @@ export class PrescriptionHtmlBuilder {
 
 function buildDoctorProfile(aggregate: PrescriptionRenderAggregate): DoctorProfile {
   const doctor = aggregate.doctor;
-  const firstName = sanitizeRenderableNamePart(doctor.firstName);
-  const lastName = sanitizeRenderableNamePart(doctor.lastName);
+  const firstName = normalizeHumanString(doctor.firstName);
+  const lastName = normalizeHumanString(doctor.lastName);
   let displayName = [firstName, lastName].filter(Boolean).join(" ").trim();
   if (displayName === "") {
-    displayName = "Médecin";
+    displayName = "Médecin prescripteur";
   }
 
   const title = mapDoctorTitle(doctor.title);
-  const specialty = normalizeString(doctor.specialty) || "—";
+  const specialty = normalizeHumanString(doctor.specialty) || "Médecin prescripteur";
   const rpps = sanitizeDigits(doctor.rpps);
   const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
   const phone = normalizeString(doctor.phone);
@@ -526,7 +526,10 @@ function buildLabeledValueRowHtml(label: string, valueHtml: string, allowHtml = 
 }
 
 function buildPatientName(aggregate: PrescriptionRenderAggregate): string {
-  return [sanitizeRenderableNamePart(aggregate.patient.firstName), sanitizeRenderableNamePart(aggregate.patient.lastName)]
+  const firstName = normalizeHumanString(aggregate.patient.firstName);
+  const lastName = normalizeHumanString(aggregate.patient.lastName);
+
+  return [firstName, lastName]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -643,22 +646,22 @@ function escapeHtmlAttr(value: unknown): string {
   return escapeHtml(value);
 }
 
-function sanitizeRenderableNamePart(value: unknown): string {
-  const text = normalizeString(value);
-  if (text === "") {
+function normalizeString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeHumanString(value: unknown): string {
+  const raw = normalizeString(value);
+  if (raw === "" || isEmailLike(raw)) {
     return "";
   }
 
-  return looksLikeEmailValue(text) ? "" : text;
+  return raw;
 }
 
-function looksLikeEmailValue(value: string): boolean {
-  const text = value.trim();
-  return text !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(text);
-}
-
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+function isEmailLike(value: string): boolean {
+  const raw = normalizeString(value);
+  return raw !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
 }
 
 function firstNonEmpty(values: unknown[]): string {

@@ -15,6 +15,7 @@ final class Routes
         $files = new FilesController();
         $messages = new MessagesController();
         $payments = new PaymentsController();
+        $patient = new PatientController();
 
         register_rest_route('sosprescription/v1', '/medications/search', [
             'methods' => 'GET',
@@ -166,6 +167,13 @@ final class Routes
                     },
                 ],
             ],
+        ]);
+
+
+        register_rest_route('sosprescription/v1', '/patient/profile', [
+            'methods' => 'POST',
+            'callback' => [$patient, 'update_profile'],
+            'permission_callback' => [$patient, 'permissions_check_logged_in_nonce'],
         ]);
 
         // Logs frontend (télémétrie de debug)
