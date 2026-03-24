@@ -3,19 +3,22 @@ import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
 import { MemoryGuard } from "../admission/memoryGuard";
-import { NdjsonLogger } from "../logger";
 import type {
   ApprovePrescriptionRequest,
+  IngestDoctorInput,
   IngestPrescriptionRequest,
   JobsRepo,
   QueueMetrics,
   RejectPrescriptionRequest,
 } from "../jobs/jobsRepo";
+import { NdjsonLogger } from "../logger";
 import { buildMls1Token, parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { NonceCache } from "../security/nonceCache";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const CURRENT_SCHEMA_VERSION = "2026.6";
+
+type PostgresApprovalRepo = JobsRepo;
 
 export interface PulseServerDeps {
   port: number;
@@ -37,7 +40,6 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
       const path = url.pathname;
-      const matchedAction = matchPrescriptionActionPath(path);
 
       if (method === "GET" && path === "/pulse") {
         return await handlePulse(req, res, deps, signingSecret);
@@ -47,12 +49,26 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
         return await handlePrescriptionIngress(req, res, deps, signingSecret);
       }
 
-      if (method === "POST" && matchedAction?.action === "approve") {
-        return await handlePrescriptionApprove(req, res, deps, signingSecret, matchedAction.prescriptionId);
+      const approveMatch = method === "POST" ? path.match(/^\/api\/v1\/prescriptions\/([^/]+)\/approve$/) : null;
+      if (approveMatch) {
+        return await handlePrescriptionApprove(
+          req,
+          res,
+          deps,
+          signingSecret,
+          decodeURIComponent(approveMatch[1]),
+        );
       }
 
-      if (method === "POST" && matchedAction?.action === "reject") {
-        return await handlePrescriptionReject(req, res, deps, signingSecret, matchedAction.prescriptionId);
+      const rejectMatch = method === "POST" ? path.match(/^\/api\/v1\/prescriptions\/([^/]+)\/reject$/) : null;
+      if (rejectMatch) {
+        return await handlePrescriptionReject(
+          req,
+          res,
+          deps,
+          signingSecret,
+          decodeURIComponent(rejectMatch[1]),
+        );
       }
 
       return sendJson(res, 404, { ok: false, code: "NOT_FOUND" }, signingSecret);
@@ -89,7 +105,7 @@ async function handlePulse(
 ): Promise<void> {
   const path = "/pulse";
   const parsed = validateSignedRequestHeader(req, deps.secrets);
-  if (!parsed.ok) {
+  if (parsed.ok !== true) {
     if (parsed.logReason) {
       deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path }, undefined);
     }
@@ -171,7 +187,7 @@ async function handlePrescriptionIngress(
   }
 
   const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
-  if (!parsed.ok) {
+  if (parsed.ok !== true) {
     if (parsed.logReason) {
       deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: "/api/v1/prescriptions" }, undefined);
     }
@@ -186,9 +202,14 @@ async function handlePrescriptionIngress(
     return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_JSON" }, signingSecret);
   }
 
-  const auth = validateSignedRequestPayload(body, deps, undefined, "ingest");
-  if (!auth.ok) {
-    return sendJson(res, auth.statusCode, { ok: false, code: auth.code }, signingSecret);
+  let reqId: string;
+  try {
+    reqId = normalizeRequiredString((body as { req_id?: unknown }).req_id, "req_id");
+    validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "ML_INGEST_BAD_REQUEST";
+    deps.logger.warning("ingest.rejected", { reason: message }, undefined);
+    return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_REQUEST" }, signingSecret);
   }
 
   try {
@@ -205,7 +226,6 @@ async function handlePrescriptionIngress(
         prescription_id: result.prescription_id,
         uid: result.uid,
         verify_token: result.verify_token,
-        verify_code: result.verify_code,
         processing_status: result.processing_status,
         status: result.status,
         source_req_id: result.source_req_id,
@@ -214,8 +234,8 @@ async function handlePrescriptionIngress(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ingest_failed";
-    const statusCode = isClientRequestError(message) ? 400 : 500;
-    const code = isClientRequestError(message) ? "ML_INGEST_BAD_REQUEST" : "ML_INGEST_FAILED";
+    const statusCode = isClientIngestError(message) ? 400 : 500;
+    const code = isClientIngestError(message) ? "ML_INGEST_BAD_REQUEST" : "ML_INGEST_FAILED";
 
     deps.logger.error(
       "ingest.failed",
@@ -223,7 +243,7 @@ async function handlePrescriptionIngress(
         reason: message,
         status_code: statusCode,
       },
-      auth.reqId,
+      reqId,
     );
     return sendJson(res, statusCode, { ok: false, code }, signingSecret);
   }
@@ -236,77 +256,56 @@ async function handlePrescriptionApprove(
   signingSecret: string,
   prescriptionId: string,
 ): Promise<void> {
-  if (deps.jobsRepo.mode !== "postgres") {
-    return sendJson(res, 503, { ok: false, code: "ML_APPROVAL_DISABLED" }, signingSecret);
+  const repo = asApprovalRepo(deps.jobsRepo);
+  if (!repo) {
+    return sendJson(res, 503, { ok: false, code: "ML_INGEST_DISABLED" }, signingSecret);
   }
 
-  let rawBody: Buffer;
+  const parsedBody = await parseSignedActionBody(req, deps, "/approve");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
   try {
-    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
-  } catch (err: unknown) {
-    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
-    const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
-    deps.logger.warning("approval.rejected", { reason: code, prescription_id: prescriptionId }, undefined);
-    return sendJson(res, status, { ok: false, code }, signingSecret);
-  }
-
-  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
-  if (!parsed.ok) {
-    if (parsed.logReason) {
-      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: `/api/v1/prescriptions/${prescriptionId}/approve` }, undefined);
+    const body = parsedBody.body;
+    const doctor = body.doctor && typeof body.doctor === "object" ? (body.doctor as IngestDoctorInput) : null;
+    if (!doctor) {
+      throw new Error("doctor block is required");
     }
-    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
-  }
 
-  let body: ApprovePrescriptionRequest;
-  try {
-    body = JSON.parse(rawBody.toString("utf8")) as ApprovePrescriptionRequest;
-  } catch {
-    deps.logger.warning("approval.rejected", { reason: "bad_json", prescription_id: prescriptionId }, undefined);
-    return sendJson(res, 400, { ok: false, code: "ML_APPROVAL_BAD_JSON" }, signingSecret);
-  }
+    const input: ApprovePrescriptionRequest = {
+      schema_version: CURRENT_SCHEMA_VERSION,
+      site_id: deps.siteId,
+      ts_ms: Date.now(),
+      nonce: crypto.randomBytes(12).toString("hex"),
+      req_id: reqId,
+      doctor,
+    };
 
-  const auth = validateSignedRequestPayload(body, deps, prescriptionId, "approval");
-  if (!auth.ok) {
-    return sendJson(res, auth.statusCode, { ok: false, code: auth.code }, signingSecret);
-  }
+    const result = normalizeActionResult(await repo.approvePrescription(prescriptionId, input));
 
-  try {
-    const result = await deps.jobsRepo.approvePrescription(prescriptionId, body);
     return sendJson(
       res,
-      result.mode === "approved" ? 202 : 200,
+      200,
       {
         ok: true,
         schema_version: CURRENT_SCHEMA_VERSION,
-        mode: result.mode,
-        queue_mode: deps.jobsRepo.mode,
-        job_id: result.job_id,
         prescription_id: result.prescription_id,
+        job_id: result.job_id,
         uid: result.uid,
         verify_token: result.verify_token,
         verify_code: result.verify_code,
         processing_status: result.processing_status,
-        status: result.status,
+        status: "APPROVED",
         source_req_id: result.source_req_id,
       },
       signingSecret,
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "approval_failed";
-    const statusCode = isClientRequestError(message) ? 400 : 500;
-    const code = isClientRequestError(message) ? "ML_APPROVAL_BAD_REQUEST" : "ML_APPROVAL_FAILED";
-
-    deps.logger.error(
-      "approval.failed",
-      {
-        reason: message,
-        prescription_id: prescriptionId,
-        status_code: statusCode,
-      },
-      auth.reqId,
-    );
-    return sendJson(res, statusCode, { ok: false, code }, signingSecret);
+    const message = err instanceof Error ? err.message : "approve_failed";
+    deps.logger.error("ingest.approve_failed", { reason: message }, reqId);
+    return sendJson(res, 500, { ok: false, code: "ML_APPROVE_FAILED" }, signingSecret);
   }
 }
 
@@ -317,78 +316,133 @@ async function handlePrescriptionReject(
   signingSecret: string,
   prescriptionId: string,
 ): Promise<void> {
-  if (deps.jobsRepo.mode !== "postgres") {
-    return sendJson(res, 503, { ok: false, code: "ML_REJECTION_DISABLED" }, signingSecret);
+  const repo = asApprovalRepo(deps.jobsRepo);
+  if (!repo) {
+    return sendJson(res, 503, { ok: false, code: "ML_INGEST_DISABLED" }, signingSecret);
   }
 
-  let rawBody: Buffer;
+  const parsedBody = await parseSignedActionBody(req, deps, "/reject");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
   try {
-    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
-  } catch (err: unknown) {
-    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
-    const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
-    deps.logger.warning("rejection.rejected", { reason: code, prescription_id: prescriptionId }, undefined);
-    return sendJson(res, status, { ok: false, code }, signingSecret);
-  }
+    const body = parsedBody.body;
+    const reason = typeof body.reason === "string" ? body.reason : null;
+    const input: RejectPrescriptionRequest = {
+      schema_version: CURRENT_SCHEMA_VERSION,
+      site_id: deps.siteId,
+      ts_ms: Date.now(),
+      nonce: crypto.randomBytes(12).toString("hex"),
+      req_id: reqId,
+      reason,
+    };
+    const result = normalizeActionResult(await repo.rejectPrescription(prescriptionId, input));
 
-  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
-  if (!parsed.ok) {
-    if (parsed.logReason) {
-      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: `/api/v1/prescriptions/${prescriptionId}/reject` }, undefined);
-    }
-    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
-  }
-
-  let body: RejectPrescriptionRequest;
-  try {
-    body = JSON.parse(rawBody.toString("utf8")) as RejectPrescriptionRequest;
-  } catch {
-    deps.logger.warning("rejection.rejected", { reason: "bad_json", prescription_id: prescriptionId }, undefined);
-    return sendJson(res, 400, { ok: false, code: "ML_REJECTION_BAD_JSON" }, signingSecret);
-  }
-
-  const auth = validateSignedRequestPayload(body, deps, prescriptionId, "rejection");
-  if (!auth.ok) {
-    return sendJson(res, auth.statusCode, { ok: false, code: auth.code }, signingSecret);
-  }
-
-  try {
-    const result = await deps.jobsRepo.rejectPrescription(prescriptionId, body);
     return sendJson(
       res,
-      result.mode === "rejected" ? 202 : 200,
+      200,
       {
         ok: true,
         schema_version: CURRENT_SCHEMA_VERSION,
-        mode: result.mode,
-        queue_mode: deps.jobsRepo.mode,
-        job_id: result.job_id,
         prescription_id: result.prescription_id,
+        job_id: result.job_id,
         uid: result.uid,
         verify_token: result.verify_token,
         verify_code: result.verify_code,
         processing_status: result.processing_status,
-        status: result.status,
+        status: "REJECTED",
         source_req_id: result.source_req_id,
       },
       signingSecret,
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "rejection_failed";
-    const statusCode = isClientRequestError(message) ? 400 : 500;
-    const code = isClientRequestError(message) ? "ML_REJECTION_BAD_REQUEST" : "ML_REJECTION_FAILED";
-
-    deps.logger.error(
-      "rejection.failed",
-      {
-        reason: message,
-        prescription_id: prescriptionId,
-        status_code: statusCode,
-      },
-      auth.reqId,
-    );
-    return sendJson(res, statusCode, { ok: false, code }, signingSecret);
+    const message = err instanceof Error ? err.message : "reject_failed";
+    deps.logger.error("ingest.reject_failed", { reason: message }, reqId);
+    return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
   }
+}
+
+function asApprovalRepo(jobsRepo: JobsRepo): PostgresApprovalRepo | null {
+  const candidate = jobsRepo as Partial<PostgresApprovalRepo>;
+  if (
+    typeof candidate.approvePrescription === "function"
+    && typeof candidate.rejectPrescription === "function"
+  ) {
+    return jobsRepo as PostgresApprovalRepo;
+  }
+
+  return null;
+}
+
+async function parseSignedActionBody(
+  req: http.IncomingMessage,
+  deps: PulseServerDeps,
+  pathSuffix: string,
+): Promise<
+  | { ok: true; body: Record<string, unknown>; reqId: string }
+  | { ok: false; statusCode: number; code: string }
+> {
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
+  } catch (err: unknown) {
+    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    return { ok: false, statusCode: code === "ML_BODY_TOO_LARGE" ? 413 : 400, code };
+  }
+
+  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: pathSuffix }, undefined);
+    }
+    return { ok: false, statusCode: parsed.statusCode, code: parsed.code };
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    const candidate = JSON.parse(rawBody.toString("utf8")) as unknown;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("bad_json");
+    }
+    body = candidate as Record<string, unknown>;
+  } catch {
+    return { ok: false, statusCode: 400, code: "ML_INGEST_BAD_JSON" };
+  }
+
+  try {
+    const reqId = normalizeRequiredString(body.req_id, "req_id");
+    validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
+    return { ok: true, body, reqId };
+  } catch {
+    return { ok: false, statusCode: 400, code: "ML_INGEST_BAD_REQUEST" };
+  }
+}
+
+function normalizeActionResult(value: unknown): {
+  prescription_id: string;
+  job_id: string;
+  uid: string;
+  verify_token: string | null;
+  verify_code: string | null;
+  processing_status: string;
+  source_req_id: string;
+} {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid action result");
+  }
+
+  const row = value as Record<string, unknown>;
+  return {
+    prescription_id: normalizeRequiredString(row.prescription_id, "prescription_id"),
+    job_id: normalizeRequiredString(row.job_id, "job_id"),
+    uid: normalizeRequiredString(row.uid, "uid"),
+    verify_token: typeof row.verify_token === "string" && row.verify_token.trim() !== "" ? row.verify_token.trim() : null,
+    verify_code: typeof row.verify_code === "string" && row.verify_code.trim() !== "" ? row.verify_code.trim() : null,
+    processing_status: typeof row.processing_status === "string" && row.processing_status.trim() !== "" ? row.processing_status.trim() : "PENDING",
+    source_req_id: typeof row.source_req_id === "string" && row.source_req_id.trim() !== "" ? row.source_req_id.trim() : "",
+  };
 }
 
 function validateSignedRequestHeader(
@@ -438,55 +492,27 @@ function validateSignedJsonBody(
   return { ok: true, token: parsed };
 }
 
-function validateSignedRequestPayload(
-  body: { site_id?: unknown; ts_ms?: unknown; nonce?: unknown; req_id?: unknown },
-  deps: PulseServerDeps,
-  prescriptionId: string | undefined,
-  kind: "ingest" | "approval" | "rejection",
-): { ok: true; reqId: string } | { ok: false; statusCode: number; code: string } {
-  try {
-    const reqId = normalizeRequiredString(body.req_id, "req_id");
-    const now = Date.now();
-    const tsMs = normalizeFiniteNumber(body.ts_ms, "ts_ms");
-    const skew = Math.abs(now - tsMs);
-    if (skew > deps.skewWindowMs) {
-      deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, reqId);
-      return { ok: false, statusCode: 401, code: "ML_AUTH_EXPIRED" };
-    }
-
-    const siteId = normalizeRequiredString(body.site_id, "site_id");
-    if (siteId !== deps.siteId) {
-      deps.logger.warning(`${kind}.rejected`, { reason: "site_id_mismatch", prescription_id: prescriptionId }, reqId);
-      return { ok: false, statusCode: 403, code: `ML_${kind.toUpperCase()}_SITE_MISMATCH` };
-    }
-
-    const nonce = normalizeRequiredString(body.nonce, "nonce");
-    const isNew = deps.nonceCache.checkAndStore(nonce, now);
-    if (!isNew) {
-      deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, reqId);
-      return { ok: false, statusCode: 409, code: "ML_AUTH_REPLAY" };
-    }
-
-    return { ok: true, reqId };
-  } catch (err: unknown) {
-    deps.logger.warning(`${kind}.rejected`, {
-      reason: err instanceof Error ? err.message : `${kind}_bad_request`,
-      prescription_id: prescriptionId,
-    }, undefined);
-    return { ok: false, statusCode: 400, code: `ML_${kind.toUpperCase()}_BAD_REQUEST` };
-  }
-}
-
-function matchPrescriptionActionPath(path: string): { prescriptionId: string; action: "approve" | "reject" } | null {
-  const match = /^\/api\/v1\/prescriptions\/([^/]+)\/(approve|reject)$/.exec(path);
-  if (!match) {
-    return null;
+function validateSignedEnvelope(body: Record<string, unknown>, deps: PulseServerDeps, reqId: string): void {
+  const now = Date.now();
+  const tsMs = normalizeFiniteNumber(body.ts_ms, "ts_ms");
+  const skew = Math.abs(now - tsMs);
+  if (skew > deps.skewWindowMs) {
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, reqId);
+    throw new Error("Expired signature");
   }
 
-  return {
-    prescriptionId: decodeURIComponent(match[1]),
-    action: match[2] as "approve" | "reject",
-  };
+  const siteId = normalizeRequiredString(body.site_id, "site_id");
+  if (siteId !== deps.siteId) {
+    deps.logger.warning("ingest.rejected", { reason: "site_id_mismatch" }, reqId);
+    throw new Error("site_id mismatch");
+  }
+
+  const nonce = normalizeRequiredString(body.nonce, "nonce");
+  const isNew = deps.nonceCache.checkAndStore(nonce, now);
+  if (!isNew) {
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, reqId);
+    throw new Error("Replay detected");
+  }
 }
 
 function timingSafeEqualBuffers(a: Buffer, b: Buffer): boolean {
@@ -500,16 +526,11 @@ function readRawBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffe
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
-    let settled = false;
 
     req.on("data", (chunk: Buffer | string) => {
-      if (settled) {
-        return;
-      }
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += buf.length;
       if (total > maxBytes) {
-        settled = true;
         reject(new Error("ML_BODY_TOO_LARGE"));
         req.destroy();
         return;
@@ -517,27 +538,9 @@ function readRawBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffe
       chunks.push(buf);
     });
 
-    req.on("end", () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(Buffer.concat(chunks));
-    });
-    req.on("error", (err) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      reject(err);
-    });
-    req.on("aborted", () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      reject(new Error("ML_BODY_ABORTED"));
-    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+    req.on("aborted", () => reject(new Error("ML_BODY_ABORTED")));
   });
 }
 
@@ -545,6 +548,7 @@ function normalizeRequiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${field} is required`);
   }
+
   return value.trim();
 }
 
@@ -567,17 +571,15 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown, signi
   res.end(data);
 }
 
-function isClientRequestError(message: string): boolean {
+function isClientIngestError(message: string): boolean {
   return [
     "required",
     "must be",
     "schema_version mismatch",
     "site_id mismatch",
-    "patient block is required",
     "doctor block is required",
-    "doctor block must be an object when provided",
+    "patient block is required",
     "prescription block is required",
     "prescription.items must be an array",
-    "prescription_id not found",
   ].some((needle) => message.includes(needle));
 }

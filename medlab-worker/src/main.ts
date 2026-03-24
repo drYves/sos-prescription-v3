@@ -7,18 +7,33 @@ import { PrismaJobsRepo } from "./jobs/prismaJobsRepo";
 import { failOrRetry, processJob } from "./jobs/processor";
 import { PdfRenderer } from "./pdf/pdfRenderer";
 import { NdjsonLogger } from "./logger";
-import { NonceCache } from "./security/nonceCache";
-import { S3Service } from "./s3/s3Service";
-import { sleep } from "./utils/sleep";
 import { TemplateRegistry } from "./pdf/templateRegistry";
 import { SignatureDataUriLoader } from "./pdf/assets/signatureDataUri";
 import { PrescriptionHtmlBuilder } from "./pdf/prescriptionHtmlBuilder";
 import { PrismaPrescriptionStore } from "./prescriptions/prismaPrescriptionStore";
+import { NonceCache } from "./security/nonceCache";
+import { S3Service } from "./s3/s3Service";
+import { sleep } from "./utils/sleep";
+
+const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const logger = new NdjsonLogger("worker", cfg.siteId, cfg.env);
-  const queueMode = resolveForcedQueueMode(process.env.QUEUE_MODE);
+  const requestedQueueMode = resolveQueueMode(process.env.QUEUE_MODE);
+  const queueMode: "postgres" = "postgres";
+
+  if (requestedQueueMode !== "postgres") {
+    logger.warning(
+      "system.queue_mode_forced",
+      {
+        requested_queue_mode: requestedQueueMode,
+        effective_queue_mode: queueMode,
+      },
+      undefined,
+    );
+  }
+
   const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
   const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
 
@@ -26,6 +41,9 @@ async function main(): Promise<void> {
     siteId: cfg.siteId,
     workerId: cfg.workerId,
     hmacSecretActive: cfg.security.hmacSecretActive,
+    wpBaseUrl: cfg.wpBaseUrl,
+    wpCallbackPathTemplate: process.env.WP_SHADOW_CALLBACK_PATH_TEMPLATE ?? DEFAULT_WP_CALLBACK_PATH_TEMPLATE,
+    requestTimeoutMs: cfg.restRequestTimeoutMs,
     logger,
   });
 
@@ -122,7 +140,7 @@ async function main(): Promise<void> {
     "system.worker_started",
     {
       worker_id: cfg.workerId,
-      queue_mode: queueMode,
+      queue_mode: jobsRepo.mode,
       queue_table: jobsRepo.getTableName(),
       lease_min: cfg.leaseMinutes,
       poll_ms: idlePollMs,
@@ -130,6 +148,7 @@ async function main(): Promise<void> {
       template_default: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
       html_builder_ready: true,
       signature_loader_ready: true,
+      wp_shadow_callback_path: process.env.WP_SHADOW_CALLBACK_PATH_TEMPLATE ?? DEFAULT_WP_CALLBACK_PATH_TEMPLATE,
     },
     undefined,
   );
@@ -230,12 +249,9 @@ async function main(): Promise<void> {
   }
 }
 
-function resolveForcedQueueMode(value: string | undefined): "postgres" {
+function resolveQueueMode(value: string | undefined): "rest" | "postgres" {
   const raw = (value ?? "postgres").trim().toLowerCase();
-  if (raw !== "postgres") {
-    throw new Error(`QUEUE_MODE must be 'postgres' for Zero-PII mode, received: ${raw || "<empty>"}`);
-  }
-  return "postgres";
+  return raw === "rest" ? "rest" : "postgres";
 }
 
 function withJitter(baseMs: number, jitterMs: number): number {

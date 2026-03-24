@@ -153,6 +153,21 @@ final class Routes
             ],
         ]);
 
+        // Callback Worker -> WordPress pour synchroniser le shadow record local après génération PDF.
+        register_rest_route('sosprescription/v1', '/prescriptions/worker/(?P<job_id>[A-Fa-f0-9\-]{36})/callback', [
+            'methods' => 'POST',
+            'callback' => [$rx, 'worker_pdf_callback'],
+            'permission_callback' => '__return_true',
+            'args' => [
+                'job_id' => [
+                    'required' => true,
+                    'sanitize_callback' => static function ($value) {
+                        return is_string($value) ? trim($value) : '';
+                    },
+                ],
+            ],
+        ]);
+
         // Logs frontend (télémétrie de debug)
         register_rest_route('sosprescription/v1', '/logs/frontend', [
             'methods' => 'POST',

@@ -12,7 +12,9 @@ use SOSPrescription\Services\StripeConfig;
 use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Services\UidGenerator;
 use SOSPrescription\Core\JobDispatcher;
+use SOSPrescription\Core\Mls1Verifier;
 use SOSPrescription\Core\NdjsonLogger;
+use SOSPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
 use WP_Error;
 use WP_REST_Request;
@@ -158,7 +160,7 @@ class PrescriptionController extends \WP_REST_Controller
             ],
             'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
             'shadow' => [
-                'zero_pii' => false,
+                'zero_pii' => true,
             ],
         ];
 
@@ -447,6 +449,87 @@ class PrescriptionController extends \WP_REST_Controller
         ], 200);
     }
 
+
+    public function worker_pdf_callback(WP_REST_Request $request)
+    {
+        $verified = $this->get_worker_callback_verifier()->verifyJsonBodySigned($request, 'worker_shadow_callback');
+        if (is_wp_error($verified)) {
+            return $verified;
+        }
+
+        $data = isset($verified['data']) && is_array($verified['data']) ? $verified['data'] : [];
+        $req_id = ReqId::coalesce(isset($verified['req_id']) && is_string($verified['req_id']) ? $verified['req_id'] : null);
+
+        $schemaVersion = isset($data['schema_version']) && is_scalar($data['schema_version']) ? (string) $data['schema_version'] : '';
+        if (!in_array($schemaVersion, ['2026.6', '2026.5'], true)) {
+            return new WP_Error('sosprescription_worker_callback_schema', 'Schema callback invalide.', ['status' => 400]);
+        }
+
+        $siteId = isset($data['site_id']) && is_scalar($data['site_id']) ? (string) $data['site_id'] : '';
+        if ($siteId !== $this->get_worker_site_id()) {
+            return new WP_Error('sosprescription_worker_callback_site', 'Site callback invalide.', ['status' => 403]);
+        }
+
+        $job = isset($data['job']) && is_array($data['job']) ? $data['job'] : [];
+        if ($job === []) {
+            return new WP_Error('sosprescription_worker_callback_job', 'Payload job manquant.', ['status' => 400]);
+        }
+
+        $pathJobId = trim((string) $request->get_param('job_id'));
+        $bodyJobId = trim((string) ($job['job_id'] ?? ($job['prescription_id'] ?? '')));
+        $jobId = $pathJobId !== '' ? $pathJobId : $bodyJobId;
+        if (!$this->is_valid_worker_prescription_id($jobId)) {
+            return new WP_Error('sosprescription_worker_callback_job_id', 'Identifiant Worker invalide.', ['status' => 400]);
+        }
+        if ($bodyJobId !== '' && $bodyJobId !== $jobId) {
+            return new WP_Error('sosprescription_worker_callback_job_mismatch', 'Mauvais identifiant Worker.', ['status' => 400]);
+        }
+
+        $localId = $this->find_shadow_prescription_id_by_worker_prescription_id($jobId);
+        if ($localId < 1) {
+            return new WP_Error('sosprescription_worker_callback_not_found', 'Shadow record introuvable.', ['status' => 404]);
+        }
+
+        $status = $this->normalize_worker_callback_status(isset($job['status']) ? $job['status'] : 'DONE');
+        $processing = $this->normalize_worker_processing_status(
+            isset($job['processing_status']) ? $job['processing_status'] : $status,
+            $status
+        );
+
+        $workerUpdate = [
+            'prescription_id' => $jobId,
+            'job_id' => $jobId,
+            'status' => $status,
+            'processing_status' => $processing,
+            'source_req_id' => isset($job['source_req_id']) && is_scalar($job['source_req_id']) ? (string) $job['source_req_id'] : $req_id,
+            'worker_ref' => isset($job['worker_ref']) && is_scalar($job['worker_ref']) ? substr(sanitize_text_field((string) $job['worker_ref']), 0, 191) : '',
+            's3_key_ref' => isset($job['s3_key_ref']) && is_scalar($job['s3_key_ref']) ? substr(trim((string) $job['s3_key_ref']), 0, 1024) : '',
+            's3_bucket' => isset($job['s3_bucket']) && is_scalar($job['s3_bucket']) ? substr(sanitize_text_field((string) $job['s3_bucket']), 0, 191) : '',
+            's3_region' => isset($job['s3_region']) && is_scalar($job['s3_region']) ? substr(sanitize_text_field((string) $job['s3_region']), 0, 64) : '',
+            'artifact_sha256_hex' => isset($job['artifact_sha256_hex']) && is_scalar($job['artifact_sha256_hex']) ? strtolower(trim((string) $job['artifact_sha256_hex'])) : '',
+            'artifact_size_bytes' => isset($job['artifact_size_bytes']) && is_numeric($job['artifact_size_bytes']) ? (int) $job['artifact_size_bytes'] : null,
+            'artifact_content_type' => isset($job['artifact_content_type']) && is_scalar($job['artifact_content_type']) ? substr(sanitize_text_field((string) $job['artifact_content_type']), 0, 128) : '',
+            'last_error_code' => isset($job['last_error_code']) && is_scalar($job['last_error_code']) ? substr(preg_replace('/[^A-Z0-9_\-]/i', '_', strtoupper((string) $job['last_error_code'])) ?? 'ML_WORKER_CALLBACK', 0, 64) : '',
+            'last_error_message_safe' => isset($job['last_error_message_safe']) && is_scalar($job['last_error_message_safe']) ? substr(trim(wp_strip_all_tags((string) $job['last_error_message_safe'])), 0, 255) : '',
+        ];
+
+        if (!$this->store_shadow_worker_state($localId, $workerUpdate)) {
+            return new WP_Error('sosprescription_worker_callback_store_failed', 'Impossible de synchroniser le shadow record.', ['status' => 500]);
+        }
+
+        $row = $this->prescriptions->get($localId);
+        $pdf = is_array($row) ? $this->build_shadow_pdf_state($localId, $row) : ['status' => strtolower($processing)];
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'req_id' => $req_id,
+            'prescription_id' => $localId,
+            'worker_prescription_id' => $jobId,
+            'status' => $status,
+            'processing_status' => $processing,
+            'pdf' => $pdf,
+        ], 200);
+    }
 
     public function get_rx_pdf($request)
     {
@@ -1038,7 +1121,7 @@ class PrescriptionController extends \WP_REST_Controller
 
         $payload = array_merge($this->build_business_cache_payload($params), [
             'shadow' => [
-                'zero_pii' => false,
+                'zero_pii' => true,
                 'mode' => 'worker-postgres',
             ],
             'worker' => $this->build_worker_shadow_payload($workerResult),
@@ -1096,6 +1179,14 @@ class PrescriptionController extends \WP_REST_Controller
             'source_req_id' => isset($workerData['source_req_id']) && is_scalar($workerData['source_req_id']) ? (string) $workerData['source_req_id'] : '',
             'verify_token' => isset($workerData['verify_token']) && is_scalar($workerData['verify_token']) ? (string) $workerData['verify_token'] : '',
             'verify_code' => isset($workerData['verify_code']) && is_scalar($workerData['verify_code']) ? (string) $workerData['verify_code'] : '',
+            's3_key_ref' => isset($workerData['s3_key_ref']) && is_scalar($workerData['s3_key_ref']) ? (string) $workerData['s3_key_ref'] : '',
+            's3_bucket' => isset($workerData['s3_bucket']) && is_scalar($workerData['s3_bucket']) ? (string) $workerData['s3_bucket'] : '',
+            's3_region' => isset($workerData['s3_region']) && is_scalar($workerData['s3_region']) ? (string) $workerData['s3_region'] : '',
+            'artifact_sha256_hex' => isset($workerData['artifact_sha256_hex']) && is_scalar($workerData['artifact_sha256_hex']) ? (string) $workerData['artifact_sha256_hex'] : '',
+            'artifact_size_bytes' => isset($workerData['artifact_size_bytes']) && is_numeric($workerData['artifact_size_bytes']) ? (int) $workerData['artifact_size_bytes'] : null,
+            'artifact_content_type' => isset($workerData['artifact_content_type']) && is_scalar($workerData['artifact_content_type']) ? (string) $workerData['artifact_content_type'] : '',
+            'last_error_code' => isset($workerData['last_error_code']) && is_scalar($workerData['last_error_code']) ? (string) $workerData['last_error_code'] : '',
+            'last_error_message_safe' => isset($workerData['last_error_message_safe']) && is_scalar($workerData['last_error_message_safe']) ? (string) $workerData['last_error_message_safe'] : '',
             'last_sync_at' => current_time('mysql'),
         ];
     }
@@ -1107,6 +1198,13 @@ class PrescriptionController extends \WP_REST_Controller
     protected function extract_worker_shadow_state(array $row): array
     {
         $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        if ($payload === [] && isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
+            $decoded = json_decode($row['payload_json'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
         $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
         return $worker;
     }
@@ -1135,7 +1233,7 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $payload['shadow'] = [
-            'zero_pii' => false,
+            'zero_pii' => true,
             'mode' => 'worker-postgres',
         ];
         $payload['worker'] = array_merge(
@@ -1236,6 +1334,11 @@ class PrescriptionController extends \WP_REST_Controller
         $worker = $this->extract_worker_shadow_state($row);
         $processing = strtolower(trim((string) ($worker['processing_status'] ?? 'pending')));
         $workerStatus = strtoupper(trim((string) ($worker['status'] ?? 'PENDING')));
+        $s3KeyRef = isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref']) ? trim((string) $worker['s3_key_ref']) : '';
+        $s3Bucket = isset($worker['s3_bucket']) && is_scalar($worker['s3_bucket']) ? trim((string) $worker['s3_bucket']) : '';
+        $s3Region = isset($worker['s3_region']) && is_scalar($worker['s3_region']) ? trim((string) $worker['s3_region']) : '';
+        $artifactSizeBytes = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes']) ? (int) $worker['artifact_size_bytes'] : null;
+        $artifactContentType = isset($worker['artifact_content_type']) && is_scalar($worker['artifact_content_type']) ? trim((string) $worker['artifact_content_type']) : 'application/pdf';
 
         $status = 'pending';
         if ($processing === 'done') {
@@ -1278,10 +1381,43 @@ class PrescriptionController extends \WP_REST_Controller
             $pdf['message'] = 'Génération du PDF en cours.';
         } elseif ($status === 'failed') {
             $pdf['message'] = 'Le PDF n’est pas disponible pour cette ordonnance.';
-            $pdf['last_error_code'] = $workerStatus === 'REJECTED' ? 'rejected' : 'worker_failed';
-            $pdf['last_error_message'] = $workerStatus === 'REJECTED'
-                ? 'L’ordonnance a été rejetée.'
-                : 'Le Worker a signalé un échec de génération.';
+            $pdf['last_error_code'] = isset($worker['last_error_code']) && is_scalar($worker['last_error_code']) && (string) $worker['last_error_code'] !== ''
+                ? (string) $worker['last_error_code']
+                : ($workerStatus === 'REJECTED' ? 'rejected' : 'worker_failed');
+            $pdf['last_error_message'] = isset($worker['last_error_message_safe']) && is_scalar($worker['last_error_message_safe']) && (string) $worker['last_error_message_safe'] !== ''
+                ? (string) $worker['last_error_message_safe']
+                : ($workerStatus === 'REJECTED'
+                    ? 'L’ordonnance a été rejetée.'
+                    : 'Le Worker a signalé un échec de génération.');
+        }
+
+        if ($status === 'done') {
+            if ($s3KeyRef !== '') {
+                $presigned = $this->build_presigned_s3_url_from_job([
+                    'job_id' => isset($worker['job_id']) ? (string) $worker['job_id'] : (string) $prescription_id,
+                    's3_key_ref' => $s3KeyRef,
+                    's3_bucket' => $s3Bucket,
+                    's3_region' => $s3Region,
+                    'artifact_size_bytes' => $artifactSizeBytes,
+                    'artifact_content_type' => $artifactContentType,
+                ], 300);
+
+                if (!is_wp_error($presigned) && is_string($presigned) && $presigned !== '') {
+                    $pdf['s3_ready'] = true;
+                    $pdf['can_download'] = true;
+                    $pdf['download_url'] = $presigned;
+                    $pdf['expires_in'] = 300;
+                    $pdf['message'] = 'Validation enregistrée. PDF disponible.';
+                } else {
+                    $pdf['message'] = 'PDF généré mais lien de téléchargement indisponible.';
+                    $pdf['last_error_code'] = is_wp_error($presigned) ? $presigned->get_error_code() : 's3_link_unavailable';
+                    $pdf['last_error_message'] = is_wp_error($presigned) ? $presigned->get_error_message() : 'Le lien de téléchargement n’a pas pu être généré.';
+                }
+            } else {
+                $pdf['message'] = 'PDF généré mais lien de téléchargement indisponible.';
+                $pdf['last_error_code'] = 's3_key_missing';
+                $pdf['last_error_message'] = 'La clé S3 du PDF n’a pas encore été synchronisée.';
+            }
         }
 
         return $pdf;
@@ -1386,6 +1522,76 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return $siteId;
+    }
+
+    protected function get_worker_callback_verifier(): Mls1Verifier
+    {
+        $siteId = $this->get_worker_site_id();
+        $logger = new NdjsonLogger('web', $siteId, $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
+        return Mls1Verifier::fromEnv(new NonceStore($this->wpdb, $siteId), $logger);
+    }
+
+    protected function find_shadow_prescription_id_by_worker_prescription_id(string $workerPrescriptionId): int
+    {
+        $workerPrescriptionId = trim($workerPrescriptionId);
+        if (!$this->is_valid_worker_prescription_id($workerPrescriptionId)) {
+            return 0;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+
+        $id = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT id FROM `{$table}` WHERE JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.worker.prescription_id')) = %s LIMIT 1",
+            $workerPrescriptionId
+        ));
+
+        if (is_numeric($id) && (int) $id > 0) {
+            return (int) $id;
+        }
+
+        $like = '%"prescription_id":"' . $this->wpdb->esc_like($workerPrescriptionId) . '"%';
+        $id = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT id FROM `{$table}` WHERE payload_json LIKE %s LIMIT 1",
+            $like
+        ));
+
+        return is_numeric($id) && (int) $id > 0 ? (int) $id : 0;
+    }
+
+    protected function normalize_worker_callback_status($value): string
+    {
+        $status = strtoupper(trim((string) $value));
+        if (in_array($status, ['DONE', 'FAILED', 'PENDING', 'CLAIMED', 'APPROVED', 'REJECTED'], true)) {
+            return $status;
+        }
+
+        return 'PENDING';
+    }
+
+    protected function normalize_worker_processing_status($value, string $fallbackStatus = 'PENDING'): string
+    {
+        $processing = strtolower(trim((string) $value));
+        if (in_array($processing, ['done', 'failed', 'pending', 'claimed', 'waiting_approval'], true)) {
+            return $processing;
+        }
+
+        $fallback = strtoupper(trim($fallbackStatus));
+        if ($fallback === 'DONE') {
+            return 'done';
+        }
+        if ($fallback === 'FAILED' || $fallback === 'REJECTED') {
+            return 'failed';
+        }
+        if ($fallback === 'CLAIMED') {
+            return 'claimed';
+        }
+
+        return 'pending';
+    }
+
+    protected function is_valid_worker_prescription_id(string $value): bool
+    {
+        return preg_match('/^[A-Fa-f0-9\-]{36}$/', trim($value)) === 1;
     }
 
     protected function get_job_dispatcher(): JobDispatcher

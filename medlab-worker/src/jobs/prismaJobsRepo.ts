@@ -1,5 +1,6 @@
 // src/jobs/prismaJobsRepo.ts
 import { randomBytes, randomInt } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
@@ -12,14 +13,13 @@ import type {
   IngestPrescriptionRequest,
   IngestPrescriptionResult,
   JobRow,
-  JobStatus,
   JobsRepo,
   MarkDoneOptions,
   MarkFailedOptions,
   QueueMetrics,
+  RequeueWithBackoffOptions,
   RejectPrescriptionRequest,
   RejectPrescriptionResult,
-  RequeueWithBackoffOptions,
   SweepZombiesResult,
 } from "./jobsRepo";
 
@@ -28,16 +28,21 @@ const COMPAT_JOB_SCHEMA_VERSION = "2026.5";
 const JOB_TYPE = "PDF_GEN";
 const DEFAULT_PRIORITY = 50;
 const DEFAULT_MAX_ATTEMPTS = 5;
-const TX_MAX_WAIT_MS = 2_000;
-const TX_TIMEOUT_MS = 5_000;
+const TX_MAX_WAIT_MS = 5_000;
+const TX_TIMEOUT_MS = 15_000;
 const UID_LENGTH = 10;
 const VERIFY_TOKEN_BYTES = 24;
-const WAITING_APPROVAL = "WAITING_APPROVAL";
+const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
+const DEFAULT_CALLBACK_TIMEOUT_MS = 15_000;
+const DEFAULT_CALLBACK_RETRIES = 3;
 
 interface PrismaJobsRepoConfig {
   siteId: string;
   workerId: string;
   hmacSecretActive: string;
+  wpBaseUrl?: string;
+  wpCallbackPathTemplate?: string;
+  requestTimeoutMs?: number;
   logger?: NdjsonLogger;
 }
 
@@ -53,7 +58,7 @@ interface ClaimedPrescriptionRow {
   attempts: number;
   maxAttempts: number;
   verifyToken: string | null;
-  doctorId: string | null;
+  doctorId: string;
   patientId: string;
   sourceReqId: string | null;
   s3PdfKey: string | null;
@@ -69,7 +74,32 @@ interface IngestSelectRow {
   sourceReqId: string | null;
 }
 
-interface DecisionSelectRow extends IngestSelectRow {}
+interface CallbackJobPayload {
+  job_id: string;
+  prescription_id: string;
+  status: "DONE" | "FAILED" | "PENDING";
+  processing_status: string;
+  worker_ref: string;
+  source_req_id: string | null;
+  s3_key_ref?: string;
+  s3_bucket?: string;
+  s3_region?: string;
+  artifact_sha256_hex?: string;
+  artifact_size_bytes?: number;
+  artifact_content_type?: string;
+  retry_after_seconds?: number;
+  last_error_code?: string;
+  last_error_message_safe?: string;
+}
+
+interface CallbackEnvelope {
+  schema_version: string;
+  site_id: string;
+  ts_ms: number;
+  nonce: string;
+  req_id: string;
+  job: CallbackJobPayload;
+}
 
 export class PrismaJobsRepo implements JobsRepo {
   readonly mode = "postgres" as const;
@@ -79,6 +109,9 @@ export class PrismaJobsRepo implements JobsRepo {
   private readonly workerId: string;
   private readonly hmacSecretActive: string;
   private readonly logger?: NdjsonLogger;
+  private readonly wpBaseUrl: string;
+  private readonly wpCallbackPathTemplate: string;
+  private readonly requestTimeoutMs: number;
   private lastSweepAtMs = 0;
 
   constructor(cfg: PrismaJobsRepoConfig) {
@@ -87,6 +120,12 @@ export class PrismaJobsRepo implements JobsRepo {
     this.workerId = cfg.workerId;
     this.hmacSecretActive = cfg.hmacSecretActive;
     this.logger = cfg.logger;
+    this.wpBaseUrl = normalizeBaseUrl(cfg.wpBaseUrl ?? process.env.ML_WP_BASE_URL ?? "");
+    this.wpCallbackPathTemplate = normalizePathTemplate(
+      cfg.wpCallbackPathTemplate ?? process.env.WP_SHADOW_CALLBACK_PATH_TEMPLATE ?? DEFAULT_WP_CALLBACK_PATH_TEMPLATE,
+      DEFAULT_WP_CALLBACK_PATH_TEMPLATE,
+    );
+    this.requestTimeoutMs = Math.max(1_000, Math.floor(cfg.requestTimeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS));
   }
 
   getTableName(): string {
@@ -99,10 +138,11 @@ export class PrismaJobsRepo implements JobsRepo {
 
   async ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
     assertIngestRequest(input, this.siteId);
+    const doctorInput = input.doctor as IngestDoctorInput;
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
       try {
-        const created = await this.prisma.$transaction<IngestPrescriptionResult>(async (tx) => {
+        const created = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           const replay = await tx.prescription.findUnique({
             where: { sourceReqId: input.req_id },
             select: ingestSelect(),
@@ -112,16 +152,12 @@ export class PrismaJobsRepo implements JobsRepo {
             return mapIngestResult(replay, "replay", input.req_id);
           }
 
-          let doctorId: string | null = null;
-          if (hasDoctorIdentity(input.doctor)) {
-            const doctor = await tx.doctor.upsert({
-              where: { wpUserId: normalizeRequiredInt(input.doctor!.wpUserId, "doctor.wpUserId") },
-              create: buildDoctorCreate(input.doctor!),
-              update: buildDoctorUpdate(input.doctor!),
-              select: { id: true },
-            });
-            doctorId = doctor.id;
-          }
+          const doctor = await tx.doctor.upsert({
+            where: { wpUserId: normalizeRequiredInt(doctorInput.wpUserId, "doctor.wpUserId") },
+            create: buildDoctorCreate(doctorInput),
+            update: buildDoctorUpdate(doctorInput),
+            select: { id: true },
+          });
 
           const patient = await tx.patient.create({
             data: buildPatientCreate(input.patient),
@@ -131,7 +167,7 @@ export class PrismaJobsRepo implements JobsRepo {
           const createdPrescription = await tx.prescription.create({
             data: {
               uid: generatePublicUid(),
-              doctorId,
+              doctorId: doctor.id,
               patientId: patient.id,
               status: "PENDING",
               items: toInputJsonArray(input.prescription.items),
@@ -167,7 +203,7 @@ export class PrismaJobsRepo implements JobsRepo {
               prescription_uid: created.uid,
               processing_status: created.processing_status,
               source_req_id: created.source_req_id,
-              doctor_wp_user_id: hasDoctorIdentity(input.doctor) ? input.doctor?.wpUserId : undefined,
+              doctor_wp_user_id: doctorInput.wpUserId,
             },
             input.req_id,
           );
@@ -219,13 +255,17 @@ export class PrismaJobsRepo implements JobsRepo {
     throw new Error("Unreachable ingestion state");
   }
 
-  async approvePrescription(prescriptionId: string, input: ApprovePrescriptionRequest): Promise<ApprovePrescriptionResult> {
-    assertDecisionRequest(input, this.siteId, "approve");
-    const normalizedPrescriptionId = normalizeRequiredString(prescriptionId, "prescription_id");
+  async approvePrescription(
+    prescriptionId: string,
+    input: ApprovePrescriptionRequest,
+  ): Promise<ApprovePrescriptionResult> {
+    const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
+    const doctor = input.doctor;
+    const reqId = input.req_id;
 
-    const result = await this.prisma.$transaction<ApprovePrescriptionResult>(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const existing = await tx.prescription.findUnique({
-        where: { id: normalizedPrescriptionId },
+        where: { id: safePrescriptionId },
         select: {
           ...ingestSelect(),
           doctorId: true,
@@ -233,117 +273,77 @@ export class PrismaJobsRepo implements JobsRepo {
       });
 
       if (!existing) {
-        throw new Error("prescription_id not found");
+        throw new Error("Prescription not found");
       }
 
-      if (existing.status.toUpperCase() === "REJECTED") {
-        throw new Error("prescription is rejected");
-      }
-
-      const doctor = await tx.doctor.upsert({
-        where: { wpUserId: normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId") },
-        create: buildDoctorCreate(input.doctor),
-        update: buildDoctorUpdate(input.doctor),
-        select: { id: true },
-      });
-
-      if (existing.status.toUpperCase() !== "APPROVED") {
-        const updated = await tx.prescription.update({
-          where: { id: normalizedPrescriptionId },
-          data: {
-            doctorId: doctor.id,
-            status: "APPROVED",
-            processingStatus: existing.processingStatus === WAITING_APPROVAL ? "PENDING" : normalizeDecisionProcessingStatus(existing.processingStatus),
-            availableAt: new Date(),
-            claimedAt: null,
-            lockExpiresAt: null,
-            workerRef: null,
-            lastErrorCode: null,
-            lastErrorMessageSafe: null,
-          },
-          select: ingestSelect(),
+      if (doctor && existing.doctorId && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
+        await tx.doctor.update({
+          where: { id: existing.doctorId },
+          data: buildDoctorUpdate(doctor),
         });
-
-        return mapApproveResult(updated, "approved", input.req_id);
       }
 
-      const replay = await tx.prescription.update({
-        where: { id: normalizedPrescriptionId },
+      return tx.prescription.update({
+        where: { id: safePrescriptionId },
         data: {
-          doctorId: doctor.id,
+          status: "APPROVED",
+          updatedAt: new Date(),
         },
         select: ingestSelect(),
       });
-
-      return mapApproveResult(replay, "replay", input.req_id);
     }, {
       maxWait: TX_MAX_WAIT_MS,
       timeout: TX_TIMEOUT_MS,
     });
 
+    const result = mapApproveResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
     this.logger?.info(
-      result.mode === "approved" ? "ingest.approved" : "ingest.approve_replayed",
+      "ingest.approved",
       {
         job_id: result.job_id,
         prescription_uid: result.uid,
         processing_status: result.processing_status,
         source_req_id: result.source_req_id,
-        doctor_wp_user_id: input.doctor.wpUserId,
+        doctor_wp_user_id: doctor?.wpUserId ?? null,
       },
-      input.req_id,
+      reqId ?? updated.sourceReqId ?? undefined,
     );
 
     return result;
   }
 
-  async rejectPrescription(prescriptionId: string, input: RejectPrescriptionRequest): Promise<RejectPrescriptionResult> {
-    assertDecisionRequest(input, this.siteId, "reject");
-    const normalizedPrescriptionId = normalizeRequiredString(prescriptionId, "prescription_id");
-    const safeReason = normalizeNonEmptyString(input.reason, "Prescription rejected before rendering");
+  async rejectPrescription(
+    prescriptionId: string,
+    input: RejectPrescriptionRequest,
+  ): Promise<RejectPrescriptionResult> {
+    const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
+    const reason = input.reason;
+    const reqId = input.req_id;
 
-    const result = await this.prisma.$transaction<RejectPrescriptionResult>(async (tx) => {
-      const existing = await tx.prescription.findUnique({
-        where: { id: normalizedPrescriptionId },
-        select: ingestSelect(),
-      });
-
-      if (!existing) {
-        throw new Error("prescription_id not found");
-      }
-
-      if (existing.status.toUpperCase() === "REJECTED") {
-        return mapRejectResult(existing, "replay", input.req_id);
-      }
-
-      const updated = await tx.prescription.update({
-        where: { id: normalizedPrescriptionId },
-        data: {
-          status: "REJECTED",
-          processingStatus: "FAILED",
-          claimedAt: null,
-          lockExpiresAt: null,
-          workerRef: null,
-          lastErrorCode: "ML_PRESCRIPTION_REJECTED",
-          lastErrorMessageSafe: safeReason,
-        },
-        select: ingestSelect(),
-      });
-
-      return mapRejectResult(updated, "rejected", input.req_id);
-    }, {
-      maxWait: TX_MAX_WAIT_MS,
-      timeout: TX_TIMEOUT_MS,
+    const updated = await this.prisma.prescription.update({
+      where: { id: safePrescriptionId },
+      data: {
+        status: "REJECTED",
+        processingStatus: "FAILED",
+        lastErrorCode: "ML_REJECTED_BY_DOCTOR",
+        lastErrorMessageSafe: normalizeNullableString(reason) ?? "Prescription rejected by doctor",
+        claimedAt: null,
+        lockExpiresAt: null,
+        workerRef: null,
+      },
+      select: ingestSelect(),
     });
 
-    this.logger?.info(
-      result.mode === "rejected" ? "ingest.rejected" : "ingest.reject_replayed",
+    const result = mapRejectResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
+    this.logger?.warning(
+      "ingest.rejected",
       {
         job_id: result.job_id,
         prescription_uid: result.uid,
         processing_status: result.processing_status,
         source_req_id: result.source_req_id,
       },
-      input.req_id,
+      reqId ?? updated.sourceReqId ?? undefined,
     );
 
     return result;
@@ -370,14 +370,13 @@ export class PrismaJobsRepo implements JobsRepo {
 
     const leaseSeconds = Math.max(30, Math.floor(opts.leaseMinutes * 60));
 
-    const rows = await this.prisma.$transaction<Array<ClaimedPrescriptionRow>>(async (tx) => {
+    const rows = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       return tx.$queryRaw<Array<ClaimedPrescriptionRow>>`
         WITH next_job AS (
           SELECT id
           FROM "Prescription"
-          WHERE "processingStatus" = 'PENDING'
-            AND "status" = 'APPROVED'
-            AND "doctorId" IS NOT NULL
+          WHERE "status" = 'APPROVED'
+            AND "processingStatus" = 'PENDING'
             AND COALESCE("availableAt", NOW()) <= NOW()
             AND ("lockExpiresAt" IS NULL OR "lockExpiresAt" <= NOW())
           ORDER BY COALESCE("availableAt", NOW()) ASC, "createdAt" ASC
@@ -412,8 +411,8 @@ export class PrismaJobsRepo implements JobsRepo {
           p."s3PdfKey";
       `;
     }, {
-      maxWait: 1_000,
-      timeout: 3_000,
+      maxWait: TX_MAX_WAIT_MS,
+      timeout: TX_TIMEOUT_MS,
     });
 
     if (rows.length < 1) {
@@ -436,11 +435,12 @@ export class PrismaJobsRepo implements JobsRepo {
   }
 
   async markDone(opts: MarkDoneOptions): Promise<void> {
+    const workerRef = opts.workerRef ?? this.workerId;
     const updated = await this.prisma.prescription.updateMany({
       where: {
         id: opts.jobId,
         processingStatus: "CLAIMED",
-        workerRef: opts.workerRef ?? this.workerId,
+        workerRef,
       },
       data: {
         processingStatus: "DONE",
@@ -461,28 +461,55 @@ export class PrismaJobsRepo implements JobsRepo {
       "db.job.done",
       {
         job_id: opts.jobId,
-        worker_ref: opts.workerRef ?? this.workerId,
+        worker_ref: workerRef,
         s3_key_ref: opts.s3KeyRef,
         artifact_size_bytes: opts.artifactSizeBytes,
       },
       opts.reqId,
     );
+
+    await this.notifyWordPressShadow(
+      this.buildCallbackEnvelope({
+        reqId: opts.reqId,
+        job: {
+          job_id: opts.jobId,
+          prescription_id: opts.jobId,
+          status: "DONE",
+          processing_status: "DONE",
+          worker_ref: workerRef,
+          source_req_id: opts.reqId ?? null,
+          s3_key_ref: opts.s3KeyRef,
+          s3_bucket: opts.s3Bucket ?? "",
+          s3_region: opts.s3Region ?? "",
+          artifact_sha256_hex: opts.artifactSha256Hex,
+          artifact_size_bytes: opts.artifactSizeBytes,
+          artifact_content_type: opts.contentType,
+        },
+      }),
+      opts.jobId,
+      opts.reqId,
+      "done",
+    );
   }
 
   async markFailed(opts: MarkFailedOptions): Promise<void> {
+    const workerRef = opts.workerRef ?? this.workerId;
+    const errorCode = normalizeNonEmptyString(opts.errorCode, "ML_WORKER_FAILED");
+    const messageSafe = normalizeNonEmptyString(opts.messageSafe, "Worker reported failure");
+
     const updated = await this.prisma.prescription.updateMany({
       where: {
         id: opts.jobId,
         processingStatus: "CLAIMED",
-        workerRef: opts.workerRef ?? this.workerId,
+        workerRef,
       },
       data: {
         processingStatus: "FAILED",
         claimedAt: null,
         lockExpiresAt: null,
         workerRef: null,
-        lastErrorCode: normalizeNonEmptyString(opts.errorCode, "ML_WORKER_FAILED"),
-        lastErrorMessageSafe: normalizeNonEmptyString(opts.messageSafe, "Worker reported failure"),
+        lastErrorCode: errorCode,
+        lastErrorMessageSafe: messageSafe,
       },
     });
 
@@ -490,37 +517,60 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error(`markFailed lost job ownership for ${opts.jobId}`);
     }
 
-    this.logger?.warning(
+    this.logger?.error(
       "db.job.failed",
       {
         job_id: opts.jobId,
-        worker_ref: opts.workerRef ?? this.workerId,
-        error_code: opts.errorCode,
+        worker_ref: workerRef,
+        error_code: errorCode,
       },
       opts.reqId,
+    );
+
+    await this.notifyWordPressShadow(
+      this.buildCallbackEnvelope({
+        reqId: opts.reqId,
+        job: {
+          job_id: opts.jobId,
+          prescription_id: opts.jobId,
+          status: "FAILED",
+          processing_status: "FAILED",
+          worker_ref: workerRef,
+          source_req_id: opts.reqId ?? null,
+          last_error_code: errorCode,
+          last_error_message_safe: messageSafe,
+        },
+      }),
+      opts.jobId,
+      opts.reqId,
+      "failed",
     );
   }
 
   async requeueWithBackoff(opts: RequeueWithBackoffOptions): Promise<void> {
+    const workerRef = opts.workerRef ?? this.workerId;
     const delaySeconds = clampDelaySeconds(opts.delaySeconds);
+    const errorCode = normalizeNonEmptyString(opts.errorCode, "ML_WORKER_RETRY");
+    const messageSafe = normalizeNonEmptyString(opts.messageSafe, "Worker retry scheduled");
 
-    const rows = await this.prisma.$executeRaw`
-      UPDATE "Prescription"
-      SET
-        "processingStatus" = 'PENDING',
-        "claimedAt" = NULL,
-        "lockExpiresAt" = NULL,
-        "workerRef" = NULL,
-        "availableAt" = NOW() + (${delaySeconds}::int * INTERVAL '1 second'),
-        "lastErrorCode" = ${normalizeNonEmptyString(opts.errorCode, "ML_WORKER_RETRY")},
-        "lastErrorMessageSafe" = ${normalizeNonEmptyString(opts.messageSafe, "Worker requested retry")},
-        "updatedAt" = NOW()
-      WHERE id = ${opts.jobId}
-        AND "processingStatus" = 'CLAIMED'
-        AND "workerRef" = ${opts.workerRef ?? this.workerId};
-    `;
+    const updated = await this.prisma.prescription.updateMany({
+      where: {
+        id: opts.jobId,
+        processingStatus: "CLAIMED",
+        workerRef,
+      },
+      data: {
+        processingStatus: "PENDING",
+        availableAt: new Date(Date.now() + delaySeconds * 1_000),
+        claimedAt: null,
+        lockExpiresAt: null,
+        workerRef: null,
+        lastErrorCode: errorCode,
+        lastErrorMessageSafe: messageSafe,
+      },
+    });
 
-    if (Number(rows ?? 0) !== 1) {
+    if (updated.count !== 1) {
       throw new Error(`requeueWithBackoff lost job ownership for ${opts.jobId}`);
     }
 
@@ -528,11 +578,31 @@ export class PrismaJobsRepo implements JobsRepo {
       "db.job.requeued",
       {
         job_id: opts.jobId,
-        worker_ref: opts.workerRef ?? this.workerId,
+        worker_ref: workerRef,
         delay_seconds: delaySeconds,
-        error_code: opts.errorCode,
+        error_code: errorCode,
       },
       opts.reqId,
+    );
+
+    await this.notifyWordPressShadow(
+      this.buildCallbackEnvelope({
+        reqId: opts.reqId,
+        job: {
+          job_id: opts.jobId,
+          prescription_id: opts.jobId,
+          status: "PENDING",
+          processing_status: "PENDING",
+          worker_ref: workerRef,
+          source_req_id: opts.reqId ?? null,
+          retry_after_seconds: delaySeconds,
+          last_error_code: errorCode,
+          last_error_message_safe: messageSafe,
+        },
+      }),
+      opts.jobId,
+      opts.reqId,
+      "requeued",
     );
   }
 
@@ -541,28 +611,15 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error("Queue metrics siteId mismatch");
     }
 
-    const grouped = await this.prisma.prescription.groupBy({
-      by: ["processingStatus"],
-      _count: { _all: true },
-      where: {
-        OR: [
-          { processingStatus: "PENDING", status: "APPROVED" },
-          { processingStatus: "CLAIMED" },
-        ],
-      },
-    });
+    const [pending, claimed] = await Promise.all([
+      this.prisma.prescription.count({ where: { status: "APPROVED", processingStatus: "PENDING" } }),
+      this.prisma.prescription.count({ where: { status: "APPROVED", processingStatus: "CLAIMED" } }),
+    ]);
 
-    let pending = 0;
-    let claimed = 0;
-    for (const row of grouped) {
-      if (row.processingStatus === "PENDING") {
-        pending += row._count._all;
-      } else if (row.processingStatus === "CLAIMED") {
-        claimed += row._count._all;
-      }
-    }
-
-    return { pending, claimed };
+    return {
+      pending: Number(pending ?? 0),
+      claimed: Number(claimed ?? 0),
+    };
   }
 
   async sweepZombies(siteId: string, limit = 50): Promise<SweepZombiesResult> {
@@ -570,7 +627,7 @@ export class PrismaJobsRepo implements JobsRepo {
       throw new Error("Sweep siteId mismatch");
     }
 
-    const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
 
     const failed = await this.prisma.$executeRaw<number>`
       WITH expired AS (
@@ -678,6 +735,115 @@ export class PrismaJobsRepo implements JobsRepo {
       source_req_id: row.sourceReqId,
     };
   }
+
+  private buildCallbackEnvelope(input: { reqId?: string; job: CallbackJobPayload }): CallbackEnvelope {
+    return {
+      schema_version: CURRENT_INGEST_SCHEMA_VERSION,
+      site_id: this.siteId,
+      ts_ms: Date.now(),
+      nonce: base64UrlEncode(randomBytes(16)),
+      req_id: normalizeNonEmptyString(input.reqId, generateReqId()),
+      job: input.job,
+    };
+  }
+
+  private async notifyWordPressShadow(
+    body: CallbackEnvelope,
+    jobId: string,
+    reqId: string | undefined,
+    scope: "done" | "failed" | "requeued",
+  ): Promise<void> {
+    if (this.wpBaseUrl === "") {
+      this.logger?.warning(
+        "wp.shadow_callback.skipped",
+        { job_id: jobId, reason: "wp_base_url_missing", scope },
+        reqId,
+      );
+      return;
+    }
+
+    const path = renderPathTemplate(this.wpCallbackPathTemplate, jobId);
+    const url = `${this.wpBaseUrl}${path}`;
+    const rawJson = JSON.stringify(body);
+    const token = buildMls1Token(Buffer.from(rawJson, "utf8"), this.hmacSecretActive);
+
+    for (let attempt = 1; attempt <= DEFAULT_CALLBACK_RETRIES; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      timeout.unref?.();
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+            "X-MedLab-Signature": token,
+          },
+          body: rawJson,
+          signal: controller.signal,
+        });
+
+        const responseText = await response.text();
+        let decoded: Record<string, unknown> | null = null;
+        try {
+          decoded = JSON.parse(responseText) as Record<string, unknown>;
+        } catch {
+          decoded = null;
+        }
+
+        if (!response.ok || (decoded && decoded.ok === false)) {
+          const code = decoded && typeof decoded.code === "string" ? decoded.code : `HTTP_${response.status}`;
+          const message = decoded && typeof decoded.message === "string" ? decoded.message : response.statusText || "Callback rejected";
+          throw new Error(`${code}: ${message}`);
+        }
+
+        this.logger?.info(
+          "wp.shadow_callback.accepted",
+          {
+            job_id: jobId,
+            scope,
+            http_status: response.status,
+            attempt,
+          },
+          reqId,
+        );
+        return;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "callback_failed";
+
+        if (attempt >= DEFAULT_CALLBACK_RETRIES) {
+          this.logger?.error(
+            "wp.shadow_callback.failed",
+            {
+              job_id: jobId,
+              scope,
+              path,
+              attempts: attempt,
+              error: message,
+            },
+            reqId,
+          );
+          return;
+        }
+
+        this.logger?.warning(
+          "wp.shadow_callback.retry",
+          {
+            job_id: jobId,
+            scope,
+            attempt,
+            error: message,
+          },
+          reqId,
+        );
+
+        await sleep(attempt * 500);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  }
 }
 
 function ingestSelect() {
@@ -706,9 +872,9 @@ function mapIngestResult(row: IngestSelectRow, mode: "created" | "replay", reqId
   };
 }
 
-function mapApproveResult(row: DecisionSelectRow, mode: "approved" | "replay", reqId: string): ApprovePrescriptionResult {
+function mapApproveResult(row: IngestSelectRow, reqId: string): ApprovePrescriptionResult {
   return {
-    mode,
+    mode: "approved",
     job_id: row.id,
     prescription_id: row.id,
     uid: row.uid,
@@ -720,9 +886,9 @@ function mapApproveResult(row: DecisionSelectRow, mode: "approved" | "replay", r
   };
 }
 
-function mapRejectResult(row: DecisionSelectRow, mode: "rejected" | "replay", reqId: string): RejectPrescriptionResult {
+function mapRejectResult(row: IngestSelectRow, reqId: string): RejectPrescriptionResult {
   return {
-    mode,
+    mode: "rejected",
     job_id: row.id,
     prescription_id: row.id,
     uid: row.uid,
@@ -792,7 +958,7 @@ function generatePublicUid(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = randomBytes(UID_LENGTH);
   let out = "";
-  for (let i = 0; i < UID_LENGTH; i++) {
+  for (let i = 0; i < UID_LENGTH; i += 1) {
     out += alphabet[bytes[i] % alphabet.length];
   }
   return out;
@@ -804,6 +970,10 @@ function generateVerifyCode(): string {
 
 function generateVerifyToken(): string {
   return base64UrlEncode(randomBytes(VERIFY_TOKEN_BYTES));
+}
+
+function generateReqId(): string {
+  return `req_${base64UrlEncode(randomBytes(8))}`;
 }
 
 function clampDelaySeconds(value: number): number {
@@ -838,36 +1008,16 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   return s ?? fallback;
 }
 
-function normalizeDecisionProcessingStatus(value: unknown): "PENDING" | "CLAIMED" | "DONE" | "FAILED" {
+function normalizeJobStatus(value: unknown): JobRow["status"] {
   const raw = typeof value === "string" ? value.toUpperCase() : "";
-  if (raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
+  if (raw === "PENDING" || raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
     return raw;
-  }
-  return "PENDING";
-}
-
-function normalizeJobStatus(value: unknown): JobStatus {
-  const raw = typeof value === "string" ? value.toUpperCase() : "";
-  if (raw === WAITING_APPROVAL || raw === "PENDING" || raw === "CLAIMED" || raw === "DONE" || raw === "FAILED") {
-    return raw as JobStatus;
   }
   return "PENDING";
 }
 
 function toIsoOrNull(value: Date | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : null;
-}
-
-function hasDoctorIdentity(value: IngestDoctorInput | null | undefined): value is IngestDoctorInput {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const n = typeof value.wpUserId === "number"
-    ? Math.trunc(value.wpUserId)
-    : Number.parseInt(String(value.wpUserId ?? ""), 10);
-
-  return Number.isFinite(n) && n > 0;
 }
 
 function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): void {
@@ -888,6 +1038,9 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
   normalizeRequiredString(input.nonce, "nonce");
   normalizeRequiredInt(input.ts_ms, "ts_ms");
 
+  if (!input.doctor || typeof input.doctor !== "object") {
+    throw new Error("doctor block is required");
+  }
   if (!input.patient || typeof input.patient !== "object") {
     throw new Error("patient block is required");
   }
@@ -895,46 +1048,13 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
     throw new Error("prescription block is required");
   }
 
-  if (input.doctor != null && typeof input.doctor !== "object") {
-    throw new Error("doctor block must be an object when provided");
-  }
-  if (hasDoctorIdentity(input.doctor)) {
-    normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId");
-  }
-
+  normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId");
   normalizeRequiredString(input.patient.firstName, "patient.firstName");
   normalizeRequiredString(input.patient.lastName, "patient.lastName");
   normalizeRequiredString(input.patient.birthDate, "patient.birthDate");
 
   if (!Array.isArray(input.prescription.items)) {
     throw new Error("prescription.items must be an array");
-  }
-}
-
-function assertDecisionRequest(input: ApprovePrescriptionRequest | RejectPrescriptionRequest, siteId: string, mode: "approve" | "reject"): void {
-  if (!input || typeof input !== "object") {
-    throw new Error(`${mode} payload is missing`);
-  }
-
-  const acceptedSchemaVersions = new Set([CURRENT_INGEST_SCHEMA_VERSION, COMPAT_JOB_SCHEMA_VERSION]);
-  if (!acceptedSchemaVersions.has(String(input.schema_version ?? ""))) {
-    throw new Error("schema_version mismatch");
-  }
-
-  if (String(input.site_id ?? "") !== siteId) {
-    throw new Error("site_id mismatch");
-  }
-
-  normalizeRequiredString(input.req_id, "req_id");
-  normalizeRequiredString(input.nonce, "nonce");
-  normalizeRequiredInt(input.ts_ms, "ts_ms");
-
-  if (mode === "approve") {
-    const approveInput = input as ApprovePrescriptionRequest;
-    if (!approveInput.doctor || typeof approveInput.doctor !== "object") {
-      throw new Error("doctor block is required");
-    }
-    normalizeRequiredInt(approveInput.doctor.wpUserId, "doctor.wpUserId");
   }
 }
 
@@ -945,4 +1065,22 @@ function extractPrismaCode(err: unknown): string | null {
 
   const code = (err as { code?: unknown }).code;
   return typeof code === "string" && code !== "" ? code : null;
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/g, "");
+}
+
+function normalizePathTemplate(value: string, fallback: string): string {
+  const raw = value.trim();
+  if (raw === "") {
+    return fallback;
+  }
+  return raw.startsWith("/") ? raw : `/${raw}`;
+}
+
+function renderPathTemplate(template: string, jobId: string): string {
+  return template
+    .replace(/\{job_id\}/g, encodeURIComponent(jobId))
+    .replace(/\{prescription_id\}/g, encodeURIComponent(jobId));
 }
