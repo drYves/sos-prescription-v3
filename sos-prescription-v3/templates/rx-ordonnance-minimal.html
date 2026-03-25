@@ -16,6 +16,8 @@
     .cell-left { width: 68%; padding-right: 6mm; } .cell-right { width: 32%; text-align: right; }
     .title { font-weight: 900; font-size: 14pt; margin: 0 0 2mm 0; }
     .rule { height: 0; border: none; border-top: 0.35mm solid #111827; margin: 0 0 4mm 0; }
+    .badge { display: inline-block; padding: 1.5mm 4mm; border-radius: 99mm; background: #eef2ff; color: #1e3a8a; font-weight: 800; font-size: 8.8pt; letter-spacing: 0.35pt; border: 0.25mm solid #dbeafe; text-transform: uppercase; white-space: nowrap; }
+    .badge--muted { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
     .block { border: 0.25mm solid #e5e7eb; padding: 3.5mm; }
     .label { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6pt; margin: 0 0 2mm 0; }
     .doctor-name { font-size: 12.5pt; font-weight: 800; line-height: 1.2; margin: 0 0 1.5mm 0; color: #111827; }
@@ -58,7 +60,7 @@
       <h1 class="title">Ordonnance</h1><hr class="rule" />
       <div class="block"><div class="label">Prescripteur</div>{{DOCTOR_BLOCK}}</div>
     </div>
-    <div class="cell cell-right"><div class="label">QR</div><img class="qr" src="{{QR_CODE}}" alt="QR Code" /></div>
+    <div class="cell cell-right"><div style="margin-bottom:2mm;">{{HEADER_BADGE_HTML}}</div><div class="label">QR</div><img class="qr" src="{{QR_CODE}}" alt="QR Code" /></div>
   </div>
   <div class="block" style="margin-bottom: 4mm;"><div class="label">Patient</div>{{PATIENT_BLOCK}}</div>
   <div style="margin-top: 2mm;">

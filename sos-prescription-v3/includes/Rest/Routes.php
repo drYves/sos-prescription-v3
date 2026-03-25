@@ -264,7 +264,7 @@ final class Routes
         ]);
 
         // Verification pharmacien (/v/{token}) : confirmer la délivrance (code 6 chiffres).
-        register_rest_route('sosprescription/v1', '/verify/(?P<token>[a-f0-9]{16,64})/deliver', [
+        register_rest_route('sosprescription/v1', '/verify/(?P<token>[A-Za-z0-9_-]{16,128})/deliver', [
             'methods' => 'POST',
             'callback' => [VerificationController::class, 'deliver'],
             'permission_callback' => '__return_true',

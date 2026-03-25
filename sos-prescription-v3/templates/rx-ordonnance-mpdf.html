@@ -20,6 +20,8 @@
     .doctor-cell { width: 70%; padding-right: 6mm; }
     .verify-cell { width: 30%; text-align: right; }
     .doc-title { font-size: 13.5pt; font-weight: 800; letter-spacing: 0.2pt; margin: 0 0 2.5mm 0; }
+    .badge { display: inline-block; padding: 1.5mm 4mm; border-radius: 99mm; background: #eef2ff; color: #1e3a8a; font-weight: 800; font-size: 8.8pt; letter-spacing: 0.35pt; border: 0.25mm solid #dbeafe; text-transform: uppercase; white-space: nowrap; }
+    .badge--muted { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
     .doctor-block { padding: 4mm; border: 0.35mm solid #e5e7eb; border-radius: 3mm; }
     .doctor-name { font-size: 12.5pt; font-weight: 800; line-height: 1.2; margin: 0 0 1.5mm 0; color: #0f172a; }
     .doctor-specialty { font-size: 10.2pt; font-weight: 700; color: #1d4ed8; margin: 0 0 1.5mm 0; }
@@ -73,6 +75,7 @@
         <div class="doctor-block">{{DOCTOR_BLOCK}}</div>
       </div>
       <div class="cell verify-cell">
+        <div style="margin-bottom:2mm;">{{HEADER_BADGE_HTML}}</div>
         <div class="verify-box">
           <div class="verify-label">Vérification</div>
           <img class="qr" src="{{QR_CODE}}" alt="QR Code de vérification" />

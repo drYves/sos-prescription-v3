@@ -259,7 +259,6 @@ function buildPatientBlockHtml(aggregate: PrescriptionRenderAggregate): string {
 
   rows.push(buildLabeledValueRowHtml("Nom", escapeHtml(patientName), true));
   rows.push(buildLabeledValueRowHtml("Date de naissance", escapeHtml(birthLabel), true));
-  rows.push(buildLabeledValueRowHtml("Référence", `<code>${escapeHtml(aggregate.prescription.uid)}</code>`, true));
   if (weightLabel !== "") {
     rows.push(buildLabeledValueRowHtml("Poids", escapeHtml(weightLabel), true));
   }

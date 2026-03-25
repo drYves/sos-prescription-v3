@@ -11,6 +11,11 @@ final class RxPage
         // car le noyau du plugin tente toujours de l'appeler via un hook existant.
     }
 
+    public static function render_page(): void
+    {
+        self::render();
+    }
+
     public static function render(): void
     {
         echo '<div class="wrap">';

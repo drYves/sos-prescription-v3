@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
+use SosPrescription\Frontend\VerificationPage;
 use SosPrescription\Repositories\PrescriptionRepository;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
@@ -35,12 +36,12 @@ final class VerificationController
             );
         }
 
-        $token = (string) $request->get_param('token');
-        $code_raw = (string) $request->get_param('code');
-        $code = preg_replace('/\D+/', '', $code_raw);
+        $token = trim((string) $request->get_param('token'));
+        $codeRaw = (string) $request->get_param('code');
+        $code = preg_replace('/\D+/', '', $codeRaw);
         $code = is_string($code) ? $code : '';
 
-        if ($token === '' || !preg_match('/^[a-f0-9]{16,64}$/i', $token)) {
+        if ($token === '' || preg_match('/^[A-Za-z0-9_-]{16,128}$/', $token) !== 1) {
             return new WP_Error(
                 'invalid_token',
                 'Lien de vérification invalide.',
@@ -51,7 +52,7 @@ final class VerificationController
             );
         }
 
-        if ($code === '' || !preg_match('/^\d{6}$/', $code)) {
+        if ($code === '' || preg_match('/^\d{6}$/', $code) !== 1) {
             return new WP_Error(
                 'invalid_code',
                 'Code invalide. Veuillez saisir 6 chiffres.',
@@ -62,9 +63,8 @@ final class VerificationController
             );
         }
 
-        $repo = new PrescriptionRepository();
-        $rx = $repo->get_by_verify_token($token);
-        if (!is_array($rx) || empty($rx['id'])) {
+        $rx = VerificationPage::find_prescription_by_verify_token($token);
+        if (!is_array($rx) || empty($rx['id']) || !VerificationPage::is_publicly_verifiable($rx)) {
             self::safe_ndjson('warn', 'rx_delivery_attempt', [
                 'token_prefix' => substr($token, 0, 8),
                 'found' => false,
@@ -73,7 +73,7 @@ final class VerificationController
 
             return new WP_Error(
                 'rx_not_found',
-                'Ordonnance introuvable ou expirée.',
+                'Ordonnance introuvable ou non encore validée.',
                 [
                     'status' => 404,
                     'req_id' => Logger::rid(),
@@ -81,18 +81,18 @@ final class VerificationController
             );
         }
 
-        $rx_id = (int) $rx['id'];
+        $rxId = (int) $rx['id'];
         $expected = isset($rx['verify_code']) ? (string) $rx['verify_code'] : '';
-        $already_dispensed = !empty($rx['dispensed_at']);
+        $alreadyDispensed = !empty($rx['dispensed_at']);
 
         self::safe_ndjson('info', 'rx_delivery_attempt', [
-            'rx_id' => $rx_id,
+            'rx_id' => $rxId,
             'token_prefix' => substr($token, 0, 8),
-            'already_dispensed' => $already_dispensed,
+            'already_dispensed' => $alreadyDispensed,
             'code_len' => strlen($code),
         ]);
 
-        if ($already_dispensed) {
+        if ($alreadyDispensed) {
             return rest_ensure_response([
                 'ok' => true,
                 'already_dispensed' => true,
@@ -103,7 +103,7 @@ final class VerificationController
 
         if ($expected === '') {
             self::safe_ndjson('error', 'rx_delivery_error', [
-                'rx_id' => $rx_id,
+                'rx_id' => $rxId,
                 'token_prefix' => substr($token, 0, 8),
                 'reason' => 'missing_verify_code',
             ]);
@@ -120,7 +120,7 @@ final class VerificationController
 
         if (!hash_equals($expected, $code)) {
             self::safe_ndjson('warn', 'rx_delivery_attempt', [
-                'rx_id' => $rx_id,
+                'rx_id' => $rxId,
                 'token_prefix' => substr($token, 0, 8),
                 'code_ok' => false,
             ]);
@@ -136,10 +136,12 @@ final class VerificationController
         }
 
         $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
-        $ok = $repo->mark_dispensed($rx_id, $ip);
+        $ipHash = self::ip_hash($ip);
+        $repo = new PrescriptionRepository();
+        $ok = $repo->mark_dispensed($rxId, $ipHash);
         if (!$ok) {
             self::safe_ndjson('error', 'rx_delivery_error', [
-                'rx_id' => $rx_id,
+                'rx_id' => $rxId,
                 'token_prefix' => substr($token, 0, 8),
                 'reason' => 'db_update_failed',
             ]);
@@ -154,21 +156,27 @@ final class VerificationController
             );
         }
 
-        $rx2 = $repo->get_by_verify_token($token);
-        $dispensed_at = (is_array($rx2) && !empty($rx2['dispensed_at'])) ? (string) $rx2['dispensed_at'] : gmdate('c');
+        $rx2 = VerificationPage::find_prescription_by_verify_token($token);
+        $dispensedAt = (is_array($rx2) && !empty($rx2['dispensed_at'])) ? (string) $rx2['dispensed_at'] : gmdate('c');
 
         self::safe_ndjson('info', 'rx_delivered', [
-            'rx_id' => $rx_id,
+            'rx_id' => $rxId,
             'token_prefix' => substr($token, 0, 8),
-            'dispensed_at' => $dispensed_at,
+            'dispensed_at' => $dispensedAt,
         ]);
 
         return rest_ensure_response([
             'ok' => true,
             'already_dispensed' => false,
-            'dispensed_at' => $dispensed_at,
+            'dispensed_at' => $dispensedAt,
             'req_id' => Logger::rid(),
         ]);
+    }
+
+    private static function ip_hash(string $ip): string
+    {
+        $salt = (string) wp_salt('auth');
+        return hash_hmac('sha256', $ip, $salt);
     }
 
     /**
