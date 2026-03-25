@@ -30,6 +30,8 @@ export interface RenderPatient {
   gender: string | null;
   email: string | null;
   phone: string | null;
+  weightKg: string | null;
+  weight_kg?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -130,6 +132,8 @@ export class PrismaPrescriptionStore {
         gender: row.patient.gender,
         email: row.patient.email,
         phone: row.patient.phone,
+        weightKg: row.patient.weightKg,
+        weight_kg: row.patient.weightKg,
         createdAt: row.patient.createdAt,
         updatedAt: row.patient.updatedAt,
       },

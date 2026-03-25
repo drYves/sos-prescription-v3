@@ -33,7 +33,6 @@ class PrescriptionHtmlBuilder {
             ? await this.signatureLoader.loadFromKey(doctor.signatureS3Key)
             : "";
         const rppsBarcodeDataUri = doctor.rpps !== "" ? (0, code39Svg_1.buildCode39DataUri)(doctor.rpps) : "";
-        const issueLine = buildIssueLine(doctor, aggregate);
         const signatureImgHtml = signatureDataUri !== ""
             ? `<img class="sig-img" src="${escapeHtmlAttr(signatureDataUri)}" alt="Signature du médecin" />`
             : '<div class="sig-fallback">Signature non renseignée.</div>';
@@ -41,11 +40,12 @@ class PrescriptionHtmlBuilder {
         const rppsBarcodeHtml = rppsBarcodeDataUri !== ""
             ? `<img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code barre RPPS" />`
             : "";
-        const doctorBlock = buildDoctorBlockHtml(doctor, issueLine, rppsBarcodeDataUri);
-        const patientBlock = buildPatientBlockHtml(aggregate, verifyUrl);
+        const doctorBlock = buildDoctorBlockHtml(doctor, rppsBarcodeDataUri);
+        const patientBlock = buildPatientBlockHtml(aggregate);
         const medRows = buildMedicationRowsHtml(aggregate);
         const medBlocks = buildLegacyMedicationBlocksHtml(aggregate);
-        const footerBlock = buildFooterBlockHtml(aggregate, input.reqId, input.jobId, verifyUrl, doctor);
+        const footerBlock = buildFooterBlockHtml(aggregate, verifyUrl, doctor);
+        const headerBadgeHtml = buildHeaderBadgeHtml(aggregate.prescription.verifyCode);
         const hashShort = node_crypto_1.default
             .createHash("sha256")
             .update(`${aggregate.prescription.uid}|${aggregate.prescription.verifyToken ?? ""}`, "utf8")
@@ -64,12 +64,13 @@ class PrescriptionHtmlBuilder {
             "{{DIPLOMA_LINE}}": escapeHtml(doctor.diplomaLine),
             "{{DOCTOR_DISPLAY}}": escapeHtml(doctor.fullName),
             "{{HASH_SHORT}}": escapeHtml(hashShort),
-            "{{ISSUE_LINE}}": escapeHtml(issueLine),
+            "{{ISSUE_LINE}}": "",
+            "{{HEADER_BADGE_HTML}}": headerBadgeHtml,
             "{{MEDICATIONS_HTML}}": medBlocks,
             "{{MED_COUNT}}": escapeHtml(String(countMedicationItems(aggregate.prescription.items) || 1)),
             "{{PATIENT_BIRTH_LABEL}}": escapeHtml(buildPatientBirthLabel(aggregate) || "—"),
             "{{PATIENT_NAME}}": escapeHtml(buildPatientName(aggregate) || "Patient"),
-            "{{PATIENT_WH_LABEL}}": "—",
+            "{{PATIENT_WH_LABEL}}": escapeHtml(buildPatientWeightLabel(aggregate) || "—"),
             "{{PHONE}}": escapeHtml(doctor.phone || "—"),
             "{{QR_IMG_HTML}}": qrImgHtml,
             "{{RPPS}}": escapeHtml(doctor.rpps || "—"),
@@ -141,17 +142,6 @@ function buildDoctorAddress(address, zipCode, city) {
     }
     return base || cityLine;
 }
-function buildIssueLine(doctor, aggregate) {
-    const place = normalizeString(doctor.issuePlace);
-    const date = formatDateFr(aggregate.prescription.createdAt);
-    if (place !== "" && date !== "") {
-        return `${place}, le ${date}`;
-    }
-    if (date !== "") {
-        return `Émis le ${date}`;
-    }
-    return place;
-}
 function buildVerificationUrl(baseUrl, verifyToken) {
     const token = normalizeString(verifyToken);
     if (token === "") {
@@ -159,7 +149,7 @@ function buildVerificationUrl(baseUrl, verifyToken) {
     }
     return `${baseUrl}/v/${encodeURIComponent(token)}`;
 }
-function buildDoctorBlockHtml(doctor, issueLine, rppsBarcodeDataUri) {
+function buildDoctorBlockHtml(doctor, rppsBarcodeDataUri) {
     const lines = [];
     lines.push(`<div class="doctor-name">${escapeHtml(doctor.fullName)}</div>`);
     if (doctor.specialty !== "") {
@@ -178,9 +168,6 @@ function buildDoctorBlockHtml(doctor, issueLine, rppsBarcodeDataUri) {
     if (doctor.rpps !== "") {
         metaRows.push(buildLabeledValueRowHtml("RPPS", escapeHtml(doctor.rpps), true));
     }
-    if (issueLine !== "") {
-        metaRows.push(buildLabeledValueRowHtml("Émission", escapeHtml(issueLine), true));
-    }
     if (metaRows.length > 0) {
         lines.push(`<div class="doctor-meta-grid">${metaRows.join("\n")}</div>`);
     }
@@ -195,26 +182,24 @@ function buildDoctorBlockHtml(doctor, issueLine, rppsBarcodeDataUri) {
     }
     return lines.join("\n");
 }
-function buildPatientBlockHtml(aggregate, verifyUrl) {
+function buildPatientBlockHtml(aggregate) {
     const rows = [];
     const patientName = buildPatientName(aggregate) || "Patient";
     const birthLabel = buildPatientBirthLabel(aggregate) || "—";
     const ageLabel = computeAgeLabel(aggregate.patient.birthDate);
     const createdAt = formatDateFr(aggregate.prescription.createdAt);
+    const weightLabel = buildPatientWeightLabel(aggregate);
     rows.push(buildLabeledValueRowHtml("Nom", escapeHtml(patientName), true));
     rows.push(buildLabeledValueRowHtml("Date de naissance", escapeHtml(birthLabel), true));
     if (ageLabel !== "") {
         rows.push(buildLabeledValueRowHtml("Âge", escapeHtml(ageLabel), true));
     }
+    if (weightLabel !== "") {
+        rows.push(buildLabeledValueRowHtml("Poids", escapeHtml(weightLabel), true));
+    }
     rows.push(buildLabeledValueRowHtml("Référence", `<code>${escapeHtml(aggregate.prescription.uid)}</code>`, true));
     if (createdAt !== "") {
         rows.push(buildLabeledValueRowHtml("Créée le", escapeHtml(createdAt), true));
-    }
-    if (aggregate.prescription.verifyCode) {
-        rows.push(buildLabeledValueRowHtml("Code délivrance", `<strong>${escapeHtml(aggregate.prescription.verifyCode)}</strong>`, true));
-    }
-    if (verifyUrl !== "") {
-        rows.push(buildLabeledValueRowHtml("URL de vérification", `<span class="verify-link">${escapeHtml(verifyUrl)}</span>`, true));
     }
     return `<div class="patient-grid">${rows.join("\n")}</div>`;
 }
@@ -389,9 +374,10 @@ function pluralizeDurationUnit(unit, value) {
     }
     return `${normalized}s`;
 }
-function buildFooterBlockHtml(aggregate, reqId, jobId, verifyUrl, doctor) {
+function buildFooterBlockHtml(aggregate, verifyUrl, doctor) {
     const parts = [];
     const issued = formatDateFr(aggregate.prescription.createdAt);
+    parts.push('<div style="font-size:8.5pt;line-height:1.35;color:#334155;">');
     parts.push(`<div><strong>Dossier :</strong> ${escapeHtml(aggregate.prescription.uid)}</div>`);
     if (issued !== "") {
         parts.push(`<div><strong>Date :</strong> ${escapeHtml(issued)}</div>`);
@@ -405,10 +391,30 @@ function buildFooterBlockHtml(aggregate, reqId, jobId, verifyUrl, doctor) {
     if (verifyUrl !== "") {
         parts.push(`<div style="word-break:break-all;"><strong>Vérification :</strong> ${escapeHtml(verifyUrl)}</div>`);
     }
-    void reqId;
-    void jobId;
-    parts.push('<div style="margin-top:1.5mm;color:#64748b;font-size:8.5pt;">Ordonnance numérique sécurisée et hébergée sur un serveur certifié HDS (Hébergeur de Données de Santé).</div>');
+    parts.push('<div style="margin-top:1.6mm;color:#64748b;">Ordonnance numérique sécurisée et hébergée sur un serveur certifié HDS (Hébergeur de Données de Santé).</div>');
+    parts.push('</div>');
     return parts.join("\n");
+}
+function buildHeaderBadgeHtml(deliveryCode) {
+    const code = normalizeString(deliveryCode);
+    if (code === "") {
+        return '<span class="badge badge--muted">Ordonnance numérique</span>';
+    }
+    return `<span class="badge">Code délivrance : ${escapeHtml(code)}</span>`;
+}
+function buildPatientWeightLabel(aggregate) {
+    const raw = normalizeString(aggregate.patient.weight_kg ?? aggregate.patient.weightKg);
+    if (raw === "") {
+        return "";
+    }
+    const normalized = raw.replace(',', '.');
+    const asNumber = Number.parseFloat(normalized);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+        const rounded = Math.round(asNumber * 10) / 10;
+        const label = Number.isInteger(rounded) ? String(Math.trunc(rounded)) : String(rounded).replace('.', ',');
+        return `${label} Kgs`;
+    }
+    return `${raw} Kgs`;
 }
 function buildLabeledValueRowHtml(label, valueHtml, allowHtml = false) {
     const safeLabel = escapeHtml(label);

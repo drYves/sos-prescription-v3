@@ -121,7 +121,6 @@
       currentUser.birthDate || currentUser.birthdate || currentUser.sosp_birthdate || patientProfile.birthdate_iso || ''
     );
     var birthFr = normalizeString(patientProfile.birthdate_fr || formatIsoToFr(birthIso));
-    var phone = normalizeString(currentUser.phone || patientProfile.phone || '');
     var email = normalizeString(patientProfile.email || currentUser.email || '');
     var weightKg = normalizeString(patientProfile.weight_kg || '');
     var heightCm = normalizeString(patientProfile.height_cm || '');
@@ -132,7 +131,6 @@
       fullName: fullName,
       birthdateIso: birthIso,
       birthdateFr: birthFr,
-      phone: phone,
       email: email,
       weightKg: weightKg,
       heightCm: heightCm,
@@ -152,7 +150,6 @@
     currentUser.birthDate = normalizeString(profile.birthdate_iso);
     currentUser.birthdate = normalizeString(profile.birthdate_iso);
     currentUser.sosp_birthdate = normalizeString(profile.birthdate_iso);
-    currentUser.phone = normalizeString(profile.phone);
     currentUser.email = normalizeString(profile.email || currentUser.email || '');
 
     if (fullName !== '' && (!safeHumanValue(currentUser.displayName) || isEmailLike(currentUser.displayName))) {
@@ -164,7 +161,6 @@
     patientProfile.fullname = fullName;
     patientProfile.birthdate_iso = normalizeString(profile.birthdate_iso);
     patientProfile.birthdate_fr = normalizeString(profile.birthdate_fr);
-    patientProfile.phone = normalizeString(profile.phone);
     patientProfile.email = normalizeString(profile.email);
     patientProfile.weight_kg = normalizeString(profile.weight_kg);
     patientProfile.height_cm = normalizeString(profile.height_cm);
@@ -222,7 +218,7 @@
 
   function hydrateFormFromProfile() {
     var seed = buildProfileSeed();
-    if (seed.firstName === '' && seed.lastName === '' && seed.birthdateIso === '' && seed.phone === '') {
+    if (seed.firstName === '' && seed.lastName === '' && seed.birthdateIso === '') {
       return;
     }
 
@@ -248,11 +244,6 @@
         'input[name="birthDate"]',
         'input[name="birthdate"]'
       ]);
-      var phoneInput = findInput([
-        '#sosprescription-root-form[data-app="form"] input[name="phone"]',
-        '#sosprescription-root-form[data-app="patient"] input[name="phone"]',
-        'input[name="phone"]'
-      ]);
       var fullNameInput = findInput([
         '#sosprescription-root-form[data-app="form"] input[name="fullname"]',
         '#sosprescription-root-form[data-app="patient"] input[name="fullname"]',
@@ -272,16 +263,12 @@
         setReactInputValue(birthdateInput, seed.birthdateIso);
         applied = true;
       }
-      if (phoneInput && normalizeString(phoneInput.value) === '' && seed.phone !== '') {
-        setReactInputValue(phoneInput, seed.phone);
-        applied = true;
-      }
       if (!firstNameInput && !lastNameInput && fullNameInput && normalizeString(fullNameInput.value) === '' && seed.fullName !== '') {
         setReactInputValue(fullNameInput, seed.fullName);
         applied = true;
       }
 
-      if ((firstNameInput || lastNameInput || birthdateInput || phoneInput || fullNameInput) && observer) {
+      if ((firstNameInput || lastNameInput || birthdateInput || fullNameInput) && observer) {
         observer.disconnect();
         observer = null;
       }
@@ -318,7 +305,6 @@
       '      <label class="sp-field"><span>Prénom</span><input type="text" name="first_name" maxlength="100" autocomplete="given-name" value="' + escapeHtml(seed.firstName) + '" /></label>' +
       '      <label class="sp-field"><span>Nom</span><input type="text" name="last_name" maxlength="120" autocomplete="family-name" value="' + escapeHtml(seed.lastName) + '" /></label>' +
       '      <label class="sp-field"><span>Date de naissance</span><input type="text" name="birthdate" placeholder="JJ/MM/AAAA" inputmode="numeric" autocomplete="bday" value="' + escapeHtml(seed.birthdateFr) + '" /></label>' +
-      '      <label class="sp-field"><span>Téléphone</span><input type="tel" name="phone" maxlength="40" autocomplete="tel" value="' + escapeHtml(seed.phone) + '" /></label>' +
       '      <label class="sp-field"><span>Email</span><input type="email" name="email" maxlength="190" autocomplete="email" value="' + escapeHtml(seed.email) + '" /></label>' +
       '      <label class="sp-field"><span>Poids (kg)</span><input type="number" name="weight_kg" min="1" max="500" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.weightKg) + '" /></label>' +
       '      <label class="sp-field"><span>Taille (cm)</span><input type="number" name="height_cm" min="30" max="300" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.heightCm) + '" /></label>' +
@@ -334,7 +320,6 @@
     var firstName = normalizeString(formData.get('first_name')).replace(/\s+/g, ' ');
     var lastName = normalizeString(formData.get('last_name')).replace(/\s+/g, ' ');
     var birthdate = normalizeString(formData.get('birthdate'));
-    var phone = normalizeString(formData.get('phone')).replace(/\s+/g, ' ');
     var email = normalizeString(formData.get('email')).toLowerCase();
     var weightKg = normalizeString(formData.get('weight_kg')).replace(',', '.');
     var heightCm = normalizeString(formData.get('height_cm')).replace(',', '.');
@@ -343,7 +328,6 @@
       first_name: firstName,
       last_name: lastName,
       birthdate: birthdate,
-      phone: phone,
       email: email,
       weight_kg: weightKg,
       height_cm: heightCm

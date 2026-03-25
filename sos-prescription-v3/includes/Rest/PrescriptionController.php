@@ -1069,7 +1069,23 @@ class PrescriptionController extends \WP_REST_Controller
         $phone = isset($patient['phone']) ? trim((string) $patient['phone']) : '';
         $gender = isset($patient['gender']) ? trim((string) $patient['gender']) : '';
 
+        $dispatcher = $this->get_job_dispatcher();
         $doctorPayload = $this->resolve_doctor_payload_from_create_params($params);
+
+        $patientProfilePayload = [];
+        $patientUserId = (int) get_current_user_id();
+        if ($patientUserId > 0) {
+            try {
+                $patientProfilePayload = $dispatcher->buildPatientPayloadFromUserId($patientUserId);
+            } catch (\Throwable $e) {
+                $patientProfilePayload = [];
+            }
+        }
+
+        $profileGender = isset($patientProfilePayload['gender']) && is_scalar($patientProfilePayload['gender']) ? trim((string) $patientProfilePayload['gender']) : '';
+        $profileEmail = isset($patientProfilePayload['email']) && is_scalar($patientProfilePayload['email']) ? sanitize_email((string) $patientProfilePayload['email']) : '';
+        $profilePhone = isset($patientProfilePayload['phone']) && is_scalar($patientProfilePayload['phone']) ? trim((string) $patientProfilePayload['phone']) : '';
+        $profileWeightKg = isset($patientProfilePayload['weight_kg']) && is_scalar($patientProfilePayload['weight_kg']) ? trim((string) $patientProfilePayload['weight_kg']) : '';
 
         return [
             'schema_version' => '2026.6',
@@ -1082,9 +1098,10 @@ class PrescriptionController extends \WP_REST_Controller
                 'firstName' => $firstName,
                 'lastName' => $lastName,
                 'birthDate' => $birthdate,
-                'gender' => $gender !== '' ? $gender : null,
-                'email' => $email !== '' ? $email : null,
-                'phone' => $phone !== '' ? $phone : null,
+                'gender' => $gender !== '' ? $gender : ($profileGender !== '' ? $profileGender : null),
+                'email' => $email !== '' ? $email : ($profileEmail !== '' ? $profileEmail : null),
+                'phone' => $phone !== '' ? $phone : ($profilePhone !== '' ? $profilePhone : null),
+                'weight_kg' => $profileWeightKg !== '' ? $profileWeightKg : null,
             ],
             'prescription' => [
                 'items' => $items,

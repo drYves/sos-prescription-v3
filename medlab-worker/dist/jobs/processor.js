@@ -252,8 +252,8 @@ function buildRestAggregate(job) {
         doctor: {
             id: pickString(doctor, ["id"]) ?? (doctorWpUserId > 0 ? `wp:${doctorWpUserId}` : `rest:${job.job_id}:doctor`),
             wpUserId: doctorWpUserId,
-            firstName: nullableHumanString(pickUnknown(doctor, ["firstName", "first_name"])),
-            lastName: nullableHumanString(pickUnknown(doctor, ["lastName", "last_name"])),
+            firstName: nullableString(pickUnknown(doctor, ["firstName", "first_name"])),
+            lastName: nullableString(pickUnknown(doctor, ["lastName", "last_name"])),
             email: nullableString(pickUnknown(doctor, ["email"])),
             phone: nullableString(pickUnknown(doctor, ["phone", "telephone", "tel"])),
             title: nullableString(pickUnknown(doctor, ["title"])),
@@ -269,12 +269,14 @@ function buildRestAggregate(job) {
         },
         patient: {
             id: pickString(patient, ["id"]) ?? `rest:${job.job_id}:patient`,
-            firstName: humanString(pickUnknown(patient, ["firstName", "first_name"])) || "Patient",
-            lastName: humanString(pickUnknown(patient, ["lastName", "last_name"])),
+            firstName: pickString(patient, ["firstName", "first_name"]) ?? "Patient",
+            lastName: pickString(patient, ["lastName", "last_name"]) ?? "Inconnu",
             birthDate: pickString(patient, ["birthDate", "birthdate", "birth_date"]) ?? "",
             gender: nullableString(pickUnknown(patient, ["gender"])),
             email: nullableString(pickUnknown(patient, ["email"])),
             phone: nullableString(pickUnknown(patient, ["phone", "telephone", "tel"])),
+            weightKg: nullableString(pickUnknown(patient, ["weightKg", "weight_kg", "weight"])),
+            weight_kg: nullableString(pickUnknown(patient, ["weight_kg", "weightKg", "weight"])),
             createdAt: fallbackDate(pickString(patient, ["createdAt", "created_at"]), rootDate),
             updatedAt: fallbackDate(pickString(patient, ["updatedAt", "updated_at"]), rootDate),
         },
@@ -425,18 +427,6 @@ function normalizeString(value) {
 function nullableString(value) {
     const text = normalizeString(value);
     return text !== "" ? text : null;
-}
-function humanString(value) {
-    const text = normalizeString(value);
-    return text !== "" && !isEmailLike(text) ? text : "";
-}
-function nullableHumanString(value) {
-    const text = humanString(value);
-    return text !== "" ? text : null;
-}
-function isEmailLike(value) {
-    const text = normalizeString(value);
-    return text !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
 }
 function toFiniteNumber(value) {
     if (typeof value === "number" && Number.isFinite(value)) {

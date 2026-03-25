@@ -13,7 +13,7 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-define('SOSPRESCRIPTION_VERSION', '3.4.12');
+define('SOSPRESCRIPTION_VERSION', '3.4.13');
 define('SOSPRESCRIPTION_PATH', plugin_dir_path(__FILE__));
 define('SOSPRESCRIPTION_URL', plugin_dir_url(__FILE__));
 

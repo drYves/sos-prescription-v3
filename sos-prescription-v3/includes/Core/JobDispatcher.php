@@ -242,6 +242,67 @@ final class JobDispatcher
         ];
     }
 
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function buildPatientPayloadFromUserId(int $patientUserId): array
+    {
+        if ($patientUserId <= 0) {
+            throw new RuntimeException('ID de patient invalide');
+        }
+
+        $patientUser = get_userdata($patientUserId);
+        $name = $this->resolveHumanName(
+            $patientUser,
+            ['first_name', 'billing_first_name'],
+            ['last_name', 'billing_last_name'],
+            false
+        );
+
+        $birthDate = $this->normalizeBirthdateString($this->readUserMetaFirst($patientUserId, [
+            'sosp_birthdate',
+            'birthdate',
+            'birth_date',
+            'date_of_birth',
+        ]));
+
+        $phone = $this->readUserMetaFirst($patientUserId, [
+            'billing_phone',
+            'sosprescription_phone',
+            'phone',
+            'telephone',
+            'mobile',
+        ]);
+
+        $gender = $this->readUserMetaFirst($patientUserId, [
+            'gender',
+            'billing_gender',
+            'sosp_gender',
+        ]);
+
+        $weightKg = $this->normalizeMetricString($this->readUserMetaFirst($patientUserId, [
+            'sosp_weight_kg',
+            'weight_kg',
+            'patient_weight_kg',
+        ]), 1, 500);
+
+        $email = '';
+        if ($patientUser instanceof \WP_User && isset($patientUser->user_email) && is_string($patientUser->user_email)) {
+            $email = sanitize_email($patientUser->user_email);
+        }
+
+        return [
+            'firstName' => $name['first_name'],
+            'lastName' => $name['last_name'],
+            'birthDate' => $birthDate !== '' ? $birthDate : null,
+            'gender' => $gender !== '' ? $gender : null,
+            'email' => $email !== '' ? $email : null,
+            'phone' => $phone !== '' ? $phone : null,
+            'weight_kg' => $weightKg !== '' ? $weightKg : null,
+        ];
+    }
+
     private static function readConfigString(string $name, string $default = ''): string
     {
         if (defined($name)) {
@@ -750,6 +811,46 @@ final class JobDispatcher
         }
 
         return $bucket !== '' ? sprintf('s3://%s/%s', trim($bucket), $key) : $key;
+    }
+
+    private function normalizeBirthdateString(string $value): string
+    {
+        $raw = trim($value);
+        if ($raw === '') {
+            return '';
+        }
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $raw, $m)) {
+            $year = (int) $m[1];
+            $month = (int) $m[2];
+            $day = (int) $m[3];
+            return checkdate($month, $day, $year) ? sprintf('%04d-%02d-%02d', $year, $month, $day) : '';
+        }
+
+        if (preg_match('/^(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})$/', $raw, $m)) {
+            $day = (int) $m[1];
+            $month = (int) $m[2];
+            $year = (int) $m[3];
+            return checkdate($month, $day, $year) ? sprintf('%04d-%02d-%02d', $year, $month, $day) : '';
+        }
+
+        return '';
+    }
+
+    private function normalizeMetricString(string $value, float $min, float $max): string
+    {
+        $raw = str_replace(',', '.', trim($value));
+        if ($raw === '' || !is_numeric($raw)) {
+            return '';
+        }
+
+        $number = (float) $raw;
+        if ($number < $min || $number > $max) {
+            return '';
+        }
+
+        $formatted = number_format($number, 1, '.', '');
+        return str_ends_with($formatted, '.0') ? substr($formatted, 0, -2) : $formatted;
     }
 
     private function sanitizeDigits(string $value): string

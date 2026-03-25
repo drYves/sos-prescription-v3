@@ -115,6 +115,8 @@ export interface IngestPatientInput {
   gender?: string | null;
   email?: string | null;
   phone?: string | null;
+  weightKg?: string | null;
+  weight_kg?: string | null;
 }
 
 export interface IngestPrescriptionPayload {

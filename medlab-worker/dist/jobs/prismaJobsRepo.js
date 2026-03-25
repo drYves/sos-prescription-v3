@@ -702,6 +702,7 @@ function buildPatientCreate(input) {
         gender: normalizeNullableString(input.gender),
         email: normalizeNullableString(input.email),
         phone: normalizeNullableString(input.phone),
+        weightKg: normalizeNullableString(input.weightKg ?? input.weight_kg),
     };
 }
 function toInputJsonArray(value) {

@@ -60,6 +60,8 @@ class PrismaPrescriptionStore {
                 gender: row.patient.gender,
                 email: row.patient.email,
                 phone: row.patient.phone,
+                weightKg: row.patient.weightKg,
+                weight_kg: row.patient.weightKg,
                 createdAt: row.patient.createdAt,
                 updatedAt: row.patient.updatedAt,
             },
