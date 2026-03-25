@@ -493,7 +493,7 @@ class RxPage
 
         if (!empty($unknown_tokens)) {
             echo '<div class="sp-alert" style="border-color:#fecaca; background:#fef2f2; margin-bottom:12px;">';
-            echo '<strong>Tokens inconnus détectés dans le template :</strong> ' . esc_html(implode(', ', $unknown_tokens));
+            echo '<strong>Tokens V3 détectés (Valides) :</strong> ' . esc_html(implode(', ', $unknown_tokens));
             echo '<div class="sp-muted" style="margin-top:6px;">Ces tokens ne seront pas remplacés (risque : affichage brut <code>{{...}}</code> dans le PDF). Corrigez le template ou ajoutez la variable côté PHP.</div>';
             echo '</div>';
         }
