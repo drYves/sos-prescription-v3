@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace SosPrescription\Shortcodes;
 
-use SosPrescription\Assets;
-use SosPrescription\Services\Logger;
-use SosPrescription\Services\Notices;
+use SOSPrescription\Assets\Assets;
+use SOSPrescription\Services\Logger;
+use SOSPrescription\Services\Notices;
 
 final class PatientShortcode
 {
@@ -38,7 +38,7 @@ final class PatientShortcode
                 . '</div>';
         }
 
-        Assets::enqueue_frontend('form');
+        Assets::enqueue_form_app();
 
         if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_VERSION')) {
             wp_enqueue_script(

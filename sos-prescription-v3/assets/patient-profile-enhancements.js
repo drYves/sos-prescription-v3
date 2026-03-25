@@ -5,11 +5,9 @@
   }
 
   var PROFILE_ROOT_ID = 'sp-patient-profile-root';
-  var FORM_ROOT_SELECTOR = '#sosprescription-root-form[data-app="form"]';
   var PATIENT_ROOT_SELECTOR = '#sosprescription-root-form[data-app="patient"]';
-  var FULLNAME_INPUT_ID = 'sp-patient-fullname';
-  var BIRTHDATE_INPUT_ID = 'sp-patient-birthdate';
   var PROFILE_ENDPOINT = '/patient/profile';
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   function normalizeString(value) {
     return String(value == null ? '' : value).trim();
@@ -17,7 +15,7 @@
 
   function isEmailLike(value) {
     var v = normalizeString(value);
-    return v !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    return v !== '' && EMAIL_RE.test(v);
   }
 
   function safeHumanValue(value) {
@@ -41,6 +39,15 @@
     return { firstName: firstName, lastName: parts.join(' ') };
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function formatIsoToFr(iso) {
     var value = normalizeString(iso);
     var match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -48,6 +55,52 @@
       return value;
     }
     return match[3] + '/' + match[2] + '/' + match[1];
+  }
+
+  function parseMetric(value) {
+    var raw = normalizeString(value).replace(',', '.');
+    if (raw === '') {
+      return null;
+    }
+    var num = Number(raw);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  }
+
+  function computeBmi(weightKg, heightCm) {
+    var weight = parseMetric(weightKg);
+    var height = parseMetric(heightCm);
+    if (!weight || !height) {
+      return null;
+    }
+    if (weight < 1 || weight > 500 || height < 30 || height > 300) {
+      return null;
+    }
+    var meters = height / 100;
+    if (meters <= 0) {
+      return null;
+    }
+    var bmi = weight / (meters * meters);
+    if (!Number.isFinite(bmi) || bmi <= 0) {
+      return null;
+    }
+    return Math.round(bmi * 10) / 10;
+  }
+
+  function bmiLabel(weightKg, heightCm) {
+    var bmi = computeBmi(weightKg, heightCm);
+    if (!bmi) {
+      return 'IMC —';
+    }
+
+    var suffix = 'Corpulence normale';
+    if (bmi < 18.5) suffix = 'Insuffisance pondérale';
+    else if (bmi < 25) suffix = 'Corpulence normale';
+    else if (bmi < 30) suffix = 'Surpoids';
+    else if (bmi < 35) suffix = 'Obésité (classe I)';
+    else if (bmi < 40) suffix = 'Obésité (classe II)';
+    else suffix = 'Obésité (classe III)';
+
+    return 'IMC ' + String(bmi).replace('.', ',') + ' • ' + suffix;
   }
 
   function buildProfileSeed() {
@@ -69,6 +122,9 @@
     );
     var birthFr = normalizeString(patientProfile.birthdate_fr || formatIsoToFr(birthIso));
     var phone = normalizeString(currentUser.phone || patientProfile.phone || '');
+    var email = normalizeString(patientProfile.email || currentUser.email || '');
+    var weightKg = normalizeString(patientProfile.weight_kg || '');
+    var heightCm = normalizeString(patientProfile.height_cm || '');
 
     return {
       firstName: firstName,
@@ -76,7 +132,11 @@
       fullName: fullName,
       birthdateIso: birthIso,
       birthdateFr: birthFr,
-      phone: phone
+      phone: phone,
+      email: email,
+      weightKg: weightKg,
+      heightCm: heightCm,
+      bmiLabel: normalizeString(patientProfile.bmi_label || bmiLabel(weightKg, heightCm))
     };
   }
 
@@ -93,6 +153,7 @@
     currentUser.birthdate = normalizeString(profile.birthdate_iso);
     currentUser.sosp_birthdate = normalizeString(profile.birthdate_iso);
     currentUser.phone = normalizeString(profile.phone);
+    currentUser.email = normalizeString(profile.email || currentUser.email || '');
 
     if (fullName !== '' && (!safeHumanValue(currentUser.displayName) || isEmailLike(currentUser.displayName))) {
       currentUser.displayName = fullName;
@@ -104,6 +165,11 @@
     patientProfile.birthdate_iso = normalizeString(profile.birthdate_iso);
     patientProfile.birthdate_fr = normalizeString(profile.birthdate_fr);
     patientProfile.phone = normalizeString(profile.phone);
+    patientProfile.email = normalizeString(profile.email);
+    patientProfile.weight_kg = normalizeString(profile.weight_kg);
+    patientProfile.height_cm = normalizeString(profile.height_cm);
+    patientProfile.bmi_value = normalizeString(profile.bmi_value);
+    patientProfile.bmi_label = normalizeString(profile.bmi_label || bmiLabel(profile.weight_kg, profile.height_cm));
 
     cfg.currentUser = currentUser;
     cfg.patientProfile = patientProfile;
@@ -141,38 +207,83 @@
 
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function findInput(selectors) {
+    for (var i = 0; i < selectors.length; i += 1) {
+      var node = document.querySelector(selectors[i]);
+      if (node) {
+        return node;
+      }
+    }
+    return null;
   }
 
   function hydrateFormFromProfile() {
     var seed = buildProfileSeed();
-    if (seed.fullName === '' && seed.birthdateFr === '') {
+    if (seed.firstName === '' && seed.lastName === '' && seed.birthdateIso === '' && seed.phone === '') {
       return;
     }
 
-    var applied = false;
     var observer = null;
+    var applied = false;
 
     function tryApply() {
-      var fullnameInput = document.getElementById(FULLNAME_INPUT_ID);
-      var birthdateInput = document.getElementById(BIRTHDATE_INPUT_ID);
-      var touched = false;
+      var firstNameInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="firstName"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="firstName"]',
+        'input[name="firstName"]',
+        'input[name="first_name"]'
+      ]);
+      var lastNameInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="lastName"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="lastName"]',
+        'input[name="lastName"]',
+        'input[name="last_name"]'
+      ]);
+      var birthdateInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="birthDate"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="birthDate"]',
+        'input[name="birthDate"]',
+        'input[name="birthdate"]'
+      ]);
+      var phoneInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="phone"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="phone"]',
+        'input[name="phone"]'
+      ]);
+      var fullNameInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="fullname"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="fullname"]',
+        'input[name="fullname"]',
+        'input[name="fullName"]'
+      ]);
 
-      if (fullnameInput && normalizeString(fullnameInput.value) === '' && seed.fullName !== '') {
-        setReactInputValue(fullnameInput, seed.fullName);
-        touched = true;
+      if (firstNameInput && normalizeString(firstNameInput.value) === '' && seed.firstName !== '') {
+        setReactInputValue(firstNameInput, seed.firstName);
+        applied = true;
       }
-      if (birthdateInput && normalizeString(birthdateInput.value) === '' && seed.birthdateFr !== '') {
-        setReactInputValue(birthdateInput, seed.birthdateFr);
-        touched = true;
+      if (lastNameInput && normalizeString(lastNameInput.value) === '' && seed.lastName !== '') {
+        setReactInputValue(lastNameInput, seed.lastName);
+        applied = true;
+      }
+      if (birthdateInput && normalizeString(birthdateInput.value) === '' && seed.birthdateIso !== '') {
+        setReactInputValue(birthdateInput, seed.birthdateIso);
+        applied = true;
+      }
+      if (phoneInput && normalizeString(phoneInput.value) === '' && seed.phone !== '') {
+        setReactInputValue(phoneInput, seed.phone);
+        applied = true;
+      }
+      if (!firstNameInput && !lastNameInput && fullNameInput && normalizeString(fullNameInput.value) === '' && seed.fullName !== '') {
+        setReactInputValue(fullNameInput, seed.fullName);
+        applied = true;
       }
 
-      if ((fullnameInput || birthdateInput) && observer) {
+      if ((firstNameInput || lastNameInput || birthdateInput || phoneInput || fullNameInput) && observer) {
         observer.disconnect();
         observer = null;
-      }
-
-      if (touched) {
-        applied = true;
       }
     }
 
@@ -208,6 +319,10 @@
       '      <label class="sp-field"><span>Nom</span><input type="text" name="last_name" maxlength="120" autocomplete="family-name" value="' + escapeHtml(seed.lastName) + '" /></label>' +
       '      <label class="sp-field"><span>Date de naissance</span><input type="text" name="birthdate" placeholder="JJ/MM/AAAA" inputmode="numeric" autocomplete="bday" value="' + escapeHtml(seed.birthdateFr) + '" /></label>' +
       '      <label class="sp-field"><span>Téléphone</span><input type="tel" name="phone" maxlength="40" autocomplete="tel" value="' + escapeHtml(seed.phone) + '" /></label>' +
+      '      <label class="sp-field"><span>Email</span><input type="email" name="email" maxlength="190" autocomplete="email" value="' + escapeHtml(seed.email) + '" /></label>' +
+      '      <label class="sp-field"><span>Poids (kg)</span><input type="number" name="weight_kg" min="1" max="500" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.weightKg) + '" /></label>' +
+      '      <label class="sp-field"><span>Taille (cm)</span><input type="number" name="height_cm" min="30" max="300" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.heightCm) + '" /></label>' +
+      '      <div class="sp-field sp-field--readonly"><span>IMC</span><div id="sp-profile-bmi" class="sp-profile-bmi">' + escapeHtml(seed.bmiLabel || 'IMC —') + '</div></div>' +
       '    </div>' +
       '    <div class="sp-profile-actions"><button class="sp-btn sp-btn--primary" type="submit">Enregistrer mes informations</button></div>' +
       '  </form>' +
@@ -215,26 +330,23 @@
       '</div>';
   }
 
-  function escapeHtml(value) {
-    return String(value == null ? '' : value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
   function normalizeProfilePayload(formData) {
     var firstName = normalizeString(formData.get('first_name')).replace(/\s+/g, ' ');
     var lastName = normalizeString(formData.get('last_name')).replace(/\s+/g, ' ');
     var birthdate = normalizeString(formData.get('birthdate'));
     var phone = normalizeString(formData.get('phone')).replace(/\s+/g, ' ');
+    var email = normalizeString(formData.get('email')).toLowerCase();
+    var weightKg = normalizeString(formData.get('weight_kg')).replace(',', '.');
+    var heightCm = normalizeString(formData.get('height_cm')).replace(',', '.');
 
     return {
       first_name: firstName,
       last_name: lastName,
       birthdate: birthdate,
-      phone: phone
+      phone: phone,
+      email: email,
+      weight_kg: weightKg,
+      height_cm: heightCm
     };
   }
 
@@ -277,6 +389,19 @@
     return data && typeof data === 'object' ? data : {};
   }
 
+  function updateBmiPreview(root) {
+    if (!root) {
+      return;
+    }
+    var weightInput = root.querySelector('input[name="weight_kg"]');
+    var heightInput = root.querySelector('input[name="height_cm"]');
+    var bmiNode = root.querySelector('#sp-profile-bmi');
+    if (!weightInput || !heightInput || !bmiNode) {
+      return;
+    }
+    bmiNode.textContent = bmiLabel(weightInput.value, heightInput.value);
+  }
+
   function mountPatientProfileSection() {
     var patientRoot = document.querySelector(PATIENT_ROOT_SELECTOR);
     if (!patientRoot) {
@@ -300,6 +425,14 @@
       return;
     }
 
+    updateBmiPreview(mount);
+
+    Array.prototype.slice.call(form.querySelectorAll('input[name="weight_kg"], input[name="height_cm"]')).forEach(function (input) {
+      input.addEventListener('input', function () {
+        updateBmiPreview(mount);
+      });
+    });
+
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       clearMessage(feedback);
@@ -313,6 +446,10 @@
         createMessage(feedback, 'error', 'Le nom ne peut pas être une adresse e-mail.');
         return;
       }
+      if (payload.email !== '' && !EMAIL_RE.test(payload.email)) {
+        createMessage(feedback, 'error', 'Adresse e-mail invalide.');
+        return;
+      }
 
       submitButton.disabled = true;
       var originalText = submitButton.textContent;
@@ -322,6 +459,7 @@
         .then(function (data) {
           var profile = data && data.profile && typeof data.profile === 'object' ? data.profile : payload;
           updateGlobalProfile(profile);
+          updateBmiPreview(mount);
           createMessage(feedback, 'success', 'Profil enregistré avec succès.');
           window.dispatchEvent(new CustomEvent('sosprescription:patient-profile-updated', {
             detail: {

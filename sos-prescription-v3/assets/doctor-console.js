@@ -55,6 +55,122 @@
     return String(val).replace('.', ',') + ' ' + units[i];
   }
 
+  function normalizeText(value) {
+    return String(value == null ? '' : value).trim();
+  }
+
+  function asObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function firstText(values) {
+    for (var i = 0; i < values.length; i += 1) {
+      var value = normalizeText(values[i]);
+      if (value) return value;
+    }
+    return '';
+  }
+
+  function formatDateDisplay(value) {
+    var raw = normalizeText(value);
+    if (!raw) return '—';
+    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      return m[3] + '/' + m[2] + '/' + m[1];
+    }
+    return raw;
+  }
+
+  function formatPatientHeadline(value) {
+    var raw = normalizeText(value).replace(/\s+/g, ' ');
+    if (!raw || /@/.test(raw)) {
+      return 'Patient';
+    }
+    var parts = raw.split(' ');
+    if (parts.length < 2) {
+      return raw;
+    }
+    var firstName = parts.shift() || '';
+    var lastName = parts.join(' ').toUpperCase();
+    return (firstName + ' ' + lastName).trim();
+  }
+
+  function formatKgDisplay(value) {
+    var raw = normalizeText(value).replace(',', '.');
+    if (!raw) return '';
+    var numeric = Number(raw);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      var rounded = Math.round(numeric * 10) / 10;
+      var text = Math.abs(rounded - Math.round(rounded)) < 0.001
+        ? String(Math.round(rounded))
+        : String(rounded).replace('.', ',');
+      return text + ' Kgs';
+    }
+    if (/kg/i.test(raw)) {
+      return raw;
+    }
+    return '';
+  }
+
+  function extractVerifyCode(rx) {
+    var payload = asObject(rx && rx.payload);
+    var worker = asObject(payload.worker);
+    return firstText([
+      rx && rx.verify_code,
+      worker.verify_code,
+      payload.verify_code
+    ]);
+  }
+
+  function extractPatientSummary(rx) {
+    var payload = asObject(rx && rx.payload);
+    var patient = asObject(payload.patient);
+    var firstName = firstText([patient.firstName, patient.first_name]);
+    var lastName = firstText([patient.lastName, patient.last_name]);
+    var fullname = firstText([
+      patient.fullname,
+      patient.fullName,
+      [firstName, lastName].filter(Boolean).join(' '),
+      rx && rx.patient_name
+    ]);
+    var birthDate = firstText([
+      patient.birthDate,
+      patient.birthdate,
+      patient.birthdate_fr,
+      rx && rx.patient_dob
+    ]);
+    var weight = formatKgDisplay(firstText([
+      patient.weight_kg,
+      patient.weightKg,
+      rx && rx.patient_weight_kg,
+      rx && rx.weight_kg
+    ]));
+    if (!weight) {
+      var label = firstText([patient.weight_label, rx && rx.patient_weight_label]);
+      if (label && label.indexOf('/') === -1) {
+        weight = label;
+      }
+    }
+
+    return {
+      fullname: formatPatientHeadline(fullname),
+      birthDate: formatDateDisplay(birthDate),
+      weight: weight,
+      createdAt: formatDateDisplay(rx && rx.created_at),
+      verifyCode: extractVerifyCode(rx)
+    };
+  }
+
+  function updateTopbarDeliveryCode(rx) {
+    var node = document.getElementById('sp-current-delivery-code-badge');
+    if (!node) return;
+
+    var code = rx ? extractVerifyCode(rx) : '';
+    node.innerHTML = code
+      ? '<span class="sp-badge sp-badge-soft sp-code-pill">Code délivrance : <strong>' + escHtml(code) + '</strong></span>'
+      : '';
+  }
+
   function ensureInlineStyle() {
     if (document.getElementById('sp-doctor-console-inline-style')) return;
 
@@ -93,6 +209,13 @@
       '#sosprescription-doctor-console-root .sp-alert-warning{border-color:#f0c36d;background:#fff7ed;color:#7a3e00;}',
       '#sosprescription-doctor-console-root .sp-badge-soft{border-color:#e5e7eb;background:#f8fafc;color:#374151;}',
       '#sosprescription-doctor-console-root .sp-card-title{font-size:14px;font-weight:600;margin:0 0 10px;}',
+      '#sosprescription-doctor-console-root .sp-top-meta{margin-top:8px;min-height:28px;}',
+      '#sosprescription-doctor-console-root .sp-code-pill{display:inline-flex;align-items:center;gap:6px;font-weight:600;}',
+      '#sosprescription-doctor-console-root .sp-patient-summary{display:flex;flex-direction:column;gap:10px;}',
+      '#sosprescription-doctor-console-root .sp-summary-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #f3f4f6;}',
+      '#sosprescription-doctor-console-root .sp-summary-row:first-child{border-top:0;padding-top:0;}',
+      '#sosprescription-doctor-console-root .sp-summary-label{font-size:12px;font-weight:700;letter-spacing:.03em;color:#6b7280;text-transform:uppercase;}',
+      '#sosprescription-doctor-console-root .sp-summary-value{font-size:14px;font-weight:600;color:#111827;text-align:right;}',
       '#sosprescription-doctor-console-root .sp-pdf-download{width:100%;justify-content:center;font-size:15px;padding:12px 16px;}',
       '#sosprescription-doctor-console-root .sp-spinner{display:inline-flex;align-items:center;gap:8px;}',
       '#sosprescription-doctor-console-root .sp-spinner::before{content:"";width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp-doctor-spin .8s linear infinite;}',
@@ -518,7 +641,10 @@
       '<div class="sosprescription-doctor">' +
       '  <div class="sp-card">' +
       '    <div class="sp-top">' +
-      '      <div class="sp-title"><h2>Console médecin' + (isSandbox ? ' <span class="sp-badge sp-badge-warn">Sandbox</span>' : '') + '</h2></div>' +
+      '      <div class="sp-title">' +
+      '        <h2>Console médecin' + (isSandbox ? ' <span class="sp-badge sp-badge-warn">Sandbox</span>' : '') + '</h2>' +
+      '        <div id="sp-current-delivery-code-badge" class="sp-top-meta"></div>' +
+      '      </div>' +
       '      <div class="sp-toolbar">' +
       '        <select id="sp-filter-status" class="sp-select">' +
       '          <option value="pending">En attente</option>' +
@@ -562,6 +688,7 @@
     el.assignedSel = document.getElementById('sp-filter-assigned');
     el.prioritySel = document.getElementById('sp-filter-priority');
     el.refreshBtn = document.getElementById('sp-refresh');
+    el.deliveryCodeBadge = document.getElementById('sp-current-delivery-code-badge');
 
     el.statusSel.value = state.filterStatus;
     el.assignedSel.value = state.filterAssigned;
@@ -669,17 +796,20 @@
     if (!el.detail) return;
 
     if (!state.selectedId) {
+      updateTopbarDeliveryCode(null);
       el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Sélectionnez un dossier dans la file.</div></div>';
       return;
     }
 
     if (state.detailLoading && !state.selected) {
+      updateTopbarDeliveryCode(null);
       el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Chargement du dossier…</div></div>';
       return;
     }
 
     var rx = state.selected;
     if (!rx) {
+      updateTopbarDeliveryCode(null);
       el.detail.innerHTML = '<div class="sp-card"><div class="sp-muted">Dossier introuvable.</div></div>';
       return;
     }
@@ -698,13 +828,9 @@
       }
     }
 
-    var patientName = rx.patient_name || 'Patient';
-    var age = rx.patient_age_label || '';
-    var dob = rx.patient_dob || '';
-    var patientLine = escHtml(patientName);
-    if (age) patientLine += ' <span class="sp-muted">• ' + escHtml(age) + '</span>';
-    if (dob) patientLine += ' <span class="sp-muted">• ' + escHtml(dob) + '</span>';
+    updateTopbarDeliveryCode(rx);
 
+    var patientSummary = extractPatientSummary(rx);
     var created = rx.created_at ? escHtml(rx.created_at) : '—';
     var uid = rx.uid ? escHtml(rx.uid) : String(state.selectedId);
 
@@ -881,8 +1007,13 @@
       '  </div>' +
       '  <div class="sp-card">' +
       '    <div class="sp-card-title">Patient</div>' +
-      '    <div>' + patientLine + '</div>' +
-      (rx.note ? '<div class="sp-muted" style="margin-top:8px;">Note : ' + escHtml(rx.note) + '</div>' : '') +
+      '    <div class="sp-patient-summary">' +
+      '      <div class="sp-summary-row"><div class="sp-summary-label">Nom</div><div class="sp-summary-value">' + escHtml(patientSummary.fullname || 'Patient') + '</div></div>' +
+      '      <div class="sp-summary-row"><div class="sp-summary-label">Date de naissance</div><div class="sp-summary-value">' + escHtml(patientSummary.birthDate || '—') + '</div></div>' +
+      (patientSummary.weight ? '      <div class="sp-summary-row"><div class="sp-summary-label">Poids</div><div class="sp-summary-value">' + escHtml(patientSummary.weight) + '</div></div>' : '') +
+      '      <div class="sp-summary-row"><div class="sp-summary-label">Créée le</div><div class="sp-summary-value">' + escHtml(patientSummary.createdAt || '—') + '</div></div>' +
+      '      <div class="sp-summary-row"><div class="sp-summary-label">Code délivrance</div><div class="sp-summary-value">' + escHtml(patientSummary.verifyCode || '—') + '</div></div>' +
+      '    </div>' +
       '  </div>' +
       '  <div class="sp-card">' +
       '    <div class="sp-card-title">Médicaments</div>' +

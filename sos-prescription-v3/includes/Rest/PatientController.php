@@ -33,11 +33,38 @@ class PatientController extends \WP_REST_Controller
         $last_name_input = $this->normalize_name_candidate($params['last_name'] ?? $params['lastName'] ?? '');
         $birth_raw = trim((string) ($params['birthdate'] ?? $params['birthDate'] ?? ''));
         $phone = $this->sanitize_phone($params['phone'] ?? '');
+        $email = $this->sanitize_email_input($params['email'] ?? '');
+        $weight_kg = $this->sanitize_decimal_string($params['weight_kg'] ?? $params['weightKg'] ?? '');
+        $height_cm = $this->sanitize_decimal_string($params['height_cm'] ?? $params['heightCm'] ?? '');
 
         if (($first_name_input !== '' && $this->looks_like_email($first_name_input)) || ($last_name_input !== '' && $this->looks_like_email($last_name_input))) {
             return new WP_Error(
                 'sosprescription_patient_identity_invalid',
                 'Le prénom et le nom doivent contenir une identité patient valide, pas une adresse e-mail.',
+                ['status' => 400]
+            );
+        }
+
+        if ($email !== '' && !is_email($email)) {
+            return new WP_Error(
+                'sosprescription_patient_email_invalid',
+                'Adresse e-mail invalide.',
+                ['status' => 400]
+            );
+        }
+
+        if ($weight_kg !== '' && !$this->is_valid_weight($weight_kg)) {
+            return new WP_Error(
+                'sosprescription_patient_weight_invalid',
+                'Poids invalide. Merci de saisir une valeur en kilogrammes.',
+                ['status' => 400]
+            );
+        }
+
+        if ($height_cm !== '' && !$this->is_valid_height($height_cm)) {
+            return new WP_Error(
+                'sosprescription_patient_height_invalid',
+                'Taille invalide. Merci de saisir une valeur en centimètres.',
                 ['status' => 400]
             );
         }
@@ -63,6 +90,13 @@ class PatientController extends \WP_REST_Controller
             'first_name' => $first_name,
             'last_name' => $last_name,
         ];
+
+        if ($email !== '') {
+            $current_email = ($current_user instanceof \WP_User) ? (string) $current_user->user_email : '';
+            if (strcasecmp($current_email, $email) !== 0) {
+                $userdata['user_email'] = $email;
+            }
+        }
 
         $full_name = trim($first_name . ' ' . $last_name);
         $current_display_name = ($current_user instanceof \WP_User) ? (string) $current_user->display_name : '';
@@ -93,7 +127,26 @@ class PatientController extends \WP_REST_Controller
             delete_user_meta($user_id, 'sosp_phone');
         }
 
-        $profile = $this->build_profile_payload($user_id);
+        if ($email !== '') {
+            update_user_meta($user_id, 'sosp_email', $email);
+        } else {
+            delete_user_meta($user_id, 'sosp_email');
+        }
+
+        if ($weight_kg !== '') {
+            update_user_meta($user_id, 'sosp_weight_kg', $weight_kg);
+        } else {
+            delete_user_meta($user_id, 'sosp_weight_kg');
+        }
+
+        if ($height_cm !== '') {
+            update_user_meta($user_id, 'sosp_height_cm', $height_cm);
+        } else {
+            delete_user_meta($user_id, 'sosp_height_cm');
+        }
+
+        $refreshed_user = get_userdata($user_id);
+        $profile = $this->build_profile_payload($user_id, $refreshed_user instanceof \WP_User ? $refreshed_user : null);
 
         return new WP_REST_Response([
             'ok' => true,
@@ -101,9 +154,9 @@ class PatientController extends \WP_REST_Controller
             'profile' => $profile,
             'currentUser' => [
                 'id' => $user_id,
-                'displayName' => $profile['full_name'] !== '' ? $profile['full_name'] : (($current_user instanceof \WP_User) ? (string) $current_user->display_name : ''),
-                'email' => ($current_user instanceof \WP_User) ? (string) $current_user->user_email : '',
-                'roles' => ($current_user instanceof \WP_User) ? array_values((array) $current_user->roles) : [],
+                'displayName' => $profile['full_name'] !== '' ? $profile['full_name'] : (($refreshed_user instanceof \WP_User) ? (string) $refreshed_user->display_name : ''),
+                'email' => $profile['email'],
+                'roles' => ($refreshed_user instanceof \WP_User) ? array_values((array) $refreshed_user->roles) : [],
                 'firstName' => $profile['first_name'],
                 'lastName' => $profile['last_name'],
                 'first_name' => $profile['first_name'],
@@ -120,6 +173,11 @@ class PatientController extends \WP_REST_Controller
                 'birthdate_iso' => $profile['birthdate_iso'],
                 'birthdate_fr' => $profile['birthdate_fr'],
                 'phone' => $profile['phone'],
+                'email' => $profile['email'],
+                'weight_kg' => $profile['weight_kg'],
+                'height_cm' => $profile['height_cm'],
+                'bmi_value' => $profile['bmi_value'],
+                'bmi_label' => $profile['bmi_label'],
             ],
         ], 200);
     }
@@ -158,6 +216,69 @@ class PatientController extends \WP_REST_Controller
         return function_exists('mb_substr') ? (string) mb_substr($clean, 0, 40) : substr($clean, 0, 40);
     }
 
+    private function sanitize_email_input(mixed $value): string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return '';
+        }
+
+        return sanitize_email($raw);
+    }
+
+    private function sanitize_decimal_string(mixed $value): string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return '';
+        }
+
+        $raw = str_replace(',', '.', $raw);
+        $raw = preg_replace('/[^0-9.]/', '', $raw) ?? '';
+        if ($raw === '') {
+            return '';
+        }
+
+        if (substr_count($raw, '.') > 1) {
+            $parts = explode('.', $raw);
+            $raw = array_shift($parts) . '.' . implode('', $parts);
+        }
+
+        if (!is_numeric($raw)) {
+            return '';
+        }
+
+        $float = (float) $raw;
+        if (!is_finite($float) || $float <= 0) {
+            return '';
+        }
+
+        $normalized = number_format($float, 1, '.', '');
+        if (str_ends_with($normalized, '.0')) {
+            $normalized = substr($normalized, 0, -2);
+        }
+
+        return $normalized;
+    }
+
+    private function is_valid_weight(string $value): bool
+    {
+        if (!is_numeric($value)) {
+            return false;
+        }
+        $float = (float) $value;
+        return is_finite($float) && $float >= 1.0 && $float <= 500.0;
+    }
+
+    private function is_valid_height(string $value): bool
+    {
+        if (!is_numeric($value)) {
+            return false;
+        }
+        $float = (float) $value;
+        return is_finite($float) && $float >= 30.0 && $float <= 300.0;
+    }
+
     private function looks_like_email(string $value): bool
     {
         $value = trim($value);
@@ -169,14 +290,24 @@ class PatientController extends \WP_REST_Controller
     }
 
     /**
-     * @return array{first_name:string,last_name:string,full_name:string,birthdate_iso:string,birthdate_fr:string,phone:string}
+     * @return array{first_name:string,last_name:string,full_name:string,birthdate_iso:string,birthdate_fr:string,phone:string,email:string,weight_kg:string,height_cm:string,bmi_value:string,bmi_label:string}
      */
-    private function build_profile_payload(int $user_id): array
+    private function build_profile_payload(int $user_id, ?\WP_User $user = null): array
     {
+        $user = $user instanceof \WP_User ? $user : get_userdata($user_id);
+
         $first_name = sanitize_text_field((string) get_user_meta($user_id, 'first_name', true));
         $last_name = sanitize_text_field((string) get_user_meta($user_id, 'last_name', true));
         $birth_iso = (string) get_user_meta($user_id, 'sosp_birthdate', true);
         $phone = (string) get_user_meta($user_id, 'sosp_phone', true);
+        $email = (string) get_user_meta($user_id, 'sosp_email', true);
+        if ($email === '' && $user instanceof \WP_User) {
+            $email = (string) $user->user_email;
+        }
+        $weight_kg = (string) get_user_meta($user_id, 'sosp_weight_kg', true);
+        $height_cm = (string) get_user_meta($user_id, 'sosp_height_cm', true);
+        $bmi_value = Date::bmi_value($weight_kg, $height_cm);
+        $bmi_label = Date::bmi_label($weight_kg, $height_cm);
 
         return [
             'first_name' => $first_name,
@@ -185,6 +316,11 @@ class PatientController extends \WP_REST_Controller
             'birthdate_iso' => $birth_iso,
             'birthdate_fr' => $birth_iso !== '' ? Date::iso_to_fr($birth_iso) : '',
             'phone' => $phone,
+            'email' => $email,
+            'weight_kg' => $weight_kg,
+            'height_cm' => $height_cm,
+            'bmi_value' => $bmi_value !== null ? (string) $bmi_value : '',
+            'bmi_label' => $bmi_label !== '—' ? $bmi_label : '',
         ];
     }
 }

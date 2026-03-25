@@ -161,15 +161,15 @@ export class PrescriptionHtmlBuilder {
 
 function buildDoctorProfile(aggregate: PrescriptionRenderAggregate): DoctorProfile {
   const doctor = aggregate.doctor;
-  const firstName = normalizeHumanString(doctor.firstName);
-  const lastName = normalizeHumanString(doctor.lastName);
+  const firstName = normalizeString(doctor.firstName);
+  const lastName = normalizeString(doctor.lastName);
   let displayName = [firstName, lastName].filter(Boolean).join(" ").trim();
   if (displayName === "") {
     displayName = "Médecin prescripteur";
   }
 
   const title = mapDoctorTitle(doctor.title);
-  const specialty = normalizeHumanString(doctor.specialty) || "Médecin prescripteur";
+  const specialty = normalizeString(doctor.specialty) || "Médecin prescripteur";
   const rpps = sanitizeDigits(doctor.rpps);
   const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
   const phone = normalizeString(doctor.phone);
@@ -514,7 +514,9 @@ function buildFooterBlockHtml(
   if (verifyUrl !== "") {
     parts.push(`<div style="word-break:break-all;"><strong>Vérification :</strong> ${escapeHtml(verifyUrl)}</div>`);
   }
-  parts.push(`<div style="margin-top:1.5mm;color:#64748b;font-size:8.5pt;">req_id=${escapeHtml(reqId ?? "")}${jobId !== "" ? ` — job_id=${escapeHtml(jobId)}` : ""}</div>`);
+  void reqId;
+  void jobId;
+  parts.push('<div style="margin-top:1.5mm;color:#64748b;font-size:8.5pt;">Ordonnance numérique sécurisée et hébergée sur un serveur certifié HDS (Hébergeur de Données de Santé).</div>');
 
   return parts.join("\n");
 }
@@ -526,10 +528,7 @@ function buildLabeledValueRowHtml(label: string, valueHtml: string, allowHtml = 
 }
 
 function buildPatientName(aggregate: PrescriptionRenderAggregate): string {
-  const firstName = normalizeHumanString(aggregate.patient.firstName);
-  const lastName = normalizeHumanString(aggregate.patient.lastName);
-
-  return [firstName, lastName]
+  return [normalizeString(aggregate.patient.firstName), normalizeString(aggregate.patient.lastName)]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -648,20 +647,6 @@ function escapeHtmlAttr(value: unknown): string {
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeHumanString(value: unknown): string {
-  const raw = normalizeString(value);
-  if (raw === "" || isEmailLike(raw)) {
-    return "";
-  }
-
-  return raw;
-}
-
-function isEmailLike(value: string): boolean {
-  const raw = normalizeString(value);
-  return raw !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
 }
 
 function firstNonEmpty(values: unknown[]): string {
