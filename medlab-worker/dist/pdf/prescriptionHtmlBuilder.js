@@ -106,14 +106,14 @@ class PrescriptionHtmlBuilder {
 exports.PrescriptionHtmlBuilder = PrescriptionHtmlBuilder;
 function buildDoctorProfile(aggregate) {
     const doctor = aggregate.doctor;
-    const firstName = normalizeString(doctor.firstName);
-    const lastName = normalizeString(doctor.lastName);
+    const firstName = normalizeHumanString(doctor.firstName);
+    const lastName = normalizeHumanString(doctor.lastName);
     let displayName = [firstName, lastName].filter(Boolean).join(" ").trim();
     if (displayName === "") {
         displayName = "Médecin prescripteur";
     }
     const title = mapDoctorTitle(doctor.title);
-    const specialty = normalizeString(doctor.specialty) || "Médecin prescripteur";
+    const specialty = normalizeHumanString(doctor.specialty) || "Médecin prescripteur";
     const rpps = sanitizeDigits(doctor.rpps);
     const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
     const phone = normalizeString(doctor.phone);
@@ -422,7 +422,7 @@ function buildLabeledValueRowHtml(label, valueHtml, allowHtml = false) {
     return `<div class="kv-row"><div class="kv-label">${safeLabel}</div><div class="kv-value">${safeValue}</div></div>`;
 }
 function buildPatientName(aggregate) {
-    return [normalizeString(aggregate.patient.firstName), normalizeString(aggregate.patient.lastName)]
+    return [normalizeHumanString(aggregate.patient.firstName), normalizeHumanString(aggregate.patient.lastName)]
         .filter(Boolean)
         .join(" ")
         .trim();
@@ -455,14 +455,13 @@ function coerceItemArray(items) {
 }
 function injectMetaAndReadiness(html, aggregate, reqId, jobId, templateName) {
     const meta = [
-        `<meta name="ml:req_id" content="${escapeHtmlAttr(reqId ?? "")}">`,
         `<meta name="ml:job_id" content="${escapeHtmlAttr(jobId)}">`,
         `<meta name="ml:prescription_id" content="${escapeHtmlAttr(aggregate.prescription.id)}">`,
         `<meta name="ml:uid" content="${escapeHtmlAttr(aggregate.prescription.uid)}">`,
         `<meta name="ml:template" content="${escapeHtmlAttr(templateName)}">`,
     ].join("\n");
     const marker = [
-        `<!-- req_id: ${escapeHtml(reqId ?? "")} job_id: ${escapeHtml(jobId)} prescription_id: ${escapeHtml(aggregate.prescription.id)} -->`,
+        `<!-- job_id: ${escapeHtml(jobId)} prescription_id: ${escapeHtml(aggregate.prescription.id)} -->`,
         '<div data-ml-pdf-ready="1" style="display:none"></div>',
         '<script>window.__ML_PDF_READY__ = true;</script>',
     ].join("\n");
@@ -518,6 +517,17 @@ function escapeHtmlAttr(value) {
 }
 function normalizeString(value) {
     return typeof value === "string" ? value.trim() : "";
+}
+function normalizeHumanString(value) {
+    const raw = normalizeString(value);
+    if (raw === "" || isEmailLike(raw)) {
+        return "";
+    }
+    return raw;
+}
+function isEmailLike(value) {
+    const raw = normalizeString(value);
+    return raw !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
 }
 function firstNonEmpty(values) {
     for (const value of values) {

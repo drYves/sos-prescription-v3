@@ -162,15 +162,15 @@ export class PrescriptionHtmlBuilder {
 
 function buildDoctorProfile(aggregate: PrescriptionRenderAggregate): DoctorProfile {
   const doctor = aggregate.doctor;
-  const firstName = normalizeString(doctor.firstName);
-  const lastName = normalizeString(doctor.lastName);
+  const firstName = normalizeHumanString(doctor.firstName);
+  const lastName = normalizeHumanString(doctor.lastName);
   let displayName = [firstName, lastName].filter(Boolean).join(" ").trim();
   if (displayName === "") {
     displayName = "Médecin prescripteur";
   }
 
   const title = mapDoctorTitle(doctor.title);
-  const specialty = normalizeString(doctor.specialty) || "Médecin prescripteur";
+  const specialty = normalizeHumanString(doctor.specialty) || "Médecin prescripteur";
   const rpps = sanitizeDigits(doctor.rpps);
   const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
   const phone = normalizeString(doctor.phone);
@@ -534,7 +534,7 @@ function buildLabeledValueRowHtml(label: string, valueHtml: string, allowHtml = 
 }
 
 function buildPatientName(aggregate: PrescriptionRenderAggregate): string {
-  return [normalizeString(aggregate.patient.firstName), normalizeString(aggregate.patient.lastName)]
+  return [normalizeHumanString(aggregate.patient.firstName), normalizeHumanString(aggregate.patient.lastName)]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -580,7 +580,6 @@ function injectMetaAndReadiness(
   templateName: string,
 ): string {
   const meta = [
-    `<meta name="ml:req_id" content="${escapeHtmlAttr(reqId ?? "")}">`,
     `<meta name="ml:job_id" content="${escapeHtmlAttr(jobId)}">`,
     `<meta name="ml:prescription_id" content="${escapeHtmlAttr(aggregate.prescription.id)}">`,
     `<meta name="ml:uid" content="${escapeHtmlAttr(aggregate.prescription.uid)}">`,
@@ -588,7 +587,7 @@ function injectMetaAndReadiness(
   ].join("\n");
 
   const marker = [
-    `<!-- req_id: ${escapeHtml(reqId ?? "")} job_id: ${escapeHtml(jobId)} prescription_id: ${escapeHtml(aggregate.prescription.id)} -->`,
+    `<!-- job_id: ${escapeHtml(jobId)} prescription_id: ${escapeHtml(aggregate.prescription.id)} -->`,
     '<div data-ml-pdf-ready="1" style="display:none"></div>',
     '<script>window.__ML_PDF_READY__ = true;</script>',
   ].join("\n");
@@ -653,6 +652,20 @@ function escapeHtmlAttr(value: unknown): string {
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeHumanString(value: unknown): string {
+  const raw = normalizeString(value);
+  if (raw === "" || isEmailLike(raw)) {
+    return "";
+  }
+
+  return raw;
+}
+
+function isEmailLike(value: string): boolean {
+  const raw = normalizeString(value);
+  return raw !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
 }
 
 function firstNonEmpty(values: unknown[]): string {
