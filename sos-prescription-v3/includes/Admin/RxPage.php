@@ -5,6 +5,12 @@ namespace SOSPrescription\Admin;
 
 final class RxPage
 {
+    public static function register_actions(): void
+    {
+        // No-op : Methode conservee pour eviter un Fatal Error
+        // car le noyau du plugin tente toujours de l'appeler via un hook existant.
+    }
+
     public static function render(): void
     {
         echo '<div class="wrap">';
