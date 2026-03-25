@@ -58,7 +58,7 @@ interface ClaimedPrescriptionRow {
   attempts: number;
   maxAttempts: number;
   verifyToken: string | null;
-  doctorId: string;
+  doctorId: string | null;
   patientId: string;
   sourceReqId: string | null;
   s3PdfKey: string | null;
@@ -138,7 +138,7 @@ export class PrismaJobsRepo implements JobsRepo {
 
   async ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
     assertIngestRequest(input, this.siteId);
-    const doctorInput = input.doctor as IngestDoctorInput;
+    const doctorInput = input.doctor as IngestDoctorInput | undefined | null;
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       try {
@@ -152,12 +152,17 @@ export class PrismaJobsRepo implements JobsRepo {
             return mapIngestResult(replay, "replay", input.req_id);
           }
 
-          const doctor = await tx.doctor.upsert({
-            where: { wpUserId: normalizeRequiredInt(doctorInput.wpUserId, "doctor.wpUserId") },
-            create: buildDoctorCreate(doctorInput),
-            update: buildDoctorUpdate(doctorInput),
-            select: { id: true },
-          });
+          let finalDoctorId: string | null = null;
+
+          if (doctorInput && typeof doctorInput === "object" && doctorInput.wpUserId != null && doctorInput.wpUserId > 0) {
+            const doctor = await tx.doctor.upsert({
+              where: { wpUserId: normalizeRequiredInt(doctorInput.wpUserId, "doctor.wpUserId") },
+              create: buildDoctorCreate(doctorInput),
+              update: buildDoctorUpdate(doctorInput),
+              select: { id: true },
+            });
+            finalDoctorId = doctor.id;
+          }
 
           const patient = await tx.patient.create({
             data: buildPatientCreate(input.patient),
@@ -167,7 +172,7 @@ export class PrismaJobsRepo implements JobsRepo {
           const createdPrescription = await tx.prescription.create({
             data: {
               uid: generatePublicUid(),
-              doctorId: doctor.id,
+              doctorId: finalDoctorId,
               patientId: patient.id,
               status: "PENDING",
               items: toInputJsonArray(input.prescription.items),
@@ -203,7 +208,7 @@ export class PrismaJobsRepo implements JobsRepo {
               prescription_uid: created.uid,
               processing_status: created.processing_status,
               source_req_id: created.source_req_id,
-              doctor_wp_user_id: doctorInput.wpUserId,
+              doctor_wp_user_id: doctorInput?.wpUserId ?? null,
             },
             input.req_id,
           );
@@ -276,17 +281,23 @@ export class PrismaJobsRepo implements JobsRepo {
         throw new Error("Prescription not found");
       }
 
-      if (doctor && existing.doctorId && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
-        await tx.doctor.update({
-          where: { id: existing.doctorId },
-          data: buildDoctorUpdate(doctor),
+      let finalDoctorId = existing.doctorId;
+
+      if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
+        const upsertedDoctor = await tx.doctor.upsert({
+          where: { wpUserId: normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") },
+          create: buildDoctorCreate(doctor),
+          update: buildDoctorUpdate(doctor),
+          select: { id: true },
         });
+        finalDoctorId = upsertedDoctor.id;
       }
 
       return tx.prescription.update({
         where: { id: safePrescriptionId },
         data: {
           status: "APPROVED",
+          doctorId: finalDoctorId,
           updatedAt: new Date(),
         },
         select: ingestSelect(),
@@ -1039,8 +1050,14 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
   normalizeRequiredString(input.nonce, "nonce");
   normalizeRequiredInt(input.ts_ms, "ts_ms");
 
-  if (!input.doctor || typeof input.doctor !== "object") {
-    throw new Error("doctor block is required");
+  if (input.doctor != null) {
+    if (typeof input.doctor !== "object") {
+      throw new Error("doctor block must be an object if provided");
+    }
+    const doc = input.doctor as IngestDoctorInput;
+    if (doc.wpUserId != null && doc.wpUserId > 0) {
+      normalizeRequiredInt(doc.wpUserId, "doctor.wpUserId");
+    }
   }
   if (!input.patient || typeof input.patient !== "object") {
     throw new Error("patient block is required");
@@ -1049,7 +1066,6 @@ function assertIngestRequest(input: IngestPrescriptionRequest, siteId: string): 
     throw new Error("prescription block is required");
   }
 
-  normalizeRequiredInt(input.doctor.wpUserId, "doctor.wpUserId");
   normalizeRequiredString(input.patient.firstName, "patient.firstName");
   normalizeRequiredString(input.patient.lastName, "patient.lastName");
   normalizeRequiredString(input.patient.birthDate, "patient.birthDate");
