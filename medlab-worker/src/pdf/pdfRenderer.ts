@@ -1,20 +1,25 @@
-/// <reference lib="dom" />
 // src/pdf/pdfRenderer.ts
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { URL } from "node:url";
-import puppeteer, { Browser, BrowserContext, HTTPRequest, HTTPResponse, Page } from "puppeteer";
+import puppeteer, { Browser, BrowserContext, Page } from "puppeteer";
 
 import { MemoryGuard } from "../admission/memoryGuard";
 import { HardError } from "../jobs/errors";
 import { NdjsonLogger } from "../logger";
-import { buildMls1Token } from "../security/mls1";
 
-interface PdfRenderCommonInput {
+export interface PdfRenderInput {
+  mode: "inline-html" | "remote-wordpress";
+  html?: string;
+  templateName?: string;
+  siteId?: string;
+  wpBaseUrl?: string;
+  renderPathTemplate?: string;
+  hmacSecret?: string;
   workerId: string;
   jobId: string;
+  rxId?: number;
   reqId?: string;
   chromeExecutablePath: string;
   renderTimeoutMs: number;
@@ -22,23 +27,6 @@ interface PdfRenderCommonInput {
   memGuard: MemoryGuard;
   admissionMaxMb: number;
 }
-
-export interface RemoteWordpressPdfRenderInput extends PdfRenderCommonInput {
-  mode: "remote-wordpress";
-  siteId: string;
-  wpBaseUrl: string;
-  renderPathTemplate: string;
-  hmacSecret: string;
-  rxId: number;
-}
-
-export interface InlineHtmlPdfRenderInput extends PdfRenderCommonInput {
-  mode: "inline-html";
-  html: string;
-  templateName?: string;
-}
-
-export type PdfRenderInput = RemoteWordpressPdfRenderInput | InlineHtmlPdfRenderInput;
 
 export interface PdfRenderResult {
   filePath: string;
@@ -53,12 +41,8 @@ export class PdfRenderer {
   async renderToTmpPdf(input: PdfRenderInput): Promise<PdfRenderResult> {
     const startedAt = Date.now();
 
-    if (input.mode === "remote-wordpress" && input.rxId <= 0) {
+    if (input.mode === "remote-wordpress" && (!input.rxId || input.rxId <= 0)) {
       throw new HardError("ML_PDF_BAD_RX_ID", "Invalid rx_id");
-    }
-
-    if (input.mode === "inline-html" && input.html.trim() === "") {
-      throw new HardError("ML_PDF_EMPTY_HTML", "Inline HTML payload is empty");
     }
 
     input.memGuard.tick();
@@ -97,10 +81,9 @@ export class PdfRenderer {
         "pdf.render.started",
         {
           job_id: input.jobId,
+          rx_id: input.rxId,
           worker_id: input.workerId,
-          mode: input.mode,
-          rx_id: input.mode === "remote-wordpress" ? input.rxId : undefined,
-          template: input.mode === "inline-html" ? input.templateName ?? undefined : undefined,
+          render_mode: input.mode,
         },
         input.reqId,
       );
@@ -118,21 +101,50 @@ export class PdfRenderer {
 
       context = await browser.createBrowserContext();
       page = await context.newPage();
-      page.setDefaultNavigationTimeout(input.renderTimeoutMs);
+
+      await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+      await page.setExtraHTTPHeaders({
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+      });
+      await page.evaluateOnNewDocument(`
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+      `);
 
       await page.setCacheEnabled(false);
       await page.emulateMediaType("print");
       await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 2 });
 
       await withTimeout(async () => {
-        if (input.mode === "remote-wordpress") {
-          await renderRemoteWordpressPage(page!, input, this.logger);
+        if (input.mode === "inline-html" && input.html) {
+          await page!.setContent(input.html, { waitUntil: ["load", "networkidle0"] });
         } else {
-          await renderInlineHtmlPage(page!, input, this.logger);
+          throw new HardError("ML_PDF_MODE_ERROR", "Remote rendering is disabled. Only inline-html is supported.");
         }
 
-        await ensureFontsReady(page!);
-        await waitForPdfReadyMarker(page!, input.readyTimeoutMs);
+        await page!.evaluate(`
+          (async () => {
+            if (document.fonts && document.fonts.ready) {
+              await document.fonts.ready;
+            }
+          })();
+        `);
+
+        try {
+          await page!.waitForFunction(
+            `globalThis.__ML_PDF_READY__ === true || document.querySelector("[data-ml-pdf-ready='1']") !== null`,
+            { timeout: input.readyTimeoutMs },
+          );
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
 
         if (abortedByOverload) {
           throw new HardError("ML_ADMISSION_OVERLOAD", "Admission overload");
@@ -162,9 +174,7 @@ export class PdfRenderer {
         "pdf.render.completed",
         {
           job_id: input.jobId,
-          mode: input.mode,
-          rx_id: input.mode === "remote-wordpress" ? input.rxId : undefined,
-          template: input.mode === "inline-html" ? input.templateName ?? undefined : undefined,
+          rx_id: input.rxId,
           size_bytes: sizeBytes,
           duration_ms: Date.now() - startedAt,
         },
@@ -183,8 +193,7 @@ export class PdfRenderer {
           "pdf.render.aborted_overload",
           {
             job_id: input.jobId,
-            mode: input.mode,
-            rx_id: input.mode === "remote-wordpress" ? input.rxId : undefined,
+            rx_id: input.rxId,
             rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
           },
           input.reqId,
@@ -198,9 +207,7 @@ export class PdfRenderer {
         "pdf.render.failed",
         {
           job_id: input.jobId,
-          mode: input.mode,
-          rx_id: input.mode === "remote-wordpress" ? input.rxId : undefined,
-          template: input.mode === "inline-html" ? input.templateName ?? undefined : undefined,
+          rx_id: input.rxId,
           error_message: err instanceof Error ? err.message : String(err),
           error_stack: err instanceof Error ? err.stack : undefined,
         },
@@ -218,233 +225,6 @@ export class PdfRenderer {
       await safeRmDir(userDir);
     }
   }
-}
-
-async function renderRemoteWordpressPage(
-  page: Page,
-  input: RemoteWordpressPdfRenderInput,
-  logger: NdjsonLogger,
-): Promise<void> {
-  const wpBaseUrl = input.wpBaseUrl.trim().replace(/\/+$/g, "");
-  const renderPath = input.renderPathTemplate.replace("{rx_id}", String(input.rxId));
-  const tsMs = Date.now();
-  const nonce = base64Url(randomBytes(16));
-  const canonical = `GET|${renderPath}|${tsMs}|${nonce}`;
-  const token = buildMls1Token(Buffer.from(canonical, "utf8"), input.hmacSecret);
-  const renderUrl = wpBaseUrl + renderPath;
-  const allowedOrigin = new URL(wpBaseUrl).origin;
-  const expectedPathname = new URL(renderUrl).pathname;
-
-  await page.setRequestInterception(true);
-  page.removeAllListeners("request");
-  page.on("request", (req) => {
-    void handleRemoteRequest(req, token, allowedOrigin, expectedPathname, logger, input.reqId);
-  });
-
-  const navResponse = await page.goto(renderUrl, { waitUntil: "networkidle0" });
-  await assertDocumentIsRenderable(page, navResponse, renderUrl);
-}
-
-async function handleRemoteRequest(
-  req: HTTPRequest,
-  token: string,
-  allowedOrigin: string,
-  expectedPathname: string,
-  logger: NdjsonLogger,
-  reqId?: string,
-): Promise<void> {
-  try {
-    const url = new URL(req.url());
-
-    if (url.protocol === "data:" || url.protocol === "blob:" || url.protocol === "about:") {
-      await req.continue();
-      return;
-    }
-
-    if (url.origin !== allowedOrigin) {
-      logger.warning("pdf.render.blocked_request", { reason: "foreign_origin", origin: url.origin }, reqId);
-      await req.abort();
-      return;
-    }
-
-    if (req.isNavigationRequest() && url.pathname === expectedPathname) {
-      await req.continue({ headers: { ...req.headers(), "x-medlab-signature": token } });
-      return;
-    }
-
-    await req.continue();
-  } catch (_err) {
-    try {
-      await req.abort();
-    } catch {
-      // noop
-    }
-  }
-}
-
-async function renderInlineHtmlPage(
-  page: Page,
-  input: InlineHtmlPdfRenderInput,
-  logger: NdjsonLogger,
-): Promise<void> {
-  await page.setRequestInterception(true);
-  page.removeAllListeners("request");
-  page.on("request", (req) => {
-    void handleOfflineRequest(req, logger, input.reqId);
-  });
-
-  await page.setContent(input.html, { waitUntil: "networkidle0" });
-  await assertInlineDocumentRenderable(page);
-}
-
-async function handleOfflineRequest(req: HTTPRequest, logger: NdjsonLogger, reqId?: string): Promise<void> {
-  const url = req.url();
-  const protocol = protocolOf(url);
-
-  if (protocol === "data:" || protocol === "blob:" || protocol === "about:") {
-    await req.continue();
-    return;
-  }
-
-  logger.warning("pdf.render.blocked_request", { reason: "offline_sandbox", protocol }, reqId);
-  try {
-    await req.abort();
-  } catch {
-    // noop
-  }
-}
-
-function protocolOf(url: string): string {
-  try {
-    return new URL(url).protocol;
-  } catch {
-    return "unknown:";
-  }
-}
-
-async function assertInlineDocumentRenderable(page: Page): Promise<void> {
-  const probe = await page.evaluate(() => {
-    const title = typeof document.title === "string" ? document.title : "";
-    const bodyText =
-      (document.body && typeof document.body.innerText === "string" ? document.body.innerText : "") ||
-      (document.documentElement && typeof document.documentElement.innerText === "string"
-        ? document.documentElement.innerText
-        : "");
-
-    return {
-      title,
-      bodyLength: bodyText.trim().length,
-      readyGlobal: (globalThis as { __ML_PDF_READY__?: boolean }).__ML_PDF_READY__ === true,
-      readyMarker: !!document.querySelector("[data-ml-pdf-ready='1']"),
-    };
-  });
-
-  if (probe.bodyLength < 1 && !probe.readyGlobal && !probe.readyMarker) {
-    throw new HardError("ML_PDF_EMPTY_HTML", "Inline HTML produced an empty document");
-  }
-}
-
-async function waitForPdfReadyMarker(page: Page, timeoutMs: number): Promise<void> {
-  try {
-    await page.waitForFunction(
-      `globalThis.__ML_PDF_READY__ === true || document.querySelector("[data-ml-pdf-ready='1']") !== null`,
-      { timeout: timeoutMs, polling: "mutation" },
-    );
-  } catch (_err) {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-}
-
-async function ensureFontsReady(page: Page): Promise<void> {
-  await page.evaluate(`
-    (async () => {
-      if (document.fonts && document.fonts.ready) {
-        await document.fonts.ready;
-      }
-    })();
-  `);
-}
-
-async function assertDocumentIsRenderable(
-  page: Page,
-  response: HTTPResponse | null,
-  expectedUrl: string,
-): Promise<void> {
-  const status = response?.status() ?? 0;
-  if (status >= 400) {
-    throw new HardError("ML_PDF_WAF_BLOCKED", `Render blocked upstream (HTTP ${status})`);
-  }
-
-  const probe = await page.evaluate(() => {
-    const title = typeof document.title === "string" ? document.title : "";
-    const bodyText =
-      (document.body && typeof document.body.innerText === "string" ? document.body.innerText : "") ||
-      (document.documentElement && typeof document.documentElement.innerText === "string"
-        ? document.documentElement.innerText
-        : "");
-
-    return {
-      href: location.href,
-      title,
-      bodyText: bodyText.slice(0, 4000),
-      readyGlobal: (globalThis as { __ML_PDF_READY__?: boolean }).__ML_PDF_READY__ === true,
-      readyMarker: !!document.querySelector("[data-ml-pdf-ready='1']"),
-    };
-  });
-
-  const normalized = normalizeProbeText(`${probe.title}\n${probe.bodyText}`);
-  const wafMarkers = [
-    "403 forbidden",
-    "access denied",
-    "access to this page has been denied",
-    "request forbidden",
-    "verify you are human",
-    "security check",
-    "web application firewall",
-    "your request has been blocked",
-    "automated queries",
-    "bot detection",
-    "bot detected",
-    "litespeed",
-    "hostinger",
-    "captcha",
-  ];
-
-  if (wafMarkers.some((marker) => normalized.includes(marker))) {
-    throw new HardError("ML_PDF_WAF_BLOCKED", "Render blocked by upstream WAF");
-  }
-
-  const expectedPath = normalizePathname(pathFromUrlSafe(expectedUrl));
-  const actualPath = normalizePathname(pathFromUrlSafe(probe.href));
-  if (expectedPath !== "" && actualPath !== "" && expectedPath !== actualPath) {
-    if (!probe.readyGlobal && !probe.readyMarker) {
-      throw new HardError("ML_PDF_WAF_BLOCKED", "Render redirected away from expected document");
-    }
-  }
-}
-
-function pathFromUrlSafe(value: string): string {
-  try {
-    return new URL(value).pathname || "";
-  } catch {
-    return "";
-  }
-}
-
-function normalizePathname(value: string): string {
-  if (!value) return "";
-  const trimmed = value.trim();
-  if (trimmed === "/") return "/";
-  return trimmed.replace(/\/+$/g, "");
-}
-
-function normalizeProbeText(value: string): string {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function chromeArgs(): string[] {
@@ -472,12 +252,12 @@ function chromeArgs(): string[] {
 }
 
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
-  const timeout = Math.max(1_000, timeoutMs);
+  const timeout = Math.max(1000, timeoutMs);
   return await Promise.race([
     fn(),
     new Promise<T>((_resolve, reject) => {
       const t = setTimeout(() => reject(new HardError("ML_PDF_TIMEOUT", "PDF render timeout")), timeout);
-      (t as NodeJS.Timeout).unref?.();
+      (t as { unref?: () => void }).unref?.();
     }),
   ]);
 }
@@ -502,26 +282,24 @@ async function sha256File(filePath: string): Promise<{ sha256Hex: string; sizeBy
   }
 
   return await new Promise((resolve, reject) => {
-    const hash = crypto.createHash("sha256");
+    const h = crypto.createHash("sha256");
     const rs = fs.createReadStream(filePath);
 
-    rs.on("data", (chunk) => hash.update(chunk));
+    rs.on("data", (chunk) => h.update(chunk));
     rs.on("error", () => reject(new HardError("ML_PDF_READ_FAILED", "Failed to read PDF")));
     rs.on("end", () => {
-      resolve({ sha256Hex: hash.digest("hex"), sizeBytes: st.size });
+      resolve({ sha256Hex: h.digest("hex"), sizeBytes: st.size });
     });
   });
 }
 
 async function hardKillBrowser(browser: Browser | null, logger: NdjsonLogger, reqId?: string): Promise<void> {
-  if (!browser) {
-    return;
-  }
+  if (!browser) return;
 
   try {
     await Promise.race([
       browser.close(),
-      new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
     ]);
   } catch {
     // noop
@@ -543,10 +321,8 @@ async function hardKillBrowser(browser: Browser | null, logger: NdjsonLogger, re
   }
 }
 
-async function safeClose(obj: { close: () => Promise<void> } | null): Promise<void> {
-  if (!obj) {
-    return;
-  }
+async function safeClose(obj: { close?: () => Promise<unknown> } | null): Promise<void> {
+  if (!obj?.close) return;
   try {
     await obj.close();
   } catch {
@@ -562,30 +338,22 @@ async function safeMkdir(dir: string): Promise<void> {
   }
 }
 
-async function safeUnlink(filePath: string): Promise<void> {
+async function safeUnlink(p: string): Promise<void> {
   try {
-    await fsp.unlink(filePath);
+    await fsp.unlink(p);
   } catch {
     // noop
   }
 }
 
-async function safeRmDir(dirPath: string): Promise<void> {
+async function safeRmDir(dir: string): Promise<void> {
   try {
-    await fsp.rm(dirPath, { recursive: true, force: true });
+    await fsp.rm(dir, { recursive: true, force: true });
   } catch {
     // noop
   }
 }
 
-function randomBytes(length: number): Buffer {
-  return crypto.randomBytes(length);
-}
-
-function base64Url(buf: Buffer): string {
-  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function sanitizeId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 64);
+function sanitizeId(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 64);
 }

@@ -175,7 +175,6 @@ function buildDoctorBlockHtml(doctor, rppsBarcodeDataUri) {
         lines.push([
             '<div class="doctor-rpps-panel">',
             '  <div class="doctor-rpps-heading">Code barre RPPS</div>',
-            `  <div class="doctor-rpps-value">${escapeHtml(doctor.rpps)}</div>`,
             `  <img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code barre RPPS ${escapeHtmlAttr(doctor.rpps)}" />`,
             '</div>',
         ].join("\n"));
@@ -186,20 +185,12 @@ function buildPatientBlockHtml(aggregate) {
     const rows = [];
     const patientName = buildPatientName(aggregate) || "Patient";
     const birthLabel = buildPatientBirthLabel(aggregate) || "—";
-    const ageLabel = computeAgeLabel(aggregate.patient.birthDate);
-    const createdAt = formatDateFr(aggregate.prescription.createdAt);
     const weightLabel = buildPatientWeightLabel(aggregate);
     rows.push(buildLabeledValueRowHtml("Nom", escapeHtml(patientName), true));
     rows.push(buildLabeledValueRowHtml("Date de naissance", escapeHtml(birthLabel), true));
-    if (ageLabel !== "") {
-        rows.push(buildLabeledValueRowHtml("Âge", escapeHtml(ageLabel), true));
-    }
+    rows.push(buildLabeledValueRowHtml("Référence", `<code>${escapeHtml(aggregate.prescription.uid)}</code>`, true));
     if (weightLabel !== "") {
         rows.push(buildLabeledValueRowHtml("Poids", escapeHtml(weightLabel), true));
-    }
-    rows.push(buildLabeledValueRowHtml("Référence", `<code>${escapeHtml(aggregate.prescription.uid)}</code>`, true));
-    if (createdAt !== "") {
-        rows.push(buildLabeledValueRowHtml("Créée le", escapeHtml(createdAt), true));
     }
     return `<div class="patient-grid">${rows.join("\n")}</div>`;
 }
@@ -377,7 +368,7 @@ function pluralizeDurationUnit(unit, value) {
 function buildFooterBlockHtml(aggregate, verifyUrl, doctor) {
     const parts = [];
     const issued = formatDateFr(aggregate.prescription.createdAt);
-    parts.push('<div style="font-size:8.5pt;line-height:1.35;color:#334155;">');
+    parts.push('<div style="font-size:8pt;line-height:1.3;color:#475569;">');
     parts.push(`<div><strong>Dossier :</strong> ${escapeHtml(aggregate.prescription.uid)}</div>`);
     if (issued !== "") {
         parts.push(`<div><strong>Date :</strong> ${escapeHtml(issued)}</div>`);
@@ -385,13 +376,10 @@ function buildFooterBlockHtml(aggregate, verifyUrl, doctor) {
     if (doctor.rpps !== "") {
         parts.push(`<div><strong>RPPS :</strong> ${escapeHtml(doctor.rpps)}</div>`);
     }
-    if (aggregate.prescription.verifyCode) {
-        parts.push(`<div><strong>Code délivrance :</strong> ${escapeHtml(aggregate.prescription.verifyCode)}</div>`);
-    }
     if (verifyUrl !== "") {
-        parts.push(`<div style="word-break:break-all;"><strong>Vérification :</strong> ${escapeHtml(verifyUrl)}</div>`);
+        parts.push(`<div style="word-break: break-all; margin-top: 1mm;"><strong>Vérification :</strong> <a href="${escapeHtmlAttr(verifyUrl)}" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(verifyUrl)}</a></div>`);
     }
-    parts.push('<div style="margin-top:1.6mm;color:#64748b;">Ordonnance numérique sécurisée et hébergée sur un serveur certifié HDS (Hébergeur de Données de Santé).</div>');
+    parts.push('<div style="margin-top:2mm; font-weight:bold; color:#334155;">Ordonnance numérique sécurisée et hébergée sur un serveur certifié HDS (Hébergeur de Données de Santé).</div>');
     parts.push('</div>');
     return parts.join("\n");
 }
