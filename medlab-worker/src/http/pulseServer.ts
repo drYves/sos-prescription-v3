@@ -572,14 +572,18 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown, signi
 }
 
 function isClientIngestError(message: string): boolean {
+  const haystack = String(message || "").toLowerCase();
+
   return [
     "required",
     "must be",
     "schema_version mismatch",
     "site_id mismatch",
     "doctor block is required",
+    "doctor block must be an object if provided",
     "patient block is required",
     "prescription block is required",
     "prescription.items must be an array",
-  ].some((needle) => message.includes(needle));
+    "ingress payload is missing",
+  ].some((needle) => haystack.includes(needle.toLowerCase()));
 }

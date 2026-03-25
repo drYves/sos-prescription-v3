@@ -47,7 +47,7 @@ class PrismaJobsRepo {
     }
     async ingestPrescription(input) {
         assertIngestRequest(input, this.siteId);
-        const doctorInput = input.doctor;
+        const doctorInput = normalizeOptionalDoctorInput(input.doctor);
         for (let attempt = 1; attempt <= 5; attempt += 1) {
             try {
                 const created = await this.prisma.$transaction(async (tx) => {
@@ -59,7 +59,7 @@ class PrismaJobsRepo {
                         return mapIngestResult(replay, "replay", input.req_id);
                     }
                     let finalDoctorId = null;
-                    if (doctorInput && typeof doctorInput === "object" && doctorInput.wpUserId != null && doctorInput.wpUserId > 0) {
+                    if (doctorInput?.wpUserId != null && doctorInput.wpUserId > 0) {
                         const doctor = await tx.doctor.upsert({
                             where: { wpUserId: normalizeRequiredInt(doctorInput.wpUserId, "doctor.wpUserId") },
                             create: buildDoctorCreate(doctorInput),
@@ -754,6 +754,16 @@ function normalizeRequiredInt(value, field) {
     }
     return n;
 }
+function parsePositiveIntOrNull(value) {
+    if (value == null) {
+        return null;
+    }
+    const raw = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+    if (!Number.isFinite(raw) || raw <= 0) {
+        return null;
+    }
+    return Math.trunc(raw);
+}
 function normalizeNullableString(value) {
     if (value == null) {
         return null;
@@ -789,14 +799,9 @@ function assertIngestRequest(input, siteId) {
     normalizeRequiredString(input.req_id, "req_id");
     normalizeRequiredString(input.nonce, "nonce");
     normalizeRequiredInt(input.ts_ms, "ts_ms");
-    if (input.doctor != null) {
-        if (typeof input.doctor !== "object") {
-            throw new Error("doctor block must be an object if provided");
-        }
-        const doc = input.doctor;
-        if (doc.wpUserId != null && doc.wpUserId > 0) {
-            normalizeRequiredInt(doc.wpUserId, "doctor.wpUserId");
-        }
+    const doctor = normalizeOptionalDoctorInput(input.doctor);
+    if (doctor?.wpUserId != null) {
+        normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId");
     }
     if (!input.patient || typeof input.patient !== "object") {
         throw new Error("patient block is required");
@@ -810,6 +815,32 @@ function assertIngestRequest(input, siteId) {
     if (!Array.isArray(input.prescription.items)) {
         throw new Error("prescription.items must be an array");
     }
+}
+function normalizeOptionalDoctorInput(value) {
+    if (value == null) {
+        return null;
+    }
+    if (Array.isArray(value) || typeof value !== "object") {
+        return null;
+    }
+    const row = value;
+    const normalized = {
+        wpUserId: parsePositiveIntOrNull(row.wpUserId),
+        firstName: normalizeNullableString(row.firstName),
+        lastName: normalizeNullableString(row.lastName),
+        email: normalizeNullableString(row.email),
+        phone: normalizeNullableString(row.phone),
+        title: normalizeNullableString(row.title),
+        specialty: normalizeNullableString(row.specialty),
+        rpps: normalizeNullableString(row.rpps),
+        amNumber: normalizeNullableString(row.amNumber),
+        address: normalizeNullableString(row.address),
+        city: normalizeNullableString(row.city),
+        zipCode: normalizeNullableString(row.zipCode),
+        signatureS3Key: normalizeNullableString(row.signatureS3Key),
+    };
+    const hasAnyValue = Object.values(normalized).some((entry) => entry != null && entry !== "");
+    return hasAnyValue ? normalized : null;
 }
 function extractPrismaCode(err) {
     if (!err || typeof err !== "object") {
