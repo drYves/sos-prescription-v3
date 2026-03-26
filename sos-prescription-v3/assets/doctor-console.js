@@ -23,7 +23,8 @@
     refusalOpen: false,
     refusalReason: '',
     pollHandle: null,
-    hydratedIds: {}
+    hydratedIds: {},
+    ui: null
   };
 
   if (!restBase || !nonce) {
@@ -51,10 +52,6 @@
 
   function safeArray(value) {
     return Array.isArray(value) ? value : [];
-  }
-
-  function toArray(value) {
-    return Array.prototype.slice.call(value || []);
   }
 
   function firstText(values) {
@@ -141,6 +138,7 @@
     if (!raw || /@/.test(raw)) {
       return 'Patient';
     }
+
     var parts = raw.split(' ');
     if (parts.length < 2) return raw;
     var firstName = parts.shift() || '';
@@ -195,6 +193,7 @@
       rx && rx.patient_dob
     ]);
     var weight = firstText([
+      patient.weight,
       patient.weight_kg,
       patient.weightKg,
       rx && rx.patient_weight_kg,
@@ -324,6 +323,23 @@
     return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'oui';
   }
 
+  function stablePdfDocumentKey(url) {
+    var raw = normalizeText(url);
+    if (!raw) return '';
+    try {
+      var parsed = new URL(raw, window.location.href);
+      return parsed.origin + parsed.pathname;
+    } catch (e) {
+      return raw.split('#')[0].split('?')[0];
+    }
+  }
+
+  function iframeSrcFromDownloadUrl(url) {
+    var raw = normalizeText(url);
+    if (!raw) return '';
+    return raw + '#toolbar=0&navpanes=0&scrollbar=1';
+  }
+
   function showNotice(type, message) {
     state.notice = { type: type, message: message };
     render();
@@ -345,7 +361,6 @@
         if (!state.selectedId || !state.list.some(function (item) { return Number(item.id) === Number(state.selectedId); })) {
           state.selectedId = Number(state.list[0].id || 0);
         }
-
         hydrateVisibleCases();
       } else {
         state.selectedId = 0;
@@ -434,11 +449,15 @@
     var numericId = Number(id || 0);
     if (numericId < 1) return Promise.resolve(null);
 
+    var changed = Number(state.selectedId) !== numericId;
     state.selectedId = numericId;
     state.refusalOpen = false;
     state.refusalReason = '';
     clearNotice();
-    render();
+
+    if (changed) {
+      render();
+    }
 
     return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
       if (!row) return null;
@@ -474,7 +493,7 @@
 
     requestJson('POST', '/prescriptions/' + id + '/decision', {
       decision: decision,
-      reason: reason || null
+      reason: decision === 'approved' ? '' : reason
     }).then(function (payload) {
       state.actionLoading = false;
       state.refusalOpen = false;
@@ -578,36 +597,6 @@
     }).join('') + '</div>';
   }
 
-  function renderPdfPanel(detail) {
-    var pdf = extractPdfState(detail && detail.id);
-    var status = normalizeText(pdf.status || 'pending').toLowerCase();
-    var message = firstText([
-      pdf.message,
-      pdf.last_error_message,
-      status === 'done' ? 'PDF prêt.' : (status === 'failed' ? 'Le PDF n’est pas disponible.' : 'PDF en cours de génération.')
-    ]);
-    var downloadUrl = normalizeText(pdf.download_url);
-
-    if (downloadUrl) {
-      return [
-        '<div class="dc-pdf-card">',
-        '  <div class="dc-card__title">Ordonnance PDF</div>',
-        '  <div class="dc-pdf-actions">',
-        '    <a class="dc-btn dc-btn-secondary" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
-        '  </div>',
-        '  <iframe class="dc-pdf-frame" src="' + escHtml(downloadUrl) + '#toolbar=0&navpanes=0&scrollbar=1" loading="lazy"></iframe>',
-        '</div>'
-      ].join('');
-    }
-
-    return [
-      '<div class="dc-pdf-card">',
-      '  <div class="dc-card__title">Ordonnance PDF</div>',
-      '  <div class="dc-pdf-placeholder">' + escHtml(message) + '</div>',
-      '</div>'
-    ].join('');
-  }
-
   function renderRefusalPanel() {
     if (!state.refusalOpen) return '';
 
@@ -623,71 +612,215 @@
     ].join('');
   }
 
-  function renderDetail() {
-    if (!state.selectedId) {
-      return '<div class="dc-empty dc-empty-large">Sélectionnez une demande pour ouvrir le dossier.</div>';
+  function renderPdfPlaceholder(message) {
+    return [
+      '<div class="dc-pdf-card">',
+      '  <div class="dc-card__title">Ordonnance PDF</div>',
+      '  <div class="dc-pdf-placeholder">' + escHtml(message) + '</div>',
+      '</div>'
+    ].join('');
+  }
+
+  function buildPdfCard(downloadUrl) {
+    return [
+      '<div class="dc-pdf-card">',
+      '  <div class="dc-card__title">Ordonnance PDF</div>',
+      '  <div class="dc-pdf-actions">',
+      '    <a class="dc-btn dc-btn-secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
+      '  </div>',
+      '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
+      '</div>'
+    ].join('');
+  }
+
+  function renderPdfInto(slot, detail) {
+    if (!slot) return;
+
+    var detailId = Number(detail && detail.id || 0);
+    var pdf = extractPdfState(detailId);
+    var status = normalizeText(pdf.status || 'pending').toLowerCase();
+    var message = firstText([
+      pdf.message,
+      pdf.last_error_message,
+      status === 'done' ? 'PDF prêt.' : (status === 'failed' ? 'Le PDF n’est pas disponible.' : 'PDF en cours de génération.')
+    ]);
+    var downloadUrl = normalizeText(pdf.download_url);
+    var nextDocKey = stablePdfDocumentKey(downloadUrl);
+    var currentCaseId = Number(slot.getAttribute('data-rendered-case-id') || 0);
+    var currentDocKey = normalizeText(slot.getAttribute('data-pdf-doc-key'));
+    var currentSignedUrl = normalizeText(slot.getAttribute('data-pdf-signed-url'));
+    var hasCard = !!slot.querySelector('.dc-pdf-card');
+    var frame = slot.querySelector('.dc-pdf-frame');
+    var openLink = slot.querySelector('.dc-pdf-open');
+
+    if (!downloadUrl) {
+      if (status === 'done' && frame && currentCaseId === detailId) {
+        return;
+      }
+      slot.innerHTML = renderPdfPlaceholder(message);
+      slot.setAttribute('data-rendered-case-id', String(detailId));
+      slot.setAttribute('data-pdf-doc-key', '');
+      slot.setAttribute('data-pdf-signed-url', '');
+      return;
     }
 
-    var detail = asObject(state.details[state.selectedId]);
-    if (Object.keys(detail).length < 1) {
-      return '<div class="dc-empty dc-empty-large">Chargement du dossier…</div>';
+    if (!hasCard || currentCaseId !== detailId || !frame || !openLink) {
+      slot.innerHTML = buildPdfCard(downloadUrl);
+      slot.setAttribute('data-rendered-case-id', String(detailId));
+      slot.setAttribute('data-pdf-doc-key', nextDocKey);
+      slot.setAttribute('data-pdf-signed-url', downloadUrl);
+      return;
     }
+
+    openLink.setAttribute('href', downloadUrl);
+
+    if (!currentDocKey) {
+      currentDocKey = stablePdfDocumentKey(currentSignedUrl);
+    }
+
+    if (currentDocKey !== nextDocKey) {
+      frame.setAttribute('src', iframeSrcFromDownloadUrl(downloadUrl));
+      slot.setAttribute('data-pdf-doc-key', nextDocKey);
+    }
+
+    slot.setAttribute('data-pdf-signed-url', downloadUrl);
+  }
+
+  function buildDetailSkeleton(detailId) {
+    return [
+      '<div class="dc-detail-pane" data-dc-detail-pane data-case-id="' + escHtml(detailId) + '">',
+      '  <div class="dc-detail-head">',
+      '    <div class="dc-detail-head__main">',
+      '      <div class="dc-overline">Dossier patient</div>',
+      '      <h2 class="dc-patient-name" data-dc-patient-name></h2>',
+      '      <div class="dc-patient-meta" data-dc-patient-meta></div>',
+      '    </div>',
+      '    <div class="dc-detail-head__aside" data-dc-header-badges></div>',
+      '  </div>',
+      '  <div class="dc-summary-card">',
+      '    <div class="dc-card__title">Patient</div>',
+      '    <div class="dc-summary-grid">',
+      '      <div class="dc-summary-row"><span>NOM</span><strong data-dc-summary-name></strong></div>',
+      '      <div class="dc-summary-row"><span>DATE DE NAISSANCE</span><strong data-dc-summary-birth></strong></div>',
+      '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '      <div class="dc-summary-row"><span>CRÉÉE LE</span><strong data-dc-summary-created></strong></div>',
+      '    </div>',
+      '  </div>',
+      '  <div class="dc-meds-card">',
+      '    <div class="dc-card__title">Ordonnance</div>',
+      '    <div data-dc-meds></div>',
+      '  </div>',
+      '  <div data-dc-pdf-slot></div>',
+      '  <div class="dc-decisionbar">',
+      '    <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
+      '    <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
+      '  </div>',
+      '  <div data-dc-refusal-slot></div>',
+      '</div>'
+    ].join('');
+  }
+
+  function patchDetailContent(detailEl, detail) {
+    var pane = detailEl.querySelector('[data-dc-detail-pane]');
+    if (!pane) return;
 
     var patient = extractPatientData(detail);
     var status = normalizeText(detail.status || 'pending').toLowerCase();
     var canDecide = status !== 'approved' && status !== 'rejected';
     var code = patient.verifyCode;
 
-    return [
-      '<div class="dc-detail-pane">',
-      '  <div class="dc-detail-head">',
-      '    <div class="dc-detail-head__main">',
-      '      <div class="dc-overline">Dossier patient</div>',
-      '      <h2 class="dc-patient-name">' + escHtml(patient.fullname) + '</h2>',
-      '      <div class="dc-patient-meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAt) + '</div>',
-      '    </div>',
-      '    <div class="dc-detail-head__aside">',
-      code ? ('      ' + statusBadge('Code délivrance : ' + code, 'soft')) : '',
-      '      ' + statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft'),
-      '    </div>',
-      '  </div>',
-      '  <div class="dc-summary-card">',
-      '    <div class="dc-card__title">Patient</div>',
-      '    <div class="dc-summary-grid">',
-      '      <div class="dc-summary-row"><span>NOM</span><strong>' + escHtml(patient.fullname) + '</strong></div>',
-      '      <div class="dc-summary-row"><span>DATE DE NAISSANCE</span><strong>' + escHtml(patient.birthDate) + '</strong></div>',
-      patient.weight ? '      <div class="dc-summary-row"><span>POIDS</span><strong>' + escHtml(patient.weight) + '</strong></div>' : '',
-      '      <div class="dc-summary-row"><span>CRÉÉE LE</span><strong>' + escHtml(patient.createdAt) + '</strong></div>',
-      code ? ('      <div class="dc-summary-row"><span>CODE DÉLIVRANCE</span><strong>' + escHtml(code) + '</strong></div>') : '',
-      '    </div>',
-      '  </div>',
-      '  <div class="dc-meds-card">',
-      '    <div class="dc-card__title">Ordonnance</div>',
-      renderMedicationList(detail),
-      '  </div>',
-      '  ' + renderPdfPanel(detail),
-      '  <div class="dc-decisionbar">',
-      canDecide
-        ? '    <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve">VALIDER L’ORDONNANCE</button>'
-        : '    <button type="button" class="dc-btn dc-btn-success dc-btn-large" disabled>ORDONNANCE VALIDÉE</button>',
-      canDecide
-        ? '    <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject">REFUSER</button>'
-        : (status === 'rejected'
-            ? '    <button type="button" class="dc-btn dc-btn-danger dc-btn-large" disabled>ORDONNANCE REFUSÉE</button>'
-            : '    <button type="button" class="dc-btn dc-btn-danger dc-btn-large" disabled>REFUSER</button>'),
-      '  </div>',
-      '  ' + renderRefusalPanel(),
-      '</div>'
-    ].join('');
+    var nameEl = detailEl.querySelector('[data-dc-patient-name]');
+    if (nameEl) nameEl.textContent = patient.fullname;
+
+    var metaEl = detailEl.querySelector('[data-dc-patient-meta]');
+    if (metaEl) metaEl.textContent = patient.birthDate + ' • ' + patient.createdAt;
+
+    var headerBadges = detailEl.querySelector('[data-dc-header-badges]');
+    if (headerBadges) {
+      headerBadges.innerHTML = [
+        code ? statusBadge('Code délivrance : ' + code, 'soft') : '',
+        statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft')
+      ].join('');
+    }
+
+    var summaryName = detailEl.querySelector('[data-dc-summary-name]');
+    if (summaryName) summaryName.textContent = patient.fullname;
+
+    var summaryBirth = detailEl.querySelector('[data-dc-summary-birth]');
+    if (summaryBirth) summaryBirth.textContent = patient.birthDate;
+
+    var summaryCreated = detailEl.querySelector('[data-dc-summary-created]');
+    if (summaryCreated) summaryCreated.textContent = patient.createdAt;
+
+    var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
+    var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
+    if (weightRow && weightEl) {
+      if (patient.weight) {
+        weightEl.textContent = patient.weight;
+        weightRow.style.display = '';
+      } else {
+        weightEl.textContent = '';
+        weightRow.style.display = 'none';
+      }
+    }
+
+    var medsEl = detailEl.querySelector('[data-dc-meds]');
+    if (medsEl) medsEl.innerHTML = renderMedicationList(detail);
+
+    var approveBtn = detailEl.querySelector('[data-dc-approve]');
+    if (approveBtn) {
+      approveBtn.textContent = canDecide ? 'VALIDER' : (status === 'approved' ? 'ORDONNANCE VALIDÉE' : 'VALIDER');
+      approveBtn.disabled = !canDecide || state.actionLoading;
+    }
+
+    var rejectBtn = detailEl.querySelector('[data-dc-reject]');
+    if (rejectBtn) {
+      rejectBtn.textContent = canDecide ? 'REFUSER' : (status === 'rejected' ? 'ORDONNANCE REFUSÉE' : 'REFUSER');
+      rejectBtn.disabled = !canDecide || state.actionLoading;
+    }
+
+    var refusalSlot = detailEl.querySelector('[data-dc-refusal-slot]');
+    if (refusalSlot) {
+      refusalSlot.innerHTML = canDecide ? renderRefusalPanel() : '';
+    }
+
+    var pdfSlot = detailEl.querySelector('[data-dc-pdf-slot]');
+    renderPdfInto(pdfSlot, detail);
   }
 
-  function render() {
-    var selected = state.selectedId ? asObject(state.details[state.selectedId]) : null;
-    var code = selected && Object.keys(selected).length ? extractVerifyCode(selected) : '';
+  function renderDetail() {
+    var ui = ensureShell();
+    var detailEl = ui.detail;
+
+    if (!state.selectedId) {
+      detailEl.innerHTML = '<div class="dc-empty dc-empty-large">Sélectionnez une demande pour ouvrir le dossier.</div>';
+      return;
+    }
+
+    var detail = asObject(state.details[state.selectedId]);
+    if (Object.keys(detail).length < 1) {
+      detailEl.innerHTML = state.detailLoading
+        ? '<div class="dc-loading">Chargement du dossier…</div>'
+        : '<div class="dc-empty dc-empty-large">Chargement du dossier…</div>';
+      return;
+    }
+
+    var pane = detailEl.querySelector('[data-dc-detail-pane]');
+    var renderedCaseId = pane ? Number(pane.getAttribute('data-case-id') || 0) : 0;
+
+    if (!pane || renderedCaseId !== Number(state.selectedId)) {
+      detailEl.innerHTML = buildDetailSkeleton(state.selectedId);
+    }
+
+    patchDetailContent(detailEl, detail);
+  }
+
+  function renderShell() {
+    if (state.ui) return state.ui;
 
     root.innerHTML = [
       '<div class="sosprescription-doctor">',
-      renderNotice(),
+      '  <div data-dc-notice></div>',
       '  <div class="dc-shell">',
       '    <aside class="dc-inbox">',
       '      <div class="dc-inbox__head">',
@@ -697,75 +830,92 @@
       '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
       '        </div>',
       '        <div class="dc-inbox__actions">',
-      code ? ('<div class="dc-current-code">' + statusBadge('Code délivrance : ' + code, 'soft') + '</div>') : '',
+      '          <div class="dc-current-code" data-dc-current-code></div>',
       '          <button type="button" class="dc-btn dc-btn-secondary" data-action="refresh">Actualiser</button>',
       '        </div>',
       '      </div>',
-      '      <div class="dc-inbox__list">' + renderInbox() + '</div>',
+      '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
       '    </aside>',
-      '    <section class="dc-detail">',
-      state.detailLoading ? '<div class="dc-loading">Chargement du dossier…</div>' : renderDetail(),
-      '    </section>',
+      '    <section class="dc-detail" data-dc-detail></section>',
       '  </div>',
       '</div>'
     ].join('');
 
-    bindEvents();
+    state.ui = {
+      notice: root.querySelector('[data-dc-notice]'),
+      currentCode: root.querySelector('[data-dc-current-code]'),
+      inboxList: root.querySelector('[data-dc-inbox-list]'),
+      detail: root.querySelector('[data-dc-detail]')
+    };
+
+    root.addEventListener('click', handleRootClick);
+    root.addEventListener('input', handleRootInput);
+
+    return state.ui;
   }
 
-  function bindEvents() {
-    toArray(root.querySelectorAll('[data-action="select"]')).forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        selectCase(Number(btn.getAttribute('data-id') || 0));
-      });
-    });
+  function ensureShell() {
+    return renderShell();
+  }
 
-    var refresh = root.querySelector('[data-action="refresh"]');
-    if (refresh) {
-      refresh.addEventListener('click', function () {
-        fetchList();
-      });
+  function handleRootClick(event) {
+    var target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+
+    var actionEl = target.closest('[data-action]');
+    if (!actionEl || !root.contains(actionEl)) return;
+
+    var action = normalizeText(actionEl.getAttribute('data-action')).toLowerCase();
+    if (!action) return;
+
+    if (action === 'select') {
+      selectCase(Number(actionEl.getAttribute('data-id') || 0));
+      return;
     }
 
-    var approve = root.querySelector('[data-action="approve"]');
-    if (approve) {
-      approve.addEventListener('click', function () {
-        submitDecision('approved');
-      });
+    if (action === 'refresh') {
+      fetchList();
+      return;
     }
 
-    var toggleReject = root.querySelector('[data-action="toggle-reject"]');
-    if (toggleReject) {
-      toggleReject.addEventListener('click', function () {
-        state.refusalOpen = true;
-        render();
-      });
+    if (action === 'approve') {
+      submitDecision('approved');
+      return;
     }
 
-    var cancelReject = root.querySelector('[data-action="cancel-reject"]');
-    if (cancelReject) {
-      cancelReject.addEventListener('click', function () {
-        state.refusalOpen = false;
-        state.refusalReason = '';
-        render();
-      });
+    if (action === 'toggle-reject') {
+      state.refusalOpen = true;
+      render();
+      return;
     }
 
-    var confirmReject = root.querySelector('[data-action="confirm-reject"]');
-    if (confirmReject) {
-      confirmReject.addEventListener('click', function () {
-        var textarea = root.querySelector('[data-role="refusal-reason"]');
-        state.refusalReason = textarea ? String(textarea.value || '') : state.refusalReason;
-        submitDecision('rejected');
-      });
+    if (action === 'cancel-reject') {
+      state.refusalOpen = false;
+      state.refusalReason = '';
+      render();
+      return;
     }
 
-    var refusal = root.querySelector('[data-role="refusal-reason"]');
-    if (refusal) {
-      refusal.addEventListener('input', function () {
-        state.refusalReason = String(refusal.value || '');
-      });
+    if (action === 'confirm-reject') {
+      submitDecision('rejected');
     }
+  }
+
+  function handleRootInput(event) {
+    var target = event.target;
+    if (!target || !target.matches || !target.matches('[data-role="refusal-reason"]')) return;
+    state.refusalReason = String(target.value || '');
+  }
+
+  function render() {
+    var ui = ensureShell();
+    var selected = state.selectedId ? asObject(state.details[state.selectedId]) : null;
+    var code = selected && Object.keys(selected).length ? extractVerifyCode(selected) : '';
+
+    ui.notice.innerHTML = renderNotice();
+    ui.currentCode.innerHTML = code ? statusBadge('Code délivrance : ' + code, 'soft') : '';
+    ui.inboxList.innerHTML = renderInbox();
+    renderDetail();
   }
 
   render();
