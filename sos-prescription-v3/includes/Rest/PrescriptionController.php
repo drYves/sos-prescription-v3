@@ -224,9 +224,13 @@ class PrescriptionController extends \WP_REST_Controller
     {
         $id = (int) $request->get_param('id');
         $decision = strtolower(trim((string) $request->get_param('decision')));
-        $reason = trim((string) ($request->get_param('reason') ?? ''));
-        if ($reason === '') {
+        if ($decision === 'approved') {
             $reason = null;
+        } else {
+            $reason = trim((string) ($request->get_param('reason') ?? ''));
+            if ($reason === '') {
+                $reason = null;
+            }
         }
 
         if ($id < 1 || !in_array($decision, ['approved', 'rejected'], true)) {
@@ -441,7 +445,7 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
         }
 
-        $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, $this->build_shadow_pdf_state($prescription_id, $row));
 
         return new WP_REST_Response([
             'prescription_id' => $prescription_id,
@@ -563,6 +567,7 @@ class PrescriptionController extends \WP_REST_Controller
             }
 
             $pdf = isset($dispatch['pdf']) && is_array($dispatch['pdf']) ? $dispatch['pdf'] : ['status' => 'pending'];
+            $pdf = $this->enrich_pdf_state_for_response($prescription_id, $pdf);
             $response = [
                 'prescription_id' => $prescription_id,
                 'pdf' => $pdf,
@@ -583,7 +588,7 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
         }
 
-        $pdf = $this->build_shadow_pdf_state($prescription_id, $row);
+        $pdf = $this->enrich_pdf_state_for_response($prescription_id, $this->build_shadow_pdf_state($prescription_id, $row));
 
         $response = [
             'prescription_id' => $prescription_id,
@@ -870,26 +875,64 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function enrich_pdf_state_for_response(int $prescription_id, array $pdf): array
     {
-        unset($prescription_id);
-
         $status = isset($pdf['status']) ? strtolower((string) $pdf['status']) : '';
-        $download_url = isset($pdf['download_url']) ? (string) $pdf['download_url'] : '';
+        $download_url = isset($pdf['download_url']) && is_scalar($pdf['download_url']) ? trim((string) $pdf['download_url']) : '';
 
         if ($download_url !== '') {
             $pdf['can_download'] = true;
-            if (!isset($pdf['expires_in'])) {
-                $pdf['expires_in'] = 60;
+            $pdf['s3_ready'] = true;
+            if (!isset($pdf['expires_in']) || !is_numeric($pdf['expires_in'])) {
+                $pdf['expires_in'] = 300;
             }
             return $pdf;
         }
 
         if ($status === 'done') {
+            $row = $this->prescriptions->get($prescription_id);
+            if (is_array($row)) {
+                $worker = $this->extract_worker_shadow_state($row);
+                $s3KeyRef = isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref']) ? trim((string) $worker['s3_key_ref']) : '';
+                $s3Bucket = isset($worker['s3_bucket']) && is_scalar($worker['s3_bucket']) ? trim((string) $worker['s3_bucket']) : '';
+                $s3Region = isset($worker['s3_region']) && is_scalar($worker['s3_region']) ? trim((string) $worker['s3_region']) : '';
+                $artifactSizeBytes = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes']) ? (int) $worker['artifact_size_bytes'] : null;
+                $artifactContentType = isset($worker['artifact_content_type']) && is_scalar($worker['artifact_content_type'])
+                    ? trim((string) $worker['artifact_content_type'])
+                    : 'application/pdf';
+
+                if ($s3KeyRef !== '') {
+                    $presigned = $this->build_presigned_s3_url_from_job([
+                        'job_id' => isset($worker['job_id']) && is_scalar($worker['job_id']) ? (string) $worker['job_id'] : (string) $prescription_id,
+                        's3_key_ref' => $s3KeyRef,
+                        's3_bucket' => $s3Bucket,
+                        's3_region' => $s3Region,
+                        'artifact_size_bytes' => $artifactSizeBytes,
+                        'artifact_content_type' => $artifactContentType,
+                    ], 300);
+
+                    if (!is_wp_error($presigned) && is_string($presigned) && $presigned !== '') {
+                        $pdf['download_url'] = $presigned;
+                        $pdf['can_download'] = true;
+                        $pdf['s3_ready'] = true;
+                        $pdf['expires_in'] = 300;
+                        if (empty($pdf['message'])) {
+                            $pdf['message'] = 'Validation enregistrée. PDF disponible.';
+                        }
+                        return $pdf;
+                    }
+
+                    $pdf['last_error_code'] = is_wp_error($presigned) ? $presigned->get_error_code() : 's3_link_unavailable';
+                    $pdf['last_error_message'] = is_wp_error($presigned)
+                        ? $presigned->get_error_message()
+                        : 'Le lien de téléchargement n’a pas pu être généré.';
+                }
+            }
+
             $pdf['can_download'] = false;
             $pdf['s3_ready'] = false;
             if (!isset($pdf['last_error_code'])) {
                 $pdf['last_error_code'] = null;
             }
-            if (!isset($pdf['last_error_message'])) {
+            if (!isset($pdf['last_error_message']) || !is_string($pdf['last_error_message']) || trim($pdf['last_error_message']) === '') {
                 $pdf['last_error_message'] = 'Le PDF est prêt côté Worker, mais le lien de téléchargement n’est pas encore synchronisé.';
             }
         }
@@ -1256,14 +1299,13 @@ class PrescriptionController extends \WP_REST_Controller
             $payload = [];
         }
 
+        $existingWorker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        $incomingWorker = $this->build_worker_shadow_payload($workerData);
         $payload['shadow'] = [
             'zero_pii' => true,
             'mode' => 'worker-postgres',
         ];
-        $payload['worker'] = array_merge(
-            isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [],
-            $this->build_worker_shadow_payload($workerData)
-        );
+        $payload['worker'] = $this->merge_shadow_worker_payload($existingWorker, $incomingWorker);
 
         $update = [
             'payload_json' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -1271,12 +1313,12 @@ class PrescriptionController extends \WP_REST_Controller
         ];
         $formats = ['%s', '%s'];
 
-        if (isset($workerData['verify_token']) && is_scalar($workerData['verify_token']) && (string) $workerData['verify_token'] !== '') {
-            $update['verify_token'] = (string) $workerData['verify_token'];
+        if (isset($incomingWorker['verify_token']) && is_scalar($incomingWorker['verify_token']) && (string) $incomingWorker['verify_token'] !== '') {
+            $update['verify_token'] = (string) $incomingWorker['verify_token'];
             $formats[] = '%s';
         }
-        if (isset($workerData['verify_code']) && is_scalar($workerData['verify_code']) && (string) $workerData['verify_code'] !== '') {
-            $update['verify_code'] = (string) $workerData['verify_code'];
+        if (isset($incomingWorker['verify_code']) && is_scalar($incomingWorker['verify_code']) && (string) $incomingWorker['verify_code'] !== '') {
+            $update['verify_code'] = (string) $incomingWorker['verify_code'];
             $formats[] = '%s';
         }
 
@@ -1289,6 +1331,68 @@ class PrescriptionController extends \WP_REST_Controller
         );
 
         return $updated !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $existing
+     * @param array<string, mixed> $incoming
+     * @return array<string, mixed>
+     */
+    protected function merge_shadow_worker_payload(array $existing, array $incoming): array
+    {
+        $merged = $existing;
+        foreach ($incoming as $key => $value) {
+            if ($this->should_preserve_existing_worker_value($key, $value, $existing)) {
+                continue;
+            }
+            $merged[$key] = $value;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<string, mixed> $existing
+     */
+    protected function should_preserve_existing_worker_value(string $key, mixed $value, array $existing): bool
+    {
+        $stickyStringKeys = [
+            's3_key_ref',
+            's3_bucket',
+            's3_region',
+            'artifact_sha256_hex',
+            'artifact_content_type',
+            'verify_token',
+            'verify_code',
+        ];
+
+        if (in_array($key, $stickyStringKeys, true)) {
+            return (!is_scalar($value) || trim((string) $value) === '')
+                && isset($existing[$key])
+                && is_scalar($existing[$key])
+                && trim((string) $existing[$key]) !== '';
+        }
+
+        if ($key === 'artifact_size_bytes') {
+            return ($value === null || (is_numeric($value) && (int) $value <= 0))
+                && isset($existing[$key])
+                && is_numeric($existing[$key])
+                && (int) $existing[$key] > 0;
+        }
+
+        if ($key === 'last_error_code' || $key === 'last_error_message_safe') {
+            $status = isset($incoming['status']) && is_scalar($incoming['status']) ? strtoupper(trim((string) $incoming['status'])) : '';
+            $processing = isset($incoming['processing_status']) && is_scalar($incoming['processing_status']) ? strtoupper(trim((string) $incoming['processing_status'])) : '';
+            if (in_array($status, ['DONE', 'APPROVED'], true) || $processing === 'DONE') {
+                return false;
+            }
+            return (!is_scalar($value) || trim((string) $value) === '')
+                && isset($existing[$key])
+                && is_scalar($existing[$key])
+                && trim((string) $existing[$key]) !== '';
+        }
+
+        return false;
     }
 
     /**

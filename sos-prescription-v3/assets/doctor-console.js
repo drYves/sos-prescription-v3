@@ -177,6 +177,30 @@
     return priority === 'express' ? 'Express' : 'Standard';
   }
 
+  function computeCaseStatus(source) {
+    var row = asObject(source);
+    var payload = asObject(row.payload);
+    var worker = asObject(payload.worker);
+
+    var businessStatus = normalizeText(row.status).toLowerCase();
+    var workerStatus = normalizeText(worker.status).toLowerCase();
+    var processingStatus = normalizeText(worker.processing_status).toLowerCase();
+
+    if (businessStatus === 'approved' || workerStatus === 'approved' || processingStatus === 'done' || workerStatus === 'done') {
+      return { label: 'Validée', variant: 'success' };
+    }
+    if (businessStatus === 'rejected' || workerStatus === 'rejected' || processingStatus === 'failed') {
+      return { label: 'Refusée', variant: 'danger' };
+    }
+    if (processingStatus === 'claimed' || processingStatus === 'processing') {
+      return { label: 'En cours', variant: 'warn' };
+    }
+    if (businessStatus === 'payment_pending') {
+      return { label: 'Paiement en attente', variant: 'soft' };
+    }
+    return { label: 'À traiter', variant: 'soft' };
+  }
+
   function extractPatientData(rx) {
     var payload = asObject(rx && rx.payload);
     var patient = asObject(payload.patient);
@@ -491,10 +515,13 @@
     state.actionLoading = true;
     render();
 
-    requestJson('POST', '/prescriptions/' + id + '/decision', {
-      decision: decision,
-      reason: decision === 'approved' ? '' : reason
-    }).then(function (payload) {
+    var payload = { decision: decision };
+    if (decision !== 'approved') {
+      payload.reason = reason;
+    }
+
+    requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
+      var payload = responsePayload;
       state.actionLoading = false;
       state.refusalOpen = false;
       state.refusalReason = '';
@@ -542,22 +569,14 @@
     var source = Object.keys(detail).length ? detail : row;
     var patient = extractPatientData(source);
     var isSelected = Number(state.selectedId) === id;
-    var status = normalizeText(source.status || 'pending').toLowerCase();
-    var statusLabel = status === 'payment_pending'
-      ? 'Paiement en attente'
-      : status === 'approved'
-        ? 'Validée'
-        : status === 'rejected'
-          ? 'Refusée'
-          : 'À traiter';
-    var statusVariant = status === 'approved' ? 'success' : (status === 'rejected' ? 'danger' : 'soft');
+    var statusInfo = computeCaseStatus(source);
     var urgencyVariant = patient.priority === 'Express' ? 'warn' : 'soft';
 
     return [
       '<button type="button" class="dc-item' + (isSelected ? ' is-selected' : '') + '" data-action="select" data-id="' + escHtml(id) + '">',
       '  <div class="dc-item__row">',
       '    <div class="dc-item__patient">' + escHtml(patient.fullname || ('Dossier #' + id)) + '</div>',
-      '    <div class="dc-item__status">' + statusBadge(statusLabel, statusVariant) + '</div>',
+      '    <div class="dc-item__status">' + statusBadge(statusInfo.label, statusInfo.variant) + '</div>',
       '  </div>',
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
@@ -628,7 +647,7 @@
       '  <div class="dc-pdf-actions">',
       '    <a class="dc-btn dc-btn-secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
       '  </div>',
-      '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
+      '  <iframe class="dc-pdf-frame" style="width:100%;aspect-ratio:1 / 1.414;height:auto;min-height:400px;border:0;background:#fff;display:block;" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
       '</div>'
     ].join('');
   }
@@ -676,6 +695,7 @@
 
     if (!currentDocKey) {
       currentDocKey = stablePdfDocumentKey(currentSignedUrl);
+      slot.setAttribute('data-pdf-doc-key', currentDocKey);
     }
 
     if (currentDocKey !== nextDocKey) {
@@ -703,7 +723,6 @@
       '      <div class="dc-summary-row"><span>NOM</span><strong data-dc-summary-name></strong></div>',
       '      <div class="dc-summary-row"><span>DATE DE NAISSANCE</span><strong data-dc-summary-birth></strong></div>',
       '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
-      '      <div class="dc-summary-row"><span>CRÉÉE LE</span><strong data-dc-summary-created></strong></div>',
       '    </div>',
       '  </div>',
       '  <div class="dc-meds-card">',
@@ -749,9 +768,6 @@
     var summaryBirth = detailEl.querySelector('[data-dc-summary-birth]');
     if (summaryBirth) summaryBirth.textContent = patient.birthDate;
 
-    var summaryCreated = detailEl.querySelector('[data-dc-summary-created]');
-    if (summaryCreated) summaryCreated.textContent = patient.createdAt;
-
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
     var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
     if (weightRow && weightEl) {
@@ -769,7 +785,7 @@
 
     var approveBtn = detailEl.querySelector('[data-dc-approve]');
     if (approveBtn) {
-      approveBtn.textContent = canDecide ? 'VALIDER' : (status === 'approved' ? 'ORDONNANCE VALIDÉE' : 'VALIDER');
+      approveBtn.textContent = 'VALIDER';
       approveBtn.disabled = !canDecide || state.actionLoading;
     }
 
