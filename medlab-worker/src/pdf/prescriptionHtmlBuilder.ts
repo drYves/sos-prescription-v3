@@ -371,14 +371,15 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
   }
 
   let duration = firstNonEmpty([
-    obj.quantite,
-    obj.duration,
+    obj.duration_label,
     obj.durationLabel,
     obj.durationText,
+    obj.duration,
     obj.duree,
-    raw.quantite,
-    raw.duration,
+    raw.duration_label,
     raw.durationLabel,
+    raw.durationText,
+    raw.duration,
   ]);
   if (duration === "") {
     duration = extractDurationLabelFromSchedule(schedule);
@@ -392,8 +393,14 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
   if (cip13 !== "") {
     metaParts.push(`CIP13 ${cip13}`);
   }
+
+  const quantite = firstNonEmpty([obj.quantite, raw.quantite, obj.quantity, raw.quantity]);
+  if (quantite !== "") {
+    metaParts.push(`Quantité : ${quantite}`);
+  }
+
   const scheduleNote = firstNonEmpty([schedule.note, obj.note, raw.note]);
-  if (scheduleNote !== "") {
+  if (scheduleNote !== "" && normalizeString(scheduleNote) !== normalizeString(posology)) {
     metaParts.push(scheduleNote);
   }
 
@@ -407,8 +414,34 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
 
 function scheduleToText(schedule: Record<string, unknown>): string {
   const note = firstNonEmpty([schedule.note, schedule.text, schedule.label]);
-  if (note !== "") {
-    return note;
+  const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
+  const freqUnit = normalizeScheduleUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
+  const durationVal = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
+  const durationUnit = normalizeScheduleUnit(schedule.durationUnit ?? schedule.unit);
+  const times = coerceStringArray(schedule.times);
+  const doses = coerceStringArray(schedule.doses);
+
+  if (nb > 0 && freqUnit !== "" && durationVal > 0 && durationUnit !== "") {
+    const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit} pendant ${durationVal} ${pluralizeDurationUnit(durationUnit, durationVal)}`;
+    const details: string[] = [];
+
+    for (let i = 0; i < nb; i += 1) {
+      const time = normalizeString(times[i]);
+      const dose = normalizeString(doses[i]);
+      if (!time && !dose) {
+        continue;
+      }
+      details.push(`${dose || "1"}@${time || "--:--"}`);
+    }
+
+    let out = base;
+    if (details.length > 0) {
+      out += ` (${details.join(", ")})`;
+    }
+    if (note !== "") {
+      out += `. ${note}`;
+    }
+    return out;
   }
 
   const parts: string[] = [];
@@ -431,9 +464,9 @@ function scheduleToText(schedule: Record<string, unknown>): string {
     parts.push(`Toutes les ${everyHours} h`);
   }
 
-  const timesPerDay = toPositiveInt(schedule.timesPerDay);
-  if (timesPerDay > 0) {
-    parts.push(`${timesPerDay} prise${timesPerDay > 1 ? "s" : ""} / jour`);
+  const legacyTimesPerDay = toPositiveInt(schedule.timesPerDay);
+  if (legacyTimesPerDay > 0 && nb < 1) {
+    parts.push(`${legacyTimesPerDay} prise${legacyTimesPerDay > 1 ? "s" : ""} / jour`);
   }
 
   const asNeeded = toBoolean(schedule.asNeeded);
@@ -441,12 +474,16 @@ function scheduleToText(schedule: Record<string, unknown>): string {
     parts.push("si besoin");
   }
 
+  if (note !== "") {
+    parts.push(note);
+  }
+
   return parts.join(" — ");
 }
 
 function extractDurationLabelFromSchedule(schedule: Record<string, unknown>): string {
   const value = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
-  const unit = normalizeString(schedule.durationUnit ?? schedule.unit);
+  const unit = normalizeScheduleUnit(schedule.durationUnit ?? schedule.unit);
   if (value < 1 || unit === "") {
     return "";
   }
@@ -454,7 +491,7 @@ function extractDurationLabelFromSchedule(schedule: Record<string, unknown>): st
 }
 
 function pluralizeDurationUnit(unit: string, value: number): string {
-  const normalized = unit.trim().toLowerCase();
+  const normalized = normalizeScheduleUnit(unit);
   if (normalized === "") {
     return "";
   }
@@ -462,6 +499,30 @@ function pluralizeDurationUnit(unit: string, value: number): string {
     return normalized;
   }
   return `${normalized}s`;
+}
+
+function normalizeScheduleUnit(value: unknown): string {
+  const normalized = normalizeString(value).toLowerCase();
+  if (["jour", "jours", "j", "day", "days"].includes(normalized)) {
+    return "jour";
+  }
+  if (["semaine", "semaines", "sem", "week", "weeks"].includes(normalized)) {
+    return "semaine";
+  }
+  if (["mois", "month", "months"].includes(normalized)) {
+    return "mois";
+  }
+  return "";
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeString(entry))
+    .filter((entry) => entry !== "");
 }
 
 function buildFooterBlockHtml(

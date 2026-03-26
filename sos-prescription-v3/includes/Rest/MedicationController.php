@@ -61,7 +61,6 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
-
         $this->safe_shortcode_log($scope, 'debug', 'api_medication_search', [
             'q' => self::str_sub($q, 0, 80),
             'q_len' => self::str_len($q),
@@ -82,15 +81,18 @@ final class MedicationController
         }
 
         try {
-            $items = $this->repo->search($q, $limit);
-            $items = $this->canonicalize_search_items($items);
+            $search = $this->repo->searchWithMeta($q, $limit);
+            $items = $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : []);
+            $mode = isset($search['mode']) ? (string) $search['mode'] : 'exact';
+            $rawCount = isset($search['raw_count']) ? (int) $search['raw_count'] : count($items);
+            $candidateCount = isset($search['candidate_count']) ? (int) $search['candidate_count'] : count($items);
 
             if ($this->is_form_scope($scope)) {
                 $flow_key = $this->resolve_flow_key($request);
                 $wl = Whitelist::get();
-                $mode = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
+                $modeWhitelist = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
 
-                if ($mode === 'off') {
+                if ($modeWhitelist === 'off') {
                     foreach ($items as &$item) {
                         if (!is_array($item)) {
                             continue;
@@ -99,7 +101,7 @@ final class MedicationController
                     }
                     unset($item);
                 } else {
-                    $enforce = $mode === 'enforce';
+                    $enforce = $modeWhitelist === 'enforce';
 
                     $cis_list = [];
                     foreach ($items as $item) {
@@ -146,7 +148,7 @@ final class MedicationController
                         $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_all_out_of_scope', [
                             'q' => self::str_sub($q, 0, 80),
                             'raw_count' => count($items),
-                            'mode' => $mode,
+                            'mode' => $modeWhitelist,
                             'flow' => $flow_key,
                             'mitm_ready' => $mitm_ready ? '1' : '0',
                         ]);
@@ -173,7 +175,10 @@ final class MedicationController
 
         $this->safe_shortcode_log($scope, 'info', 'api_medication_search_done', [
             'q' => self::str_sub($q, 0, 80),
-            'count' => is_array($items) ? count($items) : 0,
+            'count' => count($items),
+            'search_mode' => $mode,
+            'raw_count' => $rawCount,
+            'candidate_count' => $candidateCount,
             'ms' => (int) round((microtime(true) - $t0) * 1000),
         ]);
 
@@ -224,7 +229,6 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
-
         $this->safe_shortcode_log($scope, 'debug', 'api_medication_table', [
             'q' => self::str_sub($q, 0, 80),
             'page' => $page,
@@ -302,15 +306,11 @@ final class MedicationController
     }
 
     /**
-     * @param mixed $items
+     * @param array<int, array<string, mixed>> $items
      * @return array<int, array<string, mixed>>
      */
-    private function canonicalize_search_items($items): array
+    private function canonicalize_search_items(array $items): array
     {
-        if (!is_array($items)) {
-            return [];
-        }
-
         $out = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
@@ -354,6 +354,12 @@ final class MedicationController
             $prixTTC = (float) $item['prixTTC'];
         }
 
+        if (isset($item['is_selectable'])) {
+            $isSelectable = (bool) $item['is_selectable'];
+        } else {
+            $isSelectable = true;
+        }
+
         return [
             'type' => $type,
             'cis' => $cis,
@@ -363,6 +369,7 @@ final class MedicationController
             'specialite' => $specialite,
             'tauxRemb' => $tauxRemb,
             'prixTTC' => $prixTTC,
+            'is_selectable' => $isSelectable,
         ];
     }
 

@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace SosPrescription\Services;
+namespace SOSPrescription\Services;
 
-use SosPrescription\Db;
+use SOSPrescription\Db;
 use WP_Error;
 
 final class MedicationImporter
@@ -177,6 +177,7 @@ final class MedicationImporter
             'total_size' => $total,
             'done' => false,
             'meta_saved' => false,
+            'grams_rebuilt' => false,
             'started_at' => time(),
         ];
 
@@ -218,6 +219,11 @@ final class MedicationImporter
 
         if ($current_index === null) {
             $state['done'] = true;
+
+            if (empty($state['grams_rebuilt'])) {
+                $this->rebuild_search_grams_index();
+                $state['grams_rebuilt'] = true;
+            }
 
             if (empty($state['meta_saved'])) {
                 $this->persist_last_meta($state);
@@ -301,6 +307,11 @@ final class MedicationImporter
             }
         }
         $state['done'] = $all_done;
+
+        if ($all_done && empty($state['grams_rebuilt'])) {
+            $this->rebuild_search_grams_index();
+            $state['grams_rebuilt'] = true;
+        }
 
         if ($all_done && empty($state['meta_saved'])) {
             $this->persist_last_meta($state);
@@ -1124,4 +1135,309 @@ private function process_file_step(string $name, string $path, string $table, in
         }
         return $s;
     }
+
+
+    private function rebuild_search_grams_index(): void
+    {
+        global $wpdb;
+
+        if (!($wpdb instanceof \wpdb)) {
+            return;
+        }
+
+        $cisTable = Db::table('cis');
+        $cipTable = Db::table('cip');
+        $gramsTable = Db::table('medication_grams');
+
+        if (!$this->table_exists($cisTable) && !$this->table_exists($cipTable)) {
+            return;
+        }
+
+        $this->ensure_search_grams_table($gramsTable);
+        $this->truncate_table($gramsTable);
+
+        $insertedRows = 0;
+        $offset = 0;
+        $batchSize = 500;
+
+        if ($this->table_exists($cisTable)) {
+            do {
+                $rows = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT cis, denomination FROM {$cisTable} ORDER BY cis ASC LIMIT %d OFFSET %d",
+                        $batchSize,
+                        $offset
+                    ),
+                    ARRAY_A
+                ) ?: [];
+
+                if ($rows === []) {
+                    break;
+                }
+
+                $batch = [];
+                foreach ($rows as $row) {
+                    $cis = isset($row['cis']) ? (int) $row['cis'] : 0;
+                    $denomination = isset($row['denomination']) ? trim((string) $row['denomination']) : '';
+                    if ($cis < 1 || $denomination === '') {
+                        continue;
+                    }
+
+                    $batch = array_merge($batch, $this->build_gram_rows_for_source(
+                        'specialite',
+                        $cis,
+                        '',
+                        '',
+                        $denomination,
+                        $denomination,
+                        '',
+                        null,
+                        $denomination
+                    ));
+                }
+
+                if ($batch !== []) {
+                    $insertedRows += $this->insert_gram_rows($gramsTable, $batch);
+                }
+
+                $offset += $batchSize;
+            } while (count($rows) === $batchSize);
+        }
+
+        if ($this->table_exists($cipTable)) {
+            $offset = 0;
+            do {
+                $rows = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT p.cis, p.cip13, p.cip7, p.libelle_presentation, p.taux_remboursement, p.prix_ttc, c.denomination
+                         FROM {$cipTable} p
+                         LEFT JOIN {$cisTable} c ON c.cis = p.cis
+                         ORDER BY p.cis ASC, p.cip13 ASC
+                         LIMIT %d OFFSET %d",
+                        $batchSize,
+                        $offset
+                    ),
+                    ARRAY_A
+                ) ?: [];
+
+                if ($rows === []) {
+                    break;
+                }
+
+                $batch = [];
+                foreach ($rows as $row) {
+                    $cis = isset($row['cis']) ? (int) $row['cis'] : 0;
+                    $cip13 = isset($row['cip13']) ? trim((string) $row['cip13']) : '';
+                    $cip7 = isset($row['cip7']) ? trim((string) $row['cip7']) : '';
+                    $denomination = isset($row['denomination']) ? trim((string) $row['denomination']) : '';
+                    $presentation = isset($row['libelle_presentation']) ? trim((string) $row['libelle_presentation']) : '';
+                    $label = $denomination !== '' ? $denomination : $presentation;
+                    $specialite = $presentation !== '' ? $presentation : $denomination;
+                    if ($cis < 1 || $label === '') {
+                        continue;
+                    }
+
+                    $batch = array_merge($batch, $this->build_gram_rows_for_source(
+                        'presentation',
+                        $cis,
+                        $cip13,
+                        $cip7,
+                        $label,
+                        $specialite,
+                        isset($row['taux_remboursement']) ? (string) $row['taux_remboursement'] : '',
+                        isset($row['prix_ttc']) && $row['prix_ttc'] !== '' ? (float) $row['prix_ttc'] : null,
+                        trim($label . ' ' . $specialite)
+                    ));
+                }
+
+                if ($batch !== []) {
+                    $insertedRows += $this->insert_gram_rows($gramsTable, $batch);
+                }
+
+                $offset += $batchSize;
+            } while (count($rows) === $batchSize);
+        }
+
+        Logger::log('bdpm', 'info', 'medication_grams_rebuilt', [
+            'rows' => $insertedRows,
+            'table' => $gramsTable,
+        ]);
+    }
+
+    private function ensure_search_grams_table(string $table): void
+    {
+        global $wpdb;
+        if (!($wpdb instanceof \wpdb)) {
+            return;
+        }
+
+        $charsetCollate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
+            `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            `source_type` varchar(16) NOT NULL DEFAULT 'specialite',
+            `cis` bigint(20) unsigned NOT NULL DEFAULT 0,
+            `cip13` varchar(13) NOT NULL DEFAULT '',
+            `cip7` varchar(7) NOT NULL DEFAULT '',
+            `label` varchar(255) NOT NULL DEFAULT '',
+            `specialite` varchar(255) NOT NULL DEFAULT '',
+            `taux_remboursement` varchar(32) NOT NULL DEFAULT '',
+            `prix_ttc` decimal(10,2) DEFAULT NULL,
+            `label_norm` varchar(255) NOT NULL DEFAULT '',
+            `gram` char(3) NOT NULL DEFAULT '',
+            PRIMARY KEY (`id`),
+            KEY `idx_gram` (`gram`),
+            KEY `idx_source` (`source_type`,`cis`,`cip13`),
+            KEY `idx_label_norm` (`label_norm`)
+        ) ENGINE=InnoDB {$charsetCollate};";
+
+        $wpdb->query($sql);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function build_gram_rows_for_source(
+        string $sourceType,
+        int $cis,
+        string $cip13,
+        string $cip7,
+        string $label,
+        string $specialite,
+        string $tauxRemboursement,
+        ?float $prixTtc,
+        string $searchableLabel
+    ): array {
+        $normalized = $this->normalize_search_label($searchableLabel);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($this->build_trigrams($normalized) as $gram) {
+            $rows[] = [
+                'source_type' => $sourceType,
+                'cis' => $cis,
+                'cip13' => $cip13,
+                'cip7' => $cip7,
+                'label' => $label,
+                'specialite' => $specialite,
+                'taux_remboursement' => $tauxRemboursement,
+                'prix_ttc' => $prixTtc,
+                'label_norm' => $normalized,
+                'gram' => $gram,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function insert_gram_rows(string $table, array $rows): int
+    {
+        global $wpdb;
+
+        if (!($wpdb instanceof \wpdb) || $rows === []) {
+            return 0;
+        }
+
+        $chunks = array_chunk($rows, 1000);
+        $inserted = 0;
+
+        foreach ($chunks as $chunk) {
+            $values = [];
+            foreach ($chunk as $row) {
+                $values[] = sprintf(
+                    "(%s,%d,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    $this->sql_value($row['source_type'] ?? 'specialite'),
+                    (int) ($row['cis'] ?? 0),
+                    $this->sql_value((string) ($row['cip13'] ?? '')),
+                    $this->sql_value((string) ($row['cip7'] ?? '')),
+                    $this->sql_value((string) ($row['label'] ?? '')),
+                    $this->sql_value((string) ($row['specialite'] ?? '')),
+                    $this->sql_value((string) ($row['taux_remboursement'] ?? '')),
+                    array_key_exists('prix_ttc', $row) && $row['prix_ttc'] !== null ? (string) ((float) $row['prix_ttc']) : 'NULL',
+                    $this->sql_value((string) ($row['label_norm'] ?? '')),
+                    $this->sql_value((string) ($row['gram'] ?? ''))
+                );
+            }
+
+            if ($values === []) {
+                continue;
+            }
+
+            $sql = "INSERT INTO {$table} (`source_type`,`cis`,`cip13`,`cip7`,`label`,`specialite`,`taux_remboursement`,`prix_ttc`,`label_norm`,`gram`) VALUES " . implode(',', $values);
+            $result = $wpdb->query($sql);
+            if ($result !== false) {
+                $inserted += (int) $result;
+            }
+        }
+
+        return $inserted;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function build_trigrams(string $normalized): array
+    {
+        $normalized = trim($normalized);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $value = '  ' . $normalized . '  ';
+        $grams = [];
+        $len = function_exists('mb_strlen') ? (int) mb_strlen($value, 'UTF-8') : strlen($value);
+        if ($len < 3) {
+            return [str_pad($value, 3, ' ', STR_PAD_RIGHT)];
+        }
+
+        for ($i = 0; $i <= $len - 3; $i++) {
+            $gram = function_exists('mb_substr')
+                ? (string) mb_substr($value, $i, 3, 'UTF-8')
+                : (string) substr($value, $i, 3);
+            if (trim($gram) === '') {
+                continue;
+            }
+            $grams[$gram] = $gram;
+        }
+
+        return array_values($grams);
+    }
+
+    private function normalize_search_label(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (function_exists('remove_accents')) {
+            $value = remove_accents($value);
+        }
+        if (function_exists('mb_strtolower')) {
+            $value = (string) mb_strtolower($value, 'UTF-8');
+        } else {
+            $value = strtolower($value);
+        }
+
+        $value = preg_replace('/[^a-z0-9]+/u', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+        return trim($value);
+    }
+
+    private function table_exists(string $table): bool
+    {
+        global $wpdb;
+        if (!($wpdb instanceof \wpdb)) {
+            return false;
+        }
+
+        $sql = $wpdb->prepare('SHOW TABLES LIKE %s', $table);
+        $found = $wpdb->get_var($sql);
+        return is_string($found) && $found !== '';
+    }
+
 }

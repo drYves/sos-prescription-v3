@@ -139,6 +139,7 @@ export class PrismaJobsRepo implements JobsRepo {
   async ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
     assertIngestRequest(input, this.siteId);
     const doctorInput = normalizeOptionalDoctorInput(input.doctor);
+    const canonicalItems = canonicalizePrescriptionItems(input.prescription.items);
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       try {
@@ -175,7 +176,7 @@ export class PrismaJobsRepo implements JobsRepo {
               doctorId: finalDoctorId,
               patientId: patient.id,
               status: "PENDING",
-              items: toInputJsonArray(input.prescription.items),
+              items: toInputJsonArray(canonicalItems),
               privateNotes: normalizeNullableString(input.prescription.privateNotes),
               s3PdfKey: null,
               verifyCode: generateVerifyCode(),
@@ -956,6 +957,305 @@ function buildPatientCreate(input: IngestPatientInput) {
     phone: normalizeNullableString(input.phone),
     weightKg: normalizeNullableString(input.weightKg ?? input.weight_kg),
   };
+}
+
+
+
+function canonicalizePrescriptionItems(items: unknown[]): Array<Record<string, unknown>> {
+  return items.map((item, index) => canonicalizePrescriptionItem(item, index));
+}
+
+function canonicalizePrescriptionItem(item: unknown, index: number): Record<string, unknown> {
+  const obj = asRecord(item);
+  const raw = asRecord(obj.raw);
+  const schedule = normalizeSchedulePayload(raw.schedule ?? obj.schedule);
+
+  const label = firstNonEmptyString([
+    obj.denomination,
+    obj.label,
+    obj.name,
+    obj.medication,
+    obj.drug,
+    raw.label,
+    raw.name,
+  ]) || `Médicament ${index + 1}`;
+
+  const quantite = normalizeNullableString(firstNonEmptyString([
+    obj.quantite,
+    obj.quantity,
+    raw.quantite,
+    raw.quantity,
+  ]));
+
+  const posologie = normalizeNullableString(firstNonEmptyString([
+    obj.posologie,
+    obj.instructions,
+    obj.instruction,
+    obj.dosage,
+    obj.scheduleText,
+    raw.posologie,
+    raw.instructions,
+    raw.scheduleText,
+  ])) ?? normalizeNullableString(scheduleToCanonicalText(schedule));
+
+  const durationLabel = normalizeNullableString(firstNonEmptyString([
+    obj.duration_label,
+    obj.durationLabel,
+    obj.durationText,
+    obj.duree,
+    raw.duration_label,
+    raw.durationLabel,
+    raw.durationText,
+  ])) ?? normalizeNullableString(scheduleToDurationLabel(schedule));
+
+  const cis = sanitizeDigitsString(firstNonEmptyString([obj.cis, raw.cis]));
+  const cip13 = sanitizeDigitsString(firstNonEmptyString([obj.cip13, raw.cip13]));
+  const cip7 = sanitizeDigitsString(firstNonEmptyString([obj.cip7, raw.cip7]));
+
+  const canonicalRaw: Record<string, unknown> = {
+    ...raw,
+    schedule,
+  };
+  if (posologie) {
+    canonicalRaw.posologie = posologie;
+    canonicalRaw.instructions = posologie;
+    canonicalRaw.scheduleText = posologie;
+  }
+  if (durationLabel) {
+    canonicalRaw.duration_label = durationLabel;
+    canonicalRaw.durationLabel = durationLabel;
+  }
+  if (quantite) {
+    canonicalRaw.quantite = quantite;
+  }
+
+  return {
+    ...obj,
+    line_no: toPositiveInt(obj.line_no ?? obj.lineNo ?? index + 1) || index + 1,
+    cis: cis !== "" ? cis : null,
+    cip13: cip13 !== "" ? cip13 : null,
+    cip7: cip7 !== "" ? cip7 : null,
+    label,
+    denomination: firstNonEmptyString([obj.denomination, label]) || label,
+    quantite,
+    posologie,
+    instructions: posologie,
+    scheduleText: posologie,
+    duration_label: durationLabel,
+    durationLabel,
+    schedule,
+    raw: canonicalRaw,
+  };
+}
+
+function normalizeSchedulePayload(value: unknown): Record<string, unknown> {
+  const row = asRecord(value);
+  if (Object.keys(row).length < 1) {
+    return {};
+  }
+
+  const normalized: Record<string, unknown> = {};
+  const nb = toPositiveInt(row.nb ?? row.timesPerDay);
+  if (nb > 0) {
+    normalized.nb = Math.min(nb, 12);
+  }
+
+  const freqUnit = normalizeFrequencyUnit(row.freqUnit ?? row.frequencyUnit ?? row.freq);
+  if (freqUnit !== "") {
+    normalized.freqUnit = freqUnit;
+  }
+
+  const durationVal = toPositiveInt(row.durationVal ?? row.durationValue ?? row.duration);
+  if (durationVal > 0) {
+    normalized.durationVal = Math.min(durationVal, 3650);
+  }
+
+  const durationUnit = normalizeFrequencyUnit(row.durationUnit ?? row.unit, true);
+  if (durationUnit !== "") {
+    normalized.durationUnit = durationUnit;
+  }
+
+  const times = coerceStringArray(row.times);
+  if (times.length > 0) {
+    normalized.times = times;
+  }
+
+  const doses = coerceStringArray(row.doses);
+  if (doses.length > 0) {
+    normalized.doses = doses;
+  }
+
+  const note = normalizeNullableString(row.note ?? row.text ?? row.label);
+  if (note) {
+    normalized.note = note;
+  }
+
+  const start = normalizeNullableString(row.start);
+  if (start) {
+    normalized.start = start;
+  }
+
+  const end = normalizeNullableString(row.end);
+  if (end) {
+    normalized.end = end;
+  }
+
+  const rounding = toPositiveInt(row.rounding);
+  if (rounding > 0) {
+    normalized.rounding = rounding;
+  }
+
+  if (typeof row.autoTimesEnabled === "boolean") {
+    normalized.autoTimesEnabled = row.autoTimesEnabled;
+  }
+
+  const legacyMoments = ["morning", "noon", "evening", "bedtime", "everyHours", "timesPerDay", "asNeeded"];
+  for (const key of legacyMoments) {
+    if (!(key in normalized) && row[key] !== undefined) {
+      normalized[key] = row[key];
+    }
+  }
+
+  return normalized;
+}
+
+function scheduleToCanonicalText(schedule: Record<string, unknown>): string {
+  const note = firstNonEmptyString([schedule.note, schedule.text, schedule.label]);
+  const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
+  const freqUnit = normalizeFrequencyUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
+  const durationVal = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
+  const durationUnit = normalizeFrequencyUnit(schedule.durationUnit ?? schedule.unit, true);
+  const times = coerceStringArray(schedule.times);
+  const doses = coerceStringArray(schedule.doses);
+
+  if (nb > 0 && freqUnit !== "" && durationVal > 0 && durationUnit !== "") {
+    const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit} pendant ${durationVal} ${pluralizeUnit(durationUnit, durationVal)}`;
+    const details: string[] = [];
+
+    for (let i = 0; i < nb; i += 1) {
+      const time = normalizeNullableString(times[i]);
+      const dose = normalizeNullableString(doses[i]);
+      if (!time && !dose) {
+        continue;
+      }
+      details.push(`${dose ?? "1"}@${time ?? "--:--"}`);
+    }
+
+    let out = base;
+    if (details.length > 0) {
+      out += ` (${details.join(", ")})`;
+    }
+    if (note) {
+      out += `. ${note}`;
+    }
+    return out;
+  }
+
+  const parts: string[] = [];
+  const legacyMomentMap: Array<[string, string]> = [
+    ["morning", "matin"],
+    ["noon", "midi"],
+    ["evening", "soir"],
+    ["bedtime", "coucher"],
+  ];
+
+  for (const [key, label] of legacyMomentMap) {
+    const value = toPositiveInt(schedule[key]);
+    if (value > 0) {
+      parts.push(`${label}: ${value}`);
+    }
+  }
+
+  const everyHours = toPositiveInt(schedule.everyHours);
+  if (everyHours > 0) {
+    parts.push(`Toutes les ${everyHours} h`);
+  }
+
+  const asNeeded = normalizeNullableString(schedule.asNeeded);
+  if (asNeeded && ["1", "true", "yes", "oui"].includes(asNeeded.toLowerCase())) {
+    parts.push("si besoin");
+  }
+
+  if (note) {
+    parts.push(note);
+  }
+
+  return parts.join(" — ");
+}
+
+function scheduleToDurationLabel(schedule: Record<string, unknown>): string {
+  const durationVal = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
+  const durationUnit = normalizeFrequencyUnit(schedule.durationUnit ?? schedule.unit, true);
+  if (durationVal < 1 || durationUnit === "") {
+    return "";
+  }
+  return `${durationVal} ${pluralizeUnit(durationUnit, durationVal)}`;
+}
+
+function pluralizeUnit(unit: string, value: number): string {
+  if (unit === "") {
+    return "";
+  }
+  if (value <= 1 || unit === "mois") {
+    return unit;
+  }
+  return `${unit}s`;
+}
+
+function normalizeFrequencyUnit(value: unknown, allowMonth = true): string {
+  const raw = normalizeNullableString(value);
+  if (!raw) {
+    return "";
+  }
+
+  const normalized = raw.toLowerCase();
+  if (["jour", "jours", "j", "day", "days"].includes(normalized)) {
+    return "jour";
+  }
+  if (["semaine", "semaines", "sem", "week", "weeks"].includes(normalized)) {
+    return "semaine";
+  }
+  if (allowMonth && ["mois", "month", "months"].includes(normalized)) {
+    return "mois";
+  }
+  return "";
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => normalizeNullableString(entry) ?? "")
+    .filter((entry) => entry !== "");
+}
+
+function firstNonEmptyString(values: unknown[]): string {
+  for (const value of values) {
+    const normalized = normalizeNullableString(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function sanitizeDigitsString(value: string): string {
+  return value.replace(/\D+/g, "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toPositiveInt(value: unknown): number {
+  const raw = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 0;
+  }
+  return Math.trunc(raw);
 }
 
 function toInputJsonArray(value: unknown): Prisma.InputJsonValue {

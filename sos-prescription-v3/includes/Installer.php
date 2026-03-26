@@ -7,7 +7,7 @@ defined('ABSPATH') || exit;
 
 final class Installer
 {
-    const DB_VERSION = '2.2.0';
+    const DB_VERSION = '3.4.21';
 
     public static function activate()
     {
@@ -34,6 +34,7 @@ final class Installer
         self::ensure_jobs_columns($wpdb);
         self::ensure_jobs_indexes($wpdb);
         self::ensure_prescription_indexes($wpdb);
+        self::ensure_medication_grams_table($wpdb);
 
         \update_option('sosprescription_db_version', self::DB_VERSION, false);
         \update_option('sosprescription_plugin_version', self::DB_VERSION, false);
@@ -223,4 +224,32 @@ final class Installer
 
         return !empty($wpdb->get_row($sql, ARRAY_A));
     }
+
+
+    protected static function ensure_medication_grams_table(\wpdb $wpdb): void
+    {
+        $table = $wpdb->prefix . 'sosprescription_medication_grams';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
+            `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            `source_type` varchar(16) NOT NULL DEFAULT 'specialite',
+            `cis` bigint(20) unsigned NOT NULL DEFAULT 0,
+            `cip13` varchar(13) NOT NULL DEFAULT '',
+            `cip7` varchar(7) NOT NULL DEFAULT '',
+            `label` varchar(255) NOT NULL DEFAULT '',
+            `specialite` varchar(255) NOT NULL DEFAULT '',
+            `taux_remboursement` varchar(32) NOT NULL DEFAULT '',
+            `prix_ttc` decimal(10,2) DEFAULT NULL,
+            `label_norm` varchar(255) NOT NULL DEFAULT '',
+            `gram` char(3) NOT NULL DEFAULT '',
+            PRIMARY KEY (`id`),
+            KEY `idx_gram` (`gram`),
+            KEY `idx_source` (`source_type`, `cis`, `cip13`),
+            KEY `idx_label_norm` (`label_norm`)
+        ) ENGINE=InnoDB {$charset_collate};";
+
+        $wpdb->query($sql);
+    }
+
 }
