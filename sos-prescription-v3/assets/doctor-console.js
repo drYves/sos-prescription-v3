@@ -40,9 +40,9 @@
     var style = document.createElement('style');
     style.id = 'sosprescription-doctor-console-inline-style';
     style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:320px minmax(0,1fr)!important;}',
+      '.sosprescription-doctor .dc-shell{grid-template-columns:280px minmax(0,1fr)!important;}',
       '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}}',
-      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:600px!important;min-height:400px!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
+      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:75vh!important;min-height:500px!important;max-height:800px!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
       '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
       '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
       '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
@@ -296,13 +296,11 @@
     var note = firstText([schedule.note, schedule.text, schedule.label]);
     var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
     var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
-    var durationVal = toPositiveInt(schedule.durationVal || schedule.durationValue || schedule.duration);
-    var durationUnit = normalizeScheduleUnit(schedule.durationUnit || schedule.unit);
     var times = safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean);
     var doses = safeArray(schedule.doses).map(function (v) { return normalizeText(v); }).filter(Boolean);
 
-    if (nb > 0 && freqUnit && durationVal > 0 && durationUnit) {
-      var base = (nb > 1 ? (nb + ' fois') : '1 fois') + ' par ' + freqUnit + ' pendant ' + durationVal + ' ' + pluralizeUnit(durationUnit, durationVal);
+    if (nb > 0 && freqUnit) {
+      var base = (nb > 1 ? (nb + ' fois') : '1 fois') + ' par ' + freqUnit;
       var details = [];
       for (var i = 0; i < nb; i += 1) {
         var time = normalizeText(times[i]);
@@ -582,9 +580,11 @@
     render();
 
     var payload = {
-      decision: normalizedDecision,
-      reason: normalizedDecision === 'approved' ? '' : reason
+      decision: normalizedDecision
     };
+    if (normalizedDecision !== 'approved') {
+      payload.reason = reason;
+    }
 
     requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
       setActionLoading(false, '');
@@ -601,9 +601,9 @@
       patchLocalDecisionState(id, normalizedDecision, responsePayload);
       render();
 
-      showNotice(normalizedDecision === 'approved' ? 'success' : 'warning', normalizedDecision === 'approved'
-        ? 'Ordonnance validée. Le PDF est en cours de préparation.'
-        : 'Ordonnance refusée.');
+      if (normalizedDecision !== 'approved') {
+        showNotice('warning', 'Ordonnance refusée.');
+      }
     }).catch(function (error) {
       setActionLoading(false, '');
       showNotice('error', error.message || 'Impossible d’enregistrer la décision.');
@@ -713,7 +713,7 @@
       '  <div class="dc-pdf-actions">',
       '    <a class="dc-btn dc-btn-secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
       '  </div>',
-      '  <iframe class="dc-pdf-frame" style="width:100%;height:600px;border:1px solid #e5e7eb;border-radius:8px;background:#ffffff;display:block;" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
+      '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
       '</div>'
     ].join('');
   }
@@ -763,7 +763,7 @@
     openLink.setAttribute('href', downloadUrl);
     slot.setAttribute('data-pdf-signed-url', downloadUrl);
 
-    if (status === 'done' && currentDocKey === nextDocKey) {
+    if (currentDocKey === nextDocKey) {
       return;
     }
 

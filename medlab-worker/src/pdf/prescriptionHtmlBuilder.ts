@@ -416,13 +416,11 @@ function scheduleToText(schedule: Record<string, unknown>): string {
   const note = firstNonEmpty([schedule.note, schedule.text, schedule.label]);
   const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
   const freqUnit = normalizeScheduleUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
-  const durationVal = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
-  const durationUnit = normalizeScheduleUnit(schedule.durationUnit ?? schedule.unit);
   const times = coerceStringArray(schedule.times);
   const doses = coerceStringArray(schedule.doses);
 
-  if (nb > 0 && freqUnit !== "" && durationVal > 0 && durationUnit !== "") {
-    const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit} pendant ${durationVal} ${pluralizeDurationUnit(durationUnit, durationVal)}`;
+  if (nb > 0 && freqUnit !== "") {
+    const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit}`;
     const details: string[] = [];
 
     for (let i = 0; i < nb; i += 1) {
