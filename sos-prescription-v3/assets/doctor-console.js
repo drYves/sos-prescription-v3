@@ -40,9 +40,9 @@
     var style = document.createElement('style');
     style.id = 'sosprescription-doctor-console-inline-style';
     style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:280px minmax(0,1fr)!important;}',
+      '.sosprescription-doctor .dc-shell{grid-template-columns:260px minmax(0,1fr)!important;}',
       '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}}',
-      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:75vh!important;min-height:500px!important;max-height:800px!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
+      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;aspect-ratio:1 / 1.414!important;height:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
       '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
       '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
       '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
@@ -497,7 +497,9 @@
     state.selectedId = numericId;
     state.refusalOpen = false;
     state.refusalReason = '';
-    clearNotice();
+    if (!opts.preserveNotice) {
+      clearNotice();
+    }
 
     if (changed) {
       render();
@@ -520,6 +522,32 @@
     }).then(function () {
       render();
     });
+  }
+
+  function findNextPendingCaseId(currentId) {
+    var rows = safeArray(state.list);
+    if (rows.length < 1) return 0;
+
+    var currentIndex = rows.findIndex(function (item) {
+      return Number(item && item.id || 0) === Number(currentId || 0);
+    });
+    if (currentIndex < 0) currentIndex = 0;
+
+    for (var offset = 1; offset <= rows.length; offset += 1) {
+      var idx = (currentIndex + offset) % rows.length;
+      var row = rows[idx];
+      var rowId = Number(row && row.id || 0);
+      if (rowId < 1 || rowId === Number(currentId || 0)) continue;
+
+      var detail = asObject(state.details[rowId]);
+      var source = Object.keys(detail).length ? detail : row;
+      var statusInfo = computeCaseStatus(source);
+      if (statusInfo.label === 'À traiter') {
+        return rowId;
+      }
+    }
+
+    return 0;
   }
 
   function patchLocalDecisionState(id, decision, responsePayload) {
@@ -601,9 +629,19 @@
       patchLocalDecisionState(id, normalizedDecision, responsePayload);
       render();
 
-      if (normalizedDecision !== 'approved') {
-        showNotice('warning', 'Ordonnance refusée.');
+      if (normalizedDecision === 'approved') {
+        showNotice('success', 'Ordonnance validée. Le PDF est en cours de préparation.');
+        render();
+
+        var nextPendingId = findNextPendingCaseId(id);
+        if (nextPendingId > 0) {
+          selectCase(nextPendingId, { preserveNotice: true });
+        }
+        return;
       }
+
+      render();
+      showNotice('warning', 'Ordonnance refusée.');
     }).catch(function (error) {
       setActionLoading(false, '');
       showNotice('error', error.message || 'Impossible d’enregistrer la décision.');
@@ -784,11 +822,9 @@
       '    </div>',
       '    <div class="dc-detail-head__aside" data-dc-header-badges></div>',
       '  </div>',
-      '  <div class="dc-summary-card">',
+      '  <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
       '    <div class="dc-card__title">Patient</div>',
       '    <div class="dc-summary-grid">',
-      '      <div class="dc-summary-row"><span>NOM</span><strong data-dc-summary-name></strong></div>',
-      '      <div class="dc-summary-row"><span>DATE DE NAISSANCE</span><strong data-dc-summary-birth></strong></div>',
       '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
       '    </div>',
       '  </div>',
@@ -829,21 +865,18 @@
       ].join('');
     }
 
-    var summaryName = detailEl.querySelector('[data-dc-summary-name]');
-    if (summaryName) summaryName.textContent = patient.fullname;
-
-    var summaryBirth = detailEl.querySelector('[data-dc-summary-birth]');
-    if (summaryBirth) summaryBirth.textContent = patient.birthDate;
-
+    var summaryCard = detailEl.querySelector('[data-dc-summary-card]');
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
     var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
-    if (weightRow && weightEl) {
+    if (summaryCard && weightRow && weightEl) {
       if (patient.weight) {
         weightEl.textContent = patient.weight;
         weightRow.style.display = '';
+        summaryCard.style.display = '';
       } else {
         weightEl.textContent = '';
         weightRow.style.display = 'none';
+        summaryCard.style.display = 'none';
       }
     }
 
