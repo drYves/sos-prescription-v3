@@ -26,9 +26,15 @@
     pollInFlight: false,
     hydratedIds: {},
     pendingActions: {},
+    optimisticLocks: {},
     ui: null,
     visibilityBound: false
   };
+
+  var OPTIMISTIC_LOCK_MIN_MS = 10000;
+  var OPTIMISTIC_LOCK_MAX_MS = 10 * 60 * 1000;
+  var REQUEST_TIMEOUT_GET_MS = 12000;
+  var REQUEST_TIMEOUT_MUTATION_MS = 20000;
 
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
@@ -41,12 +47,14 @@
     var style = document.createElement('style');
     style.id = 'sosprescription-doctor-console-inline-style';
     style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(248px,280px) minmax(0,1fr)!important;align-items:start!important;}',
-      '.sosprescription-doctor .dc-inbox{max-width:280px!important;}',
-      '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 240px)!important;overflow-y:auto!important;}',
+      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(240px,250px) minmax(0,1fr)!important;align-items:start!important;}',
+      '.sosprescription-doctor .dc-inbox{max-width:250px!important;width:100%!important;}',
+      '.sosprescription-doctor .dc-inbox__actions{display:none!important;}',
+      '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
+      '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
       '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}.sosprescription-doctor .dc-inbox{max-width:none!important;}.sosprescription-doctor .dc-inbox__list{max-height:none!important;}}',
       '.sosprescription-doctor .dc-pdf-card{overflow:hidden!important;}',
-      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:75vh!important;min-height:540px!important;max-height:82vh!important;aspect-ratio:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
+      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:76vh!important;min-height:560px!important;max-height:84vh!important;aspect-ratio:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
       '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
       '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
       '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
@@ -134,8 +142,9 @@
 
   function rememberPendingAction(id, decision) {
     var index = findListIndexById(id);
+    var normalizedDecision = normalizeText(decision).toLowerCase();
     state.pendingActions[id] = {
-      decision: normalizeText(decision).toLowerCase(),
+      decision: normalizedDecision,
       startedAt: Date.now(),
       snapshot: {
         listIndex: index,
@@ -144,10 +153,98 @@
         pdf: cloneValue(state.pdf[id])
       }
     };
+
+    rememberOptimisticLock(id, normalizedDecision);
   }
 
   function clearPendingAction(id) {
     delete state.pendingActions[id];
+  }
+
+  function getOptimisticLock(id) {
+    return asObject(state.optimisticLocks[id]);
+  }
+
+  function clearOptimisticLock(id) {
+    delete state.optimisticLocks[id];
+  }
+
+  function rememberOptimisticLock(id, decision) {
+    var numericId = Number(id || 0);
+    var normalizedDecision = normalizeText(decision).toLowerCase();
+    if (numericId < 1 || !normalizedDecision) return;
+
+    var now = Date.now();
+    var existing = getOptimisticLock(numericId);
+
+    state.optimisticLocks[numericId] = {
+      decision: normalizedDecision,
+      startedAt: Number(existing.startedAt || now),
+      retainedUntil: Math.max(Number(existing.retainedUntil || 0), now + OPTIMISTIC_LOCK_MIN_MS),
+      maxUntil: Math.max(Number(existing.maxUntil || 0), now + OPTIMISTIC_LOCK_MAX_MS),
+      lastSeenAt: now
+    };
+  }
+
+  function touchOptimisticLock(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return;
+
+    var lock = getOptimisticLock(numericId);
+    if (!hasObjectKeys(lock)) return;
+
+    lock.lastSeenAt = Date.now();
+    state.optimisticLocks[numericId] = lock;
+  }
+
+  function cleanupOptimisticLocks() {
+    var now = Date.now();
+
+    Object.keys(state.optimisticLocks).forEach(function (key) {
+      var numericId = Number(key || 0);
+      if (numericId < 1) {
+        delete state.optimisticLocks[key];
+        return;
+      }
+
+      if (hasPendingAction(numericId)) {
+        return;
+      }
+
+      var lock = getOptimisticLock(numericId);
+      var maxUntil = Number(lock.maxUntil || 0);
+      if (maxUntil > 0 && now > maxUntil) {
+        delete state.optimisticLocks[key];
+      }
+    });
+  }
+
+  function getOverlayDecision(id) {
+    var pendingDecision = getPendingDecision(id);
+    if (pendingDecision) return pendingDecision;
+
+    var lock = getOptimisticLock(id);
+    return normalizeText(lock.decision).toLowerCase();
+  }
+
+  function getAuthoritativeDecision(source) {
+    var row = asObject(source);
+    var payload = asObject(row.payload);
+    var worker = asObject(payload.worker);
+
+    var businessStatus = normalizeText(row.status).toLowerCase();
+    var workerStatus = normalizeText(worker.status).toLowerCase();
+    var processingStatus = normalizeText(worker.processing_status).toLowerCase();
+
+    if (businessStatus === 'rejected' || workerStatus === 'rejected' || processingStatus === 'failed') {
+      return 'rejected';
+    }
+
+    if (businessStatus === 'approved' || workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
+      return 'approved';
+    }
+
+    return '';
   }
 
   function rollbackPendingAction(id) {
@@ -177,6 +274,7 @@
     }
 
     clearPendingAction(id);
+    clearOptimisticLock(id);
   }
 
   function overlayDecisionOnRecord(record, decision) {
@@ -210,23 +308,48 @@
     var row = cloneValue(record);
     var id = Number(row && row.id || 0);
     var pendingDecision = getPendingDecision(id);
-    if (!pendingDecision) {
+    if (pendingDecision) {
+      rememberOptimisticLock(id, pendingDecision);
+      return overlayDecisionOnRecord(row, pendingDecision);
+    }
+
+    var lock = getOptimisticLock(id);
+    if (!hasObjectKeys(lock)) {
       return row;
     }
-    return overlayDecisionOnRecord(row, pendingDecision);
+
+    var serverDecision = getAuthoritativeDecision(row);
+    if (serverDecision) {
+      clearOptimisticLock(id);
+      return row;
+    }
+
+    touchOptimisticLock(id);
+    return overlayDecisionOnRecord(row, normalizeText(lock.decision).toLowerCase());
   }
 
   function apiUrl(path) {
     return restBase + path;
   }
 
-  function requestJson(method, path, body) {
+  function requestJson(method, path, body, requestOpts) {
+    requestOpts = requestOpts || {};
+
     var headers = {
       'Accept': 'application/json',
       'X-WP-Nonce': nonce
     };
 
-    var opts = {
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timeoutMs = Math.max(
+      4000,
+      Number(
+        requestOpts.timeoutMs || (/^GET$/i.test(String(method || '')) ? REQUEST_TIMEOUT_GET_MS : REQUEST_TIMEOUT_MUTATION_MS)
+      )
+    );
+    var timeoutHandle = 0;
+
+    var fetchOpts = {
       method: method,
       headers: headers,
       credentials: 'same-origin'
@@ -234,10 +357,19 @@
 
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify(body);
+      fetchOpts.body = JSON.stringify(body);
     }
 
-    return fetch(apiUrl(path), opts).then(function (res) {
+    if (controller) {
+      fetchOpts.signal = controller.signal;
+      timeoutHandle = window.setTimeout(function () {
+        try {
+          controller.abort();
+        } catch (e) {}
+      }, timeoutMs);
+    }
+
+    return fetch(apiUrl(path), fetchOpts).then(function (res) {
       return res.text().then(function (text) {
         var data = null;
         try {
@@ -256,6 +388,18 @@
 
         return data;
       });
+    }).catch(function (error) {
+      if (error && error.name === 'AbortError') {
+        var timeoutError = new Error('Le serveur met trop de temps à répondre.');
+        timeoutError.code = 'timeout';
+        timeoutError.status = 0;
+        throw timeoutError;
+      }
+      throw error;
+    }).finally(function () {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
     });
   }
 
@@ -334,11 +478,11 @@
   function computeCaseStatus(source) {
     var row = asObject(source);
     var id = Number(row.id || 0);
-    var pendingDecision = getPendingDecision(id);
-    if (pendingDecision === 'approved') {
+    var overlayDecision = getOverlayDecision(id);
+    if (overlayDecision === 'approved') {
       return { label: 'Validée', variant: 'success' };
     }
-    if (pendingDecision === 'rejected') {
+    if (overlayDecision === 'rejected') {
       return { label: 'Refusée', variant: 'danger' };
     }
 
@@ -415,18 +559,47 @@
     return normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  function normalizePosologyWhitespace(value) {
+    return String(value == null ? '' : value)
+      .replace(/[\u00A0\u202F]/g, ' ')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function cleanupPosologyText(value) {
+    var text = normalizePosologyWhitespace(value);
+    text = text.replace(/\s+([,.;:)\]])/g, '$1');
+    text = text.replace(/([([])\s+/g, '$1');
+    text = text.replace(/\s{2,}/g, ' ').trim();
+    text = text.replace(/[;,.:\-—]\s*$/, '').trim();
+    return text;
+  }
+
+  function flexibleWhitespacePattern(value) {
+    var escaped = escapeRegExp(normalizePosologyWhitespace(value));
+    return escaped.replace(/\s+/g, '[\\s\\u00A0\\u202F\\r\\n]+');
+  }
+
   function stripDurationFromPosology(text, durationLabel) {
-    var raw = normalizeText(text);
-    var duration = normalizeText(durationLabel);
-    if (!raw || !duration) return raw;
+    var raw = normalizePosologyWhitespace(text);
+    if (!raw) return '';
 
-    var escapedDuration = escapeRegExp(duration).replace(/\s+/g, '\\s+');
-    if (!escapedDuration) return raw;
+    var duration = normalizePosologyWhitespace(durationLabel);
+    var ws = '[\\s\\u00A0\\u202F\\r\\n]+';
+    var wsOptional = '[\\s\\u00A0\\u202F\\r\\n]*';
+    var tail = '(?=(?:' + wsOptional + '\\(|' + wsOptional + '[,.;:—-]|$))';
+    var cleaned = raw;
 
-    var cleaned = raw.replace(new RegExp('\\s*(?:,|;|\\.|—|-)?\\s*pendant\\s+' + escapedDuration + '(?=\\b|\\s|$)', 'i'), '');
-    cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').trim();
-    cleaned = cleaned.replace(/[—-]\s*$/, '').trim();
+    if (duration) {
+      var durationPattern = flexibleWhitespacePattern(duration);
+      cleaned = cleaned.replace(new RegExp('\\s*(?:,|;|\\.|:|—|-)?\\s*\\b(?:pendant|durant|sur)\\b' + ws + durationPattern + tail, 'ig'), ' ');
+    }
 
+    cleaned = cleaned.replace(new RegExp('\\s*(?:,|;|\\.|:|—|-)?\\s*\\b(?:pendant|durant|sur)\\b' + ws + '\\d+' + ws + '(?:jour|jours|j|semaine|semaines|sem|mois)\\b' + tail, 'ig'), ' ');
+    cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\s+\(/g, ' (');
+
+    cleaned = cleanupPosologyText(cleaned);
     return cleaned || raw;
   }
 
@@ -506,7 +679,7 @@
       }
       if (details.length) base += ' (' + details.join(', ') + ')';
       if (note) base += '. ' + note;
-      return base;
+      return stripDurationFromPosology(base, durationLabelFromSchedule(schedule));
     }
 
     var parts = [];
@@ -524,7 +697,7 @@
     if (truthy(schedule.asNeeded)) parts.push('si besoin');
     if (note) parts.push(note);
 
-    return parts.join(' — ');
+    return stripDurationFromPosology(parts.join(' — '), durationLabelFromSchedule(schedule));
   }
 
   function durationLabelFromSchedule(schedule) {
@@ -906,13 +1079,11 @@
     if (summaryCard && weightRow && weightEl) {
       if (patient.weight) {
         weightEl.textContent = patient.weight;
-        weightRow.style.display = '';
-        summaryCard.style.display = '';
       } else {
-        weightEl.textContent = '';
-        weightRow.style.display = 'none';
-        summaryCard.style.display = 'none';
+        weightEl.textContent = 'Non renseigné';
       }
+      weightRow.style.display = '';
+      summaryCard.style.display = '';
     }
 
     var medsEl = detailEl.querySelector('[data-dc-meds]');
@@ -984,7 +1155,7 @@
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
       '          <h1 class="dc-title">Demandes en attente</h1>',
-      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + ' • synchronisation automatique</div>',
+      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
       '        </div>',
       '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
@@ -1071,13 +1242,14 @@
       patchInboxList();
     }
 
-    return requestJson('GET', '/prescriptions?status=pending&limit=50&offset=0').then(function (rows) {
+    return requestJson('GET', '/prescriptions?status=pending&limit=50&offset=0', undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
       var nextRows = safeArray(rows).map(applyPendingOverlayToRecord);
       var previousSelectedId = Number(state.selectedId || 0);
       var nextSelectedId = previousSelectedId;
 
       state.list = nextRows;
       state.listLoading = false;
+      cleanupOptimisticLocks();
       patchInboxList();
       hydrateVisibleCases();
 
@@ -1123,7 +1295,7 @@
       renderDetail();
     }
 
-    return requestJson('GET', '/prescriptions/' + numericId).then(function (row) {
+    return requestJson('GET', '/prescriptions/' + numericId, undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (row) {
       var nextRow = applyPendingOverlayToRecord(row);
       state.details[numericId] = nextRow;
 
@@ -1155,7 +1327,7 @@
     var numericId = Number(id || 0);
     if (numericId < 1) return Promise.resolve(null);
 
-    return requestJson('GET', '/prescriptions/' + numericId + '/pdf-status').then(function (payload) {
+    return requestJson('GET', '/prescriptions/' + numericId + '/pdf-status', undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (payload) {
       state.pdf[numericId] = payload && payload.pdf ? payload.pdf : {};
       if (Number(state.selectedId) === numericId) {
         renderDetail();
@@ -1181,7 +1353,7 @@
       return Promise.resolve(row);
     }
 
-    return requestJson('POST', '/prescriptions/' + id + '/assign', {}).then(function (updated) {
+    return requestJson('POST', '/prescriptions/' + id + '/assign', {}, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS }).then(function (updated) {
       var nextRow = applyPendingOverlayToRecord(updated);
       state.details[id] = nextRow;
       patchInboxItemById(id);
@@ -1308,7 +1480,7 @@
       payload.reason = reason;
     }
 
-    requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
+    requestJson('POST', '/prescriptions/' + id + '/decision', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS }).then(function (responsePayload) {
       clearPendingAction(id);
       patchLocalDecisionState(id, normalizedDecision, responsePayload);
       patchInboxList();
