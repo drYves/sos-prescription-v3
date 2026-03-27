@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SosPrescription
  * Description: Delivrance et validation d'ordonnances (SOS Prescription V3).
- * Version: 3.4.23
+ * Version: 3.4.24
  * Author: SOS Prescription
  * Requires at least: 6.0
  * Requires PHP: 8.2

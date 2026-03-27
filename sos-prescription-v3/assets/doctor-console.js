@@ -1,3 +1,4 @@
+// assets/doctor-console.js
 (function () {
   'use strict';
 
@@ -19,6 +20,7 @@
     listLoading: false,
     detailLoading: false,
     actionLoading: false,
+    pendingDecision: '',
     notice: null,
     refusalOpen: false,
     refusalReason: '',
@@ -30,6 +32,23 @@
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
     return;
+  }
+
+  function ensureInlineStyle() {
+    if (document.getElementById('sosprescription-doctor-console-inline-style')) return;
+
+    var style = document.createElement('style');
+    style.id = 'sosprescription-doctor-console-inline-style';
+    style.textContent = [
+      '.sosprescription-doctor .dc-shell{grid-template-columns:320px minmax(0,1fr)!important;}',
+      '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}}',
+      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:600px!important;min-height:400px!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
+      '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
+      '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
+      '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
+      '@keyframes dcSpin{to{transform:rotate(360deg);}}'
+    ].join('');
+    document.head.appendChild(style);
   }
 
   function escHtml(value) {
@@ -359,9 +378,7 @@
   }
 
   function iframeSrcFromDownloadUrl(url) {
-    var raw = normalizeText(url);
-    if (!raw) return '';
-    return raw + '#toolbar=0&navpanes=0&scrollbar=1';
+    return normalizeText(url);
   }
 
   function showNotice(type, message) {
@@ -371,6 +388,11 @@
 
   function clearNotice() {
     state.notice = null;
+  }
+
+  function setActionLoading(isLoading, decision) {
+    state.actionLoading = !!isLoading;
+    state.pendingDecision = isLoading ? normalizeText(decision).toLowerCase() : '';
   }
 
   function fetchList() {
@@ -502,44 +524,88 @@
     });
   }
 
+  function patchLocalDecisionState(id, decision, responsePayload) {
+    var row = asObject(state.details[id]);
+    if (responsePayload && responsePayload.prescription) {
+      state.details[id] = responsePayload.prescription;
+      row = asObject(responsePayload.prescription);
+    }
+
+    var payload = asObject(row.payload);
+    var worker = asObject(payload.worker);
+
+    if (decision === 'approved') {
+      row.status = 'approved';
+      worker.status = 'APPROVED';
+      if (!normalizeText(worker.processing_status)) {
+        worker.processing_status = 'pending';
+      }
+      payload.worker = worker;
+      row.payload = payload;
+      if (responsePayload && responsePayload.pdf) {
+        state.pdf[id] = responsePayload.pdf;
+      } else {
+        state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'pending' });
+      }
+    } else if (decision === 'rejected') {
+      row.status = 'rejected';
+      worker.status = 'REJECTED';
+      worker.processing_status = 'failed';
+      payload.worker = worker;
+      row.payload = payload;
+      state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'failed' });
+    }
+
+    state.details[id] = row;
+
+    state.list = safeArray(state.list).map(function (item) {
+      if (Number(item && item.id || 0) !== id) return item;
+      var next = Object.assign({}, asObject(item));
+      next.status = row.status;
+      next.payload = row.payload;
+      return next;
+    });
+  }
+
   function submitDecision(decision) {
     var id = Number(state.selectedId || 0);
     if (id < 1 || state.actionLoading) return;
 
+    var normalizedDecision = normalizeText(decision).toLowerCase();
     var reason = state.refusalReason.trim();
-    if (decision === 'rejected' && reason === '') {
+    if (normalizedDecision === 'rejected' && reason === '') {
       showNotice('error', 'Merci de renseigner un motif de refus.');
       return;
     }
 
-    state.actionLoading = true;
+    setActionLoading(true, normalizedDecision);
     render();
 
-    var payload = { decision: decision };
-    if (decision !== 'approved') {
-      payload.reason = reason;
-    }
+    var payload = {
+      decision: normalizedDecision,
+      reason: normalizedDecision === 'approved' ? '' : reason
+    };
 
     requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
-      var payload = responsePayload;
-      state.actionLoading = false;
+      setActionLoading(false, '');
       state.refusalOpen = false;
       state.refusalReason = '';
 
-      if (payload && payload.prescription) {
-        state.details[id] = payload.prescription;
+      if (responsePayload && responsePayload.prescription) {
+        state.details[id] = responsePayload.prescription;
       }
-      if (payload && payload.pdf) {
-        state.pdf[id] = payload.pdf;
+      if (responsePayload && responsePayload.pdf) {
+        state.pdf[id] = responsePayload.pdf;
       }
 
-      showNotice(decision === 'approved' ? 'success' : 'warning', decision === 'approved'
+      patchLocalDecisionState(id, normalizedDecision, responsePayload);
+      render();
+
+      showNotice(normalizedDecision === 'approved' ? 'success' : 'warning', normalizedDecision === 'approved'
         ? 'Ordonnance validée. Le PDF est en cours de préparation.'
         : 'Ordonnance refusée.');
-
-      return fetchList();
     }).catch(function (error) {
-      state.actionLoading = false;
+      setActionLoading(false, '');
       showNotice('error', error.message || 'Impossible d’enregistrer la décision.');
     });
   }
@@ -624,7 +690,7 @@
       '  <label class="dc-label" for="dc-refusal-reason">Motif du refus</label>',
       '  <textarea id="dc-refusal-reason" class="dc-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…">' + escHtml(state.refusalReason) + '</textarea>',
       '  <div class="dc-refusal-actions">',
-      '    <button type="button" class="dc-btn dc-btn-danger" data-action="confirm-reject">Confirmer le refus</button>',
+      '    <button type="button" class="dc-btn dc-btn-danger' + (state.actionLoading && state.pendingDecision === 'rejected' ? ' is-loading' : '') + '" data-action="confirm-reject">' + (state.actionLoading && state.pendingDecision === 'rejected' ? 'Refus...' : 'Confirmer le refus') + '</button>',
       '    <button type="button" class="dc-btn dc-btn-secondary" data-action="cancel-reject">Annuler</button>',
       '  </div>',
       '</div>'
@@ -647,7 +713,7 @@
       '  <div class="dc-pdf-actions">',
       '    <a class="dc-btn dc-btn-secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
       '  </div>',
-      '  <iframe class="dc-pdf-frame" style="width:100%;aspect-ratio:1 / 1.414;height:auto;min-height:400px;border:0;background:#fff;display:block;" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
+      '  <iframe class="dc-pdf-frame" style="width:100%;height:600px;border:1px solid #e5e7eb;border-radius:8px;background:#ffffff;display:block;" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
       '</div>'
     ].join('');
   }
@@ -667,16 +733,19 @@
     var nextDocKey = stablePdfDocumentKey(downloadUrl);
     var currentCaseId = Number(slot.getAttribute('data-rendered-case-id') || 0);
     var currentDocKey = normalizeText(slot.getAttribute('data-pdf-doc-key'));
-    var currentSignedUrl = normalizeText(slot.getAttribute('data-pdf-signed-url'));
     var hasCard = !!slot.querySelector('.dc-pdf-card');
     var frame = slot.querySelector('.dc-pdf-frame');
     var openLink = slot.querySelector('.dc-pdf-open');
 
     if (!downloadUrl) {
-      if (status === 'done' && frame && currentCaseId === detailId) {
+      if (status === 'done' && currentCaseId === detailId && hasCard && frame) {
         return;
       }
-      slot.innerHTML = renderPdfPlaceholder(message);
+
+      var nextPlaceholderHtml = renderPdfPlaceholder(message);
+      if (slot.innerHTML !== nextPlaceholderHtml) {
+        slot.innerHTML = nextPlaceholderHtml;
+      }
       slot.setAttribute('data-rendered-case-id', String(detailId));
       slot.setAttribute('data-pdf-doc-key', '');
       slot.setAttribute('data-pdf-signed-url', '');
@@ -692,18 +761,16 @@
     }
 
     openLink.setAttribute('href', downloadUrl);
+    slot.setAttribute('data-pdf-signed-url', downloadUrl);
 
-    if (!currentDocKey) {
-      currentDocKey = stablePdfDocumentKey(currentSignedUrl);
-      slot.setAttribute('data-pdf-doc-key', currentDocKey);
+    if (status === 'done' && currentDocKey === nextDocKey) {
+      return;
     }
 
     if (currentDocKey !== nextDocKey) {
       frame.setAttribute('src', iframeSrcFromDownloadUrl(downloadUrl));
       slot.setAttribute('data-pdf-doc-key', nextDocKey);
     }
-
-    slot.setAttribute('data-pdf-signed-url', downloadUrl);
   }
 
   function buildDetailSkeleton(detailId) {
@@ -785,14 +852,18 @@
 
     var approveBtn = detailEl.querySelector('[data-dc-approve]');
     if (approveBtn) {
-      approveBtn.textContent = 'VALIDER';
+      var approving = state.actionLoading && state.pendingDecision === 'approved';
+      approveBtn.textContent = approving ? 'Validation...' : 'VALIDER';
       approveBtn.disabled = !canDecide || state.actionLoading;
+      approveBtn.classList.toggle('is-loading', approving);
     }
 
     var rejectBtn = detailEl.querySelector('[data-dc-reject]');
     if (rejectBtn) {
-      rejectBtn.textContent = canDecide ? 'REFUSER' : (status === 'rejected' ? 'ORDONNANCE REFUSÉE' : 'REFUSER');
+      var rejecting = state.actionLoading && state.pendingDecision === 'rejected';
+      rejectBtn.textContent = rejecting ? 'Refus...' : 'REFUSER';
       rejectBtn.disabled = !canDecide || state.actionLoading;
+      rejectBtn.classList.toggle('is-loading', rejecting);
     }
 
     var refusalSlot = detailEl.querySelector('[data-dc-refusal-slot]');
@@ -833,6 +904,8 @@
 
   function renderShell() {
     if (state.ui) return state.ui;
+
+    ensureInlineStyle();
 
     root.innerHTML = [
       '<div class="sosprescription-doctor">',
