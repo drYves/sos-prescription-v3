@@ -154,6 +154,17 @@ final class Routes
             ],
         ]);
 
+
+        // Lecture passive du statut PDF (console médecin / polling UI).
+        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/pdf-status', [
+            'methods' => 'GET',
+            'callback' => [$rx, 'get_pdf_status'],
+            'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
+            'args' => [
+                'id' => EndpointArgs::id(),
+            ],
+        ]);
+
         // Callback Worker -> WordPress pour synchroniser le shadow record local après génération PDF.
         register_rest_route('sosprescription/v1', '/prescriptions/worker/(?P<job_id>[A-Fa-f0-9\-]{36})/callback', [
             'methods' => 'POST',

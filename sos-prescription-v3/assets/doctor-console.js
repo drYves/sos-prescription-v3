@@ -19,14 +19,15 @@
     selectedId: 0,
     listLoading: false,
     detailLoading: false,
-    actionLoading: false,
-    pendingDecision: '',
     notice: null,
     refusalOpen: false,
     refusalReason: '',
     pollHandle: null,
+    pollInFlight: false,
     hydratedIds: {},
-    ui: null
+    pendingActions: {},
+    ui: null,
+    visibilityBound: false
   };
 
   if (!restBase || !nonce) {
@@ -40,9 +41,12 @@
     var style = document.createElement('style');
     style.id = 'sosprescription-doctor-console-inline-style';
     style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:260px minmax(0,1fr)!important;}',
-      '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}}',
-      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;aspect-ratio:1 / 1.414!important;height:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
+      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(248px,280px) minmax(0,1fr)!important;align-items:start!important;}',
+      '.sosprescription-doctor .dc-inbox{max-width:280px!important;}',
+      '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 240px)!important;overflow-y:auto!important;}',
+      '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}.sosprescription-doctor .dc-inbox{max-width:none!important;}.sosprescription-doctor .dc-inbox__list{max-height:none!important;}}',
+      '.sosprescription-doctor .dc-pdf-card{overflow:hidden!important;}',
+      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:75vh!important;min-height:540px!important;max-height:82vh!important;aspect-ratio:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
       '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
       '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
       '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
@@ -69,6 +73,18 @@
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   }
 
+  function hasObjectKeys(value) {
+    return !!(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0);
+  }
+
+  function cloneValue(value) {
+    try {
+      return JSON.parse(JSON.stringify(value == null ? null : value));
+    } catch (e) {
+      return value;
+    }
+  }
+
   function safeArray(value) {
     return Array.isArray(value) ? value : [];
   }
@@ -79,6 +95,125 @@
       if (text) return text;
     }
     return '';
+  }
+
+  function setHtmlIfChanged(node, html) {
+    if (!node) return;
+    if (node.innerHTML !== html) {
+      node.innerHTML = html;
+    }
+  }
+
+  function findListIndexById(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return -1;
+    return safeArray(state.list).findIndex(function (item) {
+      return Number(item && item.id || 0) === numericId;
+    });
+  }
+
+  function findListItemById(id) {
+    var index = findListIndexById(id);
+    return index >= 0 ? state.list[index] : null;
+  }
+
+  function getPendingAction(id) {
+    return asObject(state.pendingActions[id]);
+  }
+
+  function getPendingDecision(id) {
+    return normalizeText(getPendingAction(id).decision).toLowerCase();
+  }
+
+  function hasPendingAction(id, decision) {
+    var current = getPendingDecision(id);
+    if (!current) return false;
+    if (!decision) return true;
+    return current === normalizeText(decision).toLowerCase();
+  }
+
+  function rememberPendingAction(id, decision) {
+    var index = findListIndexById(id);
+    state.pendingActions[id] = {
+      decision: normalizeText(decision).toLowerCase(),
+      startedAt: Date.now(),
+      snapshot: {
+        listIndex: index,
+        listItem: cloneValue(index >= 0 ? state.list[index] : null),
+        detail: cloneValue(state.details[id]),
+        pdf: cloneValue(state.pdf[id])
+      }
+    };
+  }
+
+  function clearPendingAction(id) {
+    delete state.pendingActions[id];
+  }
+
+  function rollbackPendingAction(id) {
+    var pending = getPendingAction(id);
+    var snapshot = asObject(pending.snapshot);
+
+    if (snapshot.listItem && typeof snapshot.listItem === 'object') {
+      var restoredIndex = findListIndexById(id);
+      if (restoredIndex >= 0) {
+        state.list[restoredIndex] = snapshot.listItem;
+      } else {
+        var targetIndex = Math.max(0, Math.min(Number(snapshot.listIndex || 0), state.list.length));
+        state.list.splice(targetIndex, 0, snapshot.listItem);
+      }
+    }
+
+    if (snapshot.detail && typeof snapshot.detail === 'object' && Object.keys(snapshot.detail).length > 0) {
+      state.details[id] = snapshot.detail;
+    } else {
+      delete state.details[id];
+    }
+
+    if (snapshot.pdf && typeof snapshot.pdf === 'object' && Object.keys(snapshot.pdf).length > 0) {
+      state.pdf[id] = snapshot.pdf;
+    } else {
+      delete state.pdf[id];
+    }
+
+    clearPendingAction(id);
+  }
+
+  function overlayDecisionOnRecord(record, decision) {
+    var row = asObject(record);
+    if (!hasObjectKeys(row)) {
+      row = { id: Number(record && record.id || 0) };
+    }
+
+    var payload = asObject(row.payload);
+    var worker = asObject(payload.worker);
+    var normalizedDecision = normalizeText(decision).toLowerCase();
+
+    if (normalizedDecision === 'approved') {
+      row.status = 'approved';
+      worker.status = 'APPROVED';
+      if (!normalizeText(worker.processing_status)) {
+        worker.processing_status = 'pending';
+      }
+    } else if (normalizedDecision === 'rejected') {
+      row.status = 'rejected';
+      worker.status = 'REJECTED';
+      worker.processing_status = 'failed';
+    }
+
+    payload.worker = worker;
+    row.payload = payload;
+    return row;
+  }
+
+  function applyPendingOverlayToRecord(record) {
+    var row = cloneValue(record);
+    var id = Number(row && row.id || 0);
+    var pendingDecision = getPendingDecision(id);
+    if (!pendingDecision) {
+      return row;
+    }
+    return overlayDecisionOnRecord(row, pendingDecision);
   }
 
   function apiUrl(path) {
@@ -198,6 +333,15 @@
 
   function computeCaseStatus(source) {
     var row = asObject(source);
+    var id = Number(row.id || 0);
+    var pendingDecision = getPendingDecision(id);
+    if (pendingDecision === 'approved') {
+      return { label: 'Validée', variant: 'success' };
+    }
+    if (pendingDecision === 'rejected') {
+      return { label: 'Refusée', variant: 'danger' };
+    }
+
     var payload = asObject(row.payload);
     var worker = asObject(payload.worker);
 
@@ -258,30 +402,82 @@
     return asObject(state.pdf[id]);
   }
 
+  function resolveMedicationSchedule(row) {
+    var direct = asObject(row && row.schedule);
+    if (hasObjectKeys(direct)) {
+      return direct;
+    }
+    var raw = asObject(row && row.raw);
+    return asObject(raw.schedule);
+  }
+
+  function escapeRegExp(value) {
+    return normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function stripDurationFromPosology(text, durationLabel) {
+    var raw = normalizeText(text);
+    var duration = normalizeText(durationLabel);
+    if (!raw || !duration) return raw;
+
+    var escapedDuration = escapeRegExp(duration).replace(/\s+/g, '\\s+');
+    if (!escapedDuration) return raw;
+
+    var cleaned = raw.replace(new RegExp('\\s*(?:,|;|\\.|—|-)?\\s*pendant\\s+' + escapedDuration + '(?=\\b|\\s|$)', 'i'), '');
+    cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').trim();
+    cleaned = cleaned.replace(/[—-]\s*$/, '').trim();
+
+    return cleaned || raw;
+  }
+
   function summarizeMedication(item) {
     var row = asObject(item);
-    var label = firstText([row.label, row.denomination, row.name]) || 'Médicament';
-    var schedule = asObject(row.schedule);
-    var posology = firstText([
-      row.posologie,
-      row.instructions,
-      row.scheduleText,
-      row.dosage,
-      schedule.note,
-      scheduleToText(schedule)
-    ]);
+    var raw = asObject(row.raw);
+    var schedule = resolveMedicationSchedule(row);
+    var label = firstText([
+      row.label,
+      row.denomination,
+      row.name,
+      raw.label,
+      raw.denomination,
+      raw.name
+    ]) || 'Médicament';
+    var scheduleText = scheduleToText(schedule);
     var duration = firstText([
       row.duration_label,
       row.durationLabel,
       row.durationText,
       row.duration,
       row.duree,
+      raw.duration_label,
+      raw.durationLabel,
+      raw.durationText,
+      raw.duration,
+      raw.duree,
       durationLabelFromSchedule(schedule)
+    ]);
+    var posology = firstText([
+      row.instructions,
+      row.scheduleText,
+      raw.instructions,
+      raw.scheduleText,
+      scheduleText,
+      row.posologie,
+      raw.posologie,
+      row.dosage,
+      raw.dosage,
+      schedule.note
+    ]);
+    posology = stripDurationFromPosology(posology, duration);
+
+    var quantite = firstText([
+      row.quantite,
+      raw.quantite
     ]);
 
     var meta = [];
     if (duration) meta.push(duration);
-    if (row.quantite) meta.push('Quantité : ' + String(row.quantite));
+    if (quantite) meta.push('Quantité : ' + String(quantite));
 
     return {
       label: label,
@@ -380,285 +576,55 @@
   }
 
   function showNotice(type, message) {
-    state.notice = { type: type, message: message };
-    render();
+    state.notice = { type: type || 'info', message: String(message || '') };
+    renderNoticeInto();
   }
 
   function clearNotice() {
     state.notice = null;
+    renderNoticeInto();
   }
 
-  function setActionLoading(isLoading, decision) {
-    state.actionLoading = !!isLoading;
-    state.pendingDecision = isLoading ? normalizeText(decision).toLowerCase() : '';
-  }
+  function captureInboxScrollAnchor(container) {
+    if (!container) return null;
 
-  function fetchList() {
-    state.listLoading = true;
-    render();
-
-    return requestJson('GET', '/prescriptions?status=pending&limit=50&offset=0').then(function (rows) {
-      state.list = safeArray(rows);
-      state.listLoading = false;
-
-      if (state.list.length > 0) {
-        if (!state.selectedId || !state.list.some(function (item) { return Number(item.id) === Number(state.selectedId); })) {
-          state.selectedId = Number(state.list[0].id || 0);
-        }
-        hydrateVisibleCases();
-      } else {
-        state.selectedId = 0;
-      }
-
-      render();
-
-      if (state.selectedId) {
-        return selectCase(state.selectedId, { silent: true });
-      }
-      return null;
-    }).catch(function (error) {
-      state.listLoading = false;
-      showNotice('error', error.message || 'Impossible de charger la file de demandes.');
-    });
-  }
-
-  function hydrateVisibleCases() {
-    safeArray(state.list).slice(0, 20).forEach(function (row) {
-      var id = Number(row && row.id || 0);
-      if (id > 0 && !state.hydratedIds[id]) {
-        state.hydratedIds[id] = true;
-        fetchDetail(id, { silent: true });
-      }
-    });
-  }
-
-  function fetchDetail(id, opts) {
-    opts = opts || {};
-    var numericId = Number(id || 0);
-    if (numericId < 1) return Promise.resolve(null);
-
-    if (!opts.silent) {
-      state.detailLoading = true;
-      render();
-    }
-
-    return requestJson('GET', '/prescriptions/' + numericId).then(function (row) {
-      state.details[numericId] = row;
-      if (!opts.silent) state.detailLoading = false;
-      render();
-      return row;
-    }).catch(function (error) {
-      if (!opts.silent) {
-        state.detailLoading = false;
-        showNotice('error', error.message || 'Impossible de charger le dossier.');
-      }
-      return null;
-    });
-  }
-
-  function fetchPdf(id, opts) {
-    opts = opts || {};
-    var numericId = Number(id || 0);
-    if (numericId < 1) return Promise.resolve(null);
-
-    return requestJson('POST', '/prescriptions/' + numericId + '/rx-pdf', { dispatch: 0 }).then(function (payload) {
-      state.pdf[numericId] = payload && payload.pdf ? payload.pdf : {};
-      if (!opts.silent) render();
-      return state.pdf[numericId];
-    }).catch(function () {
-      if (!opts.silent) render();
-      return null;
-    });
-  }
-
-  function ensureAssigned(rx) {
-    var row = asObject(rx);
-    var id = Number(row.id || 0);
-    if (id < 1) return Promise.resolve(null);
-    var assignedId = Number(row.doctor_user_id || 0);
-    if (assignedId > 0 && assignedId === currentUserId) {
-      return Promise.resolve(row);
-    }
-
-    return requestJson('POST', '/prescriptions/' + id + '/assign', {}).then(function (updated) {
-      state.details[id] = updated;
-      return updated;
-    }).catch(function () {
-      return row;
-    });
-  }
-
-  function selectCase(id, opts) {
-    opts = opts || {};
-    var numericId = Number(id || 0);
-    if (numericId < 1) return Promise.resolve(null);
-
-    var changed = Number(state.selectedId) !== numericId;
-    state.selectedId = numericId;
-    state.refusalOpen = false;
-    state.refusalReason = '';
-    if (!opts.preserveNotice) {
-      clearNotice();
-    }
-
-    if (changed) {
-      render();
-    }
-
-    return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
-      if (!row) return null;
-      return ensureAssigned(row).then(function (assignedRow) {
-        state.details[numericId] = assignedRow || row;
-        render();
-        return fetchPdf(numericId, { silent: !!opts.silent });
-      });
-    });
-  }
-
-  function refreshSelected() {
-    if (!state.selectedId) return Promise.resolve(null);
-    return fetchDetail(state.selectedId, { silent: true }).then(function () {
-      return fetchPdf(state.selectedId, { silent: true });
-    }).then(function () {
-      render();
-    });
-  }
-
-  function findNextPendingCaseId(currentId) {
-    var rows = safeArray(state.list);
-    if (rows.length < 1) return 0;
-
-    var currentIndex = rows.findIndex(function (item) {
-      return Number(item && item.id || 0) === Number(currentId || 0);
-    });
-    if (currentIndex < 0) currentIndex = 0;
-
-    for (var offset = 1; offset <= rows.length; offset += 1) {
-      var idx = (currentIndex + offset) % rows.length;
-      var row = rows[idx];
-      var rowId = Number(row && row.id || 0);
-      if (rowId < 1 || rowId === Number(currentId || 0)) continue;
-
-      var detail = asObject(state.details[rowId]);
-      var source = Object.keys(detail).length ? detail : row;
-      var statusInfo = computeCaseStatus(source);
-      if (statusInfo.label === 'À traiter') {
-        return rowId;
-      }
-    }
-
-    return 0;
-  }
-
-  function patchLocalDecisionState(id, decision, responsePayload) {
-    var row = asObject(state.details[id]);
-    if (responsePayload && responsePayload.prescription) {
-      state.details[id] = responsePayload.prescription;
-      row = asObject(responsePayload.prescription);
-    }
-
-    var payload = asObject(row.payload);
-    var worker = asObject(payload.worker);
-
-    if (decision === 'approved') {
-      row.status = 'approved';
-      worker.status = 'APPROVED';
-      if (!normalizeText(worker.processing_status)) {
-        worker.processing_status = 'pending';
-      }
-      payload.worker = worker;
-      row.payload = payload;
-      if (responsePayload && responsePayload.pdf) {
-        state.pdf[id] = responsePayload.pdf;
-      } else {
-        state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'pending' });
-      }
-    } else if (decision === 'rejected') {
-      row.status = 'rejected';
-      worker.status = 'REJECTED';
-      worker.processing_status = 'failed';
-      payload.worker = worker;
-      row.payload = payload;
-      state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'failed' });
-    }
-
-    state.details[id] = row;
-
-    state.list = safeArray(state.list).map(function (item) {
-      if (Number(item && item.id || 0) !== id) return item;
-      var next = Object.assign({}, asObject(item));
-      next.status = row.status;
-      next.payload = row.payload;
-      return next;
-    });
-  }
-
-  function submitDecision(decision) {
-    var id = Number(state.selectedId || 0);
-    if (id < 1 || state.actionLoading) return;
-
-    var normalizedDecision = normalizeText(decision).toLowerCase();
-    var reason = state.refusalReason.trim();
-    if (normalizedDecision === 'rejected' && reason === '') {
-      showNotice('error', 'Merci de renseigner un motif de refus.');
-      return;
-    }
-
-    setActionLoading(true, normalizedDecision);
-    render();
-
-    var payload = {
-      decision: normalizedDecision
+    var children = Array.prototype.slice.call(container.querySelectorAll('[data-role="inbox-item"]'));
+    var containerRect = container.getBoundingClientRect();
+    var fallback = {
+      id: 0,
+      offset: 0,
+      scrollTop: container.scrollTop
     };
-    if (normalizedDecision !== 'approved') {
-      payload.reason = reason;
+
+    for (var i = 0; i < children.length; i += 1) {
+      var node = children[i];
+      var rect = node.getBoundingClientRect();
+      if (rect.bottom >= containerRect.top) {
+        fallback.id = Number(node.getAttribute('data-id') || 0);
+        fallback.offset = rect.top - containerRect.top;
+        return fallback;
+      }
     }
 
-    requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
-      setActionLoading(false, '');
-      state.refusalOpen = false;
-      state.refusalReason = '';
+    return fallback;
+  }
 
-      if (responsePayload && responsePayload.prescription) {
-        state.details[id] = responsePayload.prescription;
-      }
-      if (responsePayload && responsePayload.pdf) {
-        state.pdf[id] = responsePayload.pdf;
-      }
+  function restoreInboxScrollAnchor(container, anchor) {
+    if (!container || !anchor) return;
 
-      patchLocalDecisionState(id, normalizedDecision, responsePayload);
-      render();
-
-      if (normalizedDecision === 'approved') {
-        showNotice('success', 'Ordonnance validée. Le PDF est en cours de préparation.');
-        render();
-
-        var nextPendingId = findNextPendingCaseId(id);
-        if (nextPendingId > 0) {
-          selectCase(nextPendingId, { preserveNotice: true });
-        }
+    if (anchor.id > 0) {
+      var node = container.querySelector('[data-role="inbox-item"][data-id="' + String(anchor.id) + '"]');
+      if (node) {
+        var containerRect = container.getBoundingClientRect();
+        var rect = node.getBoundingClientRect();
+        container.scrollTop += (rect.top - containerRect.top) - Number(anchor.offset || 0);
         return;
       }
-
-      render();
-      showNotice('warning', 'Ordonnance refusée.');
-    }).catch(function (error) {
-      setActionLoading(false, '');
-      showNotice('error', error.message || 'Impossible d’enregistrer la décision.');
-    });
-  }
-
-  function startPolling() {
-    if (state.pollHandle) {
-      clearInterval(state.pollHandle);
     }
 
-    state.pollHandle = setInterval(function () {
-      fetchList();
-      if (state.selectedId) {
-        refreshSelected();
-      }
-    }, 15000);
+    if (typeof anchor.scrollTop === 'number') {
+      container.scrollTop = anchor.scrollTop;
+    }
   }
 
   function renderNotice() {
@@ -667,39 +633,105 @@
     return '<div class="dc-notice dc-notice-' + escHtml(type) + '">' + escHtml(state.notice.message) + '</div>';
   }
 
-  function renderInboxItem(row) {
+  function renderNoticeInto() {
+    var ui = ensureShell();
+    setHtmlIfChanged(ui.notice, renderNotice());
+  }
+
+  function renderInboxItemMarkup(row) {
     var id = Number(row && row.id || 0);
     var detail = asObject(state.details[id]);
-    var source = Object.keys(detail).length ? detail : row;
+    var source = hasObjectKeys(detail) ? detail : row;
     var patient = extractPatientData(source);
-    var isSelected = Number(state.selectedId) === id;
     var statusInfo = computeCaseStatus(source);
     var urgencyVariant = patient.priority === 'Express' ? 'warn' : 'soft';
 
     return [
-      '<button type="button" class="dc-item' + (isSelected ? ' is-selected' : '') + '" data-action="select" data-id="' + escHtml(id) + '">',
-      '  <div class="dc-item__row">',
-      '    <div class="dc-item__patient">' + escHtml(patient.fullname || ('Dossier #' + id)) + '</div>',
-      '    <div class="dc-item__status">' + statusBadge(statusInfo.label, statusInfo.variant) + '</div>',
-      '  </div>',
+      '<div class="dc-item__row">',
+      '  <div class="dc-item__patient">' + escHtml(patient.fullname || ('Dossier #' + id)) + '</div>',
+      '  <div class="dc-item__status">' + statusBadge(statusInfo.label, statusInfo.variant) + '</div>',
+      '</div>',
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
       '    ' + statusBadge(patient.priority, urgencyVariant),
-      '  </div>',
-      '</button>'
+      '  </div>'
     ].join('');
   }
 
-  function renderInbox() {
+  function patchInboxItemNode(node, row) {
+    if (!node) return;
+
+    var id = Number(row && row.id || 0);
+    var isSelected = Number(state.selectedId) === id;
+
+    node.type = 'button';
+    node.className = 'dc-item' + (isSelected ? ' is-selected' : '');
+    node.setAttribute('data-action', 'select');
+    node.setAttribute('data-id', String(id));
+    node.setAttribute('data-role', 'inbox-item');
+    node.setAttribute('data-case-id', String(id));
+    setHtmlIfChanged(node, renderInboxItemMarkup(row));
+  }
+
+  function patchInboxItemById(id) {
+    var ui = ensureShell();
+    var container = ui.inboxList;
+    if (!container) return;
+
+    var numericId = Number(id || 0);
+    if (numericId < 1) return;
+
+    var row = findListItemById(numericId);
+    if (!row) return;
+
+    var node = container.querySelector('[data-role="inbox-item"][data-id="' + String(numericId) + '"]');
+    if (!node) {
+      patchInboxList();
+      return;
+    }
+
+    patchInboxItemNode(node, row);
+  }
+
+  function patchInboxList() {
+    var ui = ensureShell();
+    var container = ui.inboxList;
+    if (!container) return;
+
     if (state.listLoading && state.list.length < 1) {
-      return '<div class="dc-empty">Chargement des demandes…</div>';
+      setHtmlIfChanged(container, '<div class="dc-empty">Chargement des demandes…</div>');
+      return;
     }
 
     if (state.list.length < 1) {
-      return '<div class="dc-empty">Aucune demande en attente.</div>';
+      setHtmlIfChanged(container, '<div class="dc-empty">Aucune demande en attente.</div>');
+      return;
     }
 
-    return state.list.map(renderInboxItem).join('');
+    var anchor = captureInboxScrollAnchor(container);
+    var existing = {};
+    Array.prototype.slice.call(container.querySelectorAll('[data-role="inbox-item"]')).forEach(function (node) {
+      existing[String(node.getAttribute('data-id') || '')] = node;
+    });
+
+    var orderedNodes = [];
+    safeArray(state.list).forEach(function (row) {
+      var id = Number(row && row.id || 0);
+      if (id < 1) return;
+      var key = String(id);
+      var node = existing[key] || document.createElement('button');
+      patchInboxItemNode(node, row);
+      orderedNodes.push(node);
+      container.appendChild(node);
+    });
+
+    Array.prototype.slice.call(container.children).forEach(function (child) {
+      if (orderedNodes.indexOf(child) === -1) {
+        container.removeChild(child);
+      }
+    });
+
+    restoreInboxScrollAnchor(container, anchor);
   }
 
   function renderMedicationList(detail) {
@@ -723,13 +755,16 @@
   function renderRefusalPanel() {
     if (!state.refusalOpen) return '';
 
+    var activeId = Number(state.selectedId || 0);
+    var isRejecting = hasPendingAction(activeId, 'rejected');
+
     return [
       '<div class="dc-refusal-panel">',
       '  <label class="dc-label" for="dc-refusal-reason">Motif du refus</label>',
-      '  <textarea id="dc-refusal-reason" class="dc-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…">' + escHtml(state.refusalReason) + '</textarea>',
+      '  <textarea id="dc-refusal-reason" class="dc-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
       '  <div class="dc-refusal-actions">',
-      '    <button type="button" class="dc-btn dc-btn-danger' + (state.actionLoading && state.pendingDecision === 'rejected' ? ' is-loading' : '') + '" data-action="confirm-reject">' + (state.actionLoading && state.pendingDecision === 'rejected' ? 'Refus...' : 'Confirmer le refus') + '</button>',
-      '    <button type="button" class="dc-btn dc-btn-secondary" data-action="cancel-reject">Annuler</button>',
+      '    <button type="button" class="dc-btn dc-btn-danger' + (isRejecting ? ' is-loading' : '') + '" data-action="confirm-reject"' + (isRejecting ? ' disabled' : '') + '>' + (isRejecting ? 'Refus...' : 'Confirmer le refus') + '</button>',
+      '    <button type="button" class="dc-btn dc-btn-secondary" data-action="cancel-reject"' + (isRejecting ? ' disabled' : '') + '>Annuler</button>',
       '  </div>',
       '</div>'
     ].join('');
@@ -805,10 +840,8 @@
       return;
     }
 
-    if (currentDocKey !== nextDocKey) {
-      frame.setAttribute('src', iframeSrcFromDownloadUrl(downloadUrl));
-      slot.setAttribute('data-pdf-doc-key', nextDocKey);
-    }
+    frame.setAttribute('src', iframeSrcFromDownloadUrl(downloadUrl));
+    slot.setAttribute('data-pdf-doc-key', nextDocKey);
   }
 
   function buildDetailSkeleton(detailId) {
@@ -846,9 +879,11 @@
     var pane = detailEl.querySelector('[data-dc-detail-pane]');
     if (!pane) return;
 
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
     var patient = extractPatientData(detail);
     var status = normalizeText(detail.status || 'pending').toLowerCase();
-    var canDecide = status !== 'approved' && status !== 'rejected';
+    var isCasePending = hasPendingAction(detailId);
+    var canDecide = !isCasePending && status !== 'approved' && status !== 'rejected';
     var code = patient.verifyCode;
 
     var nameEl = detailEl.querySelector('[data-dc-patient-name]');
@@ -885,17 +920,17 @@
 
     var approveBtn = detailEl.querySelector('[data-dc-approve]');
     if (approveBtn) {
-      var approving = state.actionLoading && state.pendingDecision === 'approved';
+      var approving = hasPendingAction(detailId, 'approved');
       approveBtn.textContent = approving ? 'Validation...' : 'VALIDER';
-      approveBtn.disabled = !canDecide || state.actionLoading;
+      approveBtn.disabled = !canDecide;
       approveBtn.classList.toggle('is-loading', approving);
     }
 
     var rejectBtn = detailEl.querySelector('[data-dc-reject]');
     if (rejectBtn) {
-      var rejecting = state.actionLoading && state.pendingDecision === 'rejected';
+      var rejecting = hasPendingAction(detailId, 'rejected');
       rejectBtn.textContent = rejecting ? 'Refus...' : 'REFUSER';
-      rejectBtn.disabled = !canDecide || state.actionLoading;
+      rejectBtn.disabled = !canDecide;
       rejectBtn.classList.toggle('is-loading', rejecting);
     }
 
@@ -918,7 +953,7 @@
     }
 
     var detail = asObject(state.details[state.selectedId]);
-    if (Object.keys(detail).length < 1) {
+    if (!hasObjectKeys(detail)) {
       detailEl.innerHTML = state.detailLoading
         ? '<div class="dc-loading">Chargement du dossier…</div>'
         : '<div class="dc-empty dc-empty-large">Chargement du dossier…</div>';
@@ -949,11 +984,7 @@
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
       '          <h1 class="dc-title">Demandes en attente</h1>',
-      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
-      '        </div>',
-      '        <div class="dc-inbox__actions">',
-      '          <div class="dc-current-code" data-dc-current-code></div>',
-      '          <button type="button" class="dc-btn dc-btn-secondary" data-action="refresh">Actualiser</button>',
+      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + ' • synchronisation automatique</div>',
       '        </div>',
       '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
@@ -965,7 +996,6 @@
 
     state.ui = {
       notice: root.querySelector('[data-dc-notice]'),
-      currentCode: root.querySelector('[data-dc-current-code]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
       detail: root.querySelector('[data-dc-detail]')
     };
@@ -978,6 +1008,396 @@
 
   function ensureShell() {
     return renderShell();
+  }
+
+  function render() {
+    ensureShell();
+    renderNoticeInto();
+    patchInboxList();
+    renderDetail();
+  }
+
+  function patchLocalDecisionState(id, decision, responsePayload) {
+    var row = hasObjectKeys(state.details[id]) ? cloneValue(state.details[id]) : {};
+    row.id = Number(row.id || id);
+
+    if (responsePayload && responsePayload.prescription) {
+      row = cloneValue(responsePayload.prescription);
+    }
+
+    row = overlayDecisionOnRecord(row, decision);
+    state.details[id] = row;
+
+    if (decision === 'approved') {
+      if (responsePayload && responsePayload.pdf) {
+        state.pdf[id] = responsePayload.pdf;
+      } else {
+        state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'pending' });
+      }
+    } else if (decision === 'rejected') {
+      state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'failed' });
+    }
+
+    state.list = safeArray(state.list).map(function (item) {
+      if (Number(item && item.id || 0) !== id) return item;
+      var next = cloneValue(item) || {};
+      next.id = id;
+      return overlayDecisionOnRecord(next, decision);
+    });
+  }
+
+  function hydrateVisibleCases() {
+    safeArray(state.list).slice(0, 20).forEach(function (row) {
+      var id = Number(row && row.id || 0);
+      if (id < 1 || state.hydratedIds[id]) return;
+
+      state.hydratedIds[id] = 'pending';
+      fetchDetail(id, { silent: true, skipDetailRender: true }).then(function (detail) {
+        if (detail) {
+          state.hydratedIds[id] = true;
+        } else {
+          delete state.hydratedIds[id];
+        }
+      });
+    });
+  }
+
+  function fetchList(opts) {
+    opts = opts || {};
+    var silent = !!opts.silent;
+
+    if (!silent && state.list.length < 1) {
+      state.listLoading = true;
+      patchInboxList();
+    }
+
+    return requestJson('GET', '/prescriptions?status=pending&limit=50&offset=0').then(function (rows) {
+      var nextRows = safeArray(rows).map(applyPendingOverlayToRecord);
+      var previousSelectedId = Number(state.selectedId || 0);
+      var nextSelectedId = previousSelectedId;
+
+      state.list = nextRows;
+      state.listLoading = false;
+      patchInboxList();
+      hydrateVisibleCases();
+
+      if (nextRows.length < 1) {
+        state.selectedId = 0;
+        state.refusalOpen = false;
+        state.refusalReason = '';
+        state.detailLoading = false;
+        renderDetail();
+        return null;
+      }
+
+      var selectedStillExists = previousSelectedId > 0 && nextRows.some(function (item) {
+        return Number(item && item.id || 0) === previousSelectedId;
+      });
+
+      if (!selectedStillExists) {
+        nextSelectedId = Number(nextRows[0].id || 0);
+      }
+
+      if (nextSelectedId > 0 && nextSelectedId !== previousSelectedId) {
+        return selectCase(nextSelectedId, { silent: true, preserveNotice: true });
+      }
+
+      return null;
+    }).catch(function (error) {
+      state.listLoading = false;
+      patchInboxList();
+      showNotice('error', error.message || 'Impossible de charger la file de demandes.');
+      return null;
+    });
+  }
+
+  function fetchDetail(id, opts) {
+    opts = opts || {};
+    var numericId = Number(id || 0);
+    if (numericId < 1) return Promise.resolve(null);
+
+    var shouldRenderSelected = !opts.skipDetailRender && Number(state.selectedId) === numericId;
+
+    if (shouldRenderSelected && !opts.silent) {
+      state.detailLoading = true;
+      renderDetail();
+    }
+
+    return requestJson('GET', '/prescriptions/' + numericId).then(function (row) {
+      var nextRow = applyPendingOverlayToRecord(row);
+      state.details[numericId] = nextRow;
+
+      if (Number(state.selectedId) === numericId) {
+        state.detailLoading = false;
+        if (!opts.skipDetailRender) {
+          renderDetail();
+        }
+      }
+
+      patchInboxItemById(numericId);
+      return nextRow;
+    }).catch(function (error) {
+      if (Number(state.selectedId) === numericId) {
+        state.detailLoading = false;
+        if (!opts.silent) {
+          showNotice('error', error.message || 'Impossible de charger le dossier.');
+        }
+        if (!opts.skipDetailRender) {
+          renderDetail();
+        }
+      }
+      return null;
+    });
+  }
+
+  function fetchPdfStatus(id, opts) {
+    opts = opts || {};
+    var numericId = Number(id || 0);
+    if (numericId < 1) return Promise.resolve(null);
+
+    return requestJson('GET', '/prescriptions/' + numericId + '/pdf-status').then(function (payload) {
+      state.pdf[numericId] = payload && payload.pdf ? payload.pdf : {};
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return state.pdf[numericId];
+    }).catch(function (error) {
+      if (!opts.silent) {
+        showNotice('error', error.message || 'Impossible de lire le statut PDF.');
+      }
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return null;
+    });
+  }
+
+  function ensureAssigned(rx) {
+    var row = asObject(rx);
+    var id = Number(row.id || 0);
+    if (id < 1) return Promise.resolve(null);
+    var assignedId = Number(row.doctor_user_id || 0);
+    if (assignedId > 0 && assignedId === currentUserId) {
+      return Promise.resolve(row);
+    }
+
+    return requestJson('POST', '/prescriptions/' + id + '/assign', {}).then(function (updated) {
+      var nextRow = applyPendingOverlayToRecord(updated);
+      state.details[id] = nextRow;
+      patchInboxItemById(id);
+      if (Number(state.selectedId) === id) {
+        renderDetail();
+      }
+      return nextRow;
+    }).catch(function () {
+      return row;
+    });
+  }
+
+  function selectCase(id, opts) {
+    opts = opts || {};
+    var numericId = Number(id || 0);
+    if (numericId < 1) return Promise.resolve(null);
+
+    var changed = Number(state.selectedId) !== numericId;
+    state.selectedId = numericId;
+    state.refusalOpen = false;
+    state.refusalReason = '';
+    state.detailLoading = !hasObjectKeys(state.details[numericId]);
+
+    if (!opts.preserveNotice) {
+      clearNotice();
+    }
+
+    if (changed) {
+      patchInboxList();
+      renderDetail();
+    } else if (state.detailLoading) {
+      renderDetail();
+    }
+
+    return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
+      if (!row) return null;
+      return ensureAssigned(row).then(function (assignedRow) {
+        state.details[numericId] = assignedRow || row;
+        if (Number(state.selectedId) === numericId) {
+          renderDetail();
+        }
+        patchInboxItemById(numericId);
+        return fetchPdfStatus(numericId, { silent: !!opts.silent });
+      });
+    });
+  }
+
+  function refreshSelected() {
+    var numericId = Number(state.selectedId || 0);
+    if (numericId < 1) return Promise.resolve(null);
+    if (state.refusalOpen && !hasPendingAction(numericId)) {
+      return Promise.resolve(null);
+    }
+
+    return fetchDetail(numericId, { silent: true }).then(function () {
+      if (Number(state.selectedId || 0) !== numericId) {
+        return null;
+      }
+      return fetchPdfStatus(numericId, { silent: true });
+    });
+  }
+
+  function findNextPendingCaseId(currentId) {
+    var rows = safeArray(state.list);
+    if (rows.length < 1) return 0;
+
+    var currentIndex = rows.findIndex(function (item) {
+      return Number(item && item.id || 0) === Number(currentId || 0);
+    });
+    if (currentIndex < 0) currentIndex = 0;
+
+    for (var offset = 1; offset <= rows.length; offset += 1) {
+      var idx = (currentIndex + offset) % rows.length;
+      var row = rows[idx];
+      var rowId = Number(row && row.id || 0);
+      if (rowId < 1 || rowId === Number(currentId || 0)) continue;
+
+      var detail = asObject(state.details[rowId]);
+      var source = hasObjectKeys(detail) ? detail : row;
+      var statusInfo = computeCaseStatus(source);
+      if (statusInfo.label === 'À traiter') {
+        return rowId;
+      }
+    }
+
+    return 0;
+  }
+
+  function submitDecision(decision) {
+    var id = Number(state.selectedId || 0);
+    if (id < 1 || hasPendingAction(id)) return;
+
+    var normalizedDecision = normalizeText(decision).toLowerCase();
+    var reason = state.refusalReason.trim();
+    if (normalizedDecision === 'rejected' && reason === '') {
+      showNotice('error', 'Merci de renseigner un motif de refus.');
+      return;
+    }
+
+    var nextPendingId = normalizedDecision === 'approved' ? findNextPendingCaseId(id) : 0;
+
+    rememberPendingAction(id, normalizedDecision);
+    patchLocalDecisionState(id, normalizedDecision, null);
+    state.refusalOpen = false;
+    state.refusalReason = '';
+
+    if (normalizedDecision === 'approved') {
+      showNotice('info', nextPendingId > 0 ? 'Validation en cours. Passage automatique au dossier suivant.' : 'Validation en cours.');
+      patchInboxList();
+      if (nextPendingId > 0) {
+        selectCase(nextPendingId, { preserveNotice: true, silent: true });
+      } else {
+        renderDetail();
+      }
+    } else {
+      showNotice('info', 'Refus en cours d’enregistrement.');
+      render();
+    }
+
+    var payload = {
+      decision: normalizedDecision
+    };
+    if (normalizedDecision !== 'approved') {
+      payload.reason = reason;
+    }
+
+    requestJson('POST', '/prescriptions/' + id + '/decision', payload).then(function (responsePayload) {
+      clearPendingAction(id);
+      patchLocalDecisionState(id, normalizedDecision, responsePayload);
+      patchInboxList();
+      patchInboxItemById(id);
+
+      if (normalizedDecision === 'approved') {
+        showNotice('success', 'Ordonnance validée. Le PDF est en cours de préparation.');
+      } else {
+        showNotice('warning', 'Ordonnance refusée.');
+      }
+
+      if (Number(state.selectedId) === id) {
+        renderDetail();
+      }
+
+      fetchList({ silent: true });
+    }).catch(function (error) {
+      rollbackPendingAction(id);
+      patchInboxList();
+      if (Number(state.selectedId) === id || !state.selectedId) {
+        renderDetail();
+      }
+      showNotice('error', error.message || 'Impossible d’enregistrer la décision.');
+    });
+  }
+
+  function getPollDelay() {
+    return document.hidden ? 30000 : 15000;
+  }
+
+  function stopPolling() {
+    if (state.pollHandle) {
+      clearTimeout(state.pollHandle);
+      state.pollHandle = null;
+    }
+  }
+
+  function scheduleNextPoll(delayMs) {
+    stopPolling();
+    state.pollHandle = setTimeout(runPollCycle, Math.max(1000, Number(delayMs || getPollDelay())));
+  }
+
+  function runPollCycle() {
+    if (state.pollInFlight) {
+      scheduleNextPoll(5000);
+      return;
+    }
+
+    state.pollInFlight = true;
+
+    Promise.resolve()
+      .then(function () {
+        return fetchList({ silent: true });
+      })
+      .then(function () {
+        if (state.selectedId) {
+          return refreshSelected();
+        }
+        return null;
+      })
+      .catch(function () {
+        return null;
+      })
+      .finally(function () {
+        state.pollInFlight = false;
+        scheduleNextPoll(getPollDelay());
+      });
+  }
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      scheduleNextPoll(getPollDelay());
+      return;
+    }
+
+    if (!state.pollInFlight) {
+      scheduleNextPoll(1200);
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+
+    if (!state.visibilityBound) {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      state.visibilityBound = true;
+    }
+
+    scheduleNextPoll(getPollDelay());
   }
 
   function handleRootClick(event) {
@@ -995,26 +1415,23 @@
       return;
     }
 
-    if (action === 'refresh') {
-      fetchList();
-      return;
-    }
-
     if (action === 'approve') {
       submitDecision('approved');
       return;
     }
 
     if (action === 'toggle-reject') {
+      if (hasPendingAction(state.selectedId)) return;
       state.refusalOpen = true;
-      render();
+      renderDetail();
       return;
     }
 
     if (action === 'cancel-reject') {
+      if (hasPendingAction(state.selectedId, 'rejected')) return;
       state.refusalOpen = false;
       state.refusalReason = '';
-      render();
+      renderDetail();
       return;
     }
 
@@ -1027,17 +1444,6 @@
     var target = event.target;
     if (!target || !target.matches || !target.matches('[data-role="refusal-reason"]')) return;
     state.refusalReason = String(target.value || '');
-  }
-
-  function render() {
-    var ui = ensureShell();
-    var selected = state.selectedId ? asObject(state.details[state.selectedId]) : null;
-    var code = selected && Object.keys(selected).length ? extractVerifyCode(selected) : '';
-
-    ui.notice.innerHTML = renderNotice();
-    ui.currentCode.innerHTML = code ? statusBadge('Code délivrance : ' + code, 'soft') : '';
-    ui.inboxList.innerHTML = renderInbox();
-    renderDetail();
   }
 
   render();

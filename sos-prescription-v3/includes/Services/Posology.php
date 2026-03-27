@@ -21,17 +21,7 @@ final class Posology
             $freq = 'jour';
         }
 
-        $duration_val = isset($schedule['durationVal']) ? (int) $schedule['durationVal'] : 1;
-        if ($duration_val < 1) { $duration_val = 1; }
-        if ($duration_val > 3650) { $duration_val = 3650; }
-
-        $duration_unit = isset($schedule['durationUnit']) ? (string) $schedule['durationUnit'] : 'jour';
-        if (!in_array($duration_unit, ['jour', 'semaine', 'mois'], true)) {
-            $duration_unit = 'jour';
-        }
-
         $base = ($nb > 1 ? $nb . ' fois' : '1 fois') . ' par ' . $freq;
-        $base .= ' pendant ' . $duration_val . ' ' . self::pluralize($duration_unit, $duration_val);
 
         $times = isset($schedule['times']) && is_array($schedule['times']) ? $schedule['times'] : [];
         $doses = isset($schedule['doses']) && is_array($schedule['doses']) ? $schedule['doses'] : [];
@@ -62,18 +52,5 @@ final class Posology
         }
 
         return $out;
-    }
-
-    private static function pluralize(string $unit, int $val): string
-    {
-        if ($val <= 1) {
-            return $unit;
-        }
-
-        if ($unit === 'mois') {
-            return 'mois';
-        }
-
-        return $unit . 's';
     }
 }

@@ -1404,22 +1404,67 @@ class PrescriptionController extends \WP_REST_Controller
         $patientIdentity = $this->extract_patient_identity_from_params($params);
         $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
         $note = isset($patient['note']) ? trim((string) $patient['note']) : '';
+        $patientWeightKg = $this->extract_patient_weight_kg_from_params($params);
+        $cacheFields = ['patient_identity', 'medication_lines'];
+
+        if ($patientWeightKg !== '') {
+            array_splice($cacheFields, 1, 0, 'patient_weight');
+        }
 
         return [
             'patient' => [
                 'fullname' => $patientIdentity['full_name'],
                 'birthdate' => $patientIdentity['birth_date'],
+                'weight_kg' => $patientWeightKg !== '' ? $patientWeightKg : null,
             ],
             'patient_name' => $patientIdentity['full_name'],
             'patient_birthdate' => $patientIdentity['birth_date'],
+            'patient_weight_kg' => $patientWeightKg !== '' ? $patientWeightKg : null,
             'prescription' => [
                 'privateNotes' => $note !== '' ? $note : null,
             ],
             'cache' => [
                 'mode' => 'business',
-                'fields' => ['patient_identity', 'medication_lines'],
+                'fields' => $cacheFields,
             ],
         ];
+    }
+
+    protected function extract_patient_weight_kg_from_params(array $params): string
+    {
+        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
+        $candidate = $this->normalize_metric_string((string) ($patient['weight_kg'] ?? $patient['weightKg'] ?? $patient['weight'] ?? $params['patient_weight_kg'] ?? $params['weight_kg'] ?? ''));
+        if ($candidate !== '') {
+            return $candidate;
+        }
+
+        $patientUserId = (int) get_current_user_id();
+        if ($patientUserId > 0) {
+            foreach (['sosp_weight_kg', 'weight_kg', 'patient_weight_kg'] as $metaKey) {
+                $value = $this->normalize_metric_string((string) get_user_meta($patientUserId, $metaKey, true));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    protected function normalize_metric_string(string $value, float $min = 1.0, float $max = 500.0): string
+    {
+        $raw = str_replace(',', '.', trim($value));
+        if ($raw === '' || !is_numeric($raw)) {
+            return '';
+        }
+
+        $number = (float) $raw;
+        if ($number < $min || $number > $max) {
+            return '';
+        }
+
+        $formatted = number_format($number, 1, '.', '');
+        return str_ends_with($formatted, '.0') ? substr($formatted, 0, -2) : $formatted;
     }
 
     /**
