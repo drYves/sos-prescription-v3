@@ -31,8 +31,7 @@
     visibilityBound: false
   };
 
-  var OPTIMISTIC_LOCK_MIN_MS = 10000;
-  var OPTIMISTIC_LOCK_MAX_MS = 10 * 60 * 1000;
+  var OPTIMISTIC_LOCK_ORPHAN_MS = 6 * 60 * 60 * 1000;
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
 
@@ -47,9 +46,8 @@
     var style = document.createElement('style');
     style.id = 'sosprescription-doctor-console-inline-style';
     style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(240px,250px) minmax(0,1fr)!important;align-items:start!important;}',
-      '.sosprescription-doctor .dc-inbox{max-width:250px!important;width:100%!important;}',
-      '.sosprescription-doctor .dc-inbox__actions{display:none!important;}',
+      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(240px,280px) minmax(0,1fr)!important;align-items:start!important;}',
+      '.sosprescription-doctor .dc-inbox{max-width:280px!important;width:100%!important;}',
       '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
       '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
       '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}.sosprescription-doctor .dc-inbox{max-width:none!important;}.sosprescription-doctor .dc-inbox__list{max-height:none!important;}}',
@@ -179,10 +177,8 @@
 
     state.optimisticLocks[numericId] = {
       decision: normalizedDecision,
-      startedAt: Number(existing.startedAt || now),
-      retainedUntil: Math.max(Number(existing.retainedUntil || 0), now + OPTIMISTIC_LOCK_MIN_MS),
-      maxUntil: Math.max(Number(existing.maxUntil || 0), now + OPTIMISTIC_LOCK_MAX_MS),
-      lastSeenAt: now
+      createdAt: Number(existing.createdAt || now),
+      updatedAt: now
     };
   }
 
@@ -193,7 +189,7 @@
     var lock = getOptimisticLock(numericId);
     if (!hasObjectKeys(lock)) return;
 
-    lock.lastSeenAt = Date.now();
+    lock.updatedAt = Date.now();
     state.optimisticLocks[numericId] = lock;
   }
 
@@ -212,8 +208,8 @@
       }
 
       var lock = getOptimisticLock(numericId);
-      var maxUntil = Number(lock.maxUntil || 0);
-      if (maxUntil > 0 && now > maxUntil) {
+      var createdAt = Number(lock.createdAt || 0);
+      if (createdAt > 0 && now - createdAt > OPTIMISTIC_LOCK_ORPHAN_MS) {
         delete state.optimisticLocks[key];
       }
     });
@@ -240,7 +236,7 @@
       return 'rejected';
     }
 
-    if (businessStatus === 'approved' || workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
+    if (workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
       return 'approved';
     }
 
@@ -318,14 +314,19 @@
       return row;
     }
 
+    var lockDecision = normalizeText(lock.decision).toLowerCase();
+    if (!lockDecision) {
+      return row;
+    }
+
     var serverDecision = getAuthoritativeDecision(row);
-    if (serverDecision) {
+    if (serverDecision && serverDecision !== lockDecision) {
       clearOptimisticLock(id);
       return row;
     }
 
     touchOptimisticLock(id);
-    return overlayDecisionOnRecord(row, normalizeText(lock.decision).toLowerCase());
+    return overlayDecisionOnRecord(row, lockDecision);
   }
 
   function apiUrl(path) {
@@ -555,52 +556,47 @@
     return asObject(raw.schedule);
   }
 
-  function escapeRegExp(value) {
-    return normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function normalizePosologyWhitespace(value) {
+  function normalizeScheduleFreeText(value) {
     return String(value == null ? '' : value)
-      .replace(/[\u00A0\u202F]/g, ' ')
+      .replace(/[  ]/g, ' ')
       .replace(/[\r\n\t]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  function cleanupPosologyText(value) {
-    var text = normalizePosologyWhitespace(value);
-    text = text.replace(/\s+([,.;:)\]])/g, '$1');
-    text = text.replace(/([([])\s+/g, '$1');
-    text = text.replace(/\s{2,}/g, ' ').trim();
-    text = text.replace(/[;,.:\-—]\s*$/, '').trim();
-    return text;
+  function hasStructuredSchedule(schedule) {
+    if (!schedule || typeof schedule !== 'object') return false;
+
+    var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
+    var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
+    if (nb > 0 && freqUnit) return true;
+
+    if (toPositiveInt(schedule.everyHours) > 0) return true;
+    if (toPositiveInt(schedule.morning) > 0) return true;
+    if (toPositiveInt(schedule.noon) > 0) return true;
+    if (toPositiveInt(schedule.evening) > 0) return true;
+    if (toPositiveInt(schedule.bedtime) > 0) return true;
+    if (truthy(schedule.asNeeded)) return true;
+    if (safeArray(schedule.times).length > 0) return true;
+    if (safeArray(schedule.doses).length > 0) return true;
+
+    return false;
   }
 
-  function flexibleWhitespacePattern(value) {
-    var escaped = escapeRegExp(normalizePosologyWhitespace(value));
-    return escaped.replace(/\s+/g, '[\\s\\u00A0\\u202F\\r\\n]+');
-  }
+  function sanitizeScheduleNote(value, durationLabel) {
+    var note = normalizeScheduleFreeText(value);
+    if (!note) return '';
 
-  function stripDurationFromPosology(text, durationLabel) {
-    var raw = normalizePosologyWhitespace(text);
-    if (!raw) return '';
+    var duration = normalizeScheduleFreeText(durationLabel).toLowerCase();
+    if (!duration) return note;
 
-    var duration = normalizePosologyWhitespace(durationLabel);
-    var ws = '[\\s\\u00A0\\u202F\\r\\n]+';
-    var wsOptional = '[\\s\\u00A0\\u202F\\r\\n]*';
-    var tail = '(?=(?:' + wsOptional + '\\(|' + wsOptional + '[,.;:—-]|$))';
-    var cleaned = raw;
+    var lower = note.toLowerCase();
+    if (lower === duration) return '';
+    if (lower === ('pendant ' + duration)) return '';
+    if (lower === ('durant ' + duration)) return '';
+    if (lower === ('sur ' + duration)) return '';
 
-    if (duration) {
-      var durationPattern = flexibleWhitespacePattern(duration);
-      cleaned = cleaned.replace(new RegExp('\\s*(?:,|;|\\.|:|—|-)?\\s*\\b(?:pendant|durant|sur)\\b' + ws + durationPattern + tail, 'ig'), ' ');
-    }
-
-    cleaned = cleaned.replace(new RegExp('\\s*(?:,|;|\\.|:|—|-)?\\s*\\b(?:pendant|durant|sur)\\b' + ws + '\\d+' + ws + '(?:jour|jours|j|semaine|semaines|sem|mois)\\b' + tail, 'ig'), ' ');
-    cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\s+\(/g, ' (');
-
-    cleaned = cleanupPosologyText(cleaned);
-    return cleaned || raw;
+    return note;
   }
 
   function summarizeMedication(item) {
@@ -615,7 +611,6 @@
       raw.denomination,
       raw.name
     ]) || 'Médicament';
-    var scheduleText = scheduleToText(schedule);
     var duration = firstText([
       row.duration_label,
       row.durationLabel,
@@ -629,19 +624,21 @@
       raw.duree,
       durationLabelFromSchedule(schedule)
     ]);
-    var posology = firstText([
+    var scheduleText = hasStructuredSchedule(schedule) ? scheduleToText(schedule) : '';
+    var posology = scheduleText || firstText([
       row.instructions,
       row.scheduleText,
       raw.instructions,
       raw.scheduleText,
-      scheduleText,
       row.posologie,
       raw.posologie,
       row.dosage,
       raw.dosage,
-      schedule.note
+      sanitizeScheduleNote(schedule.note, duration),
+      sanitizeScheduleNote(schedule.text, duration),
+      sanitizeScheduleNote(schedule.label, duration)
     ]);
-    posology = stripDurationFromPosology(posology, duration);
+    posology = normalizeScheduleFreeText(posology);
 
     var quantite = firstText([
       row.quantite,
@@ -662,7 +659,9 @@
   function scheduleToText(schedule) {
     if (!schedule || typeof schedule !== 'object') return '';
 
-    var note = firstText([schedule.note, schedule.text, schedule.label]);
+    var durationLabel = durationLabelFromSchedule(schedule);
+    var note = sanitizeScheduleNote(firstText([schedule.note]), durationLabel);
+    var fallbackText = sanitizeScheduleNote(firstText([schedule.text, schedule.label]), durationLabel);
     var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
     var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
     var times = safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean);
@@ -679,7 +678,7 @@
       }
       if (details.length) base += ' (' + details.join(', ') + ')';
       if (note) base += '. ' + note;
-      return stripDurationFromPosology(base, durationLabelFromSchedule(schedule));
+      return normalizeScheduleFreeText(base);
     }
 
     var parts = [];
@@ -697,7 +696,11 @@
     if (truthy(schedule.asNeeded)) parts.push('si besoin');
     if (note) parts.push(note);
 
-    return stripDurationFromPosology(parts.join(' — '), durationLabelFromSchedule(schedule));
+    if (parts.length > 0) {
+      return normalizeScheduleFreeText(parts.join(' — '));
+    }
+
+    return fallbackText;
   }
 
   function durationLabelFromSchedule(schedule) {
@@ -1155,7 +1158,7 @@
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
       '          <h1 class="dc-title">Demandes en attente</h1>',
-      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
+      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + ' • synchronisation automatique</div>',
       '        </div>',
       '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
@@ -1196,6 +1199,7 @@
       row = cloneValue(responsePayload.prescription);
     }
 
+    rememberOptimisticLock(id, decision);
     row = overlayDecisionOnRecord(row, decision);
     state.details[id] = row;
 
@@ -1278,7 +1282,9 @@
     }).catch(function (error) {
       state.listLoading = false;
       patchInboxList();
-      showNotice('error', error.message || 'Impossible de charger la file de demandes.');
+      if (!silent) {
+        showNotice('error', error.message || 'Impossible de charger la file de demandes.');
+      }
       return null;
     });
   }
@@ -1523,6 +1529,11 @@
     state.pollHandle = setTimeout(runPollCycle, Math.max(1000, Number(delayMs || getPollDelay())));
   }
 
+  function finalizePollCycle(nextDelay) {
+    state.pollInFlight = false;
+    scheduleNextPoll(nextDelay);
+  }
+
   function runPollCycle() {
     if (state.pollInFlight) {
       scheduleNextPoll(5000);
@@ -1531,23 +1542,28 @@
 
     state.pollInFlight = true;
 
-    Promise.resolve()
-      .then(function () {
-        return fetchList({ silent: true });
-      })
-      .then(function () {
-        if (state.selectedId) {
-          return refreshSelected();
-        }
-        return null;
-      })
-      .catch(function () {
-        return null;
-      })
-      .finally(function () {
-        state.pollInFlight = false;
-        scheduleNextPoll(getPollDelay());
-      });
+    var chain;
+    try {
+      chain = Promise.resolve()
+        .then(function () {
+          return fetchList({ silent: true });
+        })
+        .then(function () {
+          if (state.selectedId) {
+            return refreshSelected();
+          }
+          return null;
+        });
+    } catch (error) {
+      finalizePollCycle(5000);
+      return;
+    }
+
+    chain.then(function () {
+      finalizePollCycle(getPollDelay());
+    }, function () {
+      finalizePollCycle(5000);
+    });
   }
 
   function handleVisibilityChange() {

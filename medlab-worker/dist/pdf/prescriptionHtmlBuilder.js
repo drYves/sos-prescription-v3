@@ -266,22 +266,6 @@ function buildMedicationViewModel(item) {
         raw.label,
         raw.name,
     ]) || "Médicament";
-    let posology = firstNonEmpty([
-        obj.posologie,
-        obj.instructions,
-        obj.instruction,
-        obj.dosage,
-        obj.scheduleText,
-        raw.posologie,
-        raw.instructions,
-        raw.scheduleText,
-    ]);
-    if (posology === "") {
-        posology = scheduleToText(schedule);
-    }
-    if (posology === "") {
-        posology = "—";
-    }
     let duration = firstNonEmpty([
         obj.duration_label,
         obj.durationLabel,
@@ -299,6 +283,24 @@ function buildMedicationViewModel(item) {
     if (duration === "") {
         duration = "—";
     }
+    const generatedPosology = hasStructuredSchedule(schedule) ? scheduleToText(schedule) : "";
+    let posology = generatedPosology || firstNonEmpty([
+        obj.posologie,
+        obj.instructions,
+        obj.instruction,
+        obj.dosage,
+        obj.scheduleText,
+        raw.posologie,
+        raw.instructions,
+        raw.scheduleText,
+        sanitizeScheduleNote(schedule.note, duration),
+        sanitizeScheduleNote(schedule.text, duration),
+        sanitizeScheduleNote(schedule.label, duration),
+    ]);
+    posology = normalizeLooseText(posology);
+    if (posology === "") {
+        posology = "—";
+    }
     const metaParts = [];
     const cip13 = sanitizeDigits(firstNonEmpty([obj.cip13, raw.cip13]));
     if (cip13 !== "") {
@@ -308,7 +310,7 @@ function buildMedicationViewModel(item) {
     if (quantite !== "") {
         metaParts.push(`Quantité : ${quantite}`);
     }
-    const scheduleNote = firstNonEmpty([schedule.note, obj.note, raw.note]);
+    const scheduleNote = sanitizeScheduleNote(firstNonEmpty([schedule.note, obj.note, raw.note]), duration);
     if (scheduleNote !== "" && normalizeString(scheduleNote) !== normalizeString(posology)) {
         metaParts.push(scheduleNote);
     }
@@ -319,8 +321,73 @@ function buildMedicationViewModel(item) {
         meta: metaParts.join(" — "),
     };
 }
+function hasStructuredSchedule(schedule) {
+    const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
+    const freqUnit = normalizeScheduleUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
+    if (nb > 0 && freqUnit !== "") {
+        return true;
+    }
+    if (toPositiveInt(schedule.everyHours) > 0) {
+        return true;
+    }
+    if (toPositiveInt(schedule.morning) > 0) {
+        return true;
+    }
+    if (toPositiveInt(schedule.noon) > 0) {
+        return true;
+    }
+    if (toPositiveInt(schedule.evening) > 0) {
+        return true;
+    }
+    if (toPositiveInt(schedule.bedtime) > 0) {
+        return true;
+    }
+    if (toBoolean(schedule.asNeeded)) {
+        return true;
+    }
+    if (coerceStringArray(schedule.times).length > 0) {
+        return true;
+    }
+    if (coerceStringArray(schedule.doses).length > 0) {
+        return true;
+    }
+    return false;
+}
+function sanitizeScheduleNote(value, durationLabel) {
+    const note = normalizeLooseText(value);
+    if (note === "") {
+        return "";
+    }
+    const duration = normalizeLooseText(durationLabel).toLowerCase();
+    if (duration === "") {
+        return note;
+    }
+    const lowered = note.toLowerCase();
+    if (lowered === duration) {
+        return "";
+    }
+    if (lowered === `pendant ${duration}`) {
+        return "";
+    }
+    if (lowered === `durant ${duration}`) {
+        return "";
+    }
+    if (lowered === `sur ${duration}`) {
+        return "";
+    }
+    return note;
+}
+function normalizeLooseText(value) {
+    return String(value ?? "")
+        .replace(/[  ]/g, " ")
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
 function scheduleToText(schedule) {
-    const note = firstNonEmpty([schedule.note, schedule.text, schedule.label]);
+    const durationLabel = extractDurationLabelFromSchedule(schedule);
+    const note = sanitizeScheduleNote(firstNonEmpty([schedule.note]), durationLabel);
+    const fallbackText = sanitizeScheduleNote(firstNonEmpty([schedule.text, schedule.label]), durationLabel);
     const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
     const freqUnit = normalizeScheduleUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
     const times = coerceStringArray(schedule.times);
@@ -343,7 +410,7 @@ function scheduleToText(schedule) {
         if (note !== "") {
             out += `. ${note}`;
         }
-        return out;
+        return normalizeLooseText(out);
     }
     const parts = [];
     const momentMap = [
@@ -373,7 +440,10 @@ function scheduleToText(schedule) {
     if (note !== "") {
         parts.push(note);
     }
-    return parts.join(" — ");
+    if (parts.length > 0) {
+        return normalizeLooseText(parts.join(" — "));
+    }
+    return fallbackText;
 }
 function extractDurationLabelFromSchedule(schedule) {
     const value = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
