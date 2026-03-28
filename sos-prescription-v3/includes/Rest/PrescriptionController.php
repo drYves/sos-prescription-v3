@@ -297,6 +297,16 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_decision_conflict', 'Décision impossible pour cette ordonnance.', ['status' => 409]);
         }
 
+        if ($decision === 'approved') {
+            $workerResult['status'] = 'APPROVED';
+            $workerResult['processing_status'] = 'PENDING';
+            $workerResult['last_error_code'] = '';
+            $workerResult['last_error_message_safe'] = '';
+        } else {
+            $workerResult['status'] = 'REJECTED';
+            $workerResult['processing_status'] = 'FAILED';
+        }
+
         $this->store_shadow_worker_state($id, $workerResult);
 
         $row = $this->prescriptions->get($id);

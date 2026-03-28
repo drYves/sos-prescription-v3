@@ -31,7 +31,7 @@
     visibilityBound: false
   };
 
-  var OPTIMISTIC_LOCK_CONFIRM_MS = 60 * 1000;
+  var OPTIMISTIC_LOCK_MIN_MS = 15 * 1000;
   var OPTIMISTIC_LOCK_ORPHAN_MS = 6 * 60 * 60 * 1000;
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
@@ -175,41 +175,18 @@
 
     var now = Date.now();
     var existing = getOptimisticLock(numericId);
-    var keepUntil = Number(existing.retainUntil || 0);
-    if (keepUntil < now + OPTIMISTIC_LOCK_CONFIRM_MS) {
-      keepUntil = now + OPTIMISTIC_LOCK_CONFIRM_MS;
-    }
 
     state.optimisticLocks[numericId] = {
       decision: normalizedDecision,
       createdAt: Number(existing.createdAt || now),
       updatedAt: now,
-      retainUntil: keepUntil,
-      confirmedAt: normalizedDecision === normalizeText(existing.decision).toLowerCase()
-        ? Number(existing.confirmedAt || 0)
-        : 0
+      holdUntil: Math.max(Number(existing.holdUntil || 0), now + OPTIMISTIC_LOCK_MIN_MS),
+      expiresAt: Math.max(Number(existing.expiresAt || 0), now + OPTIMISTIC_LOCK_ORPHAN_MS)
     };
   }
 
   function markOptimisticLockConfirmed(id, decision) {
-    var numericId = Number(id || 0);
-    if (numericId < 1) return;
-
-    var lock = getOptimisticLock(numericId);
-    if (!hasObjectKeys(lock)) {
-      rememberOptimisticLock(numericId, decision);
-      lock = getOptimisticLock(numericId);
-    }
-
-    var normalizedDecision = normalizeText(decision || lock.decision).toLowerCase();
-    if (!normalizedDecision) return;
-
-    var now = Date.now();
-    lock.decision = normalizedDecision;
-    lock.updatedAt = now;
-    lock.confirmedAt = now;
-    lock.retainUntil = now + OPTIMISTIC_LOCK_CONFIRM_MS;
-    state.optimisticLocks[numericId] = lock;
+    rememberOptimisticLock(id, decision);
   }
 
   function touchOptimisticLock(id) {
@@ -221,9 +198,7 @@
 
     var now = Date.now();
     lock.updatedAt = now;
-    if (Number(lock.confirmedAt || 0) < 1) {
-      lock.retainUntil = Math.max(Number(lock.retainUntil || 0), now + OPTIMISTIC_LOCK_CONFIRM_MS);
-    }
+    lock.expiresAt = Math.max(Number(lock.expiresAt || 0), now + OPTIMISTIC_LOCK_ORPHAN_MS);
     state.optimisticLocks[numericId] = lock;
   }
 
@@ -242,11 +217,10 @@
       }
 
       var lock = asObject(state.optimisticLocks[key]);
-      var confirmedAt = Number(lock.confirmedAt || 0);
-      var retainUntil = Number(lock.retainUntil || 0);
+      var expiresAt = Number(lock.expiresAt || 0);
       var createdAt = Number(lock.createdAt || 0);
 
-      if (confirmedAt > 0 && retainUntil > 0 && now > retainUntil) {
+      if (expiresAt > 0 && now > expiresAt) {
         delete state.optimisticLocks[key];
         return;
       }
@@ -366,17 +340,12 @@
     }
 
     var serverDecision = getAuthoritativeDecision(row);
-    if (serverDecision !== '' && serverDecision !== lockDecision) {
+    if (serverDecision !== '') {
       clearOptimisticLock(id);
-      return row;
+      return serverDecision === lockDecision ? row : row;
     }
 
-    if (serverDecision === lockDecision) {
-      markOptimisticLockConfirmed(id, lockDecision);
-    } else {
-      touchOptimisticLock(id);
-    }
-
+    touchOptimisticLock(id);
     return overlayDecisionOnRecord(row, lockDecision);
   }
 
@@ -387,25 +356,43 @@
   function requestJson(method, path, body, requestOpts) {
     requestOpts = requestOpts || {};
 
+    var requestMethod = String(method || 'GET').toUpperCase();
     var headers = {
       'Accept': 'application/json',
       'X-WP-Nonce': nonce
     };
 
+    var requestUrl = apiUrl(path);
+    if (requestMethod === 'GET') {
+      try {
+        var parsedUrl = new URL(requestUrl, window.location.href);
+        parsedUrl.searchParams.set('_ts', String(Date.now()));
+        requestUrl = parsedUrl.toString();
+      } catch (e) {
+        requestUrl += (requestUrl.indexOf('?') === -1 ? '?' : '&') + '_ts=' + String(Date.now());
+      }
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers.Pragma = 'no-cache';
+    }
+
     var controller = typeof AbortController === 'function' ? new AbortController() : null;
     var timeoutMs = Math.max(
       4000,
       Number(
-        requestOpts.timeoutMs || (/^GET$/i.test(String(method || '')) ? REQUEST_TIMEOUT_GET_MS : REQUEST_TIMEOUT_MUTATION_MS)
+        requestOpts.timeoutMs || (/^GET$/i.test(requestMethod) ? REQUEST_TIMEOUT_GET_MS : REQUEST_TIMEOUT_MUTATION_MS)
       )
     );
     var timeoutHandle = 0;
 
     var fetchOpts = {
-      method: method,
+      method: requestMethod,
       headers: headers,
       credentials: 'same-origin'
     };
+
+    if (requestMethod === 'GET') {
+      fetchOpts.cache = 'no-store';
+    }
 
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
@@ -421,7 +408,7 @@
       }, timeoutMs);
     }
 
-    return fetch(apiUrl(path), fetchOpts).then(function (res) {
+    return fetch(requestUrl, fetchOpts).then(function (res) {
       return res.text().then(function (text) {
         var data = null;
         try {
@@ -613,23 +600,33 @@
     var status = normalizeText(pdf.status || '').toLowerCase();
     var workerStatus = normalizeText(pdf.worker_status || '').toUpperCase();
     var processingStatus = normalizeText(pdf.processing_status || '').toLowerCase();
-    var message = normalizeText(pdf.message || '');
+    var downloadUrl = normalizeText(pdf.download_url || '');
 
     if (localDecision === 'approved') {
-      if (status === 'done' || workerStatus === 'DONE' || processingStatus === 'done') {
+      if (downloadUrl !== '' || status === 'done' || workerStatus === 'DONE' || processingStatus === 'done') {
+        pdf.status = 'done';
+        pdf.worker_status = 'DONE';
+        pdf.processing_status = 'done';
+        pdf.s3_ready = true;
+        pdf.can_download = downloadUrl !== '';
+        pdf.message = downloadUrl !== ''
+          ? 'Validation enregistrée. PDF disponible.'
+          : (normalizeText(pdf.message) || 'Validation enregistrée. PDF disponible.');
+        pdf.last_error_code = null;
+        pdf.last_error_message = null;
         return pdf;
       }
 
-      if (status !== 'processing') {
-        pdf.status = 'pending';
+      if (status === 'failed' || processingStatus === 'failed') {
+        return pdf;
       }
+
+      pdf.status = 'processing';
       pdf.worker_status = 'APPROVED';
-      if (processingStatus === '' || processingStatus === 'waiting_approval') {
-        pdf.processing_status = status === 'processing' ? 'processing' : 'pending';
-      }
-      if (message === '' || /validation\s+m[ée]decin/i.test(message)) {
-        pdf.message = status === 'processing' ? 'Génération du PDF en cours.' : 'PDF en file d’attente.';
-      }
+      pdf.processing_status = (processingStatus === 'claimed' || processingStatus === 'processing') ? 'processing' : 'pending';
+      pdf.s3_ready = false;
+      pdf.can_download = false;
+      pdf.message = 'Génération du PDF en cours.';
       pdf.last_error_code = null;
       pdf.last_error_message = null;
       return pdf;
@@ -639,7 +636,7 @@
       pdf.status = 'failed';
       pdf.worker_status = 'REJECTED';
       pdf.processing_status = 'failed';
-      pdf.message = message || 'Ordonnance refusée.';
+      pdf.message = normalizeText(pdf.message) || 'Ordonnance refusée.';
       pdf.last_error_code = normalizeText(pdf.last_error_code) || 'rejected';
       pdf.last_error_message = normalizeText(pdf.last_error_message) || 'L’ordonnance a été rejetée.';
     }
@@ -770,7 +767,9 @@
       sanitizeScheduleNote(schedule.text, duration),
       sanitizeScheduleNote(schedule.label, duration)
     ]);
-    posology = stripDurationFromPosology(posology, duration);
+    if (!scheduleText) {
+      posology = stripDurationFromPosology(posology, duration);
+    }
     posology = normalizeScheduleFreeText(posology);
 
     var quantite = firstText([
@@ -792,25 +791,23 @@
   function scheduleToText(schedule) {
     if (!schedule || typeof schedule !== 'object') return '';
 
-    var durationLabel = durationLabelFromSchedule(schedule);
-    var note = sanitizeScheduleNote(firstText([schedule.note]), durationLabel);
-    var fallbackText = sanitizeScheduleNote(firstText([schedule.text, schedule.label]), durationLabel);
     var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
     var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
     var times = safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean);
     var doses = safeArray(schedule.doses).map(function (v) { return normalizeText(v); }).filter(Boolean);
+    var inferredCount = Math.max(nb, times.length, doses.length);
 
-    if (nb > 0 && freqUnit) {
-      var base = (nb > 1 ? (nb + ' fois') : '1 fois') + ' par ' + freqUnit;
+    if (inferredCount > 0) {
+      var baseUnit = freqUnit || 'jour';
+      var base = (inferredCount > 1 ? (inferredCount + ' fois') : '1 fois') + ' par ' + baseUnit;
       var details = [];
-      for (var i = 0; i < nb; i += 1) {
+      for (var i = 0; i < inferredCount; i += 1) {
         var time = normalizeText(times[i]);
         var dose = normalizeText(doses[i]);
         if (!time && !dose) continue;
         details.push((dose || '1') + '@' + (time || '--:--'));
       }
       if (details.length) base += ' (' + details.join(', ') + ')';
-      if (note) base += '. ' + note;
       return normalizeScheduleFreeText(base);
     }
 
@@ -823,17 +820,13 @@
     var everyHours = toPositiveInt(schedule.everyHours);
     if (everyHours > 0) parts.push('Toutes les ' + everyHours + ' h');
 
-    var legacyTimes = toPositiveInt(schedule.timesPerDay);
-    if (legacyTimes > 0 && nb < 1) parts.push(legacyTimes + ' prise' + (legacyTimes > 1 ? 's' : '') + ' / jour');
-
     if (truthy(schedule.asNeeded)) parts.push('si besoin');
-    if (note) parts.push(note);
 
     if (parts.length > 0) {
       return normalizeScheduleFreeText(parts.join(' — '));
     }
 
-    return stripDurationFromPosology(fallbackText, durationLabel);
+    return normalizeScheduleFreeText(firstText([schedule.text, schedule.label]));
   }
 
   function durationLabelFromSchedule(schedule) {

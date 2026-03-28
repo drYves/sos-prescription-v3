@@ -386,7 +386,9 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
     sanitizeScheduleNote(schedule.text, duration),
     sanitizeScheduleNote(schedule.label, duration),
   ]);
-  posology = stripDurationFromPosology(posology, duration);
+  if (generatedPosology === "") {
+    posology = stripDurationFromPosology(posology, duration);
+  }
   posology = normalizeLooseText(posology);
   if (posology === "") {
     posology = "—";
@@ -522,19 +524,18 @@ function stripDurationFromPosology(text: unknown, durationLabel: string): string
 }
 
 function scheduleToText(schedule: Record<string, unknown>): string {
-  const durationLabel = extractDurationLabelFromSchedule(schedule);
-  const note = sanitizeScheduleNote(firstNonEmpty([schedule.note]), durationLabel);
-  const fallbackText = sanitizeScheduleNote(firstNonEmpty([schedule.text, schedule.label]), durationLabel);
   const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
   const freqUnit = normalizeScheduleUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
   const times = coerceStringArray(schedule.times);
   const doses = coerceStringArray(schedule.doses);
+  const inferredCount = Math.max(nb, times.length, doses.length);
 
-  if (nb > 0 && freqUnit !== "") {
-    const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit}`;
+  if (inferredCount > 0) {
+    const unitLabel = freqUnit || "jour";
+    const base = `${inferredCount > 1 ? `${inferredCount} fois` : "1 fois"} par ${unitLabel}`;
     const details: string[] = [];
 
-    for (let i = 0; i < nb; i += 1) {
+    for (let i = 0; i < inferredCount; i += 1) {
       const time = normalizeString(times[i]);
       const dose = normalizeString(doses[i]);
       if (!time && !dose) {
@@ -546,9 +547,6 @@ function scheduleToText(schedule: Record<string, unknown>): string {
     let out = base;
     if (details.length > 0) {
       out += ` (${details.join(", ")})`;
-    }
-    if (note !== "") {
-      out += `. ${note}`;
     }
     return normalizeLooseText(out);
   }
@@ -573,25 +571,15 @@ function scheduleToText(schedule: Record<string, unknown>): string {
     parts.push(`Toutes les ${everyHours} h`);
   }
 
-  const legacyTimesPerDay = toPositiveInt(schedule.timesPerDay);
-  if (legacyTimesPerDay > 0 && nb < 1) {
-    parts.push(`${legacyTimesPerDay} prise${legacyTimesPerDay > 1 ? "s" : ""} / jour`);
-  }
-
-  const asNeeded = toBoolean(schedule.asNeeded);
-  if (asNeeded) {
+  if (toBoolean(schedule.asNeeded)) {
     parts.push("si besoin");
-  }
-
-  if (note !== "") {
-    parts.push(note);
   }
 
   if (parts.length > 0) {
     return normalizeLooseText(parts.join(" — "));
   }
 
-  return stripDurationFromPosology(fallbackText, durationLabel);
+  return normalizeLooseText(firstNonEmpty([schedule.text, schedule.label]));
 }
 
 function extractDurationLabelFromSchedule(schedule: Record<string, unknown>): string {
