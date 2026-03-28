@@ -39,11 +39,13 @@
 
 
   var LIST_FILTERS = [
-    { key: 'pending', label: 'En attente', status: 'pending', title: 'Demandes en attente', empty: 'Aucune demande en attente.' },
+    { key: 'pending', label: 'En attente', status: '', title: 'Demandes en attente', empty: 'Aucune demande en attente.' },
     { key: 'approved', label: 'Validées', status: 'approved', title: 'Ordonnances validées', empty: 'Aucune ordonnance validée.' },
     { key: 'rejected', label: 'Refusées', status: 'rejected', title: 'Ordonnances refusées', empty: 'Aucune ordonnance refusée.' },
     { key: 'all', label: 'Toutes', status: '', title: 'Toutes les demandes', empty: 'Aucune demande trouvée.' }
   ];
+
+  var PENDING_BUCKET_STATUSES = ['pending', 'payment_pending', 'in_review', 'needs_info'];
 
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
@@ -142,7 +144,7 @@
   function buildListPath() {
     var meta = getActiveFilterMeta();
     var params = ['limit=50', 'offset=0'];
-    if (meta.status) {
+    if (meta.key !== 'pending' && meta.status) {
       params.push('status=' + encodeURIComponent(meta.status));
     }
     return '/prescriptions?' + params.join('&');
@@ -156,6 +158,50 @@
     state.listFilter = meta.key;
     renderHeaderInto();
     fetchList({ silent: false });
+  }
+
+  function getBusinessStatusForFilter(row) {
+    var record = asObject(row);
+    var id = Number(record.id || 0);
+    var localDecision = getOverlayDecision(id);
+    if (localDecision === 'approved' || localDecision === 'rejected') {
+      return localDecision;
+    }
+
+    var businessStatus = normalizeText(record.status).toLowerCase();
+    if (businessStatus) {
+      return businessStatus;
+    }
+
+    var payload = asObject(record.payload);
+    var worker = asObject(payload.worker);
+    var workerStatus = normalizeText(worker.status).toLowerCase();
+    var processingStatus = normalizeText(worker.processing_status).toLowerCase();
+
+    if (workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
+      return 'approved';
+    }
+    if (workerStatus === 'rejected' || processingStatus === 'failed') {
+      return 'rejected';
+    }
+    if (processingStatus === 'claimed' || processingStatus === 'processing') {
+      return 'in_review';
+    }
+
+    return 'pending';
+  }
+
+  function rowMatchesActiveFilter(row) {
+    var meta = getActiveFilterMeta();
+    var status = getBusinessStatusForFilter(row);
+
+    if (meta.key === 'all') {
+      return true;
+    }
+    if (meta.key === 'pending') {
+      return PENDING_BUCKET_STATUSES.indexOf(status) !== -1;
+    }
+    return status === meta.key;
   }
 
   function findListIndexById(id) {
@@ -1443,7 +1489,9 @@
     }
 
     return requestJson('GET', buildListPath(), undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
-      var nextRows = safeArray(rows).map(applyPendingOverlayToRecord);
+      var nextRows = safeArray(rows)
+        .map(applyPendingOverlayToRecord)
+        .filter(rowMatchesActiveFilter);
       var previousSelectedId = Number(state.selectedId || 0);
       var nextSelectedId = previousSelectedId;
 
