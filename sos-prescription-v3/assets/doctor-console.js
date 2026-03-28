@@ -17,6 +17,7 @@
     details: {},
     pdf: {},
     selectedId: 0,
+    listFilter: 'pending',
     listLoading: false,
     detailLoading: false,
     notice: null,
@@ -36,6 +37,14 @@
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
 
+
+  var LIST_FILTERS = [
+    { key: 'pending', label: 'En attente', status: 'pending', title: 'Demandes en attente', empty: 'Aucune demande en attente.' },
+    { key: 'approved', label: 'Validées', status: 'approved', title: 'Ordonnances validées', empty: 'Aucune ordonnance validée.' },
+    { key: 'rejected', label: 'Refusées', status: 'rejected', title: 'Ordonnances refusées', empty: 'Aucune ordonnance refusée.' },
+    { key: 'all', label: 'Toutes', status: '', title: 'Toutes les demandes', empty: 'Aucune demande trouvée.' }
+  ];
+
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
     return;
@@ -51,6 +60,10 @@
       '.sosprescription-doctor .dc-inbox{max-width:280px!important;width:100%!important;}',
       '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
       '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
+      '.sosprescription-doctor .dc-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
+      '.sosprescription-doctor .dc-filter-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
+      '.sosprescription-doctor .dc-filter-tab:hover{background:#f8fafc;border-color:#cbd5e1;}',
+      '.sosprescription-doctor .dc-filter-tab.is-active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #bfdbfe;}',
       '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}.sosprescription-doctor .dc-inbox{max-width:none!important;}.sosprescription-doctor .dc-inbox__list{max-height:none!important;}}',
       '.sosprescription-doctor .dc-pdf-card{overflow:hidden!important;}',
       '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:76vh!important;min-height:560px!important;max-height:84vh!important;aspect-ratio:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
@@ -109,6 +122,40 @@
     if (node.innerHTML !== html) {
       node.innerHTML = html;
     }
+  }
+
+
+  function getFilterMeta(filterKey) {
+    var key = normalizeText(filterKey).toLowerCase();
+    for (var i = 0; i < LIST_FILTERS.length; i += 1) {
+      if (LIST_FILTERS[i].key === key) {
+        return LIST_FILTERS[i];
+      }
+    }
+    return LIST_FILTERS[0];
+  }
+
+  function getActiveFilterMeta() {
+    return getFilterMeta(state.listFilter);
+  }
+
+  function buildListPath() {
+    var meta = getActiveFilterMeta();
+    var params = ['limit=50', 'offset=0'];
+    if (meta.status) {
+      params.push('status=' + encodeURIComponent(meta.status));
+    }
+    return '/prescriptions?' + params.join('&');
+  }
+
+  function setListFilter(filterKey) {
+    var meta = getFilterMeta(filterKey);
+    if (meta.key === state.listFilter) {
+      return;
+    }
+    state.listFilter = meta.key;
+    renderHeaderInto();
+    fetchList({ silent: false });
   }
 
   function findListIndexById(id) {
@@ -940,6 +987,25 @@
     setHtmlIfChanged(ui.notice, renderNotice());
   }
 
+
+  function renderFilterTabs() {
+    return LIST_FILTERS.map(function (filter) {
+      var isActive = filter.key === state.listFilter;
+      return '<button type="button" class="dc-filter-tab' + (isActive ? ' is-active' : '') + '" data-action="set-filter" data-filter="' + escHtml(filter.key) + '">' + escHtml(filter.label) + '</button>';
+    }).join('');
+  }
+
+  function renderHeaderInto() {
+    var ui = ensureShell();
+    var meta = getActiveFilterMeta();
+    if (ui.title) {
+      ui.title.textContent = meta.title;
+    }
+    if (ui.filterTabs) {
+      setHtmlIfChanged(ui.filterTabs, renderFilterTabs());
+    }
+  }
+
   function renderInboxItemMarkup(row) {
     var id = Number(row && row.id || 0);
     var detail = asObject(state.details[id]);
@@ -1006,7 +1072,7 @@
     }
 
     if (state.list.length < 1) {
-      setHtmlIfChanged(container, '<div class="dc-empty">Aucune demande en attente.</div>');
+      setHtmlIfChanged(container, '<div class="dc-empty">' + escHtml(getActiveFilterMeta().empty) + '</div>');
       return;
     }
 
@@ -1283,8 +1349,9 @@
       '      <div class="dc-inbox__head">',
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
-      '          <h1 class="dc-title">Demandes en attente</h1>',
+      '          <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
       '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + ' • synchronisation automatique</div>',
+      '          <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '        </div>',
       '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
@@ -1296,6 +1363,8 @@
 
     state.ui = {
       notice: root.querySelector('[data-dc-notice]'),
+      title: root.querySelector('[data-dc-title]'),
+      filterTabs: root.querySelector('[data-dc-filter-tabs]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
       detail: root.querySelector('[data-dc-detail]')
     };
@@ -1312,6 +1381,7 @@
 
   function render() {
     ensureShell();
+    renderHeaderInto();
     renderNoticeInto();
     patchInboxList();
     renderDetail();
@@ -1372,7 +1442,7 @@
       patchInboxList();
     }
 
-    return requestJson('GET', '/prescriptions?status=pending&limit=50&offset=0', undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
+    return requestJson('GET', buildListPath(), undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
       var nextRows = safeArray(rows).map(applyPendingOverlayToRecord);
       var previousSelectedId = Number(state.selectedId || 0);
       var nextSelectedId = previousSelectedId;
@@ -1477,6 +1547,12 @@
     });
   }
 
+
+  function shouldEnsureAssigned(row) {
+    var status = normalizeText(row && row.status).toLowerCase();
+    return status === 'pending' || status === 'in_review' || status === 'needs_info';
+  }
+
   function ensureAssigned(rx) {
     var row = asObject(rx);
     var id = Number(row.id || 0);
@@ -1523,6 +1599,14 @@
 
     return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
       if (!row) return null;
+      if (!shouldEnsureAssigned(row)) {
+        state.details[numericId] = row;
+        if (Number(state.selectedId) === numericId) {
+          renderDetail();
+        }
+        patchInboxItemById(numericId);
+        return fetchPdfStatus(numericId, { silent: !!opts.silent });
+      }
       return ensureAssigned(row).then(function (assignedRow) {
         state.details[numericId] = assignedRow || row;
         if (Number(state.selectedId) === numericId) {
@@ -1725,6 +1809,11 @@
 
     var action = normalizeText(actionEl.getAttribute('data-action')).toLowerCase();
     if (!action) return;
+
+    if (action === 'set-filter') {
+      setListFilter(actionEl.getAttribute('data-filter') || 'pending');
+      return;
+    }
 
     if (action === 'select') {
       selectCase(Number(actionEl.getAttribute('data-id') || 0));
