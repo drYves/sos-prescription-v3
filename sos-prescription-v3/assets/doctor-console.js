@@ -62,6 +62,7 @@
       '.sosprescription-doctor .dc-inbox{max-width:280px!important;width:100%!important;}',
       '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
       '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
+      '.sosprescription-doctor .dc-item__meds{margin-top:4px;font-size:12px;line-height:1.35;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.sosprescription-doctor .dc-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
       '.sosprescription-doctor .dc-filter-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
       '.sosprescription-doctor .dc-filter-tab:hover{background:#f8fafc;border-color:#cbd5e1;}',
@@ -603,7 +604,14 @@
   }
 
   function extractPriority(rx) {
-    var priority = normalizeText(rx && rx.priority).toLowerCase();
+    var payload = asObject(rx && rx.payload);
+    var requestPayload = asObject(payload.request);
+    var priority = firstText([
+      rx && rx.priority,
+      payload.priority,
+      payload.request_priority,
+      requestPayload.priority
+    ]).toLowerCase();
     return priority === 'express' ? 'Express' : 'Standard';
   }
 
@@ -676,6 +684,67 @@
 
   function extractPdfState(id) {
     return asObject(state.pdf[id]);
+  }
+
+  function extractMedicationNames(source) {
+    var record = asObject(source);
+    var items = safeArray(record.items);
+    var names = [];
+
+    for (var i = 0; i < items.length; i += 1) {
+      var item = asObject(items[i]);
+      var raw = asObject(item.raw);
+      var label = firstText([
+        item.label,
+        item.denomination,
+        item.name,
+        raw.label,
+        raw.denomination,
+        raw.name
+      ]);
+      if (!label || names.indexOf(label) !== -1) {
+        continue;
+      }
+      names.push(label);
+    }
+
+    return names;
+  }
+
+  function buildMedicationPreview(source) {
+    var names = extractMedicationNames(source);
+    if (names.length < 1) {
+      return '';
+    }
+
+    var preview = names.slice(0, 2).join(' • ');
+    if (names.length > 2) {
+      preview += ' …';
+    }
+
+    return preview;
+  }
+
+  function isExpressPriorityRecord(source) {
+    return extractPriority(source) === 'Express';
+  }
+
+  function sortListRowsByPriority(rows) {
+    return safeArray(rows)
+      .map(function (row, index) {
+        return { row: row, index: index };
+      })
+      .sort(function (left, right) {
+        var leftExpress = isExpressPriorityRecord(left.row) ? 1 : 0;
+        var rightExpress = isExpressPriorityRecord(right.row) ? 1 : 0;
+        if (leftExpress !== rightExpress) {
+          return rightExpress - leftExpress;
+        }
+        return left.index - right.index;
+      })
+      .map(function (entry) {
+        return entry.row;
+      });
   }
 
   function applyLocalDecisionToPdfState(id, pdfState) {
@@ -967,7 +1036,16 @@
   }
 
   function iframeSrcFromDownloadUrl(url) {
-    return normalizeText(url);
+    var raw = normalizeText(url);
+    if (!raw) return '';
+
+    try {
+      var parsed = new URL(raw, window.location.href);
+      parsed.hash = 'toolbar=0&view=FitH';
+      return parsed.toString();
+    } catch (e) {
+      return raw.split('#')[0] + '#toolbar=0&view=FitH';
+    }
   }
 
   function showNotice(type, message) {
@@ -1059,12 +1137,14 @@
     var patient = extractPatientData(source);
     var statusInfo = computeCaseStatus(source);
     var urgencyVariant = patient.priority === 'Express' ? 'warn' : 'soft';
+    var medicationsPreview = buildMedicationPreview(source);
 
     return [
       '<div class="dc-item__row">',
       '  <div class="dc-item__patient">' + escHtml(patient.fullname || ('Dossier #' + id)) + '</div>',
       '  <div class="dc-item__status">' + statusBadge(statusInfo.label, statusInfo.variant) + '</div>',
       '</div>',
+      medicationsPreview ? '  <div class="dc-item__meds" title="' + escHtml(medicationsPreview) + '">' + escHtml(medicationsPreview) + '</div>' : '',
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
       '    ' + statusBadge(patient.priority, urgencyVariant),
@@ -1272,6 +1352,7 @@
       '  <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
       '    <div class="dc-card__title">Patient</div>',
       '    <div class="dc-summary-grid">',
+      '      <div class="dc-summary-row" data-dc-summary-priority-row style="display:none;"><span>PRIORITÉ</span><strong data-dc-summary-priority></strong></div>',
       '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
       '    </div>',
       '  </div>',
@@ -1315,16 +1396,20 @@
     }
 
     var summaryCard = detailEl.querySelector('[data-dc-summary-card]');
+    var priorityRow = detailEl.querySelector('[data-dc-summary-priority-row]');
+    var priorityEl = detailEl.querySelector('[data-dc-summary-priority]');
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
     var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
-    if (summaryCard && weightRow && weightEl) {
-      if (patient.weight) {
-        weightEl.textContent = patient.weight;
-      } else {
-        weightEl.textContent = 'Non renseigné';
-      }
-      weightRow.style.display = '';
+    if (summaryCard) {
       summaryCard.style.display = '';
+    }
+    if (priorityRow && priorityEl) {
+      priorityEl.textContent = patient.priority || 'Standard';
+      priorityRow.style.display = '';
+    }
+    if (weightRow && weightEl) {
+      weightEl.textContent = patient.weight || 'Non renseigné';
+      weightRow.style.display = '';
     }
 
     var medsEl = detailEl.querySelector('[data-dc-meds]');
@@ -1489,9 +1574,11 @@
     }
 
     return requestJson('GET', buildListPath(), undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
-      var nextRows = safeArray(rows)
-        .map(applyPendingOverlayToRecord)
-        .filter(rowMatchesActiveFilter);
+      var nextRows = sortListRowsByPriority(
+        safeArray(rows)
+          .map(applyPendingOverlayToRecord)
+          .filter(rowMatchesActiveFilter)
+      );
       var previousSelectedId = Number(state.selectedId || 0);
       var nextSelectedId = previousSelectedId;
 
