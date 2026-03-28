@@ -31,6 +31,7 @@
     visibilityBound: false
   };
 
+  var OPTIMISTIC_LOCK_CONFIRM_MS = 60 * 1000;
   var OPTIMISTIC_LOCK_ORPHAN_MS = 6 * 60 * 60 * 1000;
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
@@ -174,12 +175,41 @@
 
     var now = Date.now();
     var existing = getOptimisticLock(numericId);
+    var keepUntil = Number(existing.retainUntil || 0);
+    if (keepUntil < now + OPTIMISTIC_LOCK_CONFIRM_MS) {
+      keepUntil = now + OPTIMISTIC_LOCK_CONFIRM_MS;
+    }
 
     state.optimisticLocks[numericId] = {
       decision: normalizedDecision,
       createdAt: Number(existing.createdAt || now),
-      updatedAt: now
+      updatedAt: now,
+      retainUntil: keepUntil,
+      confirmedAt: normalizedDecision === normalizeText(existing.decision).toLowerCase()
+        ? Number(existing.confirmedAt || 0)
+        : 0
     };
+  }
+
+  function markOptimisticLockConfirmed(id, decision) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return;
+
+    var lock = getOptimisticLock(numericId);
+    if (!hasObjectKeys(lock)) {
+      rememberOptimisticLock(numericId, decision);
+      lock = getOptimisticLock(numericId);
+    }
+
+    var normalizedDecision = normalizeText(decision || lock.decision).toLowerCase();
+    if (!normalizedDecision) return;
+
+    var now = Date.now();
+    lock.decision = normalizedDecision;
+    lock.updatedAt = now;
+    lock.confirmedAt = now;
+    lock.retainUntil = now + OPTIMISTIC_LOCK_CONFIRM_MS;
+    state.optimisticLocks[numericId] = lock;
   }
 
   function touchOptimisticLock(id) {
@@ -189,7 +219,11 @@
     var lock = getOptimisticLock(numericId);
     if (!hasObjectKeys(lock)) return;
 
-    lock.updatedAt = Date.now();
+    var now = Date.now();
+    lock.updatedAt = now;
+    if (Number(lock.confirmedAt || 0) < 1) {
+      lock.retainUntil = Math.max(Number(lock.retainUntil || 0), now + OPTIMISTIC_LOCK_CONFIRM_MS);
+    }
     state.optimisticLocks[numericId] = lock;
   }
 
@@ -207,8 +241,16 @@
         return;
       }
 
-      var lock = getOptimisticLock(numericId);
+      var lock = asObject(state.optimisticLocks[key]);
+      var confirmedAt = Number(lock.confirmedAt || 0);
+      var retainUntil = Number(lock.retainUntil || 0);
       var createdAt = Number(lock.createdAt || 0);
+
+      if (confirmedAt > 0 && retainUntil > 0 && now > retainUntil) {
+        delete state.optimisticLocks[key];
+        return;
+      }
+
       if (createdAt > 0 && now - createdAt > OPTIMISTIC_LOCK_ORPHAN_MS) {
         delete state.optimisticLocks[key];
       }
@@ -236,7 +278,7 @@
       return 'rejected';
     }
 
-    if (workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
+    if (businessStatus === 'approved' || workerStatus === 'approved' || workerStatus === 'done' || processingStatus === 'done') {
       return 'approved';
     }
 
@@ -303,6 +345,10 @@
   function applyPendingOverlayToRecord(record) {
     var row = cloneValue(record);
     var id = Number(row && row.id || 0);
+    if (id < 1) {
+      return row;
+    }
+
     var pendingDecision = getPendingDecision(id);
     if (pendingDecision) {
       rememberOptimisticLock(id, pendingDecision);
@@ -320,12 +366,17 @@
     }
 
     var serverDecision = getAuthoritativeDecision(row);
-    if (serverDecision && serverDecision !== lockDecision) {
+    if (serverDecision !== '' && serverDecision !== lockDecision) {
       clearOptimisticLock(id);
       return row;
     }
 
-    touchOptimisticLock(id);
+    if (serverDecision === lockDecision) {
+      markOptimisticLockConfirmed(id, lockDecision);
+    } else {
+      touchOptimisticLock(id);
+    }
+
     return overlayDecisionOnRecord(row, lockDecision);
   }
 
@@ -547,6 +598,55 @@
     return asObject(state.pdf[id]);
   }
 
+  function applyLocalDecisionToPdfState(id, pdfState) {
+    var numericId = Number(id || 0);
+    var pdf = cloneValue(asObject(pdfState));
+    if (numericId < 1) {
+      return pdf;
+    }
+
+    var localDecision = getOverlayDecision(numericId);
+    if (!localDecision) {
+      return pdf;
+    }
+
+    var status = normalizeText(pdf.status || '').toLowerCase();
+    var workerStatus = normalizeText(pdf.worker_status || '').toUpperCase();
+    var processingStatus = normalizeText(pdf.processing_status || '').toLowerCase();
+    var message = normalizeText(pdf.message || '');
+
+    if (localDecision === 'approved') {
+      if (status === 'done' || workerStatus === 'DONE' || processingStatus === 'done') {
+        return pdf;
+      }
+
+      if (status !== 'processing') {
+        pdf.status = 'pending';
+      }
+      pdf.worker_status = 'APPROVED';
+      if (processingStatus === '' || processingStatus === 'waiting_approval') {
+        pdf.processing_status = status === 'processing' ? 'processing' : 'pending';
+      }
+      if (message === '' || /validation\s+m[ée]decin/i.test(message)) {
+        pdf.message = status === 'processing' ? 'Génération du PDF en cours.' : 'PDF en file d’attente.';
+      }
+      pdf.last_error_code = null;
+      pdf.last_error_message = null;
+      return pdf;
+    }
+
+    if (localDecision === 'rejected') {
+      pdf.status = 'failed';
+      pdf.worker_status = 'REJECTED';
+      pdf.processing_status = 'failed';
+      pdf.message = message || 'Ordonnance refusée.';
+      pdf.last_error_code = normalizeText(pdf.last_error_code) || 'rejected';
+      pdf.last_error_message = normalizeText(pdf.last_error_message) || 'L’ordonnance a été rejetée.';
+    }
+
+    return pdf;
+  }
+
   function resolveMedicationSchedule(row) {
     var direct = asObject(row && row.schedule);
     if (hasObjectKeys(direct)) {
@@ -562,6 +662,38 @@
       .replace(/[\r\n\t]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function buildFlexibleSpacePattern(value) {
+    return normalizeScheduleFreeText(value)
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\s+/g, '[\\s\\u00A0\\u202F\\r\\n]+');
+  }
+
+  function stripDurationFromPosology(text, durationLabel) {
+    var raw = normalizeScheduleFreeText(text);
+    if (!raw) return '';
+
+    var cleaned = raw;
+    var duration = normalizeScheduleFreeText(durationLabel);
+
+    if (duration) {
+      var durationPattern = buildFlexibleSpacePattern(duration);
+      cleaned = cleaned.replace(new RegExp('(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*(?:pendant|durant|sur)\\s+' + durationPattern + '(?=(?:\\s|$|[(),.;:]))', 'ig'), ' ');
+      cleaned = cleaned.replace(new RegExp('(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*' + durationPattern + '(?=(?:\\s*$|\\s+[)\\].,;:]|[)\\].,;:]))', 'ig'), ' ');
+    }
+
+    cleaned = cleaned.replace(/(?:\s|^)(?:,|;|\.|:|—|-)?\s*(?:pendant|durant|sur)\s+\d+\s*(?:j(?:ours?)?|sem(?:aines?)?|mois)(?=(?:\s|$|[(),.;:]))/ig, ' ');
+    cleaned = cleaned
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([,.;:])/g, '$1')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')')
+      .replace(/[—-]\s*$/, '')
+      .replace(/[,.;:]\s*$/, '')
+      .trim();
+
+    return cleaned || raw;
   }
 
   function hasStructuredSchedule(schedule) {
@@ -584,7 +716,7 @@
   }
 
   function sanitizeScheduleNote(value, durationLabel) {
-    var note = normalizeScheduleFreeText(value);
+    var note = stripDurationFromPosology(value, durationLabel);
     if (!note) return '';
 
     var duration = normalizeScheduleFreeText(durationLabel).toLowerCase();
@@ -638,6 +770,7 @@
       sanitizeScheduleNote(schedule.text, duration),
       sanitizeScheduleNote(schedule.label, duration)
     ]);
+    posology = stripDurationFromPosology(posology, duration);
     posology = normalizeScheduleFreeText(posology);
 
     var quantite = firstText([
@@ -700,7 +833,7 @@
       return normalizeScheduleFreeText(parts.join(' — '));
     }
 
-    return fallbackText;
+    return stripDurationFromPosology(fallbackText, durationLabel);
   }
 
   function durationLabelFromSchedule(schedule) {
@@ -1205,12 +1338,12 @@
 
     if (decision === 'approved') {
       if (responsePayload && responsePayload.pdf) {
-        state.pdf[id] = responsePayload.pdf;
+        state.pdf[id] = applyLocalDecisionToPdfState(id, responsePayload.pdf);
       } else {
-        state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'pending' });
+        state.pdf[id] = applyLocalDecisionToPdfState(id, Object.assign({}, state.pdf[id], { status: 'pending' }));
       }
     } else if (decision === 'rejected') {
-      state.pdf[id] = Object.assign({}, state.pdf[id], { status: 'failed' });
+      state.pdf[id] = applyLocalDecisionToPdfState(id, Object.assign({}, state.pdf[id], { status: 'failed' }));
     }
 
     state.list = safeArray(state.list).map(function (item) {
@@ -1334,7 +1467,8 @@
     if (numericId < 1) return Promise.resolve(null);
 
     return requestJson('GET', '/prescriptions/' + numericId + '/pdf-status', undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (payload) {
-      state.pdf[numericId] = payload && payload.pdf ? payload.pdf : {};
+      var nextPdf = payload && payload.pdf ? payload.pdf : {};
+      state.pdf[numericId] = applyLocalDecisionToPdfState(numericId, nextPdf);
       if (Number(state.selectedId) === numericId) {
         renderDetail();
       }
@@ -1488,6 +1622,7 @@
 
     requestJson('POST', '/prescriptions/' + id + '/decision', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS }).then(function (responsePayload) {
       clearPendingAction(id);
+      markOptimisticLockConfirmed(id, normalizedDecision);
       patchLocalDecisionState(id, normalizedDecision, responsePayload);
       patchInboxList();
       patchInboxItemById(id);

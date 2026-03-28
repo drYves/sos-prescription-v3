@@ -267,6 +267,12 @@ class PrescriptionController extends \WP_REST_Controller
             } else {
                 $workerResult = $dispatcher->rejectPrescription($workerPrescriptionId, $reason, $req_id);
             }
+            $workerResult = $this->force_decision_worker_shadow_state(
+                is_array($workerResult) ? $workerResult : [],
+                $decision,
+                $workerPrescriptionId,
+                $req_id
+            );
         } catch (\Throwable $e) {
             $errorMessage = $e->getMessage();
             error_log('[SOSPrescription] Decision Failed: ' . $errorMessage);
@@ -1005,6 +1011,12 @@ class PrescriptionController extends \WP_REST_Controller
                 $dispatcher = $this->get_job_dispatcher();
                 $doctorPayload = $dispatcher->buildDoctorPayloadFromUserId($doctorId);
                 $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id);
+                $workerResult = $this->force_decision_worker_shadow_state(
+                    is_array($workerResult) ? $workerResult : [],
+                    'approved',
+                    $workerPrescriptionId,
+                    $req_id
+                );
                 $this->store_shadow_worker_state($prescription_id, $workerResult);
                 $row = $this->prescriptions->get($prescription_id) ?: $row;
                 $workerMeta = $this->extract_worker_shadow_state($row);
@@ -1229,6 +1241,39 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $workerResult
+     * @return array<string, mixed>
+     */
+    protected function force_decision_worker_shadow_state(array $workerResult, string $decision, string $workerPrescriptionId, string $req_id): array
+    {
+        $normalizedDecision = strtolower(trim($decision));
+        $workerResult['prescription_id'] = isset($workerResult['prescription_id']) && is_scalar($workerResult['prescription_id'])
+            ? (string) $workerResult['prescription_id']
+            : $workerPrescriptionId;
+        $workerResult['source_req_id'] = isset($workerResult['source_req_id']) && is_scalar($workerResult['source_req_id']) && (string) $workerResult['source_req_id'] !== ''
+            ? (string) $workerResult['source_req_id']
+            : $req_id;
+
+        if ($normalizedDecision === 'approved') {
+            $workerResult['status'] = 'APPROVED';
+            $workerResult['processing_status'] = 'PENDING';
+            $workerResult['last_error_code'] = '';
+            $workerResult['last_error_message_safe'] = '';
+        } elseif ($normalizedDecision === 'rejected') {
+            $workerResult['status'] = 'REJECTED';
+            $workerResult['processing_status'] = 'FAILED';
+            if (!isset($workerResult['last_error_code']) || !is_scalar($workerResult['last_error_code']) || trim((string) $workerResult['last_error_code']) === '') {
+                $workerResult['last_error_code'] = 'rejected';
+            }
+            if (!isset($workerResult['last_error_message_safe']) || !is_scalar($workerResult['last_error_message_safe']) || trim((string) $workerResult['last_error_message_safe']) === '') {
+                $workerResult['last_error_message_safe'] = 'L’ordonnance a été rejetée.';
+            }
+        }
+
+        return $workerResult;
     }
 
     /**
@@ -1512,15 +1557,25 @@ class PrescriptionController extends \WP_REST_Controller
         $s3Region = isset($worker['s3_region']) && is_scalar($worker['s3_region']) ? trim((string) $worker['s3_region']) : '';
         $artifactSizeBytes = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes']) ? (int) $worker['artifact_size_bytes'] : null;
         $artifactContentType = isset($worker['artifact_content_type']) && is_scalar($worker['artifact_content_type']) ? trim((string) $worker['artifact_content_type']) : 'application/pdf';
+        $businessStatus = strtolower(trim((string) ($row['status'] ?? 'pending')));
+
+        if ($businessStatus === 'approved' && $workerStatus === 'PENDING') {
+            $workerStatus = 'APPROVED';
+        } elseif ($businessStatus === 'rejected' && $workerStatus !== 'REJECTED') {
+            $workerStatus = 'REJECTED';
+            if ($processing === '' || $processing === 'pending') {
+                $processing = 'failed';
+            }
+        }
 
         $status = 'pending';
         if ($processing === 'done') {
             $status = 'done';
-        } elseif ($processing === 'failed' || $workerStatus === 'REJECTED') {
+        } elseif ($processing === 'failed' || $workerStatus === 'REJECTED' || $businessStatus === 'rejected') {
             $status = 'failed';
-        } elseif ($processing === 'claimed') {
+        } elseif ($processing === 'claimed' || $processing === 'processing') {
             $status = 'processing';
-        } elseif ($workerStatus === 'PENDING') {
+        } elseif ($workerStatus === 'PENDING' && $businessStatus !== 'approved') {
             $status = 'waiting_approval';
         } else {
             $status = 'pending';
@@ -1546,10 +1601,10 @@ class PrescriptionController extends \WP_REST_Controller
 
         if ($status === 'waiting_approval') {
             $pdf['message'] = 'En attente de validation médecin.';
-        } elseif ($status === 'pending' && $workerStatus !== 'APPROVED') {
-            $pdf['message'] = 'En attente de validation médecin.';
         } elseif ($status === 'pending') {
-            $pdf['message'] = 'PDF en file d’attente.';
+            $pdf['message'] = ($businessStatus === 'approved' || $workerStatus === 'APPROVED')
+                ? 'PDF en file d’attente.'
+                : 'En attente de validation médecin.';
         } elseif ($status === 'processing') {
             $pdf['message'] = 'Génération du PDF en cours.';
         } elseif ($status === 'failed') {

@@ -386,6 +386,7 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
     sanitizeScheduleNote(schedule.text, duration),
     sanitizeScheduleNote(schedule.label, duration),
   ]);
+  posology = stripDurationFromPosology(posology, duration);
   posology = normalizeLooseText(posology);
   if (posology === "") {
     posology = "—";
@@ -402,7 +403,7 @@ function buildMedicationViewModel(item: unknown): MedicationViewModel {
     metaParts.push(`Quantité : ${quantite}`);
   }
 
-  const scheduleNote = sanitizeScheduleNote(firstNonEmpty([schedule.note, obj.note, raw.note]), duration);
+  const scheduleNote = sanitizeScheduleNote(stripDurationFromPosology(firstNonEmpty([schedule.note, obj.note, raw.note]), duration), duration);
   if (scheduleNote !== "" && normalizeString(scheduleNote) !== normalizeString(posology)) {
     metaParts.push(scheduleNote);
   }
@@ -451,7 +452,7 @@ function hasStructuredSchedule(schedule: Record<string, unknown>): boolean {
 }
 
 function sanitizeScheduleNote(value: unknown, durationLabel: string): string {
-  const note = normalizeLooseText(value);
+  const note = stripDurationFromPosology(value, durationLabel);
   if (note === "") {
     return "";
   }
@@ -484,6 +485,40 @@ function normalizeLooseText(value: unknown): string {
     .replace(/[\r\n\t]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function buildFlexibleSpacePattern(value: string): string {
+  return normalizeLooseText(value)
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "[\\s\\u00A0\\u202F\\r\\n]+");
+}
+
+function stripDurationFromPosology(text: unknown, durationLabel: string): string {
+  const raw = normalizeLooseText(text);
+  if (raw === "") {
+    return "";
+  }
+
+  let cleaned = raw;
+  const duration = normalizeLooseText(durationLabel);
+
+  if (duration !== "") {
+    const durationPattern = buildFlexibleSpacePattern(duration);
+    cleaned = cleaned.replace(new RegExp(`(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*(?:pendant|durant|sur)\\s+${durationPattern}(?=(?:\\s|$|[(),.;:]))`, "ig"), " ");
+    cleaned = cleaned.replace(new RegExp(`(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*${durationPattern}(?=(?:\\s*$|\\s+[)\\].,;:]|[)\\].,;:]))`, "ig"), " ");
+  }
+
+  cleaned = cleaned.replace(/(?:\s|^)(?:,|;|\.|:|—|-)?\s*(?:pendant|durant|sur)\s+\d+\s*(?:j(?:ours?)?|sem(?:aines?)?|mois)(?=(?:\s|$|[(),.;:]))/ig, " ");
+  cleaned = cleaned
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .replace(/[—-]\s*$/, "")
+    .replace(/[,.;:]\s*$/, "")
+    .trim();
+
+  return cleaned || raw;
 }
 
 function scheduleToText(schedule: Record<string, unknown>): string {
@@ -556,7 +591,7 @@ function scheduleToText(schedule: Record<string, unknown>): string {
     return normalizeLooseText(parts.join(" — "));
   }
 
-  return fallbackText;
+  return stripDurationFromPosology(fallbackText, durationLabel);
 }
 
 function extractDurationLabelFromSchedule(schedule: Record<string, unknown>): string {

@@ -4,7 +4,7 @@ Tags: healthcare, e-sante, prescription, pdf, ocr, security, logs
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 8.2
-Stable tag: 3.4.29
+Stable tag: 3.4.30
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,3 +112,8 @@ Improved diagnostics (actionable advice) and safer OCR asset alerts (log-once th
 
 = 1.9.0 =
 Version "Release Readiness". Recommandé avant passage en production (observabilité + procédure upgrade).
+
+= 3.4.30 =
+* Correction du versioning plugin/front pour aligner les logs et le cache assets.
+* Stabilisation du Shadow Record après décision médecin.
+* Nettoyage de la posologie pour éviter la duplication de durée dans le PDF.

@@ -297,6 +297,7 @@ function buildMedicationViewModel(item) {
         sanitizeScheduleNote(schedule.text, duration),
         sanitizeScheduleNote(schedule.label, duration),
     ]);
+    posology = stripDurationFromPosology(posology, duration);
     posology = normalizeLooseText(posology);
     if (posology === "") {
         posology = "—";
@@ -310,7 +311,7 @@ function buildMedicationViewModel(item) {
     if (quantite !== "") {
         metaParts.push(`Quantité : ${quantite}`);
     }
-    const scheduleNote = sanitizeScheduleNote(firstNonEmpty([schedule.note, obj.note, raw.note]), duration);
+    const scheduleNote = sanitizeScheduleNote(stripDurationFromPosology(firstNonEmpty([schedule.note, obj.note, raw.note]), duration), duration);
     if (scheduleNote !== "" && normalizeString(scheduleNote) !== normalizeString(posology)) {
         metaParts.push(scheduleNote);
     }
@@ -354,7 +355,7 @@ function hasStructuredSchedule(schedule) {
     return false;
 }
 function sanitizeScheduleNote(value, durationLabel) {
-    const note = normalizeLooseText(value);
+    const note = stripDurationFromPosology(value, durationLabel);
     if (note === "") {
         return "";
     }
@@ -383,6 +384,34 @@ function normalizeLooseText(value) {
         .replace(/[\r\n\t]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+function buildFlexibleSpacePattern(value) {
+    return normalizeLooseText(value)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\s+/g, "[\\s\\u00A0\\u202F\\r\\n]+");
+}
+function stripDurationFromPosology(text, durationLabel) {
+    const raw = normalizeLooseText(text);
+    if (raw === "") {
+        return "";
+    }
+    let cleaned = raw;
+    const duration = normalizeLooseText(durationLabel);
+    if (duration !== "") {
+        const durationPattern = buildFlexibleSpacePattern(duration);
+        cleaned = cleaned.replace(new RegExp(`(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*(?:pendant|durant|sur)\\s+${durationPattern}(?=(?:\\s|$|[(),.;:]))`, "ig"), " ");
+        cleaned = cleaned.replace(new RegExp(`(?:\\s|^)(?:,|;|\\.|:|—|-)?\\s*${durationPattern}(?=(?:\\s*$|\\s+[)\\].,;:]|[)\\].,;:]))`, "ig"), " ");
+    }
+    cleaned = cleaned.replace(/(?:\s|^)(?:,|;|\.|:|—|-)?\s*(?:pendant|durant|sur)\s+\d+\s*(?:j(?:ours?)?|sem(?:aines?)?|mois)(?=(?:\s|$|[(),.;:]))/ig, " ");
+    cleaned = cleaned
+        .replace(/\s{2,}/g, " ")
+        .replace(/\s+([,.;:])/g, "$1")
+        .replace(/\(\s+/g, "(")
+        .replace(/\s+\)/g, ")")
+        .replace(/[—-]\s*$/, "")
+        .replace(/[,.;:]\s*$/, "")
+        .trim();
+    return cleaned || raw;
 }
 function scheduleToText(schedule) {
     const durationLabel = extractDurationLabelFromSchedule(schedule);
@@ -443,7 +472,7 @@ function scheduleToText(schedule) {
     if (parts.length > 0) {
         return normalizeLooseText(parts.join(" — "));
     }
-    return fallbackText;
+    return stripDurationFromPosology(fallbackText, durationLabel);
 }
 function extractDurationLabelFromSchedule(schedule) {
     const value = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
