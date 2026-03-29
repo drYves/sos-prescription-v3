@@ -69,20 +69,36 @@
       '.sosprescription-doctor .dc-med__edit{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;white-space:nowrap;}',
       '.sosprescription-doctor .dc-med__edit:hover{background:#f8fafc;border-color:#cbd5e1;}',
       '.sosprescription-doctor .dc-med__edit:disabled{opacity:.5;cursor:not-allowed;}',
-      '.sosprescription-doctor .dc-modal{border:none;border-radius:16px;padding:0;width:min(92vw,560px);max-width:560px;box-shadow:0 24px 64px rgba(15,23,42,.24);}',
-      '.sosprescription-doctor .dc-modal::backdrop{background:rgba(15,23,42,.48);}',
-      '.sosprescription-doctor .dc-modal__card{padding:24px;display:grid;gap:16px;}',
+      '.sosprescription-doctor .dc-modal{border:none;border-radius:18px;padding:0;width:min(94vw,880px);max-width:880px;margin:auto;box-shadow:0 32px 72px rgba(15,23,42,.28);background:transparent;}',
+      '.sosprescription-doctor .dc-modal::backdrop{background:rgba(15,23,42,.56);backdrop-filter:blur(2px);}',
+      '.sosprescription-doctor .dc-modal__card{padding:24px;display:grid;gap:18px;border-radius:18px;background:#fff;}',
       '.sosprescription-doctor .dc-modal__head{display:grid;gap:4px;}',
       '.sosprescription-doctor .dc-modal__title{font-size:18px;font-weight:800;color:#0f172a;}',
       '.sosprescription-doctor .dc-modal__subtitle{font-size:13px;line-height:1.45;color:#64748b;}',
-      '.sosprescription-doctor .dc-modal__fields{display:grid;gap:14px;}',
-      '.sosprescription-doctor .dc-modal__grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr));}',
+      '.sosprescription-doctor .dc-modal__fields{display:grid;gap:16px;}',
+      '.sosprescription-doctor .dc-modal__panel{display:grid;gap:12px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;}',
+      '.sosprescription-doctor .dc-modal__grid{display:grid;gap:12px;grid-template-columns:repeat(3,minmax(0,1fr));}',
+      '.sosprescription-doctor .dc-modal__inline{display:flex;gap:8px;}',
+      '.sosprescription-doctor .dc-modal__inline > *{flex:1 1 0;min-width:0;}',
       '.sosprescription-doctor .dc-modal__actions{display:flex;justify-content:flex-end;gap:10px;}',
       '.sosprescription-doctor .dc-modal__label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#334155;}',
+      '.sosprescription-doctor .dc-modal__label-text{font-size:13px;font-weight:700;color:#334155;}',
       '.sosprescription-doctor .dc-modal__input,.sosprescription-doctor .dc-modal__select,.sosprescription-doctor .dc-modal__textarea{width:100%;border:1px solid #cbd5e1;border-radius:12px;background:#fff;padding:10px 12px;font-size:14px;color:#0f172a;outline:none;}',
       '.sosprescription-doctor .dc-modal__input:focus,.sosprescription-doctor .dc-modal__select:focus,.sosprescription-doctor .dc-modal__textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.15);}',
       '.sosprescription-doctor .dc-modal__textarea{min-height:96px;resize:vertical;}',
-      '@media (max-width:720px){.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr;}}',
+      '.sosprescription-doctor .dc-modal__schedule-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;}',
+      '.sosprescription-doctor .dc-modal__schedule-hint{font-size:12px;line-height:1.45;color:#64748b;}',
+      '.sosprescription-doctor .dc-modal__schedule-toolbar{display:flex;flex-wrap:wrap;gap:8px;}',
+      '.sosprescription-doctor .dc-modal__schedule-btn{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
+      '.sosprescription-doctor .dc-modal__schedule-btn:hover{background:#f8fafc;border-color:#cbd5e1;}',
+      '.sosprescription-doctor .dc-modal__schedule-warnings{display:grid;gap:6px;margin:0;padding-left:18px;font-size:12px;line-height:1.45;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding-top:10px;padding-right:12px;padding-bottom:10px;}',
+      '.sosprescription-doctor .dc-modal__schedule-rows{display:grid;gap:10px;}',
+      '.sosprescription-doctor .dc-modal__schedule-row{display:grid;gap:10px;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.9fr);align-items:end;}',
+      '.sosprescription-doctor .dc-modal__schedule-row-label{font-size:13px;line-height:1.35;color:#334155;font-weight:700;}',
+      '.sosprescription-doctor .dc-modal__schedule-row-label small{display:block;margin-top:2px;font-size:11px;font-weight:600;color:#94a3b8;}',
+      '.sosprescription-doctor .dc-modal__empty{font-size:13px;line-height:1.45;color:#64748b;}',
+      '@media (max-width:860px){.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr 1fr;}.sosprescription-doctor .dc-modal__grid > :last-child{grid-column:1 / -1;}.sosprescription-doctor .dc-modal__schedule-row{grid-template-columns:1fr;}}',
+      '@media (max-width:640px){.sosprescription-doctor .dc-modal__card{padding:18px;}.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr;}}',
       '.sosprescription-doctor .dc-item__meds{margin-top:4px;font-size:12px;line-height:1.35;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.sosprescription-doctor .dc-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
       '.sosprescription-doctor .dc-filter-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
@@ -990,24 +1006,30 @@
     if (!schedule || typeof schedule !== 'object') return '';
 
     var note = sanitizeScheduleNote(firstText([schedule.note, schedule.text, schedule.label]), durationLabelFromSchedule(schedule));
+    var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq) || 'jour';
     var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
-    var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
-    var times = safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean);
-    var doses = safeArray(schedule.doses).map(function (v) { return normalizeText(v); }).filter(Boolean);
-    var inferredCount = Math.max(nb, times.length, doses.length);
+    var includeDetailedTimes = freqUnit === 'jour';
+    var times = includeDetailedTimes ? safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean) : [];
+    var doses = includeDetailedTimes ? safeArray(schedule.doses).map(function (v) { return normalizeText(v); }).filter(Boolean) : [];
+    var inferredCount = nb > 0 ? nb : (includeDetailedTimes ? Math.max(times.length, doses.length, 0) : 0);
 
     if (inferredCount > 0) {
-      var baseUnit = freqUnit || 'jour';
-      var base = (inferredCount > 1 ? (inferredCount + ' fois') : '1 fois') + ' par ' + baseUnit;
-      var details = [];
-      for (var i = 0; i < inferredCount; i += 1) {
-        var time = normalizeText(times[i]);
-        var dose = normalizeText(doses[i]);
-        if (!time && !dose) continue;
-        details.push((dose || '1') + '@' + (time || '--:--'));
+      var base = (inferredCount > 1 ? (inferredCount + ' fois') : '1 fois') + ' par ' + freqUnit;
+      if (includeDetailedTimes) {
+        var details = [];
+        for (var i = 0; i < inferredCount; i += 1) {
+          var time = normalizeText(times[i]);
+          var dose = normalizeText(doses[i]);
+          if (!time && !dose) continue;
+          details.push((dose || '1') + '@' + (time || '--:--'));
+        }
+        if (details.length) {
+          base += ' (' + details.join(', ') + ')';
+        }
       }
-      if (details.length) base += ' (' + details.join(', ') + ')';
-      if (note) base += '. ' + note;
+      if (note) {
+        base += '. ' + note;
+      }
       return normalizeScheduleFreeText(base);
     }
 
@@ -1304,54 +1326,250 @@
     return out;
   }
 
-  function fitScheduleStringArray(values, count, defaults) {
+  function fitScheduleStringArray(values, count, fallback) {
     var total = Math.max(1, toPositiveInt(count) || 1);
     var source = safeArray(values);
-    var fallback = safeArray(defaults);
+    var fallbackValue = typeof fallback === 'function' ? '' : normalizeText(fallback);
     var out = [];
     for (var i = 0; i < total; i += 1) {
       var current = normalizeText(source[i]);
       if (!current) {
-        current = normalizeText(fallback[i]) || normalizeText(fallback[fallback.length - 1]) || '';
+        current = typeof fallback === 'function' ? normalizeText(fallback(i, total)) : fallbackValue;
       }
       out.push(current);
     }
     return out;
   }
 
-  function buildEditableSchedule(item, overrides) {
-    var row = asObject(item);
-    var current = resolveMedicationSchedule(row);
-    var next = asObject(overrides);
-    var nb = Math.max(1, Math.min(12, toPositiveInt(next.nb || current.nb || current.timesPerDay) || 1));
-    var freqUnit = normalizeScheduleUnit(next.freqUnit || current.freqUnit || current.frequencyUnit || current.freq) || 'jour';
-    var durationVal = Math.max(1, Math.min(3650, toPositiveInt(next.durationVal || current.durationVal || current.durationValue || current.duration) || 5));
-    var durationUnit = normalizeScheduleUnit(next.durationUnit || current.durationUnit || current.unit) || 'jour';
-    var existingTimes = safeArray(current.times).length > 0 ? current.times : buildDefaultTimes(nb);
-    var times = fitScheduleStringArray(existingTimes, nb, buildDefaultTimes(nb));
-    var doses = fitScheduleStringArray(current.doses, nb, ['1']);
-    var note = normalizeText(next.note !== undefined ? next.note : firstText([current.note, current.text, current.label]));
-    var schedule = {
+  function padTimePart(value) {
+    var numeric = Number(value || 0);
+    return numeric < 10 ? ('0' + String(numeric)) : String(numeric);
+  }
+
+  function isValidTimeValue(value) {
+    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || ''));
+  }
+
+  function timeToMinutes(value) {
+    if (!isValidTimeValue(value)) return null;
+    var parts = String(value).split(':');
+    return Number(parts[0]) * 60 + Number(parts[1]);
+  }
+
+  function minutesToTime(value) {
+    var minutes = Math.round(Number(value) || 0);
+    if (!Number.isFinite(minutes)) {
+      minutes = 0;
+    }
+    minutes = Math.max(0, Math.min((23 * 60) + 59, minutes));
+    var hours = Math.floor(minutes / 60);
+    var mins = minutes % 60;
+    return padTimePart(hours) + ':' + padTimePart(mins);
+  }
+
+  function roundTimeMinutes(value, step) {
+    var chunk = Math.max(1, Math.floor(Number(step || 5)));
+    return Math.round(value / chunk) * chunk;
+  }
+
+  function distributeRecommendedTimes(count, start, end, rounding) {
+    var warnings = [];
+    var total = Math.max(1, toPositiveInt(count) || 1);
+    var roundStep = Math.max(1, Math.min(60, toPositiveInt(rounding) || 5));
+    var startMinutes = timeToMinutes(start);
+    var endMinutes = timeToMinutes(end);
+
+    if (startMinutes == null) startMinutes = 8 * 60;
+    if (endMinutes == null) endMinutes = 20 * 60;
+
+    if (endMinutes <= startMinutes) {
+      endMinutes = Math.min(startMinutes + 60, (23 * 60) + 55);
+      warnings.push('Fenêtre de prise invalide : heure de fin ajustée.');
+    }
+
+    var range = endMinutes - startMinutes;
+
+    if (total === 1) {
+      var singleStart = minutesToTime(roundTimeMinutes(startMinutes, roundStep));
+      var singleEnd = minutesToTime(roundTimeMinutes(endMinutes, roundStep));
+      return {
+        times: [singleStart],
+        start: singleStart,
+        end: singleEnd,
+        warnings: warnings,
+        collisionResolved: false
+      };
+    }
+
+    if (range < (total - 1) * roundStep) {
+      warnings.push('Fenêtre trop courte pour répartir correctement.');
+    }
+    if (startMinutes > (18 * 60) && total > 1) {
+      warnings.push('Première prise tardive : prises rapprochées.');
+    }
+
+    var interval = range / (total - 1);
+    var rawMinutes = [];
+    var collisionResolved = false;
+    for (var i = 0; i < total; i += 1) {
+      var currentMinutes = startMinutes + (i * interval);
+      if (i === 0) currentMinutes = startMinutes;
+      if (i === total - 1) currentMinutes = endMinutes;
+      currentMinutes = roundTimeMinutes(currentMinutes, roundStep);
+      currentMinutes = Math.max(startMinutes, Math.min(endMinutes, currentMinutes));
+      rawMinutes.push(currentMinutes);
+    }
+
+    for (var j = 1; j < total; j += 1) {
+      if (rawMinutes[j] <= rawMinutes[j - 1]) {
+        collisionResolved = true;
+        rawMinutes[j] = rawMinutes[j - 1] + roundStep;
+      }
+    }
+
+    if (rawMinutes[total - 1] > endMinutes) {
+      collisionResolved = true;
+      rawMinutes[total - 1] = roundTimeMinutes(endMinutes, roundStep);
+      for (var k = total - 2; k >= 0; k -= 1) {
+        if (rawMinutes[k] >= rawMinutes[k + 1]) {
+          rawMinutes[k] = rawMinutes[k + 1] - roundStep;
+        }
+      }
+      if (rawMinutes[0] < startMinutes) {
+        warnings.push('Horaires trop rapprochés : vérifier la posologie.');
+        rawMinutes[0] = roundTimeMinutes(startMinutes, roundStep);
+        for (var p = 1; p < total; p += 1) {
+          rawMinutes[p] = Math.max(rawMinutes[p], rawMinutes[p - 1]);
+        }
+      }
+    }
+
+    var minGap = Infinity;
+    for (var q = 1; q < total; q += 1) {
+      minGap = Math.min(minGap, rawMinutes[q] - rawMinutes[q - 1]);
+    }
+    if (total >= 4 && Number.isFinite(minGap) && minGap < 60) {
+      warnings.push('Horaires rapprochés : vérifier la posologie.');
+    }
+
+    var times = rawMinutes.map(minutesToTime);
+    return {
+      times: times,
+      start: times[0],
+      end: times[times.length - 1],
+      warnings: warnings,
+      collisionResolved: collisionResolved
+    };
+  }
+
+  function normalizeMedicationEditorDraft(value) {
+    var source = asObject(value);
+    var freqUnit = normalizeScheduleUnit(source.freqUnit || source.frequencyUnit || source.freq) === 'semaine' ? 'semaine' : 'jour';
+    var maxCount = freqUnit === 'jour' ? 6 : 12;
+    var nb = Math.max(1, Math.min(maxCount, toPositiveInt(source.nb || source.timesPerDay) || 1));
+    var durationVal = Math.max(1, Math.min(3650, toPositiveInt(source.durationVal || source.durationValue || source.duration) || 5));
+    var durationUnit = normalizeScheduleUnit(source.durationUnit || source.unit) === 'mois' ? 'mois' : 'jour';
+    var rounding = Math.max(1, Math.min(60, toPositiveInt(source.rounding) || 5));
+    var note = normalizeText(source.note !== undefined ? source.note : firstText([source.text, source.label]));
+    var times = Array.isArray(source.times) ? source.times : [];
+    var doses = Array.isArray(source.doses) ? source.doses : [];
+    var start = typeof source.start === 'string' ? source.start : (typeof times[0] === 'string' ? times[0] : '08:00');
+    var end = typeof source.end === 'string' ? source.end : (typeof times[times.length - 1] === 'string' ? times[times.length - 1] : '20:00');
+    var autoTimesEnabled = source.autoTimesEnabled !== false && freqUnit === 'jour';
+    var warnings = [];
+
+    start = isValidTimeValue(start) ? start : '08:00';
+    end = isValidTimeValue(end) ? end : '20:00';
+
+    if (freqUnit === 'jour') {
+      doses = fitScheduleStringArray(doses, nb, '1');
+      if (autoTimesEnabled) {
+        var distribution = distributeRecommendedTimes(nb, start, end, rounding);
+        times = distribution.times;
+        start = distribution.start;
+        end = distribution.end;
+        warnings = distribution.warnings;
+      } else {
+        times = fitScheduleStringArray(times, nb, '');
+      }
+    } else {
+      times = [];
+      doses = [];
+      autoTimesEnabled = false;
+      warnings = [];
+    }
+
+    var normalized = {
       nb: nb,
       freqUnit: freqUnit,
       durationVal: durationVal,
       durationUnit: durationUnit,
       times: times,
       doses: doses,
-      autoTimesEnabled: false,
-      start: normalizeText(current.start) || times[0] || '08:00',
-      end: normalizeText(current.end) || times[times.length - 1] || '20:00'
+      note: note,
+      autoTimesEnabled: autoTimesEnabled,
+      start: start,
+      end: end,
+      rounding: rounding,
+      warnings: warnings
     };
-    if (note) {
-      schedule.note = note;
+
+    return normalized;
+  }
+
+  function buildEditableSchedule(item, overrides) {
+    var row = asObject(item);
+    var raw = asObject(row.raw);
+    var current = resolveMedicationSchedule(row);
+    var merged = cloneValue(current);
+    var nextOverrides = asObject(overrides);
+
+    if (!normalizeText(merged.note)) {
+      merged.note = firstText([
+        row.note,
+        row.instructions_note,
+        raw.note,
+        current.note,
+        current.text,
+        current.label
+      ]);
     }
-    return schedule;
+
+    Object.keys(nextOverrides).forEach(function (key) {
+      merged[key] = nextOverrides[key];
+    });
+
+    if (nextOverrides.note !== undefined) {
+      merged.note = nextOverrides.note;
+    }
+
+    return normalizeMedicationEditorDraft(merged);
+  }
+
+  function sanitizeMedicationScheduleForSave(schedule) {
+    var normalized = normalizeMedicationEditorDraft(schedule);
+    var persisted = cloneValue(normalized);
+    delete persisted.warnings;
+
+    if (persisted.freqUnit !== 'jour') {
+      persisted.times = [];
+      persisted.doses = [];
+      persisted.autoTimesEnabled = false;
+      delete persisted.start;
+      delete persisted.end;
+    }
+
+    if (!normalizeText(persisted.note)) {
+      delete persisted.note;
+    }
+
+    return persisted;
   }
 
   function buildUpdatedMedicationItem(item, schedule) {
     var current = cloneValue(asObject(item));
     var raw = cloneValue(asObject(current.raw));
-    var nextSchedule = buildEditableSchedule(current, schedule);
+    var nextSchedule = sanitizeMedicationScheduleForSave(schedule);
     var posology = normalizeScheduleFreeText(scheduleToText(nextSchedule));
     var durationLabel = durationLabelFromSchedule(nextSchedule);
 
@@ -1361,6 +1579,12 @@
     current.scheduleText = posology || null;
     current.duration_label = durationLabel || null;
     current.durationLabel = durationLabel || null;
+
+    if (nextSchedule.note) {
+      current.note = nextSchedule.note;
+    } else {
+      delete current.note;
+    }
 
     raw.schedule = nextSchedule;
     raw.posologie = posology || '';
@@ -1381,6 +1605,100 @@
   function getMedicationDialog() {
     var ui = ensureShell();
     return ui && ui.medDialog ? ui.medDialog : root.querySelector('[data-dc-med-dialog]');
+  }
+
+  function getMedicationDialogBody() {
+    var ui = ensureShell();
+    return ui && ui.medDialogBody ? ui.medDialogBody : root.querySelector('[data-dc-med-dialog-body]');
+  }
+
+  function renderMedicationDialogInto(focusSpec) {
+    var dialog = getMedicationDialog();
+    var body = getMedicationDialogBody();
+    var editor = asObject(state.medEditor);
+    if (!dialog || !body) return;
+
+    if (!editor.detailId) {
+      body.innerHTML = '';
+      return;
+    }
+
+    var draft = normalizeMedicationEditorDraft(editor.draft);
+    state.medEditor.draft = draft;
+
+    var rowsHtml = '';
+    if (draft.freqUnit === 'jour') {
+      var warningsHtml = draft.warnings && draft.warnings.length > 0
+        ? '<ul class="dc-modal__schedule-warnings">' + draft.warnings.map(function (warning) {
+            return '<li>' + escHtml(warning) + '</li>';
+          }).join('') + '</ul>'
+        : '';
+
+      rowsHtml = '<div class="dc-modal__panel">'
+        + '<div class="dc-modal__schedule-head">'
+        + '  <div class="dc-modal__schedule-hint">' + (draft.autoTimesEnabled ? 'Horaires auto (répartis entre la 1ère et la dernière prise)' : 'Horaires personnalisés') + '</div>'
+        + '  <div class="dc-modal__schedule-toolbar">'
+        + (draft.autoTimesEnabled
+            ? '<button type="button" class="dc-modal__schedule-btn" data-action="med-reset-times">Réinitialiser les horaires</button>'
+            : '<button type="button" class="dc-modal__schedule-btn" data-action="med-enable-auto">Horaires auto</button>')
+        + '  </div>'
+        + '</div>'
+        + warningsHtml
+        + '<div class="dc-modal__schedule-rows">'
+        + Array.from({ length: draft.nb }).map(function (_, index) {
+            var isFirst = index === 0;
+            var isLast = index === draft.nb - 1 && draft.nb > 1;
+            var label = isFirst ? '1ère prise' : (isLast ? 'Dernière prise' : ('Prise ' + String(index + 1)));
+            var anchor = draft.autoTimesEnabled && (isFirst || isLast) ? '<small>(ancre)</small>' : '';
+            return '<div class="dc-modal__schedule-row">'
+              + '  <div class="dc-modal__schedule-row-label">' + escHtml(label) + anchor + '</div>'
+              + '  <label class="dc-modal__label"><span class="dc-modal__label-text">Heure</span><input type="time" step="300" class="dc-modal__input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
+              + '  <label class="dc-modal__label"><span class="dc-modal__label-text">Dose</span><input type="text" class="dc-modal__input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
+              + '</div>';
+          }).join('')
+        + '</div>'
+        + '</div>';
+    }
+
+    body.innerHTML = [
+      '<div class="dc-modal__card">',
+      '  <div class="dc-modal__head">',
+      '    <div class="dc-modal__title">Modifier la posologie</div>',
+      '    <div class="dc-modal__subtitle">' + escHtml(editor.medicationName || 'Médicament') + '</div>',
+      '  </div>',
+      '  <div class="dc-modal__fields">',
+      '    <div class="dc-modal__panel">',
+      '      <div class="dc-modal__grid">',
+      '        <label class="dc-modal__label"><span class="dc-modal__label-text">Nombre de prises</span><input type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="dc-modal__input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
+      '        <label class="dc-modal__label"><span class="dc-modal__label-text">Fréquence</span><select class="dc-modal__select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
+      '        <div class="dc-modal__label"><span class="dc-modal__label-text">Durée</span><div class="dc-modal__inline"><input type="number" min="1" class="dc-modal__input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select class="dc-modal__select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
+      '      </div>',
+      '    </div>',
+           rowsHtml,
+      '    <label class="dc-modal__label"><span class="dc-modal__label-text">Précisions de prise (optionnel)</span><textarea class="dc-modal__textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '  </div>',
+      '  <div class="dc-modal__actions">',
+      '    <button type="button" class="dc-btn dc-btn-secondary" data-action="close-med-modal">Annuler</button>',
+      '    <button type="button" class="dc-btn dc-btn-success" data-action="save-med-modal">Enregistrer</button>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    if (focusSpec && focusSpec.role) {
+      window.setTimeout(function () {
+        var selector = '[data-role="' + String(focusSpec.role) + '"]';
+        if (focusSpec.index !== undefined) {
+          selector += '[data-index="' + String(focusSpec.index) + '"]';
+        }
+        var focusNode = body.querySelector(selector);
+        if (focusNode && typeof focusNode.focus === 'function') {
+          focusNode.focus();
+          if (focusNode.select && (focusSpec.role === 'med-editor-dose' || focusSpec.role === 'med-editor-note')) {
+            focusNode.select();
+          }
+        }
+      }, 0);
+    }
   }
 
   function closeMedicationEditor() {
@@ -1408,32 +1726,19 @@
     var dialog = getMedicationDialog();
     if (!dialog) return;
 
-    var schedule = buildEditableSchedule(item);
     state.medEditor = {
       detailId: detailId,
-      index: index
-    };
-
-    var nameEl = dialog.querySelector('[data-dc-med-name]');
-    if (nameEl) {
-      nameEl.textContent = firstText([
+      index: index,
+      medicationName: firstText([
         item && item.denomination,
         item && item.label,
         asObject(item && item.raw).label,
         'Médicament'
-      ]);
-    }
+      ]),
+      draft: buildEditableSchedule(item)
+    };
 
-    var nbEl = dialog.querySelector('[data-dc-med-nb]');
-    var freqEl = dialog.querySelector('[data-dc-med-freq]');
-    var durationEl = dialog.querySelector('[data-dc-med-duration]');
-    var durationUnitEl = dialog.querySelector('[data-dc-med-duration-unit]');
-    var noteEl = dialog.querySelector('[data-dc-med-note]');
-    if (nbEl) nbEl.value = String(schedule.nb || 1);
-    if (freqEl) freqEl.value = schedule.freqUnit || 'jour';
-    if (durationEl) durationEl.value = String(schedule.durationVal || 1);
-    if (durationUnitEl) durationUnitEl.value = schedule.durationUnit || 'jour';
-    if (noteEl) noteEl.value = schedule.note || '';
+    renderMedicationDialogInto({ role: 'med-editor-nb' });
 
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) {
@@ -1442,12 +1747,50 @@
     } else {
       dialog.setAttribute('open', 'open');
     }
+  }
 
-    window.setTimeout(function () {
-      if (nbEl && typeof nbEl.focus === 'function') {
-        nbEl.focus();
+  function syncMedicationEditorDraftFromDialog() {
+    var editor = asObject(state.medEditor);
+    if (!editor.detailId) {
+      return normalizeMedicationEditorDraft({});
+    }
+
+    var dialog = getMedicationDialog();
+    if (!dialog) {
+      return normalizeMedicationEditorDraft(editor.draft);
+    }
+
+    var draft = cloneValue(asObject(editor.draft));
+    var nbEl = dialog.querySelector('[data-role="med-editor-nb"]');
+    var freqEl = dialog.querySelector('[data-role="med-editor-freq"]');
+    var durationEl = dialog.querySelector('[data-role="med-editor-duration"]');
+    var durationUnitEl = dialog.querySelector('[data-role="med-editor-duration-unit"]');
+    var noteEl = dialog.querySelector('[data-role="med-editor-note"]');
+
+    if (nbEl) draft.nb = nbEl.value;
+    if (freqEl) draft.freqUnit = freqEl.value;
+    if (durationEl) draft.durationVal = durationEl.value;
+    if (durationUnitEl) draft.durationUnit = durationUnitEl.value;
+    if (noteEl) draft.note = noteEl.value;
+
+    if (normalizeScheduleUnit(draft.freqUnit) !== 'semaine') {
+      var timeNodes = dialog.querySelectorAll('[data-role="med-editor-time"]');
+      var doseNodes = dialog.querySelectorAll('[data-role="med-editor-dose"]');
+      draft.times = Array.prototype.map.call(timeNodes, function (node) {
+        return normalizeText(node && node.value);
+      });
+      draft.doses = Array.prototype.map.call(doseNodes, function (node) {
+        return normalizeText(node && node.value) || '1';
+      });
+      if (draft.times.length > 0) {
+        draft.start = normalizeText(draft.times[0]) || draft.start;
+        draft.end = normalizeText(draft.times[draft.times.length - 1]) || draft.end;
       }
-    }, 0);
+    }
+
+    draft = normalizeMedicationEditorDraft(draft);
+    state.medEditor.draft = draft;
+    return draft;
   }
 
   function saveMedicationEditor() {
@@ -1460,23 +1803,7 @@
     var items = safeArray(detail.items);
     if (!items[index]) return;
 
-    var dialog = getMedicationDialog();
-    if (!dialog) return;
-
-    var nbEl = dialog.querySelector('[data-dc-med-nb]');
-    var freqEl = dialog.querySelector('[data-dc-med-freq]');
-    var durationEl = dialog.querySelector('[data-dc-med-duration]');
-    var durationUnitEl = dialog.querySelector('[data-dc-med-duration-unit]');
-    var noteEl = dialog.querySelector('[data-dc-med-note]');
-
-    var schedule = buildEditableSchedule(items[index], {
-      nb: nbEl ? nbEl.value : 1,
-      freqUnit: freqEl ? freqEl.value : 'jour',
-      durationVal: durationEl ? durationEl.value : 1,
-      durationUnit: durationUnitEl ? durationUnitEl.value : 'jour',
-      note: noteEl ? noteEl.value : ''
-    });
-
+    var schedule = syncMedicationEditorDraftFromDialog();
     items[index] = buildUpdatedMedicationItem(items[index], schedule);
     detail.items = items;
     state.details[detailId] = detail;
@@ -1739,25 +2066,7 @@
       '    <section class="dc-detail" data-dc-detail></section>',
       '  </div>',
       '  <dialog id="dc-med-modal" class="dc-modal" data-dc-med-dialog>',
-      '    <div class="dc-modal__card">',
-      '      <div class="dc-modal__head">',
-      '        <div class="dc-modal__title">Modifier la posologie</div>',
-      '        <div class="dc-modal__subtitle" data-dc-med-name>Médicament</div>',
-      '      </div>',
-      '      <div class="dc-modal__fields">',
-      '        <div class="dc-modal__grid">',
-      '          <label class="dc-modal__label">Nombre de prises<input type="number" min="1" max="12" class="dc-modal__input" data-dc-med-nb /></label>',
-      '          <label class="dc-modal__label">Fréquence<select class="dc-modal__select" data-dc-med-freq><option value="jour">Par jour</option><option value="semaine">Par semaine</option></select></label>',
-      '          <label class="dc-modal__label">Durée<input type="number" min="1" max="3650" class="dc-modal__input" data-dc-med-duration /></label>',
-      '          <label class="dc-modal__label">Unité<select class="dc-modal__select" data-dc-med-duration-unit><option value="jour">jours</option><option value="mois">mois</option></select></label>',
-      '        </div>',
-      '        <label class="dc-modal__label">Précisions de prise (réservé au médecin)<textarea class="dc-modal__textarea" rows="4" data-dc-med-note placeholder="Instruction clinique utile pour la prise…"></textarea></label>',
-      '      </div>',
-      '      <div class="dc-modal__actions">',
-      '        <button type="button" class="dc-btn dc-btn-secondary" data-action="close-med-modal">Annuler</button>',
-      '        <button type="button" class="dc-btn dc-btn-success" data-action="save-med-modal">Enregistrer</button>',
-      '      </div>',
-      '    </div>',
+      '    <div data-dc-med-dialog-body></div>',
       '  </dialog>',
       '</div>'
     ].join('');
@@ -1768,7 +2077,8 @@
       filterTabs: root.querySelector('[data-dc-filter-tabs]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
       detail: root.querySelector('[data-dc-detail]'),
-      medDialog: root.querySelector('[data-dc-med-dialog]')
+      medDialog: root.querySelector('[data-dc-med-dialog]'),
+      medDialogBody: root.querySelector('[data-dc-med-dialog-body]')
     };
 
     if (state.ui.medDialog) {
@@ -1778,9 +2088,15 @@
       state.ui.medDialog.addEventListener('cancel', function () {
         state.medEditor = null;
       });
+      state.ui.medDialog.addEventListener('click', function (event) {
+        if (event.target === state.ui.medDialog) {
+          closeMedicationEditor();
+        }
+      });
     }
 
     root.addEventListener('click', handleRootClick);
+    root.addEventListener('change', handleRootChange);
     root.addEventListener('input', handleRootInput);
 
     return state.ui;
@@ -2265,6 +2581,28 @@
       return;
     }
 
+    if (action === 'med-reset-times') {
+      if (window.confirm('Réinitialiser les horaires recommandés ? Cela écrasera vos horaires personnalisés.')) {
+        var resetDraft = cloneValue(asObject(asObject(state.medEditor).draft));
+        resetDraft.autoTimesEnabled = true;
+        resetDraft.start = '08:00';
+        resetDraft.end = '20:00';
+        state.medEditor.draft = normalizeMedicationEditorDraft(resetDraft);
+        renderMedicationDialogInto({ role: 'med-editor-time', index: 0 });
+      }
+      return;
+    }
+
+    if (action === 'med-enable-auto') {
+      var autoDraft = cloneValue(asObject(asObject(state.medEditor).draft));
+      autoDraft.autoTimesEnabled = true;
+      autoDraft.start = isValidTimeValue(autoDraft.start) ? autoDraft.start : '08:00';
+      autoDraft.end = isValidTimeValue(autoDraft.end) ? autoDraft.end : '20:00';
+      state.medEditor.draft = normalizeMedicationEditorDraft(autoDraft);
+      renderMedicationDialogInto({ role: 'med-editor-time', index: 0 });
+      return;
+    }
+
     if (action === 'approve') {
       submitDecision('approved');
       return;
@@ -2290,10 +2628,122 @@
     }
   }
 
+  function handleRootChange(event) {
+    var target = event.target;
+    if (!target || !target.getAttribute) return;
+
+    var role = normalizeText(target.getAttribute('data-role')).toLowerCase();
+    if (!role || role.indexOf('med-editor-') !== 0) return;
+    if (!state.medEditor || !state.medEditor.detailId) return;
+
+    var draft = cloneValue(asObject(state.medEditor.draft));
+    var index = Number(target.getAttribute('data-index') || 0);
+
+    if (role === 'med-editor-nb') {
+      draft.nb = target.value;
+      if (draft.autoTimesEnabled && draft.freqUnit === 'jour') {
+        state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      } else {
+        draft = normalizeMedicationEditorDraft(draft);
+        draft.times = draft.freqUnit === 'jour'
+          ? fitScheduleStringArray(draft.times, draft.nb, '')
+          : [];
+        draft.doses = draft.freqUnit === 'jour'
+          ? fitScheduleStringArray(draft.doses, draft.nb, '1')
+          : [];
+        state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      }
+      renderMedicationDialogInto({ role: 'med-editor-nb' });
+      return;
+    }
+
+    if (role === 'med-editor-freq') {
+      draft.freqUnit = target.value;
+      if (normalizeScheduleUnit(target.value) !== 'semaine') {
+        draft.freqUnit = 'jour';
+        draft.doses = fitScheduleStringArray(draft.doses, draft.nb, '1');
+        draft.times = fitScheduleStringArray(draft.times, draft.nb, '');
+      } else {
+        draft.freqUnit = 'semaine';
+        draft.autoTimesEnabled = false;
+      }
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      renderMedicationDialogInto({ role: 'med-editor-freq' });
+      return;
+    }
+
+    if (role === 'med-editor-duration') {
+      draft.durationVal = target.value;
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      return;
+    }
+
+    if (role === 'med-editor-duration-unit') {
+      draft.durationUnit = target.value;
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      return;
+    }
+
+    if (role === 'med-editor-time') {
+      if (draft.freqUnit !== 'jour') {
+        return;
+      }
+      draft.times = fitScheduleStringArray(draft.times, draft.nb, '');
+      draft.doses = fitScheduleStringArray(draft.doses, draft.nb, '1');
+
+      if (draft.autoTimesEnabled) {
+        if (index === 0) {
+          draft.start = normalizeText(target.value) || draft.start;
+          state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+          renderMedicationDialogInto({ role: 'med-editor-time', index: index });
+          return;
+        }
+        if (index === draft.nb - 1 && draft.nb > 1) {
+          draft.end = normalizeText(target.value) || draft.end;
+          state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+          renderMedicationDialogInto({ role: 'med-editor-time', index: index });
+          return;
+        }
+        draft.autoTimesEnabled = false;
+        draft.times[index] = normalizeText(target.value);
+        state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+        renderMedicationDialogInto({ role: 'med-editor-time', index: index });
+        return;
+      }
+
+      draft.times[index] = normalizeText(target.value);
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      return;
+    }
+  }
+
   function handleRootInput(event) {
     var target = event.target;
-    if (!target || !target.matches || !target.matches('[data-role="refusal-reason"]')) return;
-    state.refusalReason = String(target.value || '');
+    if (!target) return;
+
+    if (target.matches && target.matches('[data-role="refusal-reason"]')) {
+      state.refusalReason = String(target.value || '');
+      return;
+    }
+
+    var role = normalizeText(target.getAttribute && target.getAttribute('data-role')).toLowerCase();
+    if (!role || role.indexOf('med-editor-') !== 0) return;
+    if (!state.medEditor || !state.medEditor.detailId) return;
+
+    var draft = cloneValue(asObject(state.medEditor.draft));
+
+    if (role === 'med-editor-dose') {
+      var doseIndex = Number(target.getAttribute('data-index') || 0);
+      draft.doses = fitScheduleStringArray(draft.doses, draft.nb, '1');
+      draft.doses[doseIndex] = normalizeText(target.value) || '1';
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+      return;
+    }
+
+    if (role === 'med-editor-note') {
+      draft.note = String(target.value || '');
+      state.medEditor.draft = normalizeMedicationEditorDraft(draft);
+    }
   }
 
   render();
