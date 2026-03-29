@@ -150,6 +150,9 @@ class PrismaJobsRepo {
         const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
         const doctor = input.doctor;
         const reqId = input.req_id;
+        const canonicalItems = Array.isArray(input.items) && input.items.length > 0
+            ? canonicalizePrescriptionItems(input.items)
+            : null;
         const updated = await this.prisma.$transaction(async (tx) => {
             const existing = await tx.prescription.findUnique({
                 where: { id: safePrescriptionId },
@@ -176,6 +179,7 @@ class PrismaJobsRepo {
                 data: {
                     status: "APPROVED",
                     doctorId: finalDoctorId,
+                    items: canonicalItems ? toInputJsonArray(canonicalItems) : undefined,
                     updatedAt: new Date(),
                 },
                 select: ingestSelect(),
@@ -191,6 +195,7 @@ class PrismaJobsRepo {
             processing_status: result.processing_status,
             source_req_id: result.source_req_id,
             doctor_wp_user_id: doctor?.wpUserId ?? null,
+            items_count: canonicalItems ? canonicalItems.length : null,
         }, reqId ?? updated.sourceReqId ?? undefined);
         return result;
     }
@@ -851,17 +856,16 @@ function normalizeSchedulePayload(value) {
     return normalized;
 }
 function scheduleToCanonicalText(schedule) {
-    const note = firstNonEmptyString([schedule.note, schedule.text, schedule.label]);
+    const note = normalizeNullableString(schedule.note ?? schedule.text ?? schedule.label);
     const nb = toPositiveInt(schedule.nb ?? schedule.timesPerDay);
     const freqUnit = normalizeFrequencyUnit(schedule.freqUnit ?? schedule.frequencyUnit ?? schedule.freq);
-    const durationVal = toPositiveInt(schedule.durationVal ?? schedule.durationValue ?? schedule.duration);
-    const durationUnit = normalizeFrequencyUnit(schedule.durationUnit ?? schedule.unit, true);
     const times = coerceStringArray(schedule.times);
     const doses = coerceStringArray(schedule.doses);
-    if (nb > 0 && freqUnit !== "" && durationVal > 0 && durationUnit !== "") {
-        const base = `${nb > 1 ? `${nb} fois` : "1 fois"} par ${freqUnit} pendant ${durationVal} ${pluralizeUnit(durationUnit, durationVal)}`;
+    const inferredCount = Math.max(nb, times.length, doses.length);
+    if (inferredCount > 0) {
+        const baseUnit = freqUnit !== "" ? freqUnit : "jour";
         const details = [];
-        for (let i = 0; i < nb; i += 1) {
+        for (let i = 0; i < inferredCount; i += 1) {
             const time = normalizeNullableString(times[i]);
             const dose = normalizeNullableString(doses[i]);
             if (!time && !dose) {
@@ -869,7 +873,7 @@ function scheduleToCanonicalText(schedule) {
             }
             details.push(`${dose ?? "1"}@${time ?? "--:--"}`);
         }
-        let out = base;
+        let out = `${inferredCount > 1 ? `${inferredCount} fois` : "1 fois"} par ${baseUnit}`;
         if (details.length > 0) {
             out += ` (${details.join(", ")})`;
         }

@@ -28,6 +28,8 @@
     hydratedIds: {},
     pendingActions: {},
     optimisticLocks: {},
+    editedItems: {},
+    medEditor: null,
     ui: null,
     visibilityBound: false
   };
@@ -62,6 +64,25 @@
       '.sosprescription-doctor .dc-inbox{max-width:280px!important;width:100%!important;}',
       '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
       '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
+      '.sosprescription-doctor .dc-summary-row--notes strong{white-space:pre-wrap;}',
+      '.sosprescription-doctor .dc-med__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}',
+      '.sosprescription-doctor .dc-med__edit{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;white-space:nowrap;}',
+      '.sosprescription-doctor .dc-med__edit:hover{background:#f8fafc;border-color:#cbd5e1;}',
+      '.sosprescription-doctor .dc-med__edit:disabled{opacity:.5;cursor:not-allowed;}',
+      '.sosprescription-doctor .dc-modal{border:none;border-radius:16px;padding:0;width:min(92vw,560px);max-width:560px;box-shadow:0 24px 64px rgba(15,23,42,.24);}',
+      '.sosprescription-doctor .dc-modal::backdrop{background:rgba(15,23,42,.48);}',
+      '.sosprescription-doctor .dc-modal__card{padding:24px;display:grid;gap:16px;}',
+      '.sosprescription-doctor .dc-modal__head{display:grid;gap:4px;}',
+      '.sosprescription-doctor .dc-modal__title{font-size:18px;font-weight:800;color:#0f172a;}',
+      '.sosprescription-doctor .dc-modal__subtitle{font-size:13px;line-height:1.45;color:#64748b;}',
+      '.sosprescription-doctor .dc-modal__fields{display:grid;gap:14px;}',
+      '.sosprescription-doctor .dc-modal__grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr));}',
+      '.sosprescription-doctor .dc-modal__actions{display:flex;justify-content:flex-end;gap:10px;}',
+      '.sosprescription-doctor .dc-modal__label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#334155;}',
+      '.sosprescription-doctor .dc-modal__input,.sosprescription-doctor .dc-modal__select,.sosprescription-doctor .dc-modal__textarea{width:100%;border:1px solid #cbd5e1;border-radius:12px;background:#fff;padding:10px 12px;font-size:14px;color:#0f172a;outline:none;}',
+      '.sosprescription-doctor .dc-modal__input:focus,.sosprescription-doctor .dc-modal__select:focus,.sosprescription-doctor .dc-modal__textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.15);}',
+      '.sosprescription-doctor .dc-modal__textarea{min-height:96px;resize:vertical;}',
+      '@media (max-width:720px){.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr;}}',
       '.sosprescription-doctor .dc-item__meds{margin-top:4px;font-size:12px;line-height:1.35;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.sosprescription-doctor .dc-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
       '.sosprescription-doctor .dc-filter-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
@@ -686,6 +707,21 @@
     return asObject(state.pdf[id]);
   }
 
+  function extractMedicalNotes(rx) {
+    var row = asObject(rx);
+    var payload = asObject(row.payload);
+    var prescription = asObject(payload.prescription);
+    return firstText([
+      row.privateNotes,
+      row.private_notes,
+      prescription.privateNotes,
+      prescription.private_notes,
+      payload.privateNotes,
+      payload.private_notes,
+      asObject(payload.patient).note
+    ]);
+  }
+
   function extractMedicationNames(source) {
     var record = asObject(source);
     var items = safeArray(record.items);
@@ -953,6 +989,7 @@
   function scheduleToText(schedule) {
     if (!schedule || typeof schedule !== 'object') return '';
 
+    var note = sanitizeScheduleNote(firstText([schedule.note, schedule.text, schedule.label]), durationLabelFromSchedule(schedule));
     var nb = toPositiveInt(schedule.nb || schedule.timesPerDay);
     var freqUnit = normalizeScheduleUnit(schedule.freqUnit || schedule.frequencyUnit || schedule.freq);
     var times = safeArray(schedule.times).map(function (v) { return normalizeText(v); }).filter(Boolean);
@@ -970,6 +1007,7 @@
         details.push((dose || '1') + '@' + (time || '--:--'));
       }
       if (details.length) base += ' (' + details.join(', ') + ')';
+      if (note) base += '. ' + note;
       return normalizeScheduleFreeText(base);
     }
 
@@ -983,6 +1021,7 @@
     if (everyHours > 0) parts.push('Toutes les ' + everyHours + ' h');
 
     if (truthy(schedule.asNeeded)) parts.push('si besoin');
+    if (note) parts.push(note);
 
     if (parts.length > 0) {
       return normalizeScheduleFreeText(parts.join(' — '));
@@ -1229,21 +1268,225 @@
   }
 
   function renderMedicationList(detail) {
-    var items = safeArray(detail && detail.items);
+    var detailRow = asObject(detail);
+    var detailId = Number(detailRow.id || state.selectedId || 0);
+    var detailStatus = normalizeText(detailRow.status || '').toLowerCase();
+    var canEdit = detailId > 0 && !hasPendingAction(detailId) && detailStatus !== 'approved' && detailStatus !== 'rejected';
+    var items = safeArray(detailRow.items);
     if (items.length < 1) {
       return '<div class="dc-empty dc-empty-compact">Aucun médicament renseigné.</div>';
     }
 
-    return '<div class="dc-meds">' + items.map(function (item) {
+    return '<div class="dc-meds">' + items.map(function (item, index) {
       var med = summarizeMedication(item);
       return [
         '<div class="dc-med">',
-        '  <div class="dc-med__label">' + escHtml(med.label) + '</div>',
+        '  <div class="dc-med__head">',
+        '    <div class="dc-med__label">' + escHtml(med.label) + '</div>',
+        canEdit
+          ? '    <button type="button" class="dc-med__edit" data-action="edit-med" data-index="' + String(index) + '">Éditer</button>'
+          : '',
+        '  </div>',
         '  <div class="dc-med__posology">' + escHtml(med.posology) + '</div>',
         med.meta ? '  <div class="dc-med__meta">' + escHtml(med.meta) + '</div>' : '',
         '</div>'
       ].join('');
     }).join('') + '</div>';
+  }
+
+  function buildDefaultTimes(count) {
+    var presets = ['08:00', '13:00', '20:00', '22:00', '23:00', '23:30'];
+    var total = Math.max(1, toPositiveInt(count) || 1);
+    var out = [];
+    for (var i = 0; i < total; i += 1) {
+      out.push(presets[i] || presets[presets.length - 1]);
+    }
+    return out;
+  }
+
+  function fitScheduleStringArray(values, count, defaults) {
+    var total = Math.max(1, toPositiveInt(count) || 1);
+    var source = safeArray(values);
+    var fallback = safeArray(defaults);
+    var out = [];
+    for (var i = 0; i < total; i += 1) {
+      var current = normalizeText(source[i]);
+      if (!current) {
+        current = normalizeText(fallback[i]) || normalizeText(fallback[fallback.length - 1]) || '';
+      }
+      out.push(current);
+    }
+    return out;
+  }
+
+  function buildEditableSchedule(item, overrides) {
+    var row = asObject(item);
+    var current = resolveMedicationSchedule(row);
+    var next = asObject(overrides);
+    var nb = Math.max(1, Math.min(12, toPositiveInt(next.nb || current.nb || current.timesPerDay) || 1));
+    var freqUnit = normalizeScheduleUnit(next.freqUnit || current.freqUnit || current.frequencyUnit || current.freq) || 'jour';
+    var durationVal = Math.max(1, Math.min(3650, toPositiveInt(next.durationVal || current.durationVal || current.durationValue || current.duration) || 5));
+    var durationUnit = normalizeScheduleUnit(next.durationUnit || current.durationUnit || current.unit) || 'jour';
+    var existingTimes = safeArray(current.times).length > 0 ? current.times : buildDefaultTimes(nb);
+    var times = fitScheduleStringArray(existingTimes, nb, buildDefaultTimes(nb));
+    var doses = fitScheduleStringArray(current.doses, nb, ['1']);
+    var note = normalizeText(next.note !== undefined ? next.note : firstText([current.note, current.text, current.label]));
+    var schedule = {
+      nb: nb,
+      freqUnit: freqUnit,
+      durationVal: durationVal,
+      durationUnit: durationUnit,
+      times: times,
+      doses: doses,
+      autoTimesEnabled: false,
+      start: normalizeText(current.start) || times[0] || '08:00',
+      end: normalizeText(current.end) || times[times.length - 1] || '20:00'
+    };
+    if (note) {
+      schedule.note = note;
+    }
+    return schedule;
+  }
+
+  function buildUpdatedMedicationItem(item, schedule) {
+    var current = cloneValue(asObject(item));
+    var raw = cloneValue(asObject(current.raw));
+    var nextSchedule = buildEditableSchedule(current, schedule);
+    var posology = normalizeScheduleFreeText(scheduleToText(nextSchedule));
+    var durationLabel = durationLabelFromSchedule(nextSchedule);
+
+    current.schedule = nextSchedule;
+    current.posologie = posology || null;
+    current.instructions = posology || null;
+    current.scheduleText = posology || null;
+    current.duration_label = durationLabel || null;
+    current.durationLabel = durationLabel || null;
+
+    raw.schedule = nextSchedule;
+    raw.posologie = posology || '';
+    raw.instructions = posology || '';
+    raw.scheduleText = posology || '';
+    raw.duration_label = durationLabel || '';
+    raw.durationLabel = durationLabel || '';
+    if (nextSchedule.note) {
+      raw.note = nextSchedule.note;
+    } else {
+      delete raw.note;
+    }
+    current.raw = raw;
+
+    return current;
+  }
+
+  function getMedicationDialog() {
+    var ui = ensureShell();
+    return ui && ui.medDialog ? ui.medDialog : root.querySelector('[data-dc-med-dialog]');
+  }
+
+  function closeMedicationEditor() {
+    state.medEditor = null;
+    var dialog = getMedicationDialog();
+    if (!dialog) return;
+    if (typeof dialog.close === 'function') {
+      if (dialog.open) {
+        dialog.close();
+      }
+      return;
+    }
+    dialog.removeAttribute('open');
+  }
+
+  function openMedicationEditor(index) {
+    var detailId = Number(state.selectedId || 0);
+    if (detailId < 1) return;
+
+    var detail = asObject(state.details[detailId]);
+    var items = safeArray(detail.items);
+    var item = items[index];
+    if (!item) return;
+
+    var dialog = getMedicationDialog();
+    if (!dialog) return;
+
+    var schedule = buildEditableSchedule(item);
+    state.medEditor = {
+      detailId: detailId,
+      index: index
+    };
+
+    var nameEl = dialog.querySelector('[data-dc-med-name]');
+    if (nameEl) {
+      nameEl.textContent = firstText([
+        item && item.denomination,
+        item && item.label,
+        asObject(item && item.raw).label,
+        'Médicament'
+      ]);
+    }
+
+    var nbEl = dialog.querySelector('[data-dc-med-nb]');
+    var freqEl = dialog.querySelector('[data-dc-med-freq]');
+    var durationEl = dialog.querySelector('[data-dc-med-duration]');
+    var durationUnitEl = dialog.querySelector('[data-dc-med-duration-unit]');
+    var noteEl = dialog.querySelector('[data-dc-med-note]');
+    if (nbEl) nbEl.value = String(schedule.nb || 1);
+    if (freqEl) freqEl.value = schedule.freqUnit || 'jour';
+    if (durationEl) durationEl.value = String(schedule.durationVal || 1);
+    if (durationUnitEl) durationUnitEl.value = schedule.durationUnit || 'jour';
+    if (noteEl) noteEl.value = schedule.note || '';
+
+    if (typeof dialog.showModal === 'function') {
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } else {
+      dialog.setAttribute('open', 'open');
+    }
+
+    window.setTimeout(function () {
+      if (nbEl && typeof nbEl.focus === 'function') {
+        nbEl.focus();
+      }
+    }, 0);
+  }
+
+  function saveMedicationEditor() {
+    var editor = asObject(state.medEditor);
+    var detailId = Number(editor.detailId || 0);
+    var index = Number(editor.index || 0);
+    if (detailId < 1) return;
+
+    var detail = cloneValue(asObject(state.details[detailId]));
+    var items = safeArray(detail.items);
+    if (!items[index]) return;
+
+    var dialog = getMedicationDialog();
+    if (!dialog) return;
+
+    var nbEl = dialog.querySelector('[data-dc-med-nb]');
+    var freqEl = dialog.querySelector('[data-dc-med-freq]');
+    var durationEl = dialog.querySelector('[data-dc-med-duration]');
+    var durationUnitEl = dialog.querySelector('[data-dc-med-duration-unit]');
+    var noteEl = dialog.querySelector('[data-dc-med-note]');
+
+    var schedule = buildEditableSchedule(items[index], {
+      nb: nbEl ? nbEl.value : 1,
+      freqUnit: freqEl ? freqEl.value : 'jour',
+      durationVal: durationEl ? durationEl.value : 1,
+      durationUnit: durationUnitEl ? durationUnitEl.value : 'jour',
+      note: noteEl ? noteEl.value : ''
+    });
+
+    items[index] = buildUpdatedMedicationItem(items[index], schedule);
+    detail.items = items;
+    state.details[detailId] = detail;
+    state.editedItems[detailId] = cloneValue(items);
+
+    closeMedicationEditor();
+    if (Number(state.selectedId) === detailId) {
+      renderDetail();
+    }
+    patchInboxItemById(detailId);
   }
 
   function renderRefusalPanel() {
@@ -1352,8 +1595,8 @@
       '  <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
       '    <div class="dc-card__title">Patient</div>',
       '    <div class="dc-summary-grid">',
-      '      <div class="dc-summary-row" data-dc-summary-priority-row style="display:none;"><span>PRIORITÉ</span><strong data-dc-summary-priority></strong></div>',
       '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '      <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
       '    </div>',
       '  </div>',
       '  <div class="dc-meds-card">',
@@ -1396,20 +1639,26 @@
     }
 
     var summaryCard = detailEl.querySelector('[data-dc-summary-card]');
-    var priorityRow = detailEl.querySelector('[data-dc-summary-priority-row]');
-    var priorityEl = detailEl.querySelector('[data-dc-summary-priority]');
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
     var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
+    var notesRow = detailEl.querySelector('[data-dc-summary-notes-row]');
+    var notesEl = detailEl.querySelector('[data-dc-summary-notes]');
+    var medicalNotes = extractMedicalNotes(detail);
     if (summaryCard) {
       summaryCard.style.display = '';
-    }
-    if (priorityRow && priorityEl) {
-      priorityEl.textContent = patient.priority || 'Standard';
-      priorityRow.style.display = '';
     }
     if (weightRow && weightEl) {
       weightEl.textContent = patient.weight || 'Non renseigné';
       weightRow.style.display = '';
+    }
+    if (notesRow && notesEl) {
+      if (medicalNotes) {
+        notesEl.textContent = medicalNotes;
+        notesRow.style.display = '';
+      } else {
+        notesEl.textContent = '';
+        notesRow.style.display = 'none';
+      }
     }
 
     var medsEl = detailEl.querySelector('[data-dc-meds]');
@@ -1489,6 +1738,27 @@
       '    </aside>',
       '    <section class="dc-detail" data-dc-detail></section>',
       '  </div>',
+      '  <dialog id="dc-med-modal" class="dc-modal" data-dc-med-dialog>',
+      '    <div class="dc-modal__card">',
+      '      <div class="dc-modal__head">',
+      '        <div class="dc-modal__title">Modifier la posologie</div>',
+      '        <div class="dc-modal__subtitle" data-dc-med-name>Médicament</div>',
+      '      </div>',
+      '      <div class="dc-modal__fields">',
+      '        <div class="dc-modal__grid">',
+      '          <label class="dc-modal__label">Nombre de prises<input type="number" min="1" max="12" class="dc-modal__input" data-dc-med-nb /></label>',
+      '          <label class="dc-modal__label">Fréquence<select class="dc-modal__select" data-dc-med-freq><option value="jour">Par jour</option><option value="semaine">Par semaine</option></select></label>',
+      '          <label class="dc-modal__label">Durée<input type="number" min="1" max="3650" class="dc-modal__input" data-dc-med-duration /></label>',
+      '          <label class="dc-modal__label">Unité<select class="dc-modal__select" data-dc-med-duration-unit><option value="jour">jours</option><option value="mois">mois</option></select></label>',
+      '        </div>',
+      '        <label class="dc-modal__label">Précisions de prise (réservé au médecin)<textarea class="dc-modal__textarea" rows="4" data-dc-med-note placeholder="Instruction clinique utile pour la prise…"></textarea></label>',
+      '      </div>',
+      '      <div class="dc-modal__actions">',
+      '        <button type="button" class="dc-btn dc-btn-secondary" data-action="close-med-modal">Annuler</button>',
+      '        <button type="button" class="dc-btn dc-btn-success" data-action="save-med-modal">Enregistrer</button>',
+      '      </div>',
+      '    </div>',
+      '  </dialog>',
       '</div>'
     ].join('');
 
@@ -1497,8 +1767,18 @@
       title: root.querySelector('[data-dc-title]'),
       filterTabs: root.querySelector('[data-dc-filter-tabs]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
-      detail: root.querySelector('[data-dc-detail]')
+      detail: root.querySelector('[data-dc-detail]'),
+      medDialog: root.querySelector('[data-dc-med-dialog]')
     };
+
+    if (state.ui.medDialog) {
+      state.ui.medDialog.addEventListener('close', function () {
+        state.medEditor = null;
+      });
+      state.ui.medDialog.addEventListener('cancel', function () {
+        state.medEditor = null;
+      });
+    }
 
     root.addEventListener('click', handleRootClick);
     root.addEventListener('input', handleRootInput);
@@ -1519,11 +1799,19 @@
   }
 
   function patchLocalDecisionState(id, decision, responsePayload) {
-    var row = hasObjectKeys(state.details[id]) ? cloneValue(state.details[id]) : {};
+    var currentDetail = hasObjectKeys(state.details[id]) ? cloneValue(state.details[id]) : {};
+    var row = currentDetail;
     row.id = Number(row.id || id);
 
     if (responsePayload && responsePayload.prescription) {
       row = cloneValue(responsePayload.prescription);
+      if (safeArray(currentDetail.items).length > 0) {
+        row.items = cloneValue(currentDetail.items);
+      }
+    }
+
+    if (state.editedItems[id] && safeArray(state.editedItems[id]).length > 0) {
+      row.items = cloneValue(state.editedItems[id]);
     }
 
     rememberOptimisticLock(id, decision);
@@ -1634,6 +1922,9 @@
 
     return requestJson('GET', '/prescriptions/' + numericId, undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (row) {
       var nextRow = applyPendingOverlayToRecord(row);
+      if (state.editedItems[numericId] && safeArray(state.editedItems[numericId]).length > 0) {
+        nextRow.items = cloneValue(state.editedItems[numericId]);
+      }
       state.details[numericId] = nextRow;
 
       if (Number(state.selectedId) === numericId) {
@@ -1716,6 +2007,7 @@
     if (numericId < 1) return Promise.resolve(null);
 
     var changed = Number(state.selectedId) !== numericId;
+    closeMedicationEditor();
     state.selectedId = numericId;
     state.refusalOpen = false;
     state.refusalReason = '';
@@ -1828,7 +2120,9 @@
     var payload = {
       decision: normalizedDecision
     };
-    if (normalizedDecision !== 'approved') {
+    if (normalizedDecision === 'approved') {
+      payload.items = cloneValue(safeArray(asObject(state.details[id]).items));
+    } else {
       payload.reason = reason;
     }
 
@@ -1946,12 +2240,28 @@
     if (!action) return;
 
     if (action === 'set-filter') {
+      closeMedicationEditor();
       setListFilter(actionEl.getAttribute('data-filter') || 'pending');
       return;
     }
 
     if (action === 'select') {
       selectCase(Number(actionEl.getAttribute('data-id') || 0));
+      return;
+    }
+
+    if (action === 'edit-med') {
+      openMedicationEditor(Number(actionEl.getAttribute('data-index') || 0));
+      return;
+    }
+
+    if (action === 'close-med-modal') {
+      closeMedicationEditor();
+      return;
+    }
+
+    if (action === 'save-med-modal') {
+      saveMedicationEditor();
       return;
     }
 

@@ -224,8 +224,16 @@ class PrescriptionController extends \WP_REST_Controller
     {
         $id = (int) $request->get_param('id');
         $decision = strtolower(trim((string) $request->get_param('decision')));
+        $items = null;
         if ($decision === 'approved') {
             $reason = null;
+            $itemsParam = $request->get_param('items');
+            if ($itemsParam !== null) {
+                if (!is_array($itemsParam)) {
+                    return new WP_Error('sosprescription_bad_items', 'Les médicaments transmis sont invalides.', ['status' => 400]);
+                }
+                $items = array_values($itemsParam);
+            }
         } else {
             $reason = trim((string) ($request->get_param('reason') ?? ''));
             if ($reason === '') {
@@ -263,7 +271,7 @@ class PrescriptionController extends \WP_REST_Controller
             $dispatcher = $this->get_job_dispatcher();
             if ($decision === 'approved') {
                 $doctorPayload = $dispatcher->buildDoctorPayloadFromUserId($doctor_id);
-                $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id);
+                $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id, $items);
             } else {
                 $workerResult = $dispatcher->rejectPrescription($workerPrescriptionId, $reason, $req_id);
             }
@@ -312,6 +320,10 @@ class PrescriptionController extends \WP_REST_Controller
         $row = $this->prescriptions->get($id);
         if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        if ($decision === 'approved' && is_array($items) && $items !== []) {
+            $row['items'] = $items;
         }
 
         $pdf = $this->build_shadow_pdf_state($id, $row);

@@ -154,6 +154,7 @@ export interface ApprovePrescriptionRequest {
   nonce: string;
   req_id: string;
   doctor: IngestDoctorInput;
+  items?: unknown[] | null;
 }
 
 export interface ApprovePrescriptionResult {

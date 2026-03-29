@@ -83,7 +83,7 @@ final class JobDispatcher
      * @param array<string, mixed> $doctorPayload
      * @return array<string, mixed>
      */
-    public function approvePrescription(string $workerPrescriptionId, array $doctorPayload, ?string $reqId = null): array
+    public function approvePrescription(string $workerPrescriptionId, array $doctorPayload, ?string $reqId = null, ?array $items = null): array
     {
         $reqId = ReqId::coalesce($reqId);
         $prescriptionId = trim($workerPrescriptionId);
@@ -91,9 +91,14 @@ final class JobDispatcher
             throw new RuntimeException('ID de prescription Worker manquant.');
         }
 
-        $body = $this->normalizeEnvelope([
+        $payload = [
             'doctor' => $doctorPayload,
-        ], $reqId);
+        ];
+        if (is_array($items) && $items !== []) {
+            $payload['items'] = array_values($items);
+        }
+
+        $body = $this->normalizeEnvelope($payload, $reqId);
 
         $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/approve';
         return $this->postSignedJson($path, $body, $reqId, 'approve');

@@ -274,6 +274,11 @@ async function handlePrescriptionApprove(
       throw new Error("doctor block is required");
     }
 
+    const rawItems = body.items;
+    if (rawItems != null && !Array.isArray(rawItems)) {
+      return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_REQUEST", message: "items must be an array" }, signingSecret);
+    }
+
     const input: ApprovePrescriptionRequest = {
       schema_version: CURRENT_SCHEMA_VERSION,
       site_id: deps.siteId,
@@ -281,6 +286,7 @@ async function handlePrescriptionApprove(
       nonce: crypto.randomBytes(12).toString("hex"),
       req_id: reqId,
       doctor,
+      items: Array.isArray(rawItems) ? rawItems : undefined,
     };
 
     const result = normalizeActionResult(await repo.approvePrescription(prescriptionId, input));
