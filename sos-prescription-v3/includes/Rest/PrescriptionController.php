@@ -1142,9 +1142,7 @@ class PrescriptionController extends \WP_REST_Controller
             $client_request_id = null;
         }
 
-        $proof_artifact_ids = $this->normalize_worker_artifact_ids(
-            isset($params['proof_artifact_ids']) ? $params['proof_artifact_ids'] : (isset($params['evidence_file_ids']) ? $params['evidence_file_ids'] : null)
-        );
+        $proof_artifact_ids = $this->extract_proof_artifact_ids_from_create_params($params);
 
         $email = isset($patient['email']) ? sanitize_email((string) $patient['email']) : '';
         $phone = isset($patient['phone']) ? trim((string) $patient['phone']) : '';
@@ -1168,6 +1166,19 @@ class PrescriptionController extends \WP_REST_Controller
         $profilePhone = isset($patientProfilePayload['phone']) && is_scalar($patientProfilePayload['phone']) ? trim((string) $patientProfilePayload['phone']) : '';
         $profileWeightKg = isset($patientProfilePayload['weight_kg']) && is_scalar($patientProfilePayload['weight_kg']) ? trim((string) $patientProfilePayload['weight_kg']) : '';
 
+        $prescriptionPayload = [
+            'items' => $items,
+            'privateNotes' => $note !== '' ? $note : null,
+            'source' => 'wordpress_capture',
+            'flow' => $flow,
+            'priority' => $priority,
+            'clientRequestId' => $client_request_id,
+        ];
+
+        if ($proof_artifact_ids !== []) {
+            $prescriptionPayload['proof_artifact_ids'] = $proof_artifact_ids;
+        }
+
         return [
             'schema_version' => '2026.6',
             'site_id' => $this->get_worker_site_id(),
@@ -1184,16 +1195,42 @@ class PrescriptionController extends \WP_REST_Controller
                 'phone' => $phone !== '' ? $phone : ($profilePhone !== '' ? $profilePhone : null),
                 'weight_kg' => $profileWeightKg !== '' ? $profileWeightKg : null,
             ],
-            'prescription' => [
-                'items' => $items,
-                'privateNotes' => $note !== '' ? $note : null,
-                'source' => 'wordpress_capture',
-                'flow' => $flow,
-                'priority' => $priority,
-                'clientRequestId' => $client_request_id,
-                'proof_artifact_ids' => $proof_artifact_ids !== [] ? $proof_artifact_ids : null,
-            ],
+            'prescription' => $prescriptionPayload,
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function extract_proof_artifact_ids_from_create_params(array $params): array
+    {
+        $raw = null;
+        if (array_key_exists('proof_artifact_ids', $params)) {
+            $raw = $params['proof_artifact_ids'];
+        } elseif (array_key_exists('evidence_file_ids', $params)) {
+            $raw = $params['evidence_file_ids'];
+        }
+
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $filtered = [];
+        foreach ($raw as $value) {
+            if ($value === null || !is_scalar($value)) {
+                continue;
+            }
+            $id = trim((string) $value);
+            if ($id === '') {
+                continue;
+            }
+            $filtered[] = $id;
+            if (count($filtered) >= 10) {
+                break;
+            }
+        }
+
+        return $this->normalize_worker_artifact_ids($filtered);
     }
 
     /**
@@ -1208,6 +1245,10 @@ class PrescriptionController extends \WP_REST_Controller
 
         $out = [];
         foreach ($value as $raw) {
+            if ($raw === null || !is_scalar($raw)) {
+                continue;
+            }
+
             $id = trim((string) $raw);
             if ($id === '') {
                 continue;

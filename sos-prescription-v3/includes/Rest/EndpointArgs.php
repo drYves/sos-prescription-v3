@@ -125,15 +125,14 @@ final class EndpointArgs
             ],
 
             // Références Worker des preuves uploadées avant la création (mode zéro-trace).
+            // On évite une validation schéma trop stricte ici, car le front peut envoyer
+            // ponctuellement des "trous" (undefined -> null) avant son filtre final.
             'proof_artifact_ids' => [
                 'type' => 'array',
                 'required' => false,
                 'maxItems' => 10,
-                'items' => [
-                    'type' => 'string',
-                    'minLength' => 8,
-                    'maxLength' => 64,
-                ],
+                'validate_callback' => [self::class, 'validate_optional_string_id_array'],
+                'sanitize_callback' => [self::class, 'sanitize_optional_string_id_array'],
             ],
 
             // Compat legacy : anciennes versions du front envoyaient evidence_file_ids.
@@ -344,5 +343,63 @@ final class EndpointArgs
                 'maxLength' => 3,
             ],
         ];
+    }
+
+    /**
+     * Accepte les tableaux optionnels d'IDs worker sans rejeter la requête si des
+     * valeurs nulles / vides se glissent depuis le front. Le nettoyage final est
+     * réalisé par sanitize_optional_string_id_array().
+     *
+     * @param mixed $value
+     */
+    public static function validate_optional_string_id_array($value, \WP_REST_Request $request, string $param): bool
+    {
+        if ($value === null || $value === '') {
+            return true;
+        }
+
+        if (!is_array($value)) {
+            return false;
+        }
+
+        return count($value) <= 10;
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, string>
+     */
+    public static function sanitize_optional_string_id_array($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($value as $raw) {
+            if ($raw === null) {
+                continue;
+            }
+
+            if (!is_scalar($raw)) {
+                continue;
+            }
+
+            $id = trim((string) $raw);
+            if ($id === '') {
+                continue;
+            }
+
+            if (strlen($id) < 8 || strlen($id) > 64) {
+                continue;
+            }
+
+            $out[] = $id;
+            if (count($out) >= 10) {
+                break;
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 }
