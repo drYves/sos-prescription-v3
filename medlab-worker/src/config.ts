@@ -9,6 +9,7 @@ export interface S3Config {
   accessKeyId: string;
   secretAccessKey: string;
   bucketPdf: string;
+  bucketArtifacts: string;
   sse: "AES256" | "aws:kms" | string;
   forcePathStyle: boolean;
 }
@@ -17,6 +18,13 @@ export interface SecurityConfig {
   hmacSecretActive: string;
   hmacSecretPrevious?: string;
   authSkewWindowMs: number;
+}
+
+export interface UploadConfig {
+  workerPublicBaseUrl?: string;
+  maxBytes: number;
+  ticketTtlMs: number;
+  allowedOrigins: string[];
 }
 
 export interface WorkerConfig {
@@ -38,6 +46,7 @@ export interface WorkerConfig {
   restRequestTimeoutMs: number;
   s3: S3Config;
   security: SecurityConfig;
+  upload: UploadConfig;
 }
 
 function mustGetEnv(key: string): string {
@@ -71,6 +80,38 @@ function normalizePath(path: string, fallback: string): string {
   return raw.startsWith("/") ? raw : `/${raw}`;
 }
 
+function normalizeBaseUrl(url: string | undefined): string | undefined {
+  const raw = String(url ?? "").trim();
+  if (raw === "") {
+    return undefined;
+  }
+
+  try {
+    return new URL(raw).toString().replace(/\/+$/g, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function parseOriginsCsv(value: string | undefined): string[] {
+  return String(value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      try {
+        return new URL(entry).origin;
+      } catch {
+        return "";
+      }
+    })
+    .filter((entry) => entry.length > 0);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter((value) => value.trim() !== "")));
+}
+
 export function loadConfig(): WorkerConfig {
   const siteId = mustGetEnv("ML_SITE_ID");
   const env = (getEnv("SOSPRESCRIPTION_ENV") ?? "prod") as EnvName;
@@ -83,16 +124,29 @@ export function loadConfig(): WorkerConfig {
   };
 
   const wpBaseUrl = mustGetEnv("ML_WP_BASE_URL").replace(/\/+$/g, "");
+  const wpOrigin = (() => {
+    try {
+      return new URL(wpBaseUrl).origin;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const bucketPdf = mustGetEnv("S3_BUCKET_PDF");
 
   const s3: S3Config = {
     endpoint: getEnv("S3_ENDPOINT") ?? undefined,
     region: mustGetEnv("S3_REGION"),
     accessKeyId: mustGetEnv("S3_ACCESS_KEY_ID"),
     secretAccessKey: mustGetEnv("S3_SECRET_ACCESS_KEY"),
-    bucketPdf: mustGetEnv("S3_BUCKET_PDF"),
+    bucketPdf,
+    bucketArtifacts: getEnv("S3_BUCKET_ARTIFACTS") ?? bucketPdf,
     sse: getEnv("S3_SSE") ?? "AES256",
     forcePathStyle: parseBool(getEnv("S3_FORCE_PATH_STYLE"), false),
   };
+
+  const explicitUploadOrigins = parseOriginsCsv(getEnv("ARTIFACT_UPLOAD_ALLOWED_ORIGINS"));
+  const fallbackOrigins = wpOrigin ? [wpOrigin] : [];
 
   return {
     siteId,
@@ -125,5 +179,11 @@ export function loadConfig(): WorkerConfig {
     restRequestTimeoutMs: parseIntEnv("WP_REST_REQUEST_TIMEOUT_MS", 15_000),
     s3,
     security,
+    upload: {
+      workerPublicBaseUrl: normalizeBaseUrl(getEnv("ML_WORKER_BASE_URL") ?? getEnv("WORKER_PUBLIC_BASE_URL")),
+      maxBytes: parseIntEnv("ARTIFACT_UPLOAD_MAX_BYTES", 8 * 1024 * 1024),
+      ticketTtlMs: parseIntEnv("ARTIFACT_UPLOAD_TICKET_TTL_MS", 15 * 60 * 1000),
+      allowedOrigins: uniqueStrings(explicitUploadOrigins.length > 0 ? explicitUploadOrigins : fallbackOrigins),
+    },
   };
 }

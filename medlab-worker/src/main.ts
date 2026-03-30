@@ -1,5 +1,6 @@
 // src/main.ts
 import { MemoryGuard } from "./admission/memoryGuard";
+import { ArtifactRepo } from "./artifacts/artifactRepo";
 import { loadConfig } from "./config";
 import { startPulseServer } from "./http/pulseServer";
 import type { JobsRepo } from "./jobs/jobsRepo";
@@ -47,6 +48,8 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const artifactRepo = new ArtifactRepo({ logger });
+
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
 
@@ -86,6 +89,14 @@ async function main(): Promise<void> {
     siteId: cfg.siteId,
     workerId: cfg.workerId,
     jobsRepo,
+    artifactRepo,
+    s3,
+    artifactsBucket: cfg.s3.bucketArtifacts,
+    artifactsRegion: cfg.s3.region,
+    artifactUploadMaxBytes: cfg.upload.maxBytes,
+    artifactUploadTicketTtlMs: cfg.upload.ticketTtlMs,
+    workerPublicBaseUrl: cfg.upload.workerPublicBaseUrl,
+    uploadAllowedOrigins: cfg.upload.allowedOrigins,
     memGuard,
     nonceCache,
     secrets,
@@ -110,6 +121,12 @@ async function main(): Promise<void> {
 
     try {
       await signatureLoader.close();
+    } catch {
+      // noop
+    }
+
+    try {
+      await artifactRepo.close();
     } catch {
       // noop
     }
@@ -149,6 +166,9 @@ async function main(): Promise<void> {
       html_builder_ready: true,
       signature_loader_ready: true,
       wp_shadow_callback_path: process.env.WP_SHADOW_CALLBACK_PATH_TEMPLATE ?? DEFAULT_WP_CALLBACK_PATH_TEMPLATE,
+      artifact_bucket: cfg.s3.bucketArtifacts,
+      artifact_upload_max_bytes: cfg.upload.maxBytes,
+      artifact_ticket_ttl_ms: cfg.upload.ticketTtlMs,
     },
     undefined,
   );
@@ -249,26 +269,17 @@ async function main(): Promise<void> {
   }
 }
 
-function resolveQueueMode(value: string | undefined): "rest" | "postgres" {
-  const raw = (value ?? "postgres").trim().toLowerCase();
+function resolveQueueMode(raw: string | undefined): "postgres" | "rest" {
   return raw === "rest" ? "rest" : "postgres";
 }
 
-function withJitter(baseMs: number, jitterMs: number): number {
-  if (jitterMs <= 0) {
-    return baseMs;
-  }
-
-  const extra = Math.floor(Math.random() * (jitterMs + 1));
-  return baseMs + extra;
+function withJitter(baseMs: number, spreadMs: number): number {
+  if (spreadMs <= 0) return baseMs;
+  const delta = Math.floor(Math.random() * (spreadMs * 2 + 1)) - spreadMs;
+  return Math.max(250, baseMs + delta);
 }
 
-void main().catch((error: unknown) => {
-  process.stderr.write("Fatal worker error\n");
-  if (error instanceof Error) {
-    process.stderr.write(`${error.stack ?? error.message}\n`);
-  } else {
-    process.stderr.write(`${String(error)}\n`);
-  }
+void main().catch((err) => {
+  process.stderr.write(`Fatal worker error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
   process.exit(1);
 });

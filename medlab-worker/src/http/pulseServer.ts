@@ -2,7 +2,9 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
+import { ActorRole, ArtifactKind, Prisma } from "@prisma/client";
 import { MemoryGuard } from "../admission/memoryGuard";
+import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
 import type {
   ApprovePrescriptionRequest,
   IngestDoctorInput,
@@ -14,17 +16,41 @@ import type {
 import { NdjsonLogger } from "../logger";
 import { buildMls1Token, parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { NonceCache } from "../security/nonceCache";
+import { S3Service } from "../s3/s3Service";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const CURRENT_SCHEMA_VERSION = "2026.6";
 
 type PostgresApprovalRepo = JobsRepo;
 
+interface ArtifactInitRequestBody {
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  artifact?: {
+    kind?: unknown;
+    prescription_id?: unknown;
+    original_name?: unknown;
+    mime_type?: unknown;
+    size_bytes?: unknown;
+    meta?: unknown;
+  };
+}
+
 export interface PulseServerDeps {
   port: number;
   siteId: string;
   workerId: string;
   jobsRepo: JobsRepo;
+  artifactRepo: ArtifactRepo;
+  s3: S3Service;
+  artifactsBucket: string;
+  artifactsRegion: string;
+  artifactUploadMaxBytes: number;
+  artifactUploadTicketTtlMs: number;
+  workerPublicBaseUrl?: string;
+  uploadAllowedOrigins: string[];
   memGuard: MemoryGuard;
   nonceCache: NonceCache;
   secrets: string[];
@@ -47,6 +73,18 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
         return await handlePrescriptionIngress(req, res, deps, signingSecret);
+      }
+
+      if (method === "POST" && path === "/api/v1/artifacts/upload/init") {
+        return await handleArtifactUploadInit(req, res, deps, signingSecret);
+      }
+
+      if (method === "OPTIONS" && path === "/api/v1/artifacts/upload/direct") {
+        return handleArtifactUploadDirectOptions(req, res, deps);
+      }
+
+      if (method === "PUT" && path === "/api/v1/artifacts/upload/direct") {
+        return await handleArtifactUploadDirect(req, res, deps, signingSecret, url);
       }
 
       const approveMatch = method === "POST" ? path.match(/^\/api\/v1\/prescriptions\/([^/]+)\/approve$/) : null;
@@ -246,6 +284,266 @@ async function handlePrescriptionIngress(
       reqId,
     );
     return sendJson(res, statusCode, { ok: false, code }, signingSecret);
+  }
+}
+
+async function handleArtifactUploadInit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, deps, "/api/v1/artifacts/upload/init");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const payload = parsedBody.body as ArtifactInitRequestBody;
+    const actor = normalizeActorInput(payload.actor);
+    const artifactInput = normalizeArtifactInitInput(payload.artifact, deps.artifactUploadMaxBytes);
+
+    const created = await deps.artifactRepo.createStagedArtifact({
+      kind: artifactInput.kind,
+      ownerRole: actor.role,
+      ownerWpUserId: actor.wpUserId,
+      prescriptionId: artifactInput.prescriptionId,
+      originalName: artifactInput.originalName,
+      mimeType: artifactInput.mimeType,
+      sizeBytes: artifactInput.sizeBytes,
+      meta: artifactInput.meta as Prisma.InputJsonValue | undefined,
+    });
+
+    const publicBaseUrl = resolvePublicBaseUrl(req, deps.workerPublicBaseUrl);
+    const ticket = created.draftKey;
+    if (!ticket) {
+      throw new Error("Artifact ticket generation failed");
+    }
+
+    const uploadUrl = `${publicBaseUrl}/api/v1/artifacts/upload/direct?ticket=${encodeURIComponent(ticket)}`;
+
+    deps.logger.info(
+      "artifact.upload_init.accepted",
+      {
+        artifact_id: created.id,
+        kind: created.kind,
+        owner_role: created.ownerRole,
+        prescription_id: created.prescriptionId,
+        size_bytes: created.sizeBytes,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      201,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact: serializeArtifact(created),
+        upload: {
+          mode: "worker_direct",
+          method: "PUT",
+          url: uploadUrl,
+          expires_in: Math.floor(deps.artifactUploadTicketTtlMs / 1000),
+          headers: {
+            "Content-Type": created.mimeType,
+          },
+          max_size_bytes: deps.artifactUploadMaxBytes,
+        },
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
+    const statusCode = isClientArtifactError(message) ? 400 : 500;
+    const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
+    deps.logger.error("artifact.upload_init.failed", { reason: message }, reqId);
+    return sendJson(res, statusCode, { ok: false, code }, signingSecret);
+  }
+}
+
+function handleArtifactUploadDirectOptions(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+): void {
+  const corsOrigin = resolveCorsOrigin(req, deps.uploadAllowedOrigins);
+  if (!corsOrigin) {
+    res.statusCode = 403;
+    res.end();
+    return;
+  }
+
+  res.statusCode = 204;
+  applyUploadCorsHeaders(res, corsOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "600");
+  res.end();
+}
+
+async function handleArtifactUploadDirect(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  url: URL,
+): Promise<void> {
+  const corsOrigin = resolveCorsOrigin(req, deps.uploadAllowedOrigins);
+  if (!corsOrigin) {
+    return sendJson(res, 403, { ok: false, code: "CORS_FORBIDDEN" }, signingSecret);
+  }
+
+  const ticket = normalizeOptionalString(url.searchParams.get("ticket"));
+  if (!ticket) {
+    return sendJson(
+      res,
+      400,
+      { ok: false, code: "ML_ARTIFACT_TICKET_MISSING" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  const verified = await deps.artifactRepo.verifyAndConsumeTicket(ticket, deps.artifactUploadTicketTtlMs);
+  if (!verified.ok) {
+    const statusCode = verified.code === "EXPIRED" ? 410 : 404;
+    const code = verified.code === "EXPIRED" ? "ML_ARTIFACT_TICKET_EXPIRED" : "ML_ARTIFACT_TICKET_INVALID";
+    return sendJson(
+      res,
+      statusCode,
+      { ok: false, code },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  const artifact = verified.artifact;
+  const expectedSize = artifact.sizeBytes;
+  const declaredContentLength = parseContentLength(req.headers["content-length"]);
+  if (declaredContentLength != null && declaredContentLength > deps.artifactUploadMaxBytes) {
+    await deps.artifactRepo.markArtifactFailed(artifact.id);
+    return sendJson(
+      res,
+      413,
+      { ok: false, code: "ML_ARTIFACT_TOO_LARGE" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  if (expectedSize > deps.artifactUploadMaxBytes) {
+    await deps.artifactRepo.markArtifactFailed(artifact.id);
+    return sendJson(
+      res,
+      413,
+      { ok: false, code: "ML_ARTIFACT_TOO_LARGE" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  if (declaredContentLength != null && declaredContentLength !== expectedSize) {
+    await deps.artifactRepo.markArtifactFailed(artifact.id);
+    return sendJson(
+      res,
+      400,
+      { ok: false, code: "ML_ARTIFACT_SIZE_MISMATCH" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  const requestContentType = normalizeOptionalString(getHeaderValue(req.headers["content-type"]));
+  if (requestContentType && !isCompatibleContentType(requestContentType, artifact.mimeType)) {
+    await deps.artifactRepo.markArtifactFailed(artifact.id);
+    return sendJson(
+      res,
+      415,
+      { ok: false, code: "ML_ARTIFACT_CONTENT_TYPE_MISMATCH" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  }
+
+  const s3Key = buildArtifactS3Key(deps.siteId, artifact.kind, artifact.id, artifact.originalName, artifact.createdAt);
+
+  try {
+    const upload = await deps.s3.uploadStream({
+      bucket: deps.artifactsBucket,
+      key: s3Key,
+      body: req,
+      contentType: artifact.mimeType,
+      contentLength: declaredContentLength ?? expectedSize,
+      metadata: {
+        site_id: deps.siteId,
+        artifact_id: artifact.id,
+        artifact_kind: artifact.kind,
+        owner_role: artifact.ownerRole,
+        prescription_id: artifact.prescriptionId ?? "",
+      },
+    });
+
+    if (upload.sizeBytes !== expectedSize) {
+      throw new Error(`Uploaded size mismatch: expected ${expectedSize} bytes, got ${upload.sizeBytes}`);
+    }
+
+    const ready = await deps.artifactRepo.markArtifactReady(artifact.id, {
+      sizeBytes: upload.sizeBytes,
+      sha256Hex: upload.sha256Hex,
+      s3Bucket: deps.artifactsBucket,
+      s3Region: deps.artifactsRegion,
+      s3Key,
+    });
+
+    if (!ready) {
+      throw new Error("Artifact vanished before ready confirmation");
+    }
+
+    deps.logger.info(
+      "artifact.upload.completed",
+      {
+        artifact_id: ready.id,
+        kind: ready.kind,
+        prescription_id: ready.prescriptionId,
+        size_bytes: ready.sizeBytes,
+        s3_key: ready.s3Key,
+      },
+      undefined,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact: serializeArtifact(ready),
+      },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "artifact_upload_failed";
+    await deps.artifactRepo.markArtifactFailed(artifact.id);
+    deps.logger.error(
+      "artifact.upload.failed",
+      {
+        artifact_id: artifact.id,
+        kind: artifact.kind,
+        reason: message,
+      },
+      undefined,
+    );
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_ARTIFACT_UPLOAD_FAILED" },
+      signingSecret,
+      buildUploadCorsHeaders(corsOrigin),
+    );
   }
 }
 
@@ -558,6 +856,14 @@ function normalizeRequiredString(value: unknown, field: string): string {
   return value.trim();
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized === "" ? null : normalized;
+}
+
 function normalizeFiniteNumber(value: unknown, field: string): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) {
@@ -566,11 +872,198 @@ function normalizeFiniteNumber(value: unknown, field: string): number {
   return Math.trunc(n);
 }
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown, signingSecret: string): void {
+function normalizeActorInput(value: unknown): { role: ActorRole; wpUserId: number | null } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("actor block is required");
+  }
+
+  const row = value as Record<string, unknown>;
+  const rawRole = normalizeRequiredString(row.role, "actor.role").toUpperCase();
+  let role: ActorRole;
+  switch (rawRole) {
+    case ActorRole.PATIENT:
+    case ActorRole.DOCTOR:
+    case ActorRole.SYSTEM:
+      role = rawRole;
+      break;
+    default:
+      throw new Error("actor.role is invalid");
+  }
+
+  const wpUserId = normalizeNullablePositiveInt(row.wp_user_id);
+  return { role, wpUserId };
+}
+
+function normalizeArtifactInitInput(value: unknown, maxBytes: number): {
+  kind: ArtifactKind;
+  prescriptionId: string | null;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  meta?: Prisma.InputJsonValue;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("artifact block is required");
+  }
+
+  const row = value as Record<string, unknown>;
+  const rawKind = normalizeRequiredString(row.kind, "artifact.kind").toUpperCase();
+  let kind: ArtifactKind;
+  switch (rawKind) {
+    case ArtifactKind.PROOF:
+    case ArtifactKind.MESSAGE_ATTACHMENT:
+      kind = rawKind;
+      break;
+    default:
+      throw new Error("artifact.kind is invalid");
+  }
+
+  const sizeBytes = normalizeFiniteNumber(row.size_bytes, "artifact.size_bytes");
+  if (sizeBytes > maxBytes) {
+    throw new Error("artifact.size_bytes exceeds the configured maximum");
+  }
+
+  const meta = row.meta !== undefined ? (row.meta as Prisma.InputJsonValue) : undefined;
+
+  return {
+    kind,
+    prescriptionId: normalizeOptionalString(row.prescription_id),
+    originalName: normalizeRequiredString(row.original_name, "artifact.original_name"),
+    mimeType: normalizeRequiredString(row.mime_type, "artifact.mime_type"),
+    sizeBytes,
+    meta,
+  };
+}
+
+function normalizeNullablePositiveInt(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    return null;
+  }
+
+  return Math.trunc(n);
+}
+
+function parseContentLength(value: string | string[] | undefined): number | null {
+  const raw = getHeaderValue(value);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getHeaderValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return typeof value === "string" ? value : null;
+}
+
+function isCompatibleContentType(actual: string, expected: string): boolean {
+  return normalizeMimeType(actual) === normalizeMimeType(expected);
+}
+
+function normalizeMimeType(value: string): string {
+  return value.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+function resolvePublicBaseUrl(req: http.IncomingMessage, configuredBaseUrl?: string): string {
+  const configured = normalizeOptionalString(configuredBaseUrl);
+  if (configured) {
+    return configured.replace(/\/+$/g, "");
+  }
+
+  const forwardedProto = normalizeOptionalString(getHeaderValue(req.headers["x-forwarded-proto"]))?.split(",")[0]?.trim();
+  const forwardedHost = normalizeOptionalString(getHeaderValue(req.headers["x-forwarded-host"]))?.split(",")[0]?.trim();
+  const host = normalizeOptionalString(getHeaderValue(req.headers.host));
+  const proto = forwardedProto || "https";
+  const finalHost = forwardedHost || host || "localhost";
+  return `${proto}://${finalHost}`.replace(/\/+$/g, "");
+}
+
+function resolveCorsOrigin(req: http.IncomingMessage, allowedOrigins: string[]): string | null {
+  const requestOrigin = normalizeOptionalString(getHeaderValue(req.headers.origin));
+  if (!requestOrigin) {
+    return null;
+  }
+
+  return allowedOrigins.includes(requestOrigin) ? requestOrigin : null;
+}
+
+function buildUploadCorsHeaders(origin: string): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "PUT, OPTIONS",
+    "Vary": "Origin",
+  };
+}
+
+function applyUploadCorsHeaders(res: http.ServerResponse, origin: string): void {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+function buildArtifactS3Key(
+  siteId: string,
+  kind: ArtifactKind,
+  artifactId: string,
+  originalName: string,
+  createdAt: Date,
+): string {
+  const year = String(createdAt.getUTCFullYear());
+  const month = String(createdAt.getUTCMonth() + 1).padStart(2, "0");
+  const extension = extractFileExtension(originalName);
+  const kindSegment = kind === ArtifactKind.PROOF ? "proof" : "message-attachment";
+  return `unit/${siteId}/artifacts/${kindSegment}/${year}/${month}/${artifactId}${extension}`;
+}
+
+function extractFileExtension(originalName: string): string {
+  const match = originalName.toLowerCase().match(/(\.[a-z0-9]{1,8})$/);
+  return match ? match[1] : "";
+}
+
+function serializeArtifact(artifact: ArtifactRecord): Record<string, unknown> {
+  return {
+    id: artifact.id,
+    prescription_id: artifact.prescriptionId,
+    message_id: artifact.messageId,
+    kind: artifact.kind,
+    status: artifact.status,
+    original_name: artifact.originalName,
+    mime_type: artifact.mimeType,
+    size_bytes: artifact.sizeBytes,
+    sha256_hex: artifact.sha256Hex,
+    created_at: artifact.createdAt.toISOString(),
+    updated_at: artifact.updatedAt.toISOString(),
+    linked_at: artifact.linkedAt ? artifact.linkedAt.toISOString() : null,
+  };
+}
+
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+  signingSecret: string,
+  extraHeaders?: Record<string, string>,
+): void {
   const data = Buffer.from(JSON.stringify(body));
   const token = buildMls1Token(data, signingSecret);
 
   res.statusCode = status;
+  for (const [header, value] of Object.entries(extraHeaders ?? {})) {
+    res.setHeader(header, value);
+  }
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", data.length);
   res.setHeader("X-MedLab-Signature", token);
@@ -591,5 +1084,20 @@ function isClientIngestError(message: string): boolean {
     "prescription block is required",
     "prescription.items must be an array",
     "ingress payload is missing",
+  ].some((needle) => haystack.includes(needle.toLowerCase()));
+}
+
+function isClientArtifactError(message: string): boolean {
+  const haystack = String(message || "").toLowerCase();
+  return [
+    "artifact block is required",
+    "actor block is required",
+    "is invalid",
+    "is required",
+    "must be a positive number",
+    "exceeds the configured maximum",
+    "site_id mismatch",
+    "expired signature",
+    "replay detected",
   ].some((needle) => haystack.includes(needle.toLowerCase()));
 }

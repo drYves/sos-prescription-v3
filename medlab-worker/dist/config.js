@@ -37,6 +37,36 @@ function normalizePath(path, fallback) {
         return fallback;
     return raw.startsWith("/") ? raw : `/${raw}`;
 }
+function normalizeBaseUrl(url) {
+    const raw = String(url ?? "").trim();
+    if (raw === "") {
+        return undefined;
+    }
+    try {
+        return new URL(raw).toString().replace(/\/+$/g, "");
+    }
+    catch {
+        return undefined;
+    }
+}
+function parseOriginsCsv(value) {
+    return String(value ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .map((entry) => {
+        try {
+            return new URL(entry).origin;
+        }
+        catch {
+            return "";
+        }
+    })
+        .filter((entry) => entry.length > 0);
+}
+function uniqueStrings(values) {
+    return Array.from(new Set(values.filter((value) => value.trim() !== "")));
+}
 function loadConfig() {
     const siteId = mustGetEnv("ML_SITE_ID");
     const env = (getEnv("SOSPRESCRIPTION_ENV") ?? "prod");
@@ -47,15 +77,27 @@ function loadConfig() {
         authSkewWindowMs: parseIntEnv("ML_AUTH_SKEW_WINDOW_MS", 30_000),
     };
     const wpBaseUrl = mustGetEnv("ML_WP_BASE_URL").replace(/\/+$/g, "");
+    const wpOrigin = (() => {
+        try {
+            return new URL(wpBaseUrl).origin;
+        }
+        catch {
+            return undefined;
+        }
+    })();
+    const bucketPdf = mustGetEnv("S3_BUCKET_PDF");
     const s3 = {
         endpoint: getEnv("S3_ENDPOINT") ?? undefined,
         region: mustGetEnv("S3_REGION"),
         accessKeyId: mustGetEnv("S3_ACCESS_KEY_ID"),
         secretAccessKey: mustGetEnv("S3_SECRET_ACCESS_KEY"),
-        bucketPdf: mustGetEnv("S3_BUCKET_PDF"),
+        bucketPdf,
+        bucketArtifacts: getEnv("S3_BUCKET_ARTIFACTS") ?? bucketPdf,
         sse: getEnv("S3_SSE") ?? "AES256",
         forcePathStyle: parseBool(getEnv("S3_FORCE_PATH_STYLE"), false),
     };
+    const explicitUploadOrigins = parseOriginsCsv(getEnv("ARTIFACT_UPLOAD_ALLOWED_ORIGINS"));
+    const fallbackOrigins = wpOrigin ? [wpOrigin] : [];
     return {
         siteId,
         workerId,
@@ -77,5 +119,11 @@ function loadConfig() {
         restRequestTimeoutMs: parseIntEnv("WP_REST_REQUEST_TIMEOUT_MS", 15_000),
         s3,
         security,
+        upload: {
+            workerPublicBaseUrl: normalizeBaseUrl(getEnv("ML_WORKER_BASE_URL") ?? getEnv("WORKER_PUBLIC_BASE_URL")),
+            maxBytes: parseIntEnv("ARTIFACT_UPLOAD_MAX_BYTES", 8 * 1024 * 1024),
+            ticketTtlMs: parseIntEnv("ARTIFACT_UPLOAD_TICKET_TTL_MS", 15 * 60 * 1000),
+            allowedOrigins: uniqueStrings(explicitUploadOrigins.length > 0 ? explicitUploadOrigins : fallbackOrigins),
+        },
     };
 }

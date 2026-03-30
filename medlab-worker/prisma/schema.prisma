@@ -8,68 +8,154 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ActorRole {
+  PATIENT
+  DOCTOR
+  SYSTEM
+}
+
+enum ArtifactKind {
+  PROOF
+  MESSAGE_ATTACHMENT
+}
+
+enum ArtifactStatus {
+  STAGED
+  READY
+  FAILED
+  DELETED
+}
+
 model Doctor {
-  id             String         @id @default(uuid())
-  wpUserId       Int            @unique // Pont avec le login Hostinger
-  firstName      String?
-  lastName       String?
-  email          String?        @unique
-  phone          String?
-  title          String?
-  specialty      String?
-  rpps           String?        @unique
-  amNumber       String?        // Numéro Assurance Maladie
-  address        String?
-  city           String?
-  zipCode        String?
-  signatureS3Key String?        // Fichier stocké sécurisé sur S3 (Plus d'image WP)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  prescriptions  Prescription[]
+  id               String                @id @default(uuid())
+  wpUserId         Int                   @unique // Pont avec le login Hostinger
+  firstName        String?
+  lastName         String?
+  email            String?               @unique
+  phone            String?
+  title            String?
+  specialty        String?
+  rpps             String?               @unique
+  amNumber         String?               // Numéro Assurance Maladie
+  address          String?
+  city             String?
+  zipCode          String?
+  signatureS3Key   String?               // Fichier stocké sécurisé sur S3 (Plus d'image WP)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  prescriptions    Prescription[]
+  authoredMessages PrescriptionMessage[] @relation("DoctorAuthoredMessages")
+  uploadedArtifacts Artifact[]           @relation("DoctorUploadedArtifacts")
 }
 
 model Patient {
-  id             String         @id @default(uuid())
-  firstName      String
-  lastName       String
-  birthDate      String
-  gender         String?
-  email          String?
-  phone          String?
-  weightKg       String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  prescriptions  Prescription[]
+  id            String         @id @default(uuid())
+  wpUserId      Int?           @unique
+  firstName     String
+  lastName      String
+  birthDate     String
+  gender        String?
+  email         String?
+  phone         String?
+  weightKg      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  prescriptions Prescription[]
 }
 
 model Prescription {
-  id                   String    @id @default(uuid())
-  uid                  String    @unique // Référence publique courte (ex: QEZT4VS62H)
+  id                   String                @id @default(uuid())
+  uid                  String                @unique // Référence publique courte (ex: QEZT4VS62H)
   doctorId             String?
   patientId            String
-  doctor               Doctor?   @relation(fields: [doctorId], references: [id])
-  patient              Patient   @relation(fields: [patientId], references: [id])
-  status               String    @default("PENDING") // PENDING, APPROVED, REJECTED
-  items                Json      // Tableau JSONB natif contenant la posologie
+  doctor               Doctor?               @relation(fields: [doctorId], references: [id])
+  patient              Patient               @relation(fields: [patientId], references: [id])
+  status               String                @default("PENDING") // PENDING, APPROVED, REJECTED
+  items                Json                  // Tableau JSONB natif contenant la posologie
   privateNotes         String?
-  s3PdfKey             String?   // Lien vers l'artefact généré
+  s3PdfKey             String?               // Lien vers l'artefact généré
   verifyCode           String?
-  verifyToken          String?   @unique
-  processingStatus     String    @default("PENDING")
-  availableAt          DateTime  @default(now())
+  verifyToken          String?               @unique
+  processingStatus     String                @default("PENDING")
+  availableAt          DateTime              @default(now())
   claimedAt            DateTime?
   lockExpiresAt        DateTime?
   workerRef            String?
-  attempts             Int       @default(0)
-  maxAttempts          Int       @default(5)
+  attempts             Int                   @default(0)
+  maxAttempts          Int                   @default(5)
   lastErrorCode        String?
   lastErrorMessageSafe String?
-  sourceReqId          String?   @unique
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  sourceReqId          String?               @unique
+  flowKey              String?
+  priority             String                @default("standard")
+  hasProof             Boolean               @default(false)
+  proofCount           Int                   @default(0)
+  messageCount         Int                   @default(0)
+  lastMessageSeq       Int                   @default(0)
+  lastMessageAt        DateTime?
+  lastMessageRole      ActorRole?
+  doctorLastReadSeq    Int                   @default(0)
+  patientLastReadSeq   Int                   @default(0)
+  unreadCountDoctor    Int                   @default(0)
+  unreadCountPatient   Int                   @default(0)
+  messages             PrescriptionMessage[]
+  artifacts            Artifact[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@index([doctorId])
   @@index([patientId])
   @@index([processingStatus, availableAt, lockExpiresAt, createdAt])
   @@index([workerRef, lockExpiresAt])
+  @@index([status, updatedAt])
+  @@index([hasProof, status, updatedAt])
+  @@index([unreadCountDoctor, status, updatedAt])
+}
+
+model PrescriptionMessage {
+  id             String        @id @default(uuid())
+  prescriptionId String
+  prescription   Prescription  @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  seq            Int
+  authorRole     ActorRole
+  authorWpUserId Int?
+  authorDoctorId String?
+  authorDoctor   Doctor?       @relation("DoctorAuthoredMessages", fields: [authorDoctorId], references: [id], onDelete: SetNull)
+  body           String
+  createdAt      DateTime      @default(now())
+  attachments    Artifact[]
+
+  @@unique([prescriptionId, seq])
+  @@index([prescriptionId, createdAt])
+}
+
+model Artifact {
+  id                 String               @id @default(uuid())
+  prescriptionId     String?
+  prescription       Prescription?        @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  messageId          String?
+  message            PrescriptionMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  kind               ArtifactKind
+  status             ArtifactStatus       @default(STAGED)
+  ownerRole          ActorRole
+  ownerWpUserId      Int?
+  uploadedByDoctorId String?
+  uploadedByDoctor   Doctor?              @relation("DoctorUploadedArtifacts", fields: [uploadedByDoctorId], references: [id], onDelete: SetNull)
+  draftKey           String?              @unique
+  originalName       String
+  mimeType           String
+  sizeBytes          Int
+  sha256Hex          String?
+  s3Bucket           String?
+  s3Region           String?
+  s3Key              String?
+  meta               Json?
+  linkedAt           DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  deletedAt          DateTime?
+
+  @@index([prescriptionId, kind, createdAt])
+  @@index([messageId, createdAt])
+  @@index([ownerWpUserId, createdAt])
 }
