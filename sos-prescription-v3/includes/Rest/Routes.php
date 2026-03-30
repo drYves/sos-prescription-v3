@@ -13,6 +13,7 @@ final class Routes
         $log = new LogController();
         $pricing = new PricingController();
         $files = new FilesController();
+        $artifacts = new ArtifactController();
         $messages = new MessagesController();
         $payments = new PaymentsController();
         $patient = new PatientController();
@@ -194,7 +195,15 @@ final class Routes
             'permission_callback' => [$log, 'permissions_check_logged_in_nonce'],
         ]);
 
-        // Fichiers (pièces justificatives)
+        // Initialisation d’upload direct Worker/S3 (zéro-trace)
+        register_rest_route('sosprescription/v1', '/artifacts/init', [
+            'methods' => 'POST',
+            'callback' => [$artifacts, 'init_upload'],
+            'permission_callback' => [$artifacts, 'permissions_check_logged_in_nonce'],
+            'args' => EndpointArgs::init_artifact_v1(),
+        ]);
+
+        // Fichiers legacy WordPress (conservés pour compatibilité / messagerie locale).
         register_rest_route('sosprescription/v1', '/files', [
             'methods' => 'POST',
             'callback' => [$files, 'upload'],

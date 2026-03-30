@@ -1142,6 +1142,10 @@ class PrescriptionController extends \WP_REST_Controller
             $client_request_id = null;
         }
 
+        $proof_artifact_ids = $this->normalize_worker_artifact_ids(
+            isset($params['proof_artifact_ids']) ? $params['proof_artifact_ids'] : (isset($params['evidence_file_ids']) ? $params['evidence_file_ids'] : null)
+        );
+
         $email = isset($patient['email']) ? sanitize_email((string) $patient['email']) : '';
         $phone = isset($patient['phone']) ? trim((string) $patient['phone']) : '';
         $gender = isset($patient['gender']) ? trim((string) $patient['gender']) : '';
@@ -1187,8 +1191,37 @@ class PrescriptionController extends \WP_REST_Controller
                 'flow' => $flow,
                 'priority' => $priority,
                 'clientRequestId' => $client_request_id,
+                'proof_artifact_ids' => $proof_artifact_ids !== [] ? $proof_artifact_ids : null,
             ],
         ];
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, string>
+     */
+    protected function normalize_worker_artifact_ids($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($value as $raw) {
+            $id = trim((string) $raw);
+            if ($id === '') {
+                continue;
+            }
+            if (preg_match('/^[A-Za-z0-9\-]{8,64}$/', $id) !== 1) {
+                continue;
+            }
+            $out[] = $id;
+            if (count($out) >= 10) {
+                break;
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 
     /**

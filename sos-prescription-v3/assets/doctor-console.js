@@ -573,6 +573,125 @@
     });
   }
 
+
+  function normalizeArtifactUploadPurpose(purpose) {
+    var raw = normalizeText(purpose).toLowerCase();
+    if (raw === 'message' || raw === 'message_attachment' || raw === 'attachment' || raw === 'compose') {
+      return {
+        purpose: 'message',
+        kind: 'MESSAGE_ATTACHMENT'
+      };
+    }
+
+    return {
+      purpose: 'evidence',
+      kind: 'PROOF'
+    };
+  }
+
+  function parseDirectUploadJson(response) {
+    return response.text().then(function (text) {
+      var data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (e) {
+        data = null;
+      }
+
+      if (!response.ok) {
+        var message = data && data.message ? String(data.message) : (data && data.code ? String(data.code) : ('HTTP ' + response.status));
+        var error = new Error(message);
+        error.status = response.status;
+        error.payload = data;
+        throw error;
+      }
+
+      return data;
+    });
+  }
+
+  function apiInitArtifactUpload(file, purpose, prescriptionId) {
+    var normalized = normalizeArtifactUploadPurpose(purpose);
+    var numericPrescriptionId = Number(prescriptionId || 0);
+    var payload = {
+      purpose: normalized.purpose,
+      kind: normalized.kind,
+      original_name: file && file.name ? String(file.name) : 'upload.bin',
+      mime_type: file && file.type ? String(file.type) : 'application/octet-stream',
+      size_bytes: file && Number(file.size || 0) > 0 ? Number(file.size) : 0
+    };
+
+    if (numericPrescriptionId > 0) {
+      payload.prescription_id = numericPrescriptionId;
+    }
+
+    return requestJson('POST', '/artifacts/init', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS });
+  }
+
+  function apiUploadFile(file, purpose, prescriptionId) {
+    return apiInitArtifactUpload(file, purpose, prescriptionId).then(function (initPayload) {
+      var upload = initPayload && initPayload.upload ? initPayload.upload : null;
+      if (!upload || !upload.url) {
+        throw new Error('Ticket d’upload Worker invalide.');
+      }
+
+      var headers = {};
+      if (upload.headers && typeof upload.headers === 'object') {
+        Object.keys(upload.headers).forEach(function (key) {
+          if (!key) return;
+          headers[key] = String(upload.headers[key]);
+        });
+      }
+      if (!headers['Content-Type'] && !headers['content-type']) {
+        headers['Content-Type'] = file && file.type ? String(file.type) : 'application/octet-stream';
+      }
+
+      return fetch(String(upload.url), {
+        method: String(upload.method || 'PUT').toUpperCase(),
+        headers: headers,
+        body: file,
+        mode: 'cors',
+        credentials: 'omit'
+      }).then(parseDirectUploadJson).then(function (directPayload) {
+        var artifact = directPayload && directPayload.artifact ? directPayload.artifact : null;
+        if (!artifact || !artifact.id) {
+          throw new Error('Réponse artefact Worker incomplète.');
+        }
+
+        return {
+          id: String(artifact.id),
+          prescription_id: artifact.prescription_id ? String(artifact.prescription_id) : '',
+          kind: artifact.kind ? String(artifact.kind) : normalizeArtifactUploadPurpose(purpose).kind,
+          status: artifact.status ? String(artifact.status) : 'READY',
+          original_name: artifact.original_name ? String(artifact.original_name) : (file && file.name ? String(file.name) : 'upload.bin'),
+          mime: artifact.mime_type ? String(artifact.mime_type) : (file && file.type ? String(file.type) : 'application/octet-stream'),
+          mime_type: artifact.mime_type ? String(artifact.mime_type) : (file && file.type ? String(file.type) : 'application/octet-stream'),
+          size_bytes: Number(artifact.size_bytes || (file ? file.size : 0) || 0)
+        };
+      });
+    });
+  }
+
+  function uploadComposeFiles(fileList, prescriptionId) {
+    var files = safeArray(fileList ? Array.prototype.slice.call(fileList) : []);
+    if (files.length < 1) {
+      return Promise.resolve([]);
+    }
+
+    var uploads = files.map(function (file) {
+      return apiUploadFile(file, 'message', prescriptionId);
+    });
+
+    return Promise.all(uploads);
+  }
+
+  function uploadRxFile(file, prescriptionId) {
+    if (!file) {
+      return Promise.reject(new Error('Aucun fichier à téléverser.'));
+    }
+    return apiUploadFile(file, 'evidence', prescriptionId);
+  }
+
   function formatDateDisplay(value) {
     var raw = normalizeText(value);
     if (!raw) return '—';

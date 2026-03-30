@@ -124,14 +124,25 @@ final class EndpointArgs
                 'maxLength' => 4096,
             ],
 
-            // Pièces justificatives uploadées avant la création (optionnel)
+            // Références Worker des preuves uploadées avant la création (mode zéro-trace).
+            'proof_artifact_ids' => [
+                'type' => 'array',
+                'required' => false,
+                'maxItems' => 10,
+                'items' => [
+                    'type' => 'string',
+                    'minLength' => 8,
+                    'maxLength' => 64,
+                ],
+            ],
+
+            // Compat legacy : anciennes versions du front envoyaient evidence_file_ids.
             'evidence_file_ids' => [
                 'type' => 'array',
                 'required' => false,
                 'maxItems' => 10,
                 'items' => [
-                    'type' => 'integer',
-                    'minimum' => 1,
+                    'type' => ['integer', 'string'],
                 ],
             ],
 
@@ -169,6 +180,47 @@ final class EndpointArgs
                     'cgu_version' => ['type' => 'string', 'required' => false, 'maxLength' => 64],
                     'privacy_version' => ['type' => 'string', 'required' => false, 'maxLength' => 64],
                 ],
+            ],
+        ];
+    }
+
+    public static function init_artifact_v1(): array
+    {
+        return [
+            'purpose' => [
+                'type' => 'string',
+                'required' => true,
+                'minLength' => 2,
+                'maxLength' => 40,
+            ],
+            'kind' => [
+                'type' => 'string',
+                'required' => false,
+                'minLength' => 4,
+                'maxLength' => 32,
+            ],
+            'original_name' => [
+                'type' => 'string',
+                'required' => true,
+                'minLength' => 1,
+                'maxLength' => 255,
+            ],
+            'mime_type' => [
+                'type' => 'string',
+                'required' => true,
+                'minLength' => 3,
+                'maxLength' => 191,
+            ],
+            'size_bytes' => [
+                'type' => 'integer',
+                'required' => true,
+                'minimum' => 1,
+                'maximum' => 10485760,
+            ],
+            'prescription_id' => [
+                'type' => 'integer',
+                'required' => false,
+                'minimum' => 1,
             ],
         ];
     }

@@ -80,6 +80,22 @@ final class JobDispatcher
     }
 
     /**
+     * @param array<string, mixed> $actorPayload
+     * @param array<string, mixed> $artifactPayload
+     * @return array<string, mixed>
+     */
+    public function initArtifactUpload(array $actorPayload, array $artifactPayload, ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $body = $this->normalizeEnvelope([
+            'actor' => $actorPayload,
+            'artifact' => $artifactPayload,
+        ], $reqId);
+
+        return $this->postSignedJson('/api/v1/artifacts/upload/init', $body, $reqId, 'artifact_upload_init');
+    }
+
+    /**
      * @param array<string, mixed> $doctorPayload
      * @return array<string, mixed>
      */
