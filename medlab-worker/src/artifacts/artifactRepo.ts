@@ -47,6 +47,10 @@ export type VerifyTicketResult =
   | { ok: true; artifact: ArtifactRecord }
   | { ok: false; code: "NOT_FOUND" | "EXPIRED" | "ALREADY_CONSUMED" };
 
+export interface InitUploadInput extends CreateStagedArtifactInput {}
+
+export interface MarkReadyInput extends MarkArtifactReadyInput {}
+
 export interface MarkArtifactReadyInput {
   sizeBytes: number;
   sha256Hex: string;
@@ -66,6 +70,10 @@ export class ArtifactRepo {
 
   async close(): Promise<void> {
     await this.prisma.$disconnect();
+  }
+
+  async initUpload(input: InitUploadInput): Promise<ArtifactRecord> {
+    return this.createStagedArtifact(input);
   }
 
   async createStagedArtifact(input: CreateStagedArtifactInput): Promise<ArtifactRecord> {
@@ -169,6 +177,10 @@ export class ArtifactRepo {
         },
       } as const;
     });
+  }
+
+  async markReady(id: string, input: MarkReadyInput): Promise<ArtifactRecord | null> {
+    return this.markArtifactReady(id, input);
   }
 
   async markArtifactReady(id: string, input: MarkArtifactReadyInput): Promise<ArtifactRecord | null> {

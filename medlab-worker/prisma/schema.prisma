@@ -110,6 +110,8 @@ model Prescription {
   @@index([status, updatedAt])
   @@index([hasProof, status, updatedAt])
   @@index([unreadCountDoctor, status, updatedAt])
+  @@index([unreadCountPatient, status, updatedAt])
+  @@index([lastMessageAt, updatedAt])
 }
 
 model PrescriptionMessage {

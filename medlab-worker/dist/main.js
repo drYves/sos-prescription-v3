@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // src/main.ts
 const memoryGuard_1 = require("./admission/memoryGuard");
 const artifactRepo_1 = require("./artifacts/artifactRepo");
+const messagesRepo_1 = require("./messages/messagesRepo");
 const config_1 = require("./config");
 const pulseServer_1 = require("./http/pulseServer");
 const prismaJobsRepo_1 = require("./jobs/prismaJobsRepo");
@@ -40,6 +41,7 @@ async function main() {
         logger,
     });
     const artifactRepo = new artifactRepo_1.ArtifactRepo({ logger });
+    const messagesRepo = new messagesRepo_1.MessagesRepo({ logger });
     process.stderr.write("Initialisation du Bucket S3...\n");
     const s3 = new s3Service_1.S3Service(cfg.s3);
     process.stderr.write("Lancement du binaire Chrome...\n");
@@ -73,6 +75,7 @@ async function main() {
         workerId: cfg.workerId,
         jobsRepo,
         artifactRepo,
+        messagesRepo,
         s3,
         artifactsBucket: cfg.s3.bucketArtifacts,
         artifactsRegion: cfg.s3.region,
@@ -108,6 +111,12 @@ async function main() {
         }
         try {
             await artifactRepo.close();
+        }
+        catch {
+            // noop
+        }
+        try {
+            await messagesRepo.close();
         }
         catch {
             // noop

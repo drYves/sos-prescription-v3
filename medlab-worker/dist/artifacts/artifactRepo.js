@@ -15,6 +15,9 @@ class ArtifactRepo {
     async close() {
         await this.prisma.$disconnect();
     }
+    async initUpload(input) {
+        return this.createStagedArtifact(input);
+    }
     async createStagedArtifact(input) {
         const ownerWpUserId = normalizeNullablePositiveInt(input.ownerWpUserId);
         const uploadedByDoctorId = await this.resolveUploadedByDoctorId(input.ownerRole, ownerWpUserId);
@@ -100,6 +103,9 @@ class ArtifactRepo {
                 },
             };
         });
+    }
+    async markReady(id, input) {
+        return this.markArtifactReady(id, input);
     }
     async markArtifactReady(id, input) {
         const artifactId = normalizeRequiredString(id, "id");

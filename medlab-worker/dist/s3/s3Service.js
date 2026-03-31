@@ -66,7 +66,7 @@ class S3Service {
         }
         const fileStream = (0, node_fs_1.createReadStream)(input.filePath);
         try {
-            await this.uploadStream({
+            await this.uploadDirect({
                 bucket: input.bucket,
                 key: input.key,
                 body: fileStream,
@@ -79,7 +79,7 @@ class S3Service {
             closeReadableQuietly(fileStream);
         }
     }
-    async uploadStream(input) {
+    async uploadDirect(input) {
         const metadata = (0, s3Utils_1.normalizeMetadata)(input.metadata);
         const hashing = new HashingPassThrough();
         const params = {
@@ -129,6 +129,9 @@ class S3Service {
         finally {
             input.body.off("error", forwardBodyError);
         }
+    }
+    async uploadStream(input) {
+        return this.uploadDirect(input);
     }
     async close() {
         this.client.destroy();

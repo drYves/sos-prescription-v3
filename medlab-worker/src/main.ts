@@ -1,6 +1,7 @@
 // src/main.ts
 import { MemoryGuard } from "./admission/memoryGuard";
 import { ArtifactRepo } from "./artifacts/artifactRepo";
+import { MessagesRepo } from "./messages/messagesRepo";
 import { loadConfig } from "./config";
 import { startPulseServer } from "./http/pulseServer";
 import type { JobsRepo } from "./jobs/jobsRepo";
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
   });
 
   const artifactRepo = new ArtifactRepo({ logger });
+  const messagesRepo = new MessagesRepo({ logger });
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -90,6 +92,7 @@ async function main(): Promise<void> {
     workerId: cfg.workerId,
     jobsRepo,
     artifactRepo,
+    messagesRepo,
     s3,
     artifactsBucket: cfg.s3.bucketArtifacts,
     artifactsRegion: cfg.s3.region,
@@ -127,6 +130,12 @@ async function main(): Promise<void> {
 
     try {
       await artifactRepo.close();
+    } catch {
+      // noop
+    }
+
+    try {
+      await messagesRepo.close();
     } catch {
       // noop
     }

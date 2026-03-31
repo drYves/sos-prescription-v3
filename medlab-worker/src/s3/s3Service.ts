@@ -3,7 +3,7 @@ import { PutObjectCommandInput, S3Client, S3ClientConfig } from "@aws-sdk/client
 import { Upload } from "@aws-sdk/lib-storage";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { createHash } from "node:crypto";
-import { createReadStream, ReadStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import fsp from "node:fs/promises";
 import { Readable, Transform, TransformCallback } from "node:stream";
 import { normalizeMetadata } from "./s3Utils";
@@ -109,7 +109,7 @@ export class S3Service {
 
     const fileStream = createReadStream(input.filePath);
     try {
-      await this.uploadStream({
+      await this.uploadDirect({
         bucket: input.bucket,
         key: input.key,
         body: fileStream,
@@ -122,7 +122,7 @@ export class S3Service {
     }
   }
 
-  async uploadStream(input: UploadStreamInput): Promise<UploadStreamResult> {
+  async uploadDirect(input: UploadStreamInput): Promise<UploadStreamResult> {
     const metadata = normalizeMetadata(input.metadata);
     const hashing = new HashingPassThrough();
     const params: PutObjectCommandInput = {
@@ -181,6 +181,10 @@ export class S3Service {
     } finally {
       input.body.off("error", forwardBodyError);
     }
+  }
+
+  async uploadStream(input: UploadStreamInput): Promise<UploadStreamResult> {
+    return this.uploadDirect(input);
   }
 
   async close(): Promise<void> {
