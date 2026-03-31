@@ -1,6 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OpenRouterService = void 0;
+const FALLBACK_MODELS = [
+    "google/gemini-2.5-flash",
+    "anthropic/claude-3.5-sonnet",
+];
 class OpenRouterService {
     apiKey;
     model;
@@ -31,12 +35,62 @@ class OpenRouterService {
         const buffer = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data);
         const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         const userContent = buildUserContentParts(mimeType, originalName, dataUrl);
+        const candidateModels = buildCandidateModels(this.model);
+        let lastError = null;
+        for (let index = 0; index < candidateModels.length; index += 1) {
+            const candidateModel = candidateModels[index];
+            try {
+                const attempt = await this.requestStructuredAnalysis({
+                    artifactId,
+                    model: candidateModel,
+                    userContent,
+                });
+                const result = {
+                    ...attempt.result,
+                    provider: attempt.provider,
+                    model: attempt.model ?? candidateModel,
+                };
+                this.logger?.info("ai.openrouter.completed", {
+                    artifact_id: artifactId,
+                    model: result.model ?? candidateModel,
+                    provider: result.provider,
+                    is_prescription: result.is_prescription,
+                    medications_count: result.medications.length,
+                }, undefined);
+                return result;
+            }
+            catch (err) {
+                lastError = err;
+                const message = err instanceof Error ? err.message : "ML_AI_FAILED";
+                const nextModel = candidateModels[index + 1];
+                if (nextModel && shouldRetryWithFallback(message, candidateModel)) {
+                    this.logger?.warning("ai.openrouter.retry_model", {
+                        artifact_id: artifactId,
+                        from_model: candidateModel,
+                        to_model: nextModel,
+                        reason: message,
+                    }, undefined);
+                    continue;
+                }
+                throw err;
+            }
+        }
+        if (lastError instanceof Error) {
+            throw lastError;
+        }
+        throw new Error("ML_AI_FAILED");
+    }
+    async requestStructuredAnalysis(input) {
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => {
+            controller.abort();
+        }, this.requestTimeoutMs);
         const requestPayload = {
-            model: this.model,
+            model: input.model,
             messages: [
                 {
                     role: "user",
-                    content: userContent,
+                    content: input.userContent,
                 },
             ],
             response_format: {
@@ -70,10 +124,6 @@ class OpenRouterService {
             temperature: 0,
             max_tokens: 800,
         };
-        const controller = new AbortController();
-        const timeoutHandle = setTimeout(() => {
-            controller.abort();
-        }, this.requestTimeoutMs);
         try {
             const response = await fetch(this.baseUrl, {
                 method: "POST",
@@ -92,8 +142,8 @@ class OpenRouterService {
             if (!response.ok) {
                 const message = payload?.error?.message || payload?.error?.code || `OpenRouter HTTP ${response.status}`;
                 this.logger?.error("ai.openrouter.failed", {
-                    artifact_id: artifactId,
-                    model: this.model,
+                    artifact_id: input.artifactId,
+                    model: input.model,
                     status_code: response.status,
                     reason: message,
                 }, undefined);
@@ -101,21 +151,15 @@ class OpenRouterService {
             }
             const content = extractAssistantContent(payload);
             const parsed = parseStructuredAnalysis(content);
-            const result = {
-                is_prescription: !!parsed.is_prescription,
-                reasoning: normalizeOptionalString(parsed.reasoning) ?? "",
-                medications: normalizeMedications(parsed.medications),
+            return {
+                result: {
+                    is_prescription: !!parsed.is_prescription,
+                    reasoning: normalizeOptionalString(parsed.reasoning) ?? "",
+                    medications: normalizeMedications(parsed.medications),
+                },
                 provider: normalizeOptionalString(payload?.provider),
-                model: normalizeOptionalString(payload?.model) ?? this.model,
+                model: normalizeOptionalString(payload?.model) ?? input.model,
             };
-            this.logger?.info("ai.openrouter.completed", {
-                artifact_id: artifactId,
-                model: result.model ?? this.model,
-                provider: result.provider,
-                is_prescription: result.is_prescription,
-                medications_count: result.medications.length,
-            }, undefined);
-            return result;
         }
         catch (err) {
             const message = err instanceof Error ? err.message : "ML_AI_FAILED";
@@ -124,16 +168,16 @@ class OpenRouterService {
             }
             if (err instanceof Error && err.name === "AbortError") {
                 this.logger?.error("ai.openrouter.timeout", {
-                    artifact_id: artifactId,
-                    model: this.model,
+                    artifact_id: input.artifactId,
+                    model: input.model,
                     timeout_ms: this.requestTimeoutMs,
                 }, undefined);
                 throw new Error("ML_AI_TIMEOUT");
             }
             if (!String(message).startsWith("ML_AI_UPSTREAM_FAILED:")) {
                 this.logger?.error("ai.openrouter.failed", {
-                    artifact_id: artifactId,
-                    model: this.model,
+                    artifact_id: input.artifactId,
+                    model: input.model,
                     reason: message,
                 }, undefined);
             }
@@ -145,6 +189,33 @@ class OpenRouterService {
     }
 }
 exports.OpenRouterService = OpenRouterService;
+function buildCandidateModels(primaryModel) {
+    const candidates = [primaryModel, ...FALLBACK_MODELS];
+    const out = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+        const normalized = normalizeOptionalString(candidate);
+        if (!normalized) {
+            continue;
+        }
+        if (seen.has(normalized)) {
+            continue;
+        }
+        seen.add(normalized);
+        out.push(normalized);
+    }
+    return out;
+}
+function shouldRetryWithFallback(message, currentModel) {
+    const normalized = String(message || "").toLowerCase();
+    if (currentModel === FALLBACK_MODELS[FALLBACK_MODELS.length - 1]) {
+        return false;
+    }
+    return normalized.startsWith("ml_ai_upstream_failed:")
+        && (normalized.includes("no endpoints found")
+            || normalized.includes("model") && normalized.includes("not found")
+            || normalized.includes("unknown model"));
+}
 function buildHeaders(apiKey, httpReferer, title) {
     const headers = {
         Authorization: `Bearer ${apiKey}`,
@@ -164,7 +235,7 @@ function buildUserContentParts(mimeType, originalName, dataUrl) {
         "Détermine s'il s'agit d'une prescription médicale lisible ou d'une photo exploitable d'une boîte de médicament.",
         "Si le document ne montre aucune prescription médicale lisible ni aucune boîte de médicament identifiable, retourne is_prescription=false.",
         "Si le document est exploitable, retourne is_prescription=true et liste les médicaments détectés.",
-        "Le format attendu est exactement : {\"is_prescription\": boolean, \"reasoning\": string, \"medications\": [{\"label\": string, \"scheduleText\": string}] }.",
+        'Le format attendu est exactement : {"is_prescription": boolean, "reasoning": string, "medications": [{"label": string, "scheduleText": string}] }.',
         "Ne mets aucun texte hors JSON.",
     ].join(" ");
     const content = [

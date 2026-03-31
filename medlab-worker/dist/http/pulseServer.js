@@ -350,9 +350,6 @@ async function handleArtifactUploadDirect(req, res, deps, signingSecret, url) {
     }
 }
 async function handleArtifactAnalyze(req, res, deps, signingSecret, artifactId) {
-    if (!deps.openRouter.isEnabled()) {
-        return sendJson(res, 503, { ok: false, code: "ML_AI_DISABLED" }, signingSecret);
-    }
     const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/artifacts/${artifactId}/analyze`);
     if (parsedBody.ok !== true) {
         return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
@@ -369,52 +366,119 @@ async function handleArtifactAnalyze(req, res, deps, signingSecret, artifactId) 
             return sendJson(res, 409, { ok: false, code: "ML_ARTIFACT_NOT_READY" }, signingSecret);
         }
         const bucket = artifact.s3Bucket && artifact.s3Bucket.trim() !== "" ? artifact.s3Bucket : deps.artifactsBucket;
-        const fileBuffer = await deps.s3.downloadBuffer({
-            bucket,
-            key: artifact.s3Key,
-            maxBytes: Math.max(deps.artifactUploadMaxBytes, 12 * 1024 * 1024),
-        });
-        const analysis = await deps.openRouter.analyzeArtifact({
-            artifactId: artifact.id,
-            mimeType: artifact.mimeType,
-            originalName: artifact.originalName,
-            data: fileBuffer,
-        });
-        deps.logger.info("artifact.analyze.completed", {
-            artifact_id: artifact.id,
-            kind: artifact.kind,
-            owner_role: artifact.ownerRole,
-            actor_role: actor.role,
-            is_prescription: analysis.is_prescription,
-            medications_count: analysis.medications.length,
-        }, reqId);
-        return sendJson(res, 200, {
-            ok: true,
-            schema_version: CURRENT_SCHEMA_VERSION,
-            artifact_id: artifact.id,
-            analysis,
-        }, signingSecret);
+        let fileBuffer;
+        try {
+            fileBuffer = await deps.s3.downloadBuffer({
+                bucket,
+                key: artifact.s3Key,
+                maxBytes: Math.max(deps.artifactUploadMaxBytes, 12 * 1024 * 1024),
+            });
+        }
+        catch (err) {
+            const failure = normalizeAnalyzeFailure(err, "ML_AI_S3_READ_FAILED");
+            deps.logger.error("artifact.analyze.failed", {
+                artifact_id: artifact.id,
+                reason: failure.reason,
+                reason_code: failure.code,
+            }, reqId);
+            return sendJson(res, 200, buildAnalyzeFailurePayload(artifact.id, failure.code, failure.message), signingSecret);
+        }
+        try {
+            const analysis = await deps.openRouter.analyzeArtifact({
+                artifactId: artifact.id,
+                mimeType: artifact.mimeType,
+                originalName: artifact.originalName,
+                data: fileBuffer,
+            });
+            deps.logger.info("artifact.analyze.completed", {
+                artifact_id: artifact.id,
+                kind: artifact.kind,
+                owner_role: artifact.ownerRole,
+                actor_role: actor.role,
+                is_prescription: analysis.is_prescription,
+                medications_count: analysis.medications.length,
+            }, reqId);
+            return sendJson(res, 200, {
+                ok: true,
+                schema_version: CURRENT_SCHEMA_VERSION,
+                artifact_id: artifact.id,
+                analysis,
+            }, signingSecret);
+        }
+        catch (err) {
+            const failure = normalizeAnalyzeFailure(err);
+            deps.logger.error("artifact.analyze.failed", {
+                artifact_id: artifact.id,
+                reason: failure.reason,
+                reason_code: failure.code,
+            }, reqId);
+            return sendJson(res, 200, buildAnalyzeFailurePayload(artifact.id, failure.code, failure.message), signingSecret);
+        }
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : "ML_AI_FAILED";
+        const failure = normalizeAnalyzeFailure(err);
         deps.logger.error("artifact.analyze.failed", {
             artifact_id: artifactId,
-            reason: message,
+            reason: failure.reason,
+            reason_code: failure.code,
         }, reqId);
-        if (message === "ML_AI_DISABLED") {
-            return sendJson(res, 503, { ok: false, code: "ML_AI_DISABLED" }, signingSecret);
-        }
-        if (message === "ML_AI_TIMEOUT") {
-            return sendJson(res, 504, { ok: false, code: "ML_AI_TIMEOUT" }, signingSecret);
-        }
-        if (message === "ML_AI_UNSUPPORTED_MIME") {
-            return sendJson(res, 415, { ok: false, code: "ML_AI_UNSUPPORTED_MIME" }, signingSecret);
-        }
-        if (String(message).startsWith("ML_AI_UPSTREAM_FAILED:")) {
-            return sendJson(res, 502, { ok: false, code: "ML_AI_UPSTREAM_FAILED" }, signingSecret);
-        }
-        return sendJson(res, 500, { ok: false, code: "ML_AI_FAILED" }, signingSecret);
+        return sendJson(res, 200, buildAnalyzeFailurePayload(artifactId, failure.code, failure.message), signingSecret);
     }
+}
+function buildAnalyzeFailurePayload(artifactId, code, message) {
+    return {
+        ok: false,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact_id: artifactId,
+        is_prescription: false,
+        reasoning: "",
+        medications: [],
+        code,
+        message,
+    };
+}
+function normalizeAnalyzeFailure(err, fallbackCode = "ML_AI_FAILED") {
+    const reason = err instanceof Error ? err.message : fallbackCode;
+    if (reason === "ML_AI_DISABLED") {
+        return {
+            code: "ML_AI_DISABLED",
+            reason,
+            message: "L'analyse automatique du document est temporairement indisponible. Veuillez réessayer plus tard.",
+        };
+    }
+    if (reason === "ML_AI_TIMEOUT") {
+        return {
+            code: "ML_AI_TIMEOUT",
+            reason,
+            message: "L'analyse automatique du document a expiré. Veuillez réessayer ou fournir un document plus net.",
+        };
+    }
+    if (reason === "ML_AI_UNSUPPORTED_MIME") {
+        return {
+            code: "ML_AI_UNSUPPORTED_MIME",
+            reason,
+            message: "Ce type de document n'est pas pris en charge pour l'analyse automatique.",
+        };
+    }
+    if (reason.startsWith("ML_AI_UPSTREAM_FAILED:")) {
+        return {
+            code: "ML_AI_UPSTREAM_FAILED",
+            reason,
+            message: "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.",
+        };
+    }
+    if (reason.startsWith("ML_AI_S3_READ_FAILED:")) {
+        return {
+            code: "ML_AI_S3_READ_FAILED",
+            reason,
+            message: "Le document n'a pas pu être relu pour l'analyse automatique. Veuillez réimporter le fichier.",
+        };
+    }
+    return {
+        code: fallbackCode,
+        reason,
+        message: "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.",
+    };
 }
 async function handlePrescriptionMessagesGet(req, res, deps, signingSecret, url, prescriptionId) {
     const parsed = validateSignedRequestHeader(req, deps.secrets);

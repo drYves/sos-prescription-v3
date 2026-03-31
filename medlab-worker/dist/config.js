@@ -100,7 +100,7 @@ function loadConfig() {
     const fallbackOrigins = wpOrigin ? [wpOrigin] : [];
     const openRouter = {
         apiKey: getEnv("OPENROUTER_API_KEY"),
-        model: getEnv("OPENROUTER_MODEL") ?? "google/gemini-2.5-flash-preview-09-2025",
+        model: getEnv("OPENROUTER_MODEL") ?? "google/gemini-2.5-flash",
         baseUrl: getEnv("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1/chat/completions",
         requestTimeoutMs: parseIntEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 45_000),
         httpReferer: normalizeBaseUrl(getEnv("OPENROUTER_HTTP_REFERER") ?? wpBaseUrl) ?? wpBaseUrl,
