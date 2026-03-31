@@ -201,6 +201,38 @@ final class ArtifactController extends \WP_REST_Controller
         return rest_ensure_response($worker_result);
     }
 
+    public function analyze(WP_REST_Request $request)
+    {
+        $artifactId = trim((string) $request->get_param('artifact_id'));
+        if ($artifactId === '') {
+            return new WP_Error('sosprescription_bad_artifact_id', 'Artefact invalide.', ['status' => 400]);
+        }
+
+        $req_id = $this->build_req_id();
+
+        try {
+            $worker_result = $this->get_job_dispatcher()->analyzeArtifact(
+                $artifactId,
+                [
+                    'role' => (AccessPolicy::is_doctor() || AccessPolicy::is_admin()) ? 'DOCTOR' : 'PATIENT',
+                    'wp_user_id' => (int) get_current_user_id(),
+                ],
+                $req_id
+            );
+        } catch (\Throwable $e) {
+            return new WP_Error(
+                'sosprescription_artifact_analyze_failed',
+                'Impossible d’analyser le document : ' . $e->getMessage(),
+                [
+                    'status' => 502,
+                    'req_id' => $req_id,
+                ]
+            );
+        }
+
+        return rest_ensure_response($worker_result);
+    }
+
     protected function request_data(WP_REST_Request $request): array
     {
         $body = $request->get_json_params();

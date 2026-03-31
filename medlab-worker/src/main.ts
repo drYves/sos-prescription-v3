@@ -1,5 +1,6 @@
 // src/main.ts
 import { MemoryGuard } from "./admission/memoryGuard";
+import { OpenRouterService } from "./ai/openRouterService";
 import { ArtifactRepo } from "./artifacts/artifactRepo";
 import { MessagesRepo } from "./messages/messagesRepo";
 import { loadConfig } from "./config";
@@ -81,6 +82,16 @@ async function main(): Promise<void> {
     defaultTemplateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
   });
 
+  const openRouter = new OpenRouterService({
+    apiKey: cfg.openRouter.apiKey,
+    model: cfg.openRouter.model,
+    baseUrl: cfg.openRouter.baseUrl,
+    requestTimeoutMs: cfg.openRouter.requestTimeoutMs,
+    httpReferer: cfg.openRouter.httpReferer,
+    title: cfg.openRouter.title,
+    logger,
+  });
+
   const secrets = [
     cfg.security.hmacSecretActive,
     ...(cfg.security.hmacSecretPrevious ? [cfg.security.hmacSecretPrevious] : []),
@@ -94,6 +105,7 @@ async function main(): Promise<void> {
     artifactRepo,
     messagesRepo,
     s3,
+    openRouter,
     artifactsBucket: cfg.s3.bucketArtifacts,
     artifactsRegion: cfg.s3.region,
     artifactUploadMaxBytes: cfg.upload.maxBytes,
@@ -178,6 +190,8 @@ async function main(): Promise<void> {
       artifact_bucket: cfg.s3.bucketArtifacts,
       artifact_upload_max_bytes: cfg.upload.maxBytes,
       artifact_ticket_ttl_ms: cfg.upload.ticketTtlMs,
+      openrouter_enabled: openRouter.isEnabled(),
+      openrouter_model: cfg.openRouter.model,
     },
     undefined,
   );
@@ -278,17 +292,20 @@ async function main(): Promise<void> {
   }
 }
 
-function resolveQueueMode(raw: string | undefined): "postgres" | "rest" {
-  return raw === "rest" ? "rest" : "postgres";
+function resolveQueueMode(value: string | undefined): string {
+  const normalized = String(value ?? "postgres").trim().toLowerCase();
+  return normalized === "rest" ? "rest" : "postgres";
 }
 
 function withJitter(baseMs: number, spreadMs: number): number {
-  if (spreadMs <= 0) return baseMs;
-  const delta = Math.floor(Math.random() * (spreadMs * 2 + 1)) - spreadMs;
-  return Math.max(250, baseMs + delta);
+  const spread = Math.max(0, Math.floor(spreadMs));
+  if (spread === 0) return Math.max(0, Math.floor(baseMs));
+  const min = Math.max(0, Math.floor(baseMs) - spread);
+  const max = Math.max(min, Math.floor(baseMs) + spread);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-void main().catch((err) => {
-  process.stderr.write(`Fatal worker error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+main().catch((err) => {
+  process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
   process.exit(1);
 });

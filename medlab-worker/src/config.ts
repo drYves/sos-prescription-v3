@@ -27,6 +27,15 @@ export interface UploadConfig {
   allowedOrigins: string[];
 }
 
+export interface OpenRouterConfig {
+  apiKey?: string;
+  model: string;
+  baseUrl: string;
+  requestTimeoutMs: number;
+  httpReferer?: string;
+  title?: string;
+}
+
 export interface WorkerConfig {
   siteId: string;
   workerId: string;
@@ -47,6 +56,7 @@ export interface WorkerConfig {
   s3: S3Config;
   security: SecurityConfig;
   upload: UploadConfig;
+  openRouter: OpenRouterConfig;
 }
 
 function mustGetEnv(key: string): string {
@@ -148,6 +158,15 @@ export function loadConfig(): WorkerConfig {
   const explicitUploadOrigins = parseOriginsCsv(getEnv("ARTIFACT_UPLOAD_ALLOWED_ORIGINS"));
   const fallbackOrigins = wpOrigin ? [wpOrigin] : [];
 
+  const openRouter: OpenRouterConfig = {
+    apiKey: getEnv("OPENROUTER_API_KEY"),
+    model: getEnv("OPENROUTER_MODEL") ?? "google/gemini-2.5-flash-preview-09-2025",
+    baseUrl: getEnv("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1/chat/completions",
+    requestTimeoutMs: parseIntEnv("OPENROUTER_REQUEST_TIMEOUT_MS", 45_000),
+    httpReferer: normalizeBaseUrl(getEnv("OPENROUTER_HTTP_REFERER") ?? wpBaseUrl) ?? wpBaseUrl,
+    title: getEnv("OPENROUTER_TITLE") ?? "SOS Prescription Worker",
+  };
+
   return {
     siteId,
     workerId,
@@ -185,5 +204,6 @@ export function loadConfig(): WorkerConfig {
       ticketTtlMs: parseIntEnv("ARTIFACT_UPLOAD_TICKET_TTL_MS", 15 * 60 * 1000),
       allowedOrigins: uniqueStrings(explicitUploadOrigins.length > 0 ? explicitUploadOrigins : fallbackOrigins),
     },
+    openRouter,
   };
 }

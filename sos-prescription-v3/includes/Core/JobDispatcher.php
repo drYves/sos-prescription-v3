@@ -204,6 +204,26 @@ final class JobDispatcher
     }
 
     /**
+     * @param array<string, mixed> $actorPayload
+     * @return array<string, mixed>
+     */
+    public function analyzeArtifact(string $artifactId, array $actorPayload, ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $artifactId = trim($artifactId);
+        if ($artifactId === '') {
+            throw new RuntimeException('ID artefact Worker manquant.');
+        }
+
+        $payload = $this->normalizeEnvelope([
+            'actor' => $this->normalizeActorPayload($actorPayload),
+        ], $reqId);
+
+        $path = '/api/v1/artifacts/' . rawurlencode($artifactId) . '/analyze';
+        return $this->postSignedJson($path, $payload, $reqId, 'artifact_analyze');
+    }
+
+    /**
      * @param array<string, mixed> $doctorPayload
      * @return array<string, mixed>
      */

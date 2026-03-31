@@ -173,6 +173,24 @@ class ArtifactRepo {
             artifact_id: artifactId,
         }, undefined);
     }
+    async getReadyArtifactForActor(id, actorInput) {
+        const artifactId = normalizeRequiredString(id, "id");
+        const actor = normalizeActor(actorInput);
+        const record = await this.prisma.artifact.findUnique({
+            where: { id: artifactId },
+            select: artifactAccessSelect(),
+        });
+        if (!record) {
+            return null;
+        }
+        if (record.deletedAt || record.status !== client_1.ArtifactStatus.READY || !record.s3Key) {
+            return null;
+        }
+        if (!canActorAccessArtifact(record, actor)) {
+            return null;
+        }
+        return mapAccessRecord(record);
+    }
     async resolveUploadedByDoctorId(ownerRole, ownerWpUserId) {
         if (ownerRole !== client_1.ActorRole.DOCTOR || ownerWpUserId == null) {
             return null;
@@ -207,6 +225,101 @@ function artifactSelect() {
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
+    };
+}
+function artifactAccessSelect() {
+    return {
+        id: true,
+        prescriptionId: true,
+        messageId: true,
+        kind: true,
+        status: true,
+        ownerRole: true,
+        ownerWpUserId: true,
+        uploadedByDoctorId: true,
+        draftKey: true,
+        originalName: true,
+        mimeType: true,
+        sizeBytes: true,
+        sha256Hex: true,
+        s3Bucket: true,
+        s3Region: true,
+        s3Key: true,
+        linkedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
+        prescription: {
+            select: {
+                doctor: {
+                    select: {
+                        wpUserId: true,
+                    },
+                },
+                patient: {
+                    select: {
+                        wpUserId: true,
+                    },
+                },
+            },
+        },
+    };
+}
+function mapAccessRecord(record) {
+    return {
+        id: record.id,
+        prescriptionId: record.prescriptionId,
+        messageId: record.messageId,
+        kind: record.kind,
+        status: record.status,
+        ownerRole: record.ownerRole,
+        ownerWpUserId: record.ownerWpUserId,
+        uploadedByDoctorId: record.uploadedByDoctorId,
+        draftKey: record.draftKey,
+        originalName: record.originalName,
+        mimeType: record.mimeType,
+        sizeBytes: record.sizeBytes,
+        sha256Hex: record.sha256Hex,
+        s3Bucket: record.s3Bucket,
+        s3Region: record.s3Region,
+        s3Key: record.s3Key,
+        linkedAt: record.linkedAt,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        deletedAt: record.deletedAt,
+        doctorWpUserId: record.prescription?.doctor?.wpUserId ?? null,
+        patientWpUserId: record.prescription?.patient?.wpUserId ?? null,
+    };
+}
+function canActorAccessArtifact(record, actor) {
+    if (actor.role === client_1.ActorRole.SYSTEM) {
+        return true;
+    }
+    if (actor.wpUserId == null) {
+        return false;
+    }
+    if (record.ownerWpUserId != null && record.ownerWpUserId === actor.wpUserId) {
+        return true;
+    }
+    if (actor.role === client_1.ActorRole.DOCTOR && record.prescription?.doctor?.wpUserId != null) {
+        return record.prescription.doctor.wpUserId === actor.wpUserId;
+    }
+    if (actor.role === client_1.ActorRole.PATIENT && record.prescription?.patient?.wpUserId != null) {
+        return record.prescription.patient.wpUserId === actor.wpUserId;
+    }
+    return false;
+}
+function normalizeActor(input) {
+    if (!input || typeof input !== "object") {
+        throw new Error("actor is required");
+    }
+    const role = input.role;
+    if (![client_1.ActorRole.PATIENT, client_1.ActorRole.DOCTOR, client_1.ActorRole.SYSTEM].includes(role)) {
+        throw new Error("actor.role is invalid");
+    }
+    return {
+        role,
+        wpUserId: normalizeNullablePositiveInt(input.wpUserId),
     };
 }
 function generateDraftKey() {

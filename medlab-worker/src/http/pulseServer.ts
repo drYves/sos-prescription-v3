@@ -4,6 +4,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import { ActorRole, ArtifactKind, Prisma } from "@prisma/client";
 import { MemoryGuard } from "../admission/memoryGuard";
+import { OpenRouterService } from "../ai/openRouterService";
 import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
 import { MessagesRepo, MessagesRepoError, type ThreadMessageRecord, type ThreadState } from "../messages/messagesRepo";
 import type {
@@ -66,6 +67,7 @@ export interface PulseServerDeps {
   artifactRepo: ArtifactRepo;
   messagesRepo: MessagesRepo;
   s3: S3Service;
+  openRouter: OpenRouterService;
   artifactsBucket: string;
   artifactsRegion: string;
   artifactUploadMaxBytes: number;
@@ -106,6 +108,17 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "PUT" && path === "/api/v1/artifacts/upload/direct") {
         return await handleArtifactUploadDirect(req, res, deps, signingSecret, url);
+      }
+
+      const artifactAnalyzeMatch = method === "POST" ? path.match(/^\/api\/v1\/artifacts\/([^/]+)\/analyze$/) : null;
+      if (artifactAnalyzeMatch) {
+        return await handleArtifactAnalyze(
+          req,
+          res,
+          deps,
+          signingSecret,
+          decodeURIComponent(artifactAnalyzeMatch[1]),
+        );
       }
 
       const messagesReadMatch = method === "POST" ? path.match(/^\/api\/v1\/prescriptions\/([^/]+)\/messages\/read$/) : null;
@@ -599,6 +612,103 @@ async function handleArtifactUploadDirect(
       signingSecret,
       buildUploadCorsHeaders(corsOrigin),
     );
+  }
+}
+
+async function handleArtifactAnalyze(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  artifactId: string,
+): Promise<void> {
+  if (!deps.openRouter.isEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "ML_AI_DISABLED" }, signingSecret);
+  }
+
+  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/artifacts/${artifactId}/analyze`);
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as Record<string, unknown>;
+    const actor = normalizeActorInput(body.actor);
+    const artifact = await deps.artifactRepo.getReadyArtifactForActor(artifactId, actor);
+
+    if (!artifact) {
+      return sendJson(res, 404, { ok: false, code: "ML_ARTIFACT_NOT_FOUND" }, signingSecret);
+    }
+
+    if (!artifact.s3Key) {
+      return sendJson(res, 409, { ok: false, code: "ML_ARTIFACT_NOT_READY" }, signingSecret);
+    }
+
+    const bucket = artifact.s3Bucket && artifact.s3Bucket.trim() !== "" ? artifact.s3Bucket : deps.artifactsBucket;
+    const fileBuffer = await deps.s3.downloadBuffer({
+      bucket,
+      key: artifact.s3Key,
+      maxBytes: Math.max(deps.artifactUploadMaxBytes, 12 * 1024 * 1024),
+    });
+
+    const analysis = await deps.openRouter.analyzeArtifact({
+      artifactId: artifact.id,
+      mimeType: artifact.mimeType,
+      originalName: artifact.originalName,
+      data: fileBuffer,
+    });
+
+    deps.logger.info(
+      "artifact.analyze.completed",
+      {
+        artifact_id: artifact.id,
+        kind: artifact.kind,
+        owner_role: artifact.ownerRole,
+        actor_role: actor.role,
+        is_prescription: analysis.is_prescription,
+        medications_count: analysis.medications.length,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact_id: artifact.id,
+        analysis,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "ML_AI_FAILED";
+    deps.logger.error(
+      "artifact.analyze.failed",
+      {
+        artifact_id: artifactId,
+        reason: message,
+      },
+      reqId,
+    );
+
+    if (message === "ML_AI_DISABLED") {
+      return sendJson(res, 503, { ok: false, code: "ML_AI_DISABLED" }, signingSecret);
+    }
+    if (message === "ML_AI_TIMEOUT") {
+      return sendJson(res, 504, { ok: false, code: "ML_AI_TIMEOUT" }, signingSecret);
+    }
+    if (message === "ML_AI_UNSUPPORTED_MIME") {
+      return sendJson(res, 415, { ok: false, code: "ML_AI_UNSUPPORTED_MIME" }, signingSecret);
+    }
+    if (String(message).startsWith("ML_AI_UPSTREAM_FAILED:")) {
+      return sendJson(res, 502, { ok: false, code: "ML_AI_UPSTREAM_FAILED" }, signingSecret);
+    }
+
+    return sendJson(res, 500, { ok: false, code: "ML_AI_FAILED" }, signingSecret);
   }
 }
 

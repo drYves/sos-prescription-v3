@@ -46,7 +46,7 @@ class S3Service {
             forcePathStyle: cfg.forcePathStyle,
             requestHandler: new node_http_handler_1.NodeHttpHandler({
                 connectionTimeout: 30_000,
-                socketTimeout: 30_000,
+                socketTimeout: 60_000,
             }),
             requestChecksumCalculation: "WHEN_REQUIRED",
             responseChecksumValidation: "WHEN_REQUIRED",
@@ -133,6 +133,29 @@ class S3Service {
     async uploadStream(input) {
         return this.uploadDirect(input);
     }
+    async downloadBuffer(input) {
+        const bucket = normalizeRequiredString(input.bucket, "bucket");
+        const key = normalizeRequiredString(input.key, "key");
+        const maxBytes = Math.max(1, Math.floor(input.maxBytes ?? 16 * 1024 * 1024));
+        const response = await this.client.send(new client_s3_1.GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+        if (!response.Body) {
+            throw new Error("S3 object body is empty");
+        }
+        const body = response.Body;
+        try {
+            return await readableToBuffer(body, maxBytes);
+        }
+        catch (err) {
+            closeReadableQuietly(body, err instanceof Error ? err : undefined);
+            throw err;
+        }
+    }
+    async getObjectBuffer(input) {
+        return this.downloadBuffer(input);
+    }
     async close() {
         this.client.destroy();
     }
@@ -141,6 +164,25 @@ class S3Service {
     }
 }
 exports.S3Service = S3Service;
+async function readableToBuffer(stream, maxBytes) {
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of stream) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        total += buf.length;
+        if (total > maxBytes) {
+            throw new Error(`S3 object exceeds maxBytes (${maxBytes})`);
+        }
+        chunks.push(buf);
+    }
+    return Buffer.concat(chunks);
+}
+function normalizeRequiredString(value, field) {
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new Error(`${field} is required`);
+    }
+    return value.trim();
+}
 function closeReadableQuietly(stream, error) {
     try {
         stream.destroy(error);

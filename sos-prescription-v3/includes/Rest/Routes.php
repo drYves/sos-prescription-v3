@@ -220,6 +220,20 @@ final class Routes
             ),
         ]);
 
+        register_rest_route('sosprescription/v1', '/artifacts/(?P<artifact_id>[A-Za-z0-9\-]{8,64})/analyze', [
+            'methods' => 'POST',
+            'callback' => [$artifacts, 'analyze'],
+            'permission_callback' => [$artifacts, 'permissions_check_logged_in_nonce'],
+            'args' => [
+                'artifact_id' => [
+                    'required' => true,
+                    'sanitize_callback' => static function ($value) {
+                        return is_scalar($value) ? trim((string) $value) : '';
+                    },
+                ],
+            ],
+        ]);
+
         // Fichiers legacy WordPress (conservés pour compatibilité / messagerie locale).
         register_rest_route('sosprescription/v1', '/files', [
             'methods' => 'POST',

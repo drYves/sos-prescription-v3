@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 // src/main.ts
 const memoryGuard_1 = require("./admission/memoryGuard");
+const openRouterService_1 = require("./ai/openRouterService");
 const artifactRepo_1 = require("./artifacts/artifactRepo");
 const messagesRepo_1 = require("./messages/messagesRepo");
 const config_1 = require("./config");
@@ -65,6 +66,15 @@ async function main() {
         verifyBaseUrl: process.env.ML_VERIFY_BASE_URL ?? "https://sosprescription.fr",
         defaultTemplateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
     });
+    const openRouter = new openRouterService_1.OpenRouterService({
+        apiKey: cfg.openRouter.apiKey,
+        model: cfg.openRouter.model,
+        baseUrl: cfg.openRouter.baseUrl,
+        requestTimeoutMs: cfg.openRouter.requestTimeoutMs,
+        httpReferer: cfg.openRouter.httpReferer,
+        title: cfg.openRouter.title,
+        logger,
+    });
     const secrets = [
         cfg.security.hmacSecretActive,
         ...(cfg.security.hmacSecretPrevious ? [cfg.security.hmacSecretPrevious] : []),
@@ -77,6 +87,7 @@ async function main() {
         artifactRepo,
         messagesRepo,
         s3,
+        openRouter,
         artifactsBucket: cfg.s3.bucketArtifacts,
         artifactsRegion: cfg.s3.region,
         artifactUploadMaxBytes: cfg.upload.maxBytes,
@@ -155,6 +166,8 @@ async function main() {
         artifact_bucket: cfg.s3.bucketArtifacts,
         artifact_upload_max_bytes: cfg.upload.maxBytes,
         artifact_ticket_ttl_ms: cfg.upload.ticketTtlMs,
+        openrouter_enabled: openRouter.isEnabled(),
+        openrouter_model: cfg.openRouter.model,
     }, undefined);
     while (true) {
         memGuard.tick();
@@ -236,16 +249,19 @@ async function main() {
         }
     }
 }
-function resolveQueueMode(raw) {
-    return raw === "rest" ? "rest" : "postgres";
+function resolveQueueMode(value) {
+    const normalized = String(value ?? "postgres").trim().toLowerCase();
+    return normalized === "rest" ? "rest" : "postgres";
 }
 function withJitter(baseMs, spreadMs) {
-    if (spreadMs <= 0)
-        return baseMs;
-    const delta = Math.floor(Math.random() * (spreadMs * 2 + 1)) - spreadMs;
-    return Math.max(250, baseMs + delta);
+    const spread = Math.max(0, Math.floor(spreadMs));
+    if (spread === 0)
+        return Math.max(0, Math.floor(baseMs));
+    const min = Math.max(0, Math.floor(baseMs) - spread);
+    const max = Math.max(min, Math.floor(baseMs) + spread);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
 }
-void main().catch((err) => {
-    process.stderr.write(`Fatal worker error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+main().catch((err) => {
+    process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
     process.exit(1);
 });

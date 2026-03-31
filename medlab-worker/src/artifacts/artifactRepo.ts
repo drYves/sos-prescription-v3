@@ -43,6 +43,16 @@ export interface ArtifactRecord {
   deletedAt: Date | null;
 }
 
+export interface ArtifactAccessRecord extends ArtifactRecord {
+  doctorWpUserId: number | null;
+  patientWpUserId: number | null;
+}
+
+export interface ArtifactActorInput {
+  role: ActorRole;
+  wpUserId?: number | null;
+}
+
 export type VerifyTicketResult =
   | { ok: true; artifact: ArtifactRecord }
   | { ok: false; code: "NOT_FOUND" | "EXPIRED" | "ALREADY_CONSUMED" };
@@ -267,6 +277,30 @@ export class ArtifactRepo {
     );
   }
 
+  async getReadyArtifactForActor(id: string, actorInput: ArtifactActorInput): Promise<ArtifactAccessRecord | null> {
+    const artifactId = normalizeRequiredString(id, "id");
+    const actor = normalizeActor(actorInput);
+
+    const record = await this.prisma.artifact.findUnique({
+      where: { id: artifactId },
+      select: artifactAccessSelect(),
+    });
+
+    if (!record) {
+      return null;
+    }
+
+    if (record.deletedAt || record.status !== ArtifactStatus.READY || !record.s3Key) {
+      return null;
+    }
+
+    if (!canActorAccessArtifact(record, actor)) {
+      return null;
+    }
+
+    return mapAccessRecord(record);
+  }
+
   private async resolveUploadedByDoctorId(ownerRole: ActorRole, ownerWpUserId: number | null): Promise<string | null> {
     if (ownerRole !== ActorRole.DOCTOR || ownerWpUserId == null) {
       return null;
@@ -304,6 +338,112 @@ function artifactSelect() {
     updatedAt: true,
     deletedAt: true,
   } satisfies Prisma.ArtifactSelect;
+}
+
+function artifactAccessSelect() {
+  return {
+    id: true,
+    prescriptionId: true,
+    messageId: true,
+    kind: true,
+    status: true,
+    ownerRole: true,
+    ownerWpUserId: true,
+    uploadedByDoctorId: true,
+    draftKey: true,
+    originalName: true,
+    mimeType: true,
+    sizeBytes: true,
+    sha256Hex: true,
+    s3Bucket: true,
+    s3Region: true,
+    s3Key: true,
+    linkedAt: true,
+    createdAt: true,
+    updatedAt: true,
+    deletedAt: true,
+    prescription: {
+      select: {
+        doctor: {
+          select: {
+            wpUserId: true,
+          },
+        },
+        patient: {
+          select: {
+            wpUserId: true,
+          },
+        },
+      },
+    },
+  } satisfies Prisma.ArtifactSelect;
+}
+
+function mapAccessRecord(record: Prisma.ArtifactGetPayload<{ select: ReturnType<typeof artifactAccessSelect> }>): ArtifactAccessRecord {
+  return {
+    id: record.id,
+    prescriptionId: record.prescriptionId,
+    messageId: record.messageId,
+    kind: record.kind,
+    status: record.status,
+    ownerRole: record.ownerRole,
+    ownerWpUserId: record.ownerWpUserId,
+    uploadedByDoctorId: record.uploadedByDoctorId,
+    draftKey: record.draftKey,
+    originalName: record.originalName,
+    mimeType: record.mimeType,
+    sizeBytes: record.sizeBytes,
+    sha256Hex: record.sha256Hex,
+    s3Bucket: record.s3Bucket,
+    s3Region: record.s3Region,
+    s3Key: record.s3Key,
+    linkedAt: record.linkedAt,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    deletedAt: record.deletedAt,
+    doctorWpUserId: record.prescription?.doctor?.wpUserId ?? null,
+    patientWpUserId: record.prescription?.patient?.wpUserId ?? null,
+  };
+}
+
+function canActorAccessArtifact(record: Prisma.ArtifactGetPayload<{ select: ReturnType<typeof artifactAccessSelect> }>, actor: { role: ActorRole; wpUserId: number | null }): boolean {
+  if (actor.role === ActorRole.SYSTEM) {
+    return true;
+  }
+
+  if (actor.wpUserId == null) {
+    return false;
+  }
+
+  if (record.ownerWpUserId != null && record.ownerWpUserId === actor.wpUserId) {
+    return true;
+  }
+
+  if (actor.role === ActorRole.DOCTOR && record.prescription?.doctor?.wpUserId != null) {
+    return record.prescription.doctor.wpUserId === actor.wpUserId;
+  }
+
+  if (actor.role === ActorRole.PATIENT && record.prescription?.patient?.wpUserId != null) {
+    return record.prescription.patient.wpUserId === actor.wpUserId;
+  }
+
+  return false;
+}
+
+function normalizeActor(input: ArtifactActorInput): { role: ActorRole; wpUserId: number | null } {
+  if (!input || typeof input !== "object") {
+    throw new Error("actor is required");
+  }
+
+  const role = input.role;
+  if (![ActorRole.PATIENT, ActorRole.DOCTOR, ActorRole.SYSTEM].includes(role)) {
+    throw new Error("actor.role is invalid");
+  }
+
+  return {
+    role,
+    wpUserId: normalizeNullablePositiveInt(input.wpUserId),
+  };
 }
 
 function generateDraftKey(): string {

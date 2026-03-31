@@ -1,5 +1,5 @@
 // src/s3/s3Service.ts
-import { PutObjectCommandInput, S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommandInput, S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { createHash } from "node:crypto";
@@ -33,6 +33,12 @@ export interface UploadStreamInput {
   contentType: string;
   contentLength?: number;
   metadata?: Record<string, string>;
+}
+
+export interface DownloadBufferInput {
+  bucket: string;
+  key: string;
+  maxBytes?: number;
 }
 
 export interface UploadStreamResult {
@@ -83,7 +89,7 @@ export class S3Service {
       forcePathStyle: cfg.forcePathStyle,
       requestHandler: new NodeHttpHandler({
         connectionTimeout: 30_000,
-        socketTimeout: 30_000,
+        socketTimeout: 60_000,
       }),
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
@@ -187,6 +193,33 @@ export class S3Service {
     return this.uploadDirect(input);
   }
 
+  async downloadBuffer(input: DownloadBufferInput): Promise<Buffer> {
+    const bucket = normalizeRequiredString(input.bucket, "bucket");
+    const key = normalizeRequiredString(input.key, "key");
+    const maxBytes = Math.max(1, Math.floor(input.maxBytes ?? 16 * 1024 * 1024));
+
+    const response = await this.client.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }));
+
+    if (!response.Body) {
+      throw new Error("S3 object body is empty");
+    }
+
+    const body = response.Body as Readable;
+    try {
+      return await readableToBuffer(body, maxBytes);
+    } catch (err) {
+      closeReadableQuietly(body, err instanceof Error ? err : undefined);
+      throw err;
+    }
+  }
+
+  async getObjectBuffer(input: DownloadBufferInput): Promise<Buffer> {
+    return this.downloadBuffer(input);
+  }
+
   async close(): Promise<void> {
     this.client.destroy();
   }
@@ -194,6 +227,29 @@ export class S3Service {
   private normalizedSse(): string | undefined {
     return this.sse !== "" ? this.sse : undefined;
   }
+}
+
+async function readableToBuffer(stream: Readable, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for await (const chunk of stream) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) {
+      throw new Error(`S3 object exceeds maxBytes (${maxBytes})`);
+    }
+    chunks.push(buf);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function normalizeRequiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${field} is required`);
+  }
+  return value.trim();
 }
 
 function closeReadableQuietly(stream: Readable, error?: Error): void {
