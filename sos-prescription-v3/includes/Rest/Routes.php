@@ -220,12 +220,12 @@ final class Routes
             ),
         ]);
 
-        register_rest_route('sosprescription/v1', '/artifacts/(?P<artifact_id>[A-Za-z0-9\-]{8,64})/analyze', [
+        register_rest_route('sosprescription/v1', '/artifacts/(?P<id>[A-Za-z0-9\-]+)/analyze', [
             'methods' => 'POST',
             'callback' => [$artifacts, 'analyze'],
             'permission_callback' => [$artifacts, 'permissions_check_logged_in_nonce'],
             'args' => [
-                'artifact_id' => [
+                'id' => [
                     'required' => true,
                     'sanitize_callback' => static function ($value) {
                         return is_scalar($value) ? trim((string) $value) : '';

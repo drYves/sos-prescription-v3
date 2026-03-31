@@ -153,7 +153,7 @@ final class ArtifactController extends \WP_REST_Controller
 
     public function access(WP_REST_Request $request)
     {
-        $artifactId = trim((string) $request->get_param('artifact_id'));
+        $artifactId = $this->resolve_artifact_id($request);
         if ($artifactId === '') {
             return new WP_Error('sosprescription_bad_artifact_id', 'Artefact invalide.', ['status' => 400]);
         }
@@ -203,7 +203,7 @@ final class ArtifactController extends \WP_REST_Controller
 
     public function analyze(WP_REST_Request $request)
     {
-        $artifactId = trim((string) $request->get_param('artifact_id'));
+        $artifactId = $this->resolve_artifact_id($request);
         if ($artifactId === '') {
             return new WP_Error('sosprescription_bad_artifact_id', 'Artefact invalide.', ['status' => 400]);
         }
@@ -257,6 +257,16 @@ final class ArtifactController extends \WP_REST_Controller
                 return 'req_' . md5((string) wp_rand() . microtime(true));
             }
         }
+    }
+
+    protected function resolve_artifact_id(WP_REST_Request $request): string
+    {
+        $value = $request->get_param('id');
+        if (!is_scalar($value) || trim((string) $value) === '') {
+            $value = $request->get_param('artifact_id');
+        }
+
+        return is_scalar($value) ? trim((string) $value) : '';
     }
 
     protected function normalize_artifact_kind(string $purpose, $explicit_kind): ?string
