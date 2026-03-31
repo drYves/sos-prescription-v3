@@ -1294,10 +1294,28 @@ class PrescriptionController extends \WP_REST_Controller
             ? (string) $workerResult['uid']
             : UidGenerator::generate(10);
 
+        $proof_artifact_ids = $this->extract_proof_artifact_ids_from_create_params($params);
+
         $payload = array_merge($this->build_business_cache_payload($params), [
+            'proof_artifact_ids' => $proof_artifact_ids,
             'shadow' => [
                 'zero_pii' => true,
                 'mode' => 'worker-postgres',
+                'worker_thread' => [
+                    'message_count' => 0,
+                    'last_message_seq' => 0,
+                    'last_message_at' => null,
+                    'last_message_role' => null,
+                    'doctor_last_read_seq' => 0,
+                    'patient_last_read_seq' => 0,
+                    'unread_count_doctor' => 0,
+                    'unread_count_patient' => 0,
+                ],
+                'worker_evidence' => [
+                    'has_proof' => $proof_artifact_ids !== [],
+                    'proof_count' => count($proof_artifact_ids),
+                    'proof_artifact_ids' => $proof_artifact_ids,
+                ],
             ],
             'worker' => $this->build_worker_shadow_payload($workerResult),
         ]);
@@ -1442,10 +1460,42 @@ class PrescriptionController extends \WP_REST_Controller
 
         $existingWorker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
         $incomingWorker = $this->build_worker_shadow_payload($workerData);
-        $payload['shadow'] = [
+
+        $proofArtifactIds = isset($payload['proof_artifact_ids']) && is_array($payload['proof_artifact_ids'])
+            ? $this->normalize_worker_artifact_ids($payload['proof_artifact_ids'])
+            : [];
+
+        $existingShadow = isset($payload['shadow']) && is_array($payload['shadow']) ? $payload['shadow'] : [];
+        $payload['shadow'] = array_merge($existingShadow, [
             'zero_pii' => true,
             'mode' => 'worker-postgres',
-        ];
+        ]);
+
+        if (!isset($payload['shadow']['worker_thread']) || !is_array($payload['shadow']['worker_thread'])) {
+            $payload['shadow']['worker_thread'] = [
+                'message_count' => 0,
+                'last_message_seq' => 0,
+                'last_message_at' => null,
+                'last_message_role' => null,
+                'doctor_last_read_seq' => 0,
+                'patient_last_read_seq' => 0,
+                'unread_count_doctor' => 0,
+                'unread_count_patient' => 0,
+            ];
+        }
+
+        if (!isset($payload['shadow']['worker_evidence']) || !is_array($payload['shadow']['worker_evidence'])) {
+            $payload['shadow']['worker_evidence'] = [
+                'has_proof' => $proofArtifactIds !== [],
+                'proof_count' => count($proofArtifactIds),
+                'proof_artifact_ids' => $proofArtifactIds,
+            ];
+        } else {
+            $payload['shadow']['worker_evidence']['has_proof'] = $proofArtifactIds !== [];
+            $payload['shadow']['worker_evidence']['proof_count'] = count($proofArtifactIds);
+            $payload['shadow']['worker_evidence']['proof_artifact_ids'] = $proofArtifactIds;
+        }
+
         $payload['worker'] = $this->merge_shadow_worker_payload($existingWorker, $incomingWorker);
 
         $update = [

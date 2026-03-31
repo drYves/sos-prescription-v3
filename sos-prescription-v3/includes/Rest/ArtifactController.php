@@ -129,8 +129,7 @@ final class ArtifactController extends \WP_REST_Controller
         }
 
         try {
-            $dispatcher = $this->get_job_dispatcher();
-            $worker_result = $dispatcher->initArtifactUpload(
+            $worker_result = $this->get_job_dispatcher()->initArtifactUpload(
                 [
                     'role' => $actor_role,
                     'wp_user_id' => $current_user_id,
@@ -150,6 +149,56 @@ final class ArtifactController extends \WP_REST_Controller
         }
 
         return new WP_REST_Response($worker_result, 201);
+    }
+
+    public function access(WP_REST_Request $request)
+    {
+        $artifactId = trim((string) $request->get_param('artifact_id'));
+        if ($artifactId === '') {
+            return new WP_Error('sosprescription_bad_artifact_id', 'Artefact invalide.', ['status' => 400]);
+        }
+
+        $params = $this->request_data($request);
+        $prescription_id = isset($params['prescription_id']) ? (int) $params['prescription_id'] : 0;
+        if ($prescription_id > 0) {
+            $rx_row = $this->prescriptions->get($prescription_id);
+            if (!is_array($rx_row)) {
+                return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+            }
+            if (!AccessPolicy::can_current_user_access_prescription_row($rx_row)) {
+                return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
+            }
+        }
+
+        $disposition = strtolower(trim((string) ($params['disposition'] ?? 'inline')));
+        if (!in_array($disposition, ['inline', 'attachment'], true)) {
+            $disposition = 'inline';
+        }
+
+        $req_id = $this->build_req_id();
+
+        try {
+            $worker_result = $this->get_job_dispatcher()->createArtifactAccess(
+                $artifactId,
+                [
+                    'role' => (AccessPolicy::is_doctor() || AccessPolicy::is_admin()) ? 'DOCTOR' : 'PATIENT',
+                    'wp_user_id' => (int) get_current_user_id(),
+                ],
+                $disposition,
+                $req_id
+            );
+        } catch (\Throwable $e) {
+            return new WP_Error(
+                'sosprescription_artifact_access_failed',
+                'Impossible de générer le lien sécurisé : ' . $e->getMessage(),
+                [
+                    'status' => 502,
+                    'req_id' => $req_id,
+                ]
+            );
+        }
+
+        return rest_ensure_response($worker_result);
     }
 
     protected function request_data(WP_REST_Request $request): array

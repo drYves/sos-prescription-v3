@@ -247,10 +247,17 @@ final class EndpointArgs
             'limit' => [
                 'type' => 'integer',
                 'required' => false,
-                'default' => 200,
+                'default' => 50,
                 'minimum' => 1,
-                'maximum' => 500,
+                'maximum' => 200,
             ],
+            'after_seq' => [
+                'type' => 'integer',
+                'required' => false,
+                'default' => 0,
+                'minimum' => 0,
+            ],
+            // Compatibilité descendante : ignoré si after_seq est fourni.
             'offset' => [
                 'type' => 'integer',
                 'required' => false,
@@ -269,14 +276,47 @@ final class EndpointArgs
                 'minLength' => 1,
                 'maxLength' => 8000,
             ],
+            'attachment_artifact_ids' => [
+                'type' => 'array',
+                'required' => false,
+                'maxItems' => 10,
+                'validate_callback' => [self::class, 'validate_optional_string_id_array'],
+                'sanitize_callback' => [self::class, 'sanitize_optional_string_id_array'],
+            ],
+            // Compat legacy.
             'attachments' => [
                 'type' => 'array',
                 'required' => false,
                 'maxItems' => 10,
-                'items' => [
-                    'type' => 'integer',
-                    'minimum' => 1,
-                ],
+                'validate_callback' => [self::class, 'validate_optional_string_id_array'],
+                'sanitize_callback' => [self::class, 'sanitize_optional_string_id_array'],
+            ],
+        ];
+    }
+
+    public static function mark_messages_read_v1(): array
+    {
+        return [
+            'read_upto_seq' => [
+                'type' => 'integer',
+                'required' => false,
+                'minimum' => 0,
+            ],
+        ];
+    }
+
+    public static function artifact_access_v1(): array
+    {
+        return [
+            'prescription_id' => [
+                'type' => 'integer',
+                'required' => false,
+                'minimum' => 1,
+            ],
+            'disposition' => [
+                'type' => 'string',
+                'required' => false,
+                'enum' => ['inline', 'attachment'],
             ],
         ];
     }

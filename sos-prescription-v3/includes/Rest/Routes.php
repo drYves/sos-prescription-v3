@@ -203,6 +203,23 @@ final class Routes
             'args' => EndpointArgs::init_artifact_v1(),
         ]);
 
+        register_rest_route('sosprescription/v1', '/artifacts/(?P<artifact_id>[A-Za-z0-9\-]{8,64})/access', [
+            'methods' => 'POST',
+            'callback' => [$artifacts, 'access'],
+            'permission_callback' => [$artifacts, 'permissions_check_logged_in_nonce'],
+            'args' => array_merge(
+                [
+                    'artifact_id' => [
+                        'required' => true,
+                        'sanitize_callback' => static function ($value) {
+                            return is_scalar($value) ? trim((string) $value) : '';
+                        },
+                    ],
+                ],
+                EndpointArgs::artifact_access_v1()
+            ),
+        ]);
+
         // Fichiers legacy WordPress (conservés pour compatibilité / messagerie locale).
         register_rest_route('sosprescription/v1', '/files', [
             'methods' => 'POST',
@@ -248,6 +265,16 @@ final class Routes
             'args' => array_merge(
                 ['id' => EndpointArgs::id()],
                 EndpointArgs::create_message_v1()
+            ),
+        ]);
+
+        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages/read', [
+            'methods' => 'POST',
+            'callback' => [$messages, 'mark_as_read'],
+            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
+            'args' => array_merge(
+                ['id' => EndpointArgs::id()],
+                EndpointArgs::mark_messages_read_v1()
             ),
         ]);
 

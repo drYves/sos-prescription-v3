@@ -16,6 +16,9 @@
     list: [],
     details: {},
     pdf: {},
+    threads: {},
+    proofs: {},
+    detailTab: 'prescription',
     selectedId: 0,
     listFilter: 'pending',
     listLoading: false,
@@ -110,6 +113,46 @@
       '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
       '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
       '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
+      '.sosprescription-doctor .dc-item__alerts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}',
+      '.sosprescription-doctor .dc-pill-danger{background:#fee2e2;color:#991b1b;border-color:#fecaca;}',
+      '.sosprescription-doctor .dc-detail-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 16px;}',
+      '.sosprescription-doctor .dc-detail-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
+      '.sosprescription-doctor .dc-detail-tab:hover{background:#f8fafc;border-color:#cbd5e1;}',
+      '.sosprescription-doctor .dc-detail-tab.is-active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #bfdbfe;}',
+      '.sosprescription-doctor .dc-detail-panel{display:none;}',
+      '.sosprescription-doctor .dc-detail-panel.is-active{display:block;}',
+      '.sosprescription-doctor .dc-proof-layout{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:16px;align-items:start;}',
+      '.sosprescription-doctor .dc-proof-list{display:grid;gap:8px;}',
+      '.sosprescription-doctor .dc-proof-item{appearance:none;border:1px solid #e2e8f0;background:#fff;border-radius:14px;padding:10px 12px;text-align:left;cursor:pointer;transition:all .15s ease;}',
+      '.sosprescription-doctor .dc-proof-item:hover{background:#f8fafc;border-color:#cbd5e1;}',
+      '.sosprescription-doctor .dc-proof-item.is-active{background:#eff6ff;border-color:#bfdbfe;box-shadow:inset 0 0 0 1px #bfdbfe;}',
+      '.sosprescription-doctor .dc-proof-item__title{font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.sosprescription-doctor .dc-proof-item__meta{font-size:12px;color:#64748b;margin-top:4px;}',
+      '.sosprescription-doctor .dc-proof-viewer{border:1px solid #e2e8f0;border-radius:16px;background:#fff;overflow:hidden;min-height:480px;}',
+      '.sosprescription-doctor .dc-proof-viewer__frame{display:block;width:100%;height:72vh;min-height:480px;border:0;background:#fff;}',
+      '.sosprescription-doctor .dc-proof-viewer__image{display:block;max-width:100%;width:100%;height:auto;background:#fff;}',
+      '.sosprescription-doctor .dc-proof-placeholder{padding:24px;font-size:14px;color:#64748b;}',
+      '.sosprescription-doctor .dc-message-thread{display:grid;gap:12px;max-height:420px;overflow:auto;padding:4px;}',
+      '.sosprescription-doctor .dc-message-row{display:flex;}',
+      '.sosprescription-doctor .dc-message-row.is-doctor{justify-content:flex-end;}',
+      '.sosprescription-doctor .dc-message-row.is-patient{justify-content:flex-start;}',
+      '.sosprescription-doctor .dc-message-bubble{max-width:86%;border-radius:18px;padding:12px 14px;font-size:14px;line-height:1.45;box-shadow:0 1px 2px rgba(15,23,42,.06);}',
+      '.sosprescription-doctor .dc-message-row.is-doctor .dc-message-bubble{background:#0f172a;color:#fff;}',
+      '.sosprescription-doctor .dc-message-row.is-patient .dc-message-bubble{background:#f8fafc;color:#0f172a;border:1px solid #e2e8f0;}',
+      '.sosprescription-doctor .dc-message-meta{margin-top:8px;font-size:11px;opacity:.8;}',
+      '.sosprescription-doctor .dc-message-attachments{display:grid;gap:6px;margin-top:10px;}',
+      '.sosprescription-doctor .dc-message-attachment{appearance:none;border:1px solid rgba(148,163,184,.35);background:rgba(255,255,255,.14);color:inherit;border-radius:12px;padding:8px 10px;text-align:left;font-size:12px;cursor:pointer;}',
+      '.sosprescription-doctor .dc-message-row.is-patient .dc-message-attachment{background:#fff;color:#0f172a;border-color:#e2e8f0;}',
+      '.sosprescription-doctor .dc-message-compose{margin-top:16px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;display:grid;gap:12px;}',
+      '.sosprescription-doctor .dc-message-compose__row{display:flex;align-items:flex-end;gap:10px;}',
+      '.sosprescription-doctor .dc-message-compose__attach{appearance:none;border:1px solid #d1d5db;background:#fff;border-radius:10px;width:40px;height:40px;cursor:pointer;font-size:18px;}',
+      '.sosprescription-doctor .dc-message-compose__textarea{width:100%;border:1px solid #cbd5e1;border-radius:12px;background:#fff;padding:10px 12px;font-size:14px;min-height:78px;resize:vertical;outline:none;}',
+      '.sosprescription-doctor .dc-message-compose__textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.15);}',
+      '.sosprescription-doctor .dc-message-upload-chips{display:flex;flex-wrap:wrap;gap:8px;}',
+      '.sosprescription-doctor .dc-message-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:999px;padding:6px 10px;font-size:12px;color:#334155;}',
+      '.sosprescription-doctor .dc-message-chip__remove{appearance:none;border:none;background:transparent;color:#64748b;cursor:pointer;font-size:14px;line-height:1;}',
+      '.sosprescription-doctor .dc-message-empty{padding:18px 0;font-size:14px;color:#64748b;}',
+      '@media (max-width:980px){.sosprescription-doctor .dc-proof-layout{grid-template-columns:1fr;}.sosprescription-doctor .dc-proof-viewer__frame{height:60vh;min-height:360px;}}',
       '@keyframes dcSpin{to{transform:rotate(360deg);}}'
     ].join('');
     document.head.appendChild(style);
@@ -692,6 +735,351 @@
     return apiUploadFile(file, 'evidence', prescriptionId);
   }
 
+  function apiGetMessages(prescriptionId, afterSeq, limit) {
+    var numericId = Number(prescriptionId || 0);
+    var search = new URLSearchParams();
+    search.set('after_seq', String(Math.max(0, Number(afterSeq || 0))));
+    search.set('limit', String(Math.max(1, Math.min(100, Number(limit || 50)))));
+    return requestJson('GET', '/prescriptions/' + numericId + '/messages?' + search.toString(), undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS });
+  }
+
+  function apiCreateMessage(prescriptionId, body, attachmentArtifactIds) {
+    var numericId = Number(prescriptionId || 0);
+    var payload = {
+      body: String(body || '')
+    };
+    var ids = safeArray(attachmentArtifactIds).map(function (value) { return normalizeText(value); }).filter(Boolean);
+    if (ids.length > 0) {
+      payload.attachment_artifact_ids = ids;
+    }
+    return requestJson('POST', '/prescriptions/' + numericId + '/messages', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS });
+  }
+
+  function apiMarkMessagesRead(prescriptionId, readUptoSeq) {
+    var numericId = Number(prescriptionId || 0);
+    return requestJson('POST', '/prescriptions/' + numericId + '/messages/read', {
+      read_upto_seq: Math.max(0, Number(readUptoSeq || 0))
+    }, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS });
+  }
+
+  function apiGetArtifactAccess(artifactId, prescriptionId, disposition) {
+    var artifact = normalizeText(artifactId);
+    if (!artifact) {
+      return Promise.reject(new Error('Artefact invalide.'));
+    }
+
+    var payload = {
+      disposition: normalizeText(disposition).toLowerCase() === 'attachment' ? 'attachment' : 'inline'
+    };
+    var numericId = Number(prescriptionId || 0);
+    if (numericId > 0) {
+      payload.prescription_id = numericId;
+    }
+
+    return requestJson('POST', '/artifacts/' + encodeURIComponent(artifact) + '/access', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS });
+  }
+
+  function getThreadStore(id) {
+    var numericId = Number(id || 0);
+    var current = asObject(state.threads[numericId]);
+    if (!hasObjectKeys(current)) {
+      current = {
+        messages: [],
+        threadState: {},
+        loading: false,
+        error: '',
+        composerBody: '',
+        uploads: [],
+        uploading: false,
+        sending: false,
+        initialized: false
+      };
+    }
+    if (!Array.isArray(current.messages)) current.messages = [];
+    if (!Array.isArray(current.uploads)) current.uploads = [];
+    current.threadState = asObject(current.threadState);
+    current.loading = !!current.loading;
+    current.uploading = !!current.uploading;
+    current.sending = !!current.sending;
+    current.initialized = !!current.initialized;
+    current.error = normalizeText(current.error);
+    current.composerBody = typeof current.composerBody === 'string' ? current.composerBody : '';
+    return current;
+  }
+
+  function setThreadStore(id, patch) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return getThreadStore(0);
+    var next = Object.assign({}, getThreadStore(numericId), patch || {});
+    state.threads[numericId] = next;
+    return next;
+  }
+
+  function getProofStore(id) {
+    var numericId = Number(id || 0);
+    var current = asObject(state.proofs[numericId]);
+    if (!hasObjectKeys(current)) {
+      current = {
+        ids: [],
+        selectedId: '',
+        accessById: {},
+        loading: false,
+        error: '',
+        accessLoading: false,
+        accessError: ''
+      };
+    }
+    if (!Array.isArray(current.ids)) current.ids = [];
+    current.accessById = asObject(current.accessById);
+    current.loading = !!current.loading;
+    current.accessLoading = !!current.accessLoading;
+    current.error = normalizeText(current.error);
+    current.accessError = normalizeText(current.accessError);
+    current.selectedId = normalizeText(current.selectedId);
+    return current;
+  }
+
+  function setProofStore(id, patch) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return getProofStore(0);
+    var next = Object.assign({}, getProofStore(numericId), patch || {});
+    state.proofs[numericId] = next;
+    return next;
+  }
+
+  function syncProofStoreFromDetail(detailId, detail) {
+    var numericId = Number(detailId || 0);
+    if (numericId < 1) return getProofStore(0);
+    var ids = extractProofArtifactIds(detail);
+    patchLocalEvidenceState(numericId, ids);
+    var current = getProofStore(numericId);
+    var selectedId = current.selectedId && ids.indexOf(current.selectedId) !== -1 ? current.selectedId : (ids[0] || '');
+    return setProofStore(numericId, { ids: ids, selectedId: selectedId });
+  }
+
+  function openMessageAttachment(detailId, artifactId) {
+    return apiGetArtifactAccess(artifactId, detailId, 'attachment').then(function (payload) {
+      var access = payload && payload.access ? payload.access : null;
+      if (!access || !access.url) {
+        throw new Error('Lien de téléchargement indisponible.');
+      }
+      var anchor = document.createElement('a');
+      anchor.href = String(access.url);
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      return payload;
+    });
+  }
+
+  function loadProofAccess(detailId, artifactId, opts) {
+    opts = opts || {};
+    var numericId = Number(detailId || 0);
+    var proofId = normalizeText(artifactId);
+    if (numericId < 1 || !proofId) return Promise.resolve(null);
+
+    var proofStore = syncProofStoreFromDetail(numericId, state.details[numericId]);
+    var cached = asObject(proofStore.accessById)[proofId];
+    if (cached && cached.access && cached.access.url && !opts.force) {
+      setProofStore(numericId, { selectedId: proofId, accessError: '' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return Promise.resolve(cached);
+    }
+
+    setProofStore(numericId, { selectedId: proofId, accessLoading: true, accessError: '' });
+    if (Number(state.selectedId) === numericId) {
+      renderDetail();
+    }
+
+    return apiGetArtifactAccess(proofId, numericId, 'inline').then(function (payload) {
+      var nextStore = getProofStore(numericId);
+      var accessById = Object.assign({}, asObject(nextStore.accessById));
+      accessById[proofId] = payload;
+      setProofStore(numericId, { selectedId: proofId, accessById: accessById, accessLoading: false, accessError: '' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return payload;
+    }).catch(function (error) {
+      setProofStore(numericId, { accessLoading: false, accessError: error && error.message ? String(error.message) : 'Impossible de charger la preuve.' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return null;
+    });
+  }
+
+  function loadThread(detailId, opts) {
+    opts = opts || {};
+    var numericId = Number(detailId || 0);
+    if (numericId < 1) return Promise.resolve(null);
+
+    var thread = getThreadStore(numericId);
+    if (!opts.silent) {
+      setThreadStore(numericId, { loading: true, error: '' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+    }
+
+    return apiGetMessages(numericId, 0, 100).then(function (payload) {
+      var messages = safeArray(payload && payload.messages);
+      var threadState = asObject(payload && payload.thread_state);
+      setThreadStore(numericId, {
+        messages: messages,
+        threadState: threadState,
+        loading: false,
+        error: '',
+        initialized: true
+      });
+      patchLocalThreadState(numericId, threadState);
+      if (opts.markRead !== false && Number(threadState.unread_count_doctor || 0) > 0) {
+        return apiMarkMessagesRead(numericId, Number(threadState.last_message_seq || 0)).then(function (readPayload) {
+          var nextThreadState = asObject(readPayload && readPayload.thread_state);
+          if (hasObjectKeys(nextThreadState)) {
+            setThreadStore(numericId, { threadState: nextThreadState });
+            patchLocalThreadState(numericId, nextThreadState);
+          }
+          if (Number(state.selectedId) === numericId) {
+            renderDetail();
+          }
+          return payload;
+        }).catch(function () {
+          if (Number(state.selectedId) === numericId) {
+            renderDetail();
+          }
+          return payload;
+        });
+      }
+
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return payload;
+    }).catch(function (error) {
+      setThreadStore(numericId, { loading: false, error: error && error.message ? String(error.message) : 'Impossible de charger la messagerie.' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return null;
+    });
+  }
+
+  function queueMessageFiles(detailId, fileList) {
+    var numericId = Number(detailId || 0);
+    if (numericId < 1) return Promise.resolve([]);
+    var files = safeArray(fileList ? Array.prototype.slice.call(fileList) : []);
+    if (files.length < 1) return Promise.resolve([]);
+
+    setThreadStore(numericId, { uploading: true, error: '' });
+    if (Number(state.selectedId) === numericId) {
+      renderDetail();
+    }
+
+    return uploadComposeFiles(files, numericId).then(function (artifacts) {
+      var thread = getThreadStore(numericId);
+      setThreadStore(numericId, {
+        uploading: false,
+        uploads: thread.uploads.concat(safeArray(artifacts))
+      });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return artifacts;
+    }).catch(function (error) {
+      setThreadStore(numericId, { uploading: false, error: error && error.message ? String(error.message) : 'Impossible de téléverser la pièce jointe.' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return [];
+    });
+  }
+
+  function removeQueuedMessageFile(detailId, artifactId) {
+    var numericId = Number(detailId || 0);
+    if (numericId < 1) return;
+    var thread = getThreadStore(numericId);
+    setThreadStore(numericId, { uploads: thread.uploads.filter(function (file) { return normalizeText(file && file.id) !== normalizeText(artifactId); }) });
+    if (Number(state.selectedId) === numericId) {
+      renderDetail();
+    }
+  }
+
+  function sendThreadMessage(detailId) {
+    var numericId = Number(detailId || 0);
+    if (numericId < 1) return Promise.resolve(null);
+    var thread = getThreadStore(numericId);
+    var body = String(thread.composerBody || '').trim();
+    if (!body) return Promise.resolve(null);
+
+    setThreadStore(numericId, { sending: true, error: '' });
+    if (Number(state.selectedId) === numericId) {
+      renderDetail();
+    }
+
+    var attachmentIds = thread.uploads.map(function (file) { return normalizeText(file && file.id); }).filter(Boolean);
+    return apiCreateMessage(numericId, body, attachmentIds).then(function (payload) {
+      var nextMessages = thread.messages.slice();
+      if (payload && payload.message) {
+        nextMessages.push(payload.message);
+      }
+      var nextThreadState = asObject(payload && payload.thread_state);
+      setThreadStore(numericId, {
+        sending: false,
+        composerBody: '',
+        uploads: [],
+        messages: nextMessages,
+        threadState: hasObjectKeys(nextThreadState) ? nextThreadState : thread.threadState,
+        initialized: true
+      });
+      if (hasObjectKeys(nextThreadState)) {
+        patchLocalThreadState(numericId, nextThreadState);
+      }
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      fetchList({ silent: true });
+      return payload;
+    }).catch(function (error) {
+      setThreadStore(numericId, { sending: false, error: error && error.message ? String(error.message) : 'Impossible d’envoyer le message.' });
+      if (Number(state.selectedId) === numericId) {
+        renderDetail();
+      }
+      return null;
+    });
+  }
+
+  function setDetailTab(tabKey) {
+    var normalized = normalizeText(tabKey).toLowerCase();
+    if (['proofs', 'messages', 'prescription'].indexOf(normalized) === -1) {
+      normalized = 'prescription';
+    }
+    state.detailTab = normalized;
+
+    var detailId = Number(state.selectedId || 0);
+    if (detailId > 0) {
+      if (normalized === 'messages') {
+        loadThread(detailId, { silent: true, markRead: true });
+      } else if (normalized === 'proofs') {
+        syncProofStoreFromDetail(detailId, state.details[detailId]);
+        var proofStore = getProofStore(detailId);
+        if (proofStore.selectedId) {
+          loadProofAccess(detailId, proofStore.selectedId);
+        } else {
+          renderDetail();
+        }
+      } else {
+        renderDetail();
+      }
+    } else {
+      renderDetail();
+    }
+  }
+
   function formatDateDisplay(value) {
     var raw = normalizeText(value);
     if (!raw) return '—';
@@ -894,6 +1282,136 @@
     }
 
     return preview;
+  }
+
+  function extractShadowRoot(source) {
+    var payload = asObject(asObject(source).payload);
+    return asObject(payload.shadow);
+  }
+
+  function extractThreadShadowState(source) {
+    return asObject(extractShadowRoot(source).worker_thread);
+  }
+
+  function extractEvidenceShadowState(source) {
+    return asObject(extractShadowRoot(source).worker_evidence);
+  }
+
+  function extractFlowKey(source) {
+    var row = asObject(source);
+    var payload = asObject(row.payload);
+    var prescription = asObject(payload.prescription);
+    return firstText([
+      row.flow,
+      payload.flow,
+      prescription.flow,
+      row.flow_key,
+      payload.flow_key
+    ]).toLowerCase();
+  }
+
+  function extractProofArtifactIds(source) {
+    var evidence = extractEvidenceShadowState(source);
+    var payload = asObject(asObject(source).payload);
+    var raw = [];
+    if (Array.isArray(evidence.proof_artifact_ids)) {
+      raw = evidence.proof_artifact_ids;
+    } else if (Array.isArray(payload.proof_artifact_ids)) {
+      raw = payload.proof_artifact_ids;
+    }
+
+    var out = [];
+    for (var i = 0; i < raw.length; i += 1) {
+      var current = normalizeText(raw[i]);
+      if (!current) continue;
+      if (out.indexOf(current) !== -1) continue;
+      out.push(current);
+    }
+    return out;
+  }
+
+  function buildInboxAlertBadges(source) {
+    var badges = [];
+    var thread = extractThreadShadowState(source);
+    var evidence = extractEvidenceShadowState(source);
+    var unread = Number(thread.unread_count_doctor || 0);
+    if (unread > 0) {
+      badges.push(statusBadge(unread > 9 ? '9+' : String(unread), 'danger'));
+    }
+
+    var hasProof = !!evidence.has_proof || Number(evidence.proof_count || 0) > 0 || extractProofArtifactIds(source).length > 0;
+    if (hasProof) {
+      badges.push(statusBadge('Avec preuve', 'info'));
+    } else if (extractFlowKey(source) === 'depannage_no_proof') {
+      badges.push(statusBadge('Sans preuve', 'soft'));
+    }
+
+    return badges.join('');
+  }
+
+  function patchShadowOnRecord(record, patch) {
+    var row = asObject(record);
+    var payload = asObject(row.payload);
+    var shadow = asObject(payload.shadow);
+    Object.keys(patch || {}).forEach(function (key) {
+      shadow[key] = patch[key];
+    });
+    shadow.zero_pii = true;
+    shadow.mode = 'worker-postgres';
+    payload.shadow = shadow;
+    row.payload = payload;
+    return row;
+  }
+
+  function patchLocalThreadState(id, threadState) {
+    var numericId = Number(id || 0);
+    if (numericId < 1 || !threadState || typeof threadState !== 'object') return;
+
+    var normalized = {
+      message_count: Math.max(0, Number(threadState.message_count || 0)),
+      last_message_seq: Math.max(0, Number(threadState.last_message_seq || 0)),
+      last_message_at: normalizeText(threadState.last_message_at) || null,
+      last_message_role: normalizeText(threadState.last_message_role) || null,
+      doctor_last_read_seq: Math.max(0, Number(threadState.doctor_last_read_seq || 0)),
+      patient_last_read_seq: Math.max(0, Number(threadState.patient_last_read_seq || 0)),
+      unread_count_doctor: Math.max(0, Number(threadState.unread_count_doctor || 0)),
+      unread_count_patient: Math.max(0, Number(threadState.unread_count_patient || 0))
+    };
+
+    if (state.details[numericId]) {
+      state.details[numericId] = patchShadowOnRecord(state.details[numericId], { worker_thread: normalized });
+    }
+    state.list = safeArray(state.list).map(function (item) {
+      if (Number(item && item.id || 0) !== numericId) return item;
+      return patchShadowOnRecord(cloneValue(item) || {}, { worker_thread: normalized });
+    });
+  }
+
+  function patchLocalEvidenceState(id, proofArtifactIds) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return;
+
+    var ids = safeArray(proofArtifactIds).map(function (value) { return normalizeText(value); }).filter(Boolean);
+    var evidence = {
+      has_proof: ids.length > 0,
+      proof_count: ids.length,
+      proof_artifact_ids: ids
+    };
+
+    if (state.details[numericId]) {
+      var nextDetail = patchShadowOnRecord(state.details[numericId], { worker_evidence: evidence });
+      nextDetail.payload = asObject(nextDetail.payload);
+      nextDetail.payload.proof_artifact_ids = ids;
+      state.details[numericId] = nextDetail;
+    }
+
+    state.list = safeArray(state.list).map(function (item) {
+      if (Number(item && item.id || 0) !== numericId) return item;
+      var nextRow = patchShadowOnRecord(cloneValue(item) || {}, { worker_evidence: evidence });
+      nextRow.payload = asObject(nextRow.payload);
+      nextRow.payload.proof_artifact_ids = ids;
+      return nextRow;
+    });
   }
 
   function isExpressPriorityRecord(source) {
@@ -1318,6 +1836,7 @@
     var statusInfo = computeCaseStatus(source);
     var urgencyVariant = patient.priority === 'Express' ? 'warn' : 'soft';
     var medicationsPreview = buildMedicationPreview(source);
+    var alertBadges = buildInboxAlertBadges(source);
 
     return [
       '<div class="dc-item__row">',
@@ -1328,6 +1847,7 @@
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
       '    ' + statusBadge(patient.priority, urgencyVariant),
+      alertBadges ? '    <div class="dc-item__alerts">' + alertBadges + '</div>' : '',
       '  </div>'
     ].join('');
   }
@@ -2027,6 +2547,128 @@
     slot.setAttribute('data-pdf-doc-key', nextDocKey);
   }
 
+  function renderDetailTabs(detail) {
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var thread = extractThreadShadowState(detail);
+    var evidence = extractEvidenceShadowState(detail);
+    var unread = Number(thread.unread_count_doctor || 0);
+    var hasProof = !!evidence.has_proof || Number(evidence.proof_count || 0) > 0 || extractProofArtifactIds(detail).length > 0;
+    var tabs = [
+      { key: 'prescription', label: 'Ordonnance' },
+      { key: 'proofs', label: 'Preuves', badge: hasProof ? '•' : '' },
+      { key: 'messages', label: 'Messages', badge: unread > 0 ? (unread > 9 ? '9+' : String(unread)) : '' }
+    ];
+
+    return tabs.map(function (tab) {
+      var active = tab.key === state.detailTab;
+      var badgeHtml = tab.badge ? '<span class="dc-pill ' + (tab.key === 'messages' ? 'dc-pill-danger' : 'dc-pill-soft') + '">' + escHtml(tab.badge) + '</span>' : '';
+      return '<button type="button" class="dc-detail-tab' + (active ? ' is-active' : '') + '" data-action="set-detail-tab" data-tab="' + escHtml(tab.key) + '">' + escHtml(tab.label) + (badgeHtml ? ' ' + badgeHtml : '') + '</button>';
+    }).join('');
+  }
+
+  function renderProofPanel(detail) {
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var flowKey = extractFlowKey(detail);
+    var proofStore = syncProofStoreFromDetail(detailId, detail);
+    var ids = safeArray(proofStore.ids);
+
+    if (ids.length < 1) {
+      if (flowKey === 'depannage_no_proof') {
+        return '<div class="dc-proof-placeholder">Aucune preuve fournie : dossier en mode dépannage.</div>';
+      }
+      return '<div class="dc-proof-placeholder">Aucune preuve disponible pour ce dossier.</div>';
+    }
+
+    var selectedId = proofStore.selectedId || ids[0];
+    var accessPayload = asObject(asObject(proofStore.accessById)[selectedId]);
+    var artifact = asObject(accessPayload.artifact);
+    var access = asObject(accessPayload.access);
+    var viewerHtml = '';
+    if (proofStore.accessLoading && !access.url) {
+      viewerHtml = '<div class="dc-proof-placeholder">Chargement de la preuve…</div>';
+    } else if (proofStore.accessError && !access.url) {
+      viewerHtml = '<div class="dc-proof-placeholder">' + escHtml(proofStore.accessError) + '</div>';
+    } else if (access.url) {
+      var mime = normalizeText(artifact.mime_type || artifact.mime || '');
+      if (mime === 'application/pdf' || /pdf/i.test(mime)) {
+        viewerHtml = '<iframe class="dc-proof-viewer__frame" src="' + escHtml(String(access.url)) + '#toolbar=0&view=FitH" loading="lazy"></iframe>';
+      } else {
+        viewerHtml = '<img class="dc-proof-viewer__image" src="' + escHtml(String(access.url)) + '" alt="Preuve médicale" loading="lazy" />';
+      }
+    } else {
+      viewerHtml = '<div class="dc-proof-placeholder">Sélectionnez une preuve pour l’afficher.</div>';
+    }
+
+    return [
+      '<div class="dc-proof-layout">',
+      '  <div class="dc-proof-list">',
+      ids.map(function (artifactId, index) {
+        var currentPayload = asObject(asObject(proofStore.accessById)[artifactId]);
+        var currentArtifact = asObject(currentPayload.artifact);
+        var label = normalizeText(currentArtifact.original_name) || ('Preuve ' + String(index + 1));
+        var meta = normalizeText(currentArtifact.mime_type) || 'Document';
+        return '<button type="button" class="dc-proof-item' + (artifactId === selectedId ? ' is-active' : '') + '" data-action="select-proof" data-artifact-id="' + escHtml(artifactId) + '"><div class="dc-proof-item__title">' + escHtml(label) + '</div><div class="dc-proof-item__meta">' + escHtml(meta) + '</div></button>';
+      }).join(''),
+      '  </div>',
+      '  <div class="dc-proof-viewer">' + viewerHtml + '</div>',
+      '</div>'
+    ].join('');
+  }
+
+  function renderMessagesPanel(detail) {
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var thread = getThreadStore(detailId);
+    var threadState = hasObjectKeys(thread.threadState) ? thread.threadState : extractThreadShadowState(detail);
+    var unread = Number(threadState.unread_count_doctor || 0);
+    var messagesHtml = '';
+
+    if (thread.loading && thread.messages.length < 1) {
+      messagesHtml = '<div class="dc-message-empty">Chargement du fil de discussion…</div>';
+    } else if (thread.error && thread.messages.length < 1) {
+      messagesHtml = '<div class="dc-message-empty">' + escHtml(thread.error) + '</div>';
+    } else if (thread.messages.length < 1) {
+      messagesHtml = '<div class="dc-message-empty">Aucun message pour le moment. Vous pouvez écrire au patient depuis cet espace.</div>';
+    } else {
+      messagesHtml = '<div class="dc-message-thread">' + thread.messages.map(function (message) {
+        var role = normalizeText(message && message.author_role).toLowerCase();
+        var isDoctor = role === 'doctor';
+        var attachments = safeArray(message && message.attachments);
+        return [
+          '<div class="dc-message-row ' + (isDoctor ? 'is-doctor' : 'is-patient') + '">',
+          '  <div class="dc-message-bubble">',
+          '    <div>' + escHtml(message && message.body || '') + '</div>',
+          attachments.length > 0 ? '    <div class="dc-message-attachments">' + attachments.map(function (attachment) {
+            var artifactId = normalizeText(attachment && attachment.id);
+            return '<button type="button" class="dc-message-attachment" data-action="open-message-attachment" data-artifact-id="' + escHtml(artifactId) + '">' + escHtml(normalizeText(attachment && attachment.original_name) || 'Pièce jointe') + '</button>';
+          }).join('') + '</div>' : '',
+          '    <div class="dc-message-meta">' + escHtml(formatRelativeDate(message && message.created_at)) + '</div>',
+          '  </div>',
+          '</div>'
+        ].join('');
+      }).join('') + '</div>';
+    }
+
+    var uploads = safeArray(thread.uploads);
+    return [
+      thread.error && thread.messages.length > 0 ? '<div class="dc-notice dc-notice-error">' + escHtml(thread.error) + '</div>' : '',
+      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus.' + ' <button type="button" class="dc-btn dc-btn-secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
+      messagesHtml,
+      '<div class="dc-message-compose">',
+      '  <div class="dc-card__title">Répondre au patient</div>',
+      '  <input type="file" data-role="message-file-input" multiple accept="image/*,application/pdf" style="display:none;" />',
+      '  <div class="dc-message-compose__row">',
+      '    <button type="button" class="dc-message-compose__attach" data-action="pick-message-files" title="Ajouter une pièce jointe">📎</button>',
+      '    <textarea class="dc-message-compose__textarea" data-role="message-body" placeholder="Votre message au patient…">' + escHtml(thread.composerBody || '') + '</textarea>',
+      '    <button type="button" class="dc-btn dc-btn-secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || thread.uploading || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
+      '  </div>',
+      thread.uploading ? '  <div class="dc-message-empty">Upload en cours…</div>' : '',
+      uploads.length > 0 ? '  <div class="dc-message-upload-chips">' + uploads.map(function (file) {
+        return '<span class="dc-message-chip"><span>' + escHtml(normalizeText(file && file.original_name) || 'Pièce jointe') + '</span><button type="button" class="dc-message-chip__remove" data-action="remove-message-upload" data-artifact-id="' + escHtml(normalizeText(file && file.id)) + '">×</button></span>';
+      }).join('') + '</div>' : '',
+      '</div>'
+    ].join('');
+  }
+
   function buildDetailSkeleton(detailId) {
     return [
       '<div class="dc-detail-pane" data-dc-detail-pane data-case-id="' + escHtml(detailId) + '">',
@@ -2038,23 +2680,28 @@
       '    </div>',
       '    <div class="dc-detail-head__aside" data-dc-header-badges></div>',
       '  </div>',
-      '  <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
-      '    <div class="dc-card__title">Patient</div>',
-      '    <div class="dc-summary-grid">',
-      '      <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
-      '      <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '  <div class="dc-detail-tabs" data-dc-detail-tabs></div>',
+      '  <div class="dc-detail-panel" data-dc-panel="prescription">',
+      '    <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
+      '      <div class="dc-card__title">Patient</div>',
+      '      <div class="dc-summary-grid">',
+      '        <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '        <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '      </div>',
       '    </div>',
+      '    <div class="dc-meds-card">',
+      '      <div class="dc-card__title">Ordonnance</div>',
+      '      <div data-dc-meds></div>',
+      '    </div>',
+      '    <div data-dc-pdf-slot></div>',
+      '    <div class="dc-decisionbar">',
+      '      <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
+      '      <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
+      '    </div>',
+      '    <div data-dc-refusal-slot></div>',
       '  </div>',
-      '  <div class="dc-meds-card">',
-      '    <div class="dc-card__title">Ordonnance</div>',
-      '    <div data-dc-meds></div>',
-      '  </div>',
-      '  <div data-dc-pdf-slot></div>',
-      '  <div class="dc-decisionbar">',
-      '    <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
-      '    <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
-      '  </div>',
-      '  <div data-dc-refusal-slot></div>',
+      '  <div class="dc-detail-panel" data-dc-panel="proofs"></div>',
+      '  <div class="dc-detail-panel" data-dc-panel="messages"></div>',
       '</div>'
     ].join('');
   }
@@ -2083,6 +2730,15 @@
         statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft')
       ].join('');
     }
+
+    var detailTabs = detailEl.querySelector('[data-dc-detail-tabs]');
+    if (detailTabs) {
+      detailTabs.innerHTML = renderDetailTabs(detail);
+    }
+
+    Array.prototype.slice.call(detailEl.querySelectorAll('[data-dc-panel]')).forEach(function (panel) {
+      panel.classList.toggle('is-active', normalizeText(panel.getAttribute('data-dc-panel') || panel.getAttribute('data-panel')).toLowerCase() === state.detailTab);
+    });
 
     var summaryCard = detailEl.querySelector('[data-dc-summary-card]');
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
@@ -2133,6 +2789,39 @@
 
     var pdfSlot = detailEl.querySelector('[data-dc-pdf-slot]');
     renderPdfInto(pdfSlot, detail);
+
+    var proofsPanel = detailEl.querySelector('[data-dc-panel="proofs"]');
+    if (proofsPanel) {
+      proofsPanel.innerHTML = renderProofPanel(detail);
+    }
+
+    var messagesPanel = detailEl.querySelector('[data-dc-panel="messages"]');
+    if (messagesPanel) {
+      messagesPanel.innerHTML = renderMessagesPanel(detail);
+    }
+
+    if (state.detailTab === 'messages') {
+      var thread = getThreadStore(detailId);
+      if (!thread.initialized && !thread.loading) {
+        loadThread(detailId, { silent: true, markRead: true });
+      } else if (Number(asObject(thread.threadState).unread_count_doctor || 0) > 0) {
+        apiMarkMessagesRead(detailId, Number(asObject(thread.threadState).last_message_seq || 0)).then(function (payload) {
+          var nextThreadState = asObject(payload && payload.thread_state);
+          if (hasObjectKeys(nextThreadState)) {
+            setThreadStore(detailId, { threadState: nextThreadState });
+            patchLocalThreadState(detailId, nextThreadState);
+            renderDetail();
+          }
+        }).catch(function () {});
+      }
+    }
+
+    if (state.detailTab === 'proofs') {
+      var proofStore = syncProofStoreFromDetail(detailId, detail);
+      if (proofStore.selectedId && !asObject(asObject(proofStore.accessById)[proofStore.selectedId]).access && !proofStore.accessLoading) {
+        loadProofAccess(detailId, proofStore.selectedId);
+      }
+    }
   }
 
   function renderDetail() {
@@ -2680,8 +3369,73 @@
       return;
     }
 
+    if (action === 'set-detail-tab') {
+      setDetailTab(actionEl.getAttribute('data-tab') || 'prescription');
+      return;
+    }
+
     if (action === 'select') {
       selectCase(Number(actionEl.getAttribute('data-id') || 0));
+      return;
+    }
+
+    if (action === 'select-proof') {
+      var proofArtifactId = normalizeText(actionEl.getAttribute('data-artifact-id'));
+      var proofDetailId = Number(state.selectedId || 0);
+      if (proofDetailId > 0 && proofArtifactId) {
+        setProofStore(proofDetailId, { selectedId: proofArtifactId, accessError: '' });
+        renderDetail();
+        loadProofAccess(proofDetailId, proofArtifactId);
+      }
+      return;
+    }
+
+    if (action === 'open-message-attachment') {
+      var attachmentId = normalizeText(actionEl.getAttribute('data-artifact-id'));
+      var attachmentDetailId = Number(state.selectedId || 0);
+      if (attachmentDetailId > 0 && attachmentId) {
+        openMessageAttachment(attachmentDetailId, attachmentId).catch(function (error) {
+          showNotice('error', error && error.message ? String(error.message) : 'Impossible d’ouvrir la pièce jointe.');
+        });
+      }
+      return;
+    }
+
+    if (action === 'pick-message-files') {
+      var fileInput = root.querySelector('[data-role="message-file-input"]');
+      if (fileInput && typeof fileInput.click === 'function') {
+        fileInput.click();
+      }
+      return;
+    }
+
+    if (action === 'remove-message-upload') {
+      removeQueuedMessageFile(Number(state.selectedId || 0), actionEl.getAttribute('data-artifact-id') || '');
+      return;
+    }
+
+    if (action === 'send-message') {
+      sendThreadMessage(Number(state.selectedId || 0));
+      return;
+    }
+
+    if (action === 'mark-messages-read') {
+      var detailId = Number(state.selectedId || 0);
+      if (detailId > 0) {
+        var thread = getThreadStore(detailId);
+        var lastSeq = Number(asObject(thread.threadState).last_message_seq || extractThreadShadowState(state.details[detailId]).last_message_seq || 0);
+        apiMarkMessagesRead(detailId, lastSeq).then(function (payload) {
+          var nextThreadState = asObject(payload && payload.thread_state);
+          if (hasObjectKeys(nextThreadState)) {
+            setThreadStore(detailId, { threadState: nextThreadState });
+            patchLocalThreadState(detailId, nextThreadState);
+            renderDetail();
+            patchInboxList();
+          }
+        }).catch(function (error) {
+          showNotice('error', error && error.message ? String(error.message) : 'Impossible de marquer les messages comme lus.');
+        });
+      }
       return;
     }
 
@@ -2746,12 +3500,24 @@
       submitDecision('rejected');
     }
   }
-
   function handleRootChange(event) {
     var target = event.target;
     if (!target || !target.getAttribute) return;
 
     var role = normalizeText(target.getAttribute('data-role')).toLowerCase();
+
+    if (role === 'message-file-input') {
+      var selectedId = Number(state.selectedId || 0);
+      if (selectedId > 0) {
+        queueMessageFiles(selectedId, target.files || null).then(function () {
+          try {
+            target.value = '';
+          } catch (e) {}
+        });
+      }
+      return;
+    }
+
     if (!role || role.indexOf('med-editor-') !== 0) return;
     if (!state.medEditor || !state.medEditor.detailId) return;
 
@@ -2835,7 +3601,6 @@
       return;
     }
   }
-
   function handleRootInput(event) {
     var target = event.target;
     if (!target) return;
@@ -2846,6 +3611,15 @@
     }
 
     var role = normalizeText(target.getAttribute && target.getAttribute('data-role')).toLowerCase();
+
+    if (role === 'message-body') {
+      var detailId = Number(state.selectedId || 0);
+      if (detailId > 0) {
+        setThreadStore(detailId, { composerBody: String(target.value || '') });
+      }
+      return;
+    }
+
     if (!role || role.indexOf('med-editor-') !== 0) return;
     if (!state.medEditor || !state.medEditor.detailId) return;
 
@@ -2864,6 +3638,7 @@
       state.medEditor.draft = normalizeMedicationEditorDraft(draft);
     }
   }
+
 
   render();
   fetchList();

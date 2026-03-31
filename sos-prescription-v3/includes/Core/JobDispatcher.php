@@ -95,6 +95,114 @@ final class JobDispatcher
         return $this->postSignedJson('/api/v1/artifacts/upload/init', $body, $reqId, 'artifact_upload_init');
     }
 
+
+    /**
+     * @param array<string, mixed> $actorPayload
+     * @return array<string, mixed>
+     */
+    public function queryPrescriptionMessages(string $workerPrescriptionId, array $actorPayload, int $afterSeq = 0, int $limit = 50, ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $prescriptionId = trim($workerPrescriptionId);
+        if ($prescriptionId === '') {
+            throw new RuntimeException('ID de prescription Worker manquant.');
+        }
+
+        $actor = $this->normalizeActorPayload($actorPayload);
+        $afterSeq = max(0, $afterSeq);
+        $limit = max(1, min(200, $limit));
+
+        $params = [
+            'actor_role' => $actor['role'],
+        ];
+        if ($actor['wp_user_id'] !== null) {
+            $params['actor_wp_user_id'] = (string) $actor['wp_user_id'];
+        }
+        $params['after_seq'] = (string) $afterSeq;
+        $params['limit'] = (string) $limit;
+
+        $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/messages?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+        return $this->getSignedJson($path, $reqId, 'messages_query');
+    }
+
+    /**
+     * @param array<string, mixed> $actorPayload
+     * @param array<int, string>|null $attachmentArtifactIds
+     * @return array<string, mixed>
+     */
+    public function createPrescriptionMessage(string $workerPrescriptionId, array $actorPayload, string $body, ?array $attachmentArtifactIds = null, ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $prescriptionId = trim($workerPrescriptionId);
+        if ($prescriptionId === '') {
+            throw new RuntimeException('ID de prescription Worker manquant.');
+        }
+
+        $messageBody = trim($body);
+        if ($messageBody === '') {
+            throw new RuntimeException('Le message est vide.');
+        }
+
+        $payload = [
+            'actor' => $this->normalizeActorPayload($actorPayload),
+            'message' => [
+                'body' => $messageBody,
+            ],
+        ];
+
+        $normalizedIds = $this->normalizeStringIdArray($attachmentArtifactIds ?? []);
+        if ($normalizedIds !== []) {
+            $payload['message']['attachment_artifact_ids'] = $normalizedIds;
+        }
+
+        $bodyPayload = $this->normalizeEnvelope($payload, $reqId);
+        $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/messages';
+        return $this->postSignedJson($path, $bodyPayload, $reqId, 'messages_create');
+    }
+
+    /**
+     * @param array<string, mixed> $actorPayload
+     * @return array<string, mixed>
+     */
+    public function markPrescriptionMessagesRead(string $workerPrescriptionId, array $actorPayload, int $readUptoSeq, ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $prescriptionId = trim($workerPrescriptionId);
+        if ($prescriptionId === '') {
+            throw new RuntimeException('ID de prescription Worker manquant.');
+        }
+
+        $payload = $this->normalizeEnvelope([
+            'actor' => $this->normalizeActorPayload($actorPayload),
+            'read_upto_seq' => max(0, $readUptoSeq),
+        ], $reqId);
+
+        $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/messages/read';
+        return $this->postSignedJson($path, $payload, $reqId, 'messages_read');
+    }
+
+    /**
+     * @param array<string, mixed> $actorPayload
+     * @return array<string, mixed>
+     */
+    public function createArtifactAccess(string $artifactId, array $actorPayload, string $disposition = 'inline', ?string $reqId = null): array
+    {
+        $reqId = ReqId::coalesce($reqId);
+        $artifactId = trim($artifactId);
+        if ($artifactId === '') {
+            throw new RuntimeException('ID artefact Worker manquant.');
+        }
+
+        $normalizedDisposition = strtolower(trim($disposition)) === 'attachment' ? 'attachment' : 'inline';
+        $payload = $this->normalizeEnvelope([
+            'actor' => $this->normalizeActorPayload($actorPayload),
+            'disposition' => $normalizedDisposition,
+        ], $reqId);
+
+        $path = '/api/v1/artifacts/' . rawurlencode($artifactId) . '/access';
+        return $this->postSignedJson($path, $payload, $reqId, 'artifact_access');
+    }
+
     /**
      * @param array<string, mixed> $doctorPayload
      * @return array<string, mixed>
@@ -453,6 +561,144 @@ final class JobDispatcher
         ], $reqId);
 
         return $decoded;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getSignedJson(string $path, string $reqId, string $scope): array
+    {
+        if ($this->workerBaseUrl === '') {
+            throw new RuntimeException('La constante ML_WORKER_BASE_URL est manquante ou vide dans wp-config.php');
+        }
+
+        $normalizedPath = self::normalizeApiPath($path);
+        $tsMs = (int) floor(microtime(true) * 1000);
+        $nonce = $this->generateUrlSafeRandom(16);
+        $canonicalPayload = sprintf('GET|%s|%d|%s', $normalizedPath, $tsMs, $nonce);
+
+        $headers = [
+            'Accept' => 'application/json',
+            'X-MedLab-Signature' => $this->buildMls1Token($canonicalPayload),
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+        ];
+        if ($this->kid !== null && $this->kid !== '') {
+            $headers['X-MedLab-Kid'] = $this->kid;
+        }
+
+        $response = wp_remote_get($this->workerBaseUrl . $normalizedPath, [
+            'headers' => $headers,
+            'timeout' => $this->timeoutS,
+            'redirection' => 0,
+            'blocking' => true,
+        ]);
+
+        if (is_wp_error($response)) {
+            $errMsg = $response->get_error_message();
+            $this->logger->error('worker.bridge.http_error', [
+                'scope' => $scope,
+                'path' => $normalizedPath,
+                'error_code' => $response->get_error_code(),
+                'error_message' => $errMsg,
+            ], $reqId);
+            throw new RuntimeException('Requête bloquée par WordPress : ' . $errMsg);
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($response);
+        $body = (string) wp_remote_retrieve_body($response);
+        $responseHeaders = wp_remote_retrieve_headers($response);
+
+        $sigHeader = $this->getHeaderValue($responseHeaders, 'x-medlab-signature');
+        if (!$this->verifyMls1SignedBody($sigHeader, $body)) {
+            $this->logger->error('worker.bridge.bad_signature', [
+                'scope' => $scope,
+                'path' => $normalizedPath,
+                'http_status' => $status,
+            ], $reqId);
+            throw new RuntimeException('Invalid Worker response signature');
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            $this->logger->error('worker.bridge.bad_json', [
+                'scope' => $scope,
+                'path' => $normalizedPath,
+                'http_status' => $status,
+            ], $reqId);
+            throw new RuntimeException('Invalid Worker JSON response');
+        }
+
+        if ($status < 200 || $status >= 300 || (array_key_exists('ok', $decoded) && $decoded['ok'] !== true)) {
+            $code = isset($decoded['code']) && is_scalar($decoded['code']) ? (string) $decoded['code'] : 'ML_WORKER_REJECTED';
+            $msg = isset($decoded['message']) && is_scalar($decoded['message']) ? (string) $decoded['message'] : 'Rejeté';
+            $this->logger->error('worker.bridge.rejected', [
+                'scope' => $scope,
+                'path' => $normalizedPath,
+                'http_status' => $status,
+                'error_code' => $code,
+            ], $reqId);
+            throw new RuntimeException(sprintf('Worker HTTP %d : %s (%s)', $status, $msg, $code));
+        }
+
+        $this->logger->info('worker.bridge.accepted', [
+            'scope' => $scope,
+            'path' => $normalizedPath,
+            'http_status' => $status,
+        ], $reqId);
+
+        return $decoded;
+    }
+
+    /**
+     * @param array<string, mixed> $actorPayload
+     * @return array{role:string,wp_user_id:int|null}
+     */
+    private function normalizeActorPayload(array $actorPayload): array
+    {
+        $rawRole = strtoupper(trim((string) ($actorPayload['role'] ?? 'PATIENT')));
+        $role = in_array($rawRole, ['DOCTOR', 'PATIENT', 'SYSTEM'], true) ? $rawRole : 'PATIENT';
+
+        $rawWpUserId = $actorPayload['wp_user_id'] ?? $actorPayload['wpUserId'] ?? null;
+        $wpUserId = null;
+        if ($rawWpUserId !== null && $rawWpUserId !== '' && is_numeric($rawWpUserId)) {
+            $wpUserId = (int) $rawWpUserId;
+            if ($wpUserId < 1) {
+                $wpUserId = null;
+            }
+        }
+
+        return [
+            'role' => $role,
+            'wp_user_id' => $wpUserId,
+        ];
+    }
+
+    /**
+     * @param array<int, mixed> $ids
+     * @return array<int, string>
+     */
+    private function normalizeStringIdArray(array $ids): array
+    {
+        $out = [];
+        foreach ($ids as $raw) {
+            if ($raw === null || !is_scalar($raw)) {
+                continue;
+            }
+            $id = trim((string) $raw);
+            if ($id === '') {
+                continue;
+            }
+            if (strlen($id) < 8 || strlen($id) > 64) {
+                continue;
+            }
+            $out[] = $id;
+            if (count($out) >= 10) {
+                break;
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 
     private function buildMls1Token(string $rawPayload): string

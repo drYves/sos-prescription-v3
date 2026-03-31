@@ -471,7 +471,8 @@ final class PrescriptionRepository
                        flow, priority,
                        payment_status, amount_cents, currency,
                        last_activity_at, assigned_at,
-                       created_at, updated_at, decided_at
+                       created_at, updated_at, decided_at,
+                       payload_json
                 FROM {$table}
                 {$where_sql}
                 ORDER BY created_at DESC, id DESC
@@ -484,6 +485,12 @@ final class PrescriptionRepository
         $prepared = $wpdb->prepare($sql, $params);
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
         $rows = $wpdb->get_results($prepared, ARRAY_A) ?: [];
+
+        foreach ($rows as &$row) {
+            $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
+            $row['payload'] = is_array($payload) ? $payload : [];
+        }
+        unset($row);
 
         return $rows;
     }
@@ -529,7 +536,8 @@ final class PrescriptionRepository
                        flow, priority,
                        payment_status, amount_cents, currency,
                        last_activity_at, assigned_at,
-                       created_at, updated_at, decided_at
+                       created_at, updated_at, decided_at,
+                       payload_json
                 FROM {$table}
                 {$where_sql}
                 ORDER BY created_at DESC, id DESC
@@ -542,6 +550,12 @@ final class PrescriptionRepository
 		$prepared = $wpdb->prepare($sql, $params);
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		$rows = $wpdb->get_results($prepared, ARRAY_A) ?: [];
+
+		foreach ($rows as &$row) {
+			$payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
+			$row['payload'] = is_array($payload) ? $payload : [];
+		}
+		unset($row);
 
 		return $rows;
 	}
