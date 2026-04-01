@@ -21,6 +21,7 @@ import { NonceCache } from "../security/nonceCache";
 import { S3Service } from "../s3/s3Service";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
+const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
 
 type PostgresApprovalRepo = JobsRepo;
@@ -108,6 +109,17 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "PUT" && path === "/api/v1/artifacts/upload/direct") {
         return await handleArtifactUploadDirect(req, res, deps, signingSecret, url);
+      }
+
+      const artifactAccessMatch = method === "POST" ? path.match(/^\/api\/v1\/artifacts\/([^/]+)\/access$/) : null;
+      if (artifactAccessMatch) {
+        return await handleArtifactAccess(
+          req,
+          res,
+          deps,
+          signingSecret,
+          decodeURIComponent(artifactAccessMatch[1]),
+        );
       }
 
       const artifactAnalyzeMatch = method === "POST" ? path.match(/^\/api\/v1\/artifacts\/([^/]+)\/analyze$/) : null;
@@ -615,6 +627,86 @@ async function handleArtifactUploadDirect(
   }
 }
 
+async function handleArtifactAccess(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  artifactId: string,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/artifacts/${artifactId}/access`);
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as Record<string, unknown>;
+    const actor = normalizeActorInput(body.actor);
+    const disposition = normalizeArtifactAccessDisposition(body.disposition);
+    const artifact = await deps.artifactRepo.getReadyArtifactForActor(artifactId, actor);
+
+    if (!artifact) {
+      return sendJson(res, 404, { ok: false, code: "ML_ARTIFACT_NOT_FOUND" }, signingSecret);
+    }
+
+    if (!artifact.s3Key) {
+      return sendJson(res, 409, { ok: false, code: "ML_ARTIFACT_NOT_READY" }, signingSecret);
+    }
+
+    const bucket = artifact.s3Bucket && artifact.s3Bucket.trim() !== "" ? artifact.s3Bucket : deps.artifactsBucket;
+    const accessUrl = await deps.s3.createPresignedAccessUrl({
+      bucket,
+      key: artifact.s3Key,
+      expiresInSeconds: ARTIFACT_ACCESS_TTL_SECONDS,
+      contentDisposition: buildArtifactContentDisposition(disposition, artifact.originalName),
+      contentType: artifact.mimeType,
+    });
+
+    deps.logger.info(
+      "artifact.access.generated",
+      {
+        artifact_id: artifact.id,
+        kind: artifact.kind,
+        actor_role: actor.role,
+        owner_role: artifact.ownerRole,
+        disposition,
+        expires_in: ARTIFACT_ACCESS_TTL_SECONDS,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact: serializeArtifact(artifact),
+        access: {
+          url: accessUrl,
+          disposition,
+          expires_in: ARTIFACT_ACCESS_TTL_SECONDS,
+          mime_type: artifact.mimeType,
+        },
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "artifact_access_failed";
+    deps.logger.error(
+      "artifact.access.failed",
+      {
+        artifact_id: artifactId,
+        reason: message,
+      },
+      reqId,
+    );
+    return sendJson(res, 500, { ok: false, code: "ML_ARTIFACT_ACCESS_FAILED" }, signingSecret);
+  }
+}
+
 async function handleArtifactAnalyze(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -741,6 +833,25 @@ async function handleArtifactAnalyze(
       signingSecret,
     );
   }
+}
+
+function normalizeArtifactAccessDisposition(value: unknown): "inline" | "attachment" {
+  return typeof value === "string" && value.trim().toLowerCase() === "attachment" ? "attachment" : "inline";
+}
+
+function buildArtifactContentDisposition(disposition: "inline" | "attachment", originalName: string): string {
+  const fallbackName = sanitizeDispositionFilename(originalName) || "document";
+  const encoded = encodeURIComponent(fallbackName).replace(/['()]/g, escape).replace(/\*/g, "%2A");
+  return `${disposition}; filename="${fallbackName}"; filename*=UTF-8''${encoded}`;
+}
+
+function sanitizeDispositionFilename(value: string): string {
+  return String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\/]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
 }
 
 function buildAnalyzeFailurePayload(

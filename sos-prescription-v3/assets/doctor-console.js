@@ -794,6 +794,67 @@
     return requestJson('POST', '/artifacts/' + encodeURIComponent(artifact) + '/access', payload, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS });
   }
 
+
+  function normalizeArtifactAccessPayload(payload) {
+    var raw = asObject(payload);
+    var artifact = asObject(raw.artifact);
+    var access = asObject(raw.access);
+    var url = firstText([
+      access.url,
+      access.download_url,
+      access.downloadUrl,
+      raw.url,
+      raw.download_url,
+      raw.downloadUrl
+    ]);
+    if (url) {
+      access.url = url;
+    }
+    var mime = firstText([
+      access.mime_type,
+      access.mime,
+      raw.mime_type,
+      raw.mime,
+      artifact.mime_type,
+      artifact.mime
+    ]);
+    if (mime) {
+      access.mime_type = mime;
+    }
+    var dispositionText = firstText([
+      access.disposition,
+      raw.disposition
+    ]);
+    if (dispositionText) {
+      access.disposition = dispositionText;
+    }
+    var expiresIn = Number(access.expires_in || raw.expires_in || 0);
+    if (Number.isFinite(expiresIn) && expiresIn > 0) {
+      access.expires_in = expiresIn;
+    }
+    return {
+      artifact: artifact,
+      access: access
+    };
+  }
+
+  function getArtifactAccessUrl(payload) {
+    return normalizeText(asObject(normalizeArtifactAccessPayload(payload).access).url);
+  }
+
+  function getArtifactAccessMimeType(payload) {
+    return normalizeText(asObject(normalizeArtifactAccessPayload(payload).access).mime_type || '').toLowerCase();
+  }
+
+  function renderProofErrorHtml(message, artifactId, placeholderClass) {
+    var artifact = normalizeText(artifactId);
+    var klass = normalizeText(placeholderClass) || 'dc-proof-placeholder';
+    var buttonHtml = artifact
+      ? '<div style="margin-top:12px;"><button type="button" class="dc-btn dc-btn-secondary" data-action="retry-proof" data-artifact-id="' + escHtml(artifact) + '">Réessayer</button></div>'
+      : '';
+    return '<div class="' + escHtml(klass) + '">' + escHtml(message || 'Impossible de charger la preuve.') + buttonHtml + '</div>';
+  }
+
   function getThreadStore(id) {
     var numericId = Number(id || 0);
     var current = asObject(state.threads[numericId]);
@@ -897,7 +958,7 @@
 
     var proofStore = syncProofStoreFromDetail(numericId, state.details[numericId]);
     var cached = asObject(proofStore.accessById)[proofId];
-    if (cached && cached.access && cached.access.url && !opts.force) {
+    if (getArtifactAccessUrl(cached) && !opts.force) {
       setProofStore(numericId, { selectedId: proofId, accessError: '' });
       if (Number(state.selectedId) === numericId) {
         renderDetail();
@@ -913,7 +974,7 @@
     return apiGetArtifactAccess(proofId, numericId, 'inline').then(function (payload) {
       var nextStore = getProofStore(numericId);
       var accessById = Object.assign({}, asObject(nextStore.accessById));
-      accessById[proofId] = payload;
+      accessById[proofId] = normalizeArtifactAccessPayload(payload);
       setProofStore(numericId, { selectedId: proofId, accessById: accessById, accessLoading: false, accessError: '' });
       if (Number(state.selectedId) === numericId) {
         renderDetail();
@@ -2584,17 +2645,18 @@
 
   function buildProofViewerHtml(accessPayload, opts) {
     opts = opts || {};
-    var artifact = asObject(asObject(accessPayload).artifact);
-    var access = asObject(asObject(accessPayload).access);
+    var normalized = normalizeArtifactAccessPayload(accessPayload);
+    var artifact = asObject(normalized.artifact);
+    var access = asObject(normalized.access);
     var frameClass = normalizeText(opts.frameClass) || 'dc-proof-viewer__frame';
     var imageClass = normalizeText(opts.imageClass) || 'dc-proof-viewer__image';
     var placeholderClass = normalizeText(opts.placeholderClass) || 'dc-proof-placeholder';
     var emptyMessage = normalizeText(opts.emptyMessage) || 'Sélectionnez une preuve pour l’afficher.';
-    var accessUrl = normalizeText(access.url);
+    var accessUrl = getArtifactAccessUrl(normalized);
     if (!accessUrl) {
       return '<div class="' + escHtml(placeholderClass) + '">' + escHtml(emptyMessage) + '</div>';
     }
-    var mime = normalizeText(artifact.mime_type || artifact.mime || access.mime_type || '').toLowerCase();
+    var mime = getArtifactAccessMimeType(normalized);
     if (mime === 'application/pdf' || /pdf/.test(mime)) {
       return '<iframe class="' + escHtml(frameClass) + '" src="' + escHtml(String(accessUrl)) + '#toolbar=0&view=FitH" loading="lazy"></iframe>';
     }
@@ -2610,15 +2672,15 @@
     }
 
     var selectedId = proofStore.selectedId || ids[0];
-    var accessPayload = asObject(asObject(proofStore.accessById)[selectedId]);
+    var accessPayload = normalizeArtifactAccessPayload(asObject(asObject(proofStore.accessById)[selectedId]));
     var artifact = asObject(accessPayload.artifact);
     var access = asObject(accessPayload.access);
     var viewerHtml = '';
 
     if (proofStore.accessLoading && !access.url) {
       viewerHtml = '<div class="dc-inline-proof-card__placeholder">Chargement de la preuve…</div>';
-    } else if (proofStore.accessError && !access.url) {
-      viewerHtml = '<div class="dc-inline-proof-card__placeholder">' + escHtml(proofStore.accessError) + '</div>';
+    } else if (proofStore.accessError && !getArtifactAccessUrl(accessPayload)) {
+      viewerHtml = renderProofErrorHtml(proofStore.accessError, selectedId, 'dc-inline-proof-card__placeholder');
     } else {
       viewerHtml = buildProofViewerHtml(accessPayload, {
         frameClass: 'dc-inline-proof-card__frame',
@@ -2629,15 +2691,16 @@
     }
 
     var pickerHtml = ids.length > 1 ? '<div class="dc-inline-proof-card__picker">' + ids.map(function (artifactId, index) {
-      var currentPayload = asObject(asObject(proofStore.accessById)[artifactId]);
+      var currentPayload = normalizeArtifactAccessPayload(asObject(asObject(proofStore.accessById)[artifactId]));
       var currentArtifact = asObject(currentPayload.artifact);
       var label = normalizeText(currentArtifact.original_name) || ('Preuve ' + String(index + 1));
       var meta = normalizeText(currentArtifact.mime_type) || 'Document';
       return '<button type="button" class="dc-proof-item' + (artifactId === selectedId ? ' is-active' : '') + '" data-action="select-proof" data-artifact-id="' + escHtml(artifactId) + '"><div class="dc-proof-item__title">' + escHtml(label) + '</div><div class="dc-proof-item__meta">' + escHtml(meta) + '</div></button>';
     }).join('') + '</div>' : '';
 
-    var openButtonHtml = normalizeText(access.url)
-      ? '<a class="dc-btn dc-btn-secondary" href="' + escHtml(String(access.url)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+    var inlineAccessUrl = getArtifactAccessUrl(accessPayload);
+    var openButtonHtml = inlineAccessUrl
+      ? '<a class="dc-btn dc-btn-secondary" href="' + escHtml(String(inlineAccessUrl)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
       : '';
 
     var titleLabel = normalizeText(artifact.original_name) || 'Preuve médicale';
@@ -2672,14 +2735,14 @@
     }
 
     var selectedId = proofStore.selectedId || ids[0];
-    var accessPayload = asObject(asObject(proofStore.accessById)[selectedId]);
+    var accessPayload = normalizeArtifactAccessPayload(asObject(asObject(proofStore.accessById)[selectedId]));
     var artifact = asObject(accessPayload.artifact);
     var access = asObject(accessPayload.access);
     var viewerHtml = '';
     if (proofStore.accessLoading && !access.url) {
       viewerHtml = '<div class="dc-proof-placeholder">Chargement de la preuve…</div>';
-    } else if (proofStore.accessError && !access.url) {
-      viewerHtml = '<div class="dc-proof-placeholder">' + escHtml(proofStore.accessError) + '</div>';
+    } else if (proofStore.accessError && !getArtifactAccessUrl(accessPayload)) {
+      viewerHtml = renderProofErrorHtml(proofStore.accessError, selectedId, 'dc-proof-placeholder');
     } else {
       viewerHtml = buildProofViewerHtml(accessPayload, {
         frameClass: 'dc-proof-viewer__frame',
@@ -2693,7 +2756,7 @@
       '<div class="dc-proof-layout">',
       '  <div class="dc-proof-list">',
       ids.map(function (artifactId, index) {
-        var currentPayload = asObject(asObject(proofStore.accessById)[artifactId]);
+        var currentPayload = normalizeArtifactAccessPayload(asObject(asObject(proofStore.accessById)[artifactId]));
         var currentArtifact = asObject(currentPayload.artifact);
         var label = normalizeText(currentArtifact.original_name) || ('Preuve ' + String(index + 1));
         var meta = normalizeText(currentArtifact.mime_type) || 'Document';
@@ -2925,12 +2988,12 @@
 
     if (state.detailTab === 'proofs') {
       var proofStore = syncProofStoreFromDetail(detailId, detail);
-      if (proofStore.selectedId && !asObject(asObject(proofStore.accessById)[proofStore.selectedId]).access && !proofStore.accessLoading) {
+      if (proofStore.selectedId && !getArtifactAccessUrl(asObject(asObject(proofStore.accessById)[proofStore.selectedId])) && !proofStore.accessLoading) {
         loadProofAccess(detailId, proofStore.selectedId);
       }
     } else if (state.detailTab === 'prescription') {
       var inlineProofStore = syncProofStoreFromDetail(detailId, detail);
-      if (inlineProofStore.selectedId && !asObject(asObject(inlineProofStore.accessById)[inlineProofStore.selectedId]).access && !inlineProofStore.accessLoading) {
+      if (inlineProofStore.selectedId && !getArtifactAccessUrl(asObject(asObject(inlineProofStore.accessById)[inlineProofStore.selectedId])) && !inlineProofStore.accessLoading) {
         loadProofAccess(detailId, inlineProofStore.selectedId);
       }
     }
@@ -3488,6 +3551,17 @@
 
     if (action === 'select') {
       selectCase(Number(actionEl.getAttribute('data-id') || 0));
+      return;
+    }
+
+    if (action === 'retry-proof') {
+      var retryArtifactId = normalizeText(actionEl.getAttribute('data-artifact-id'));
+      var retryDetailId = Number(state.selectedId || 0);
+      if (retryDetailId > 0 && retryArtifactId) {
+        setProofStore(retryDetailId, { selectedId: retryArtifactId, accessError: '' });
+        renderDetail();
+        loadProofAccess(retryDetailId, retryArtifactId, { force: true });
+      }
       return;
     }
 

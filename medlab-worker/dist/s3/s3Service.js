@@ -7,6 +7,7 @@ exports.S3Service = void 0;
 // src/s3/s3Service.ts
 const client_s3_1 = require("@aws-sdk/client-s3");
 const lib_storage_1 = require("@aws-sdk/lib-storage");
+const s3_request_presigner_1 = require("@aws-sdk/s3-request-presigner");
 const node_http_handler_1 = require("@smithy/node-http-handler");
 const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
@@ -156,6 +157,18 @@ class S3Service {
     async getObjectBuffer(input) {
         return this.downloadBuffer(input);
     }
+    async createPresignedAccessUrl(input) {
+        const bucket = normalizeRequiredString(input.bucket, "bucket");
+        const key = normalizeRequiredString(input.key, "key");
+        const expiresInSeconds = Math.max(1, Math.min(3600, Math.floor(input.expiresInSeconds ?? 60)));
+        const command = new client_s3_1.GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            ResponseContentDisposition: normalizeOptionalString(input.contentDisposition),
+            ResponseContentType: normalizeOptionalString(input.contentType),
+        });
+        return (0, s3_request_presigner_1.getSignedUrl)(this.client, command, { expiresIn: expiresInSeconds });
+    }
     async close() {
         this.client.destroy();
     }
@@ -182,6 +195,13 @@ function normalizeRequiredString(value, field) {
         throw new Error(`${field} is required`);
     }
     return value.trim();
+}
+function normalizeOptionalString(value) {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed !== "" ? trimmed : undefined;
 }
 function closeReadableQuietly(stream, error) {
     try {

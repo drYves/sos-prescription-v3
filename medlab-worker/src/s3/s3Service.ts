@@ -1,6 +1,7 @@
 // src/s3/s3Service.ts
 import { GetObjectCommand, PutObjectCommandInput, S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -39,6 +40,14 @@ export interface DownloadBufferInput {
   bucket: string;
   key: string;
   maxBytes?: number;
+}
+
+export interface CreatePresignedAccessInput {
+  bucket: string;
+  key: string;
+  expiresInSeconds?: number;
+  contentDisposition?: string;
+  contentType?: string;
 }
 
 export interface UploadStreamResult {
@@ -220,6 +229,20 @@ export class S3Service {
     return this.downloadBuffer(input);
   }
 
+  async createPresignedAccessUrl(input: CreatePresignedAccessInput): Promise<string> {
+    const bucket = normalizeRequiredString(input.bucket, "bucket");
+    const key = normalizeRequiredString(input.key, "key");
+    const expiresInSeconds = Math.max(1, Math.min(3600, Math.floor(input.expiresInSeconds ?? 60)));
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ResponseContentDisposition: normalizeOptionalString(input.contentDisposition),
+      ResponseContentType: normalizeOptionalString(input.contentType),
+    });
+
+    return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
+  }
+
   async close(): Promise<void> {
     this.client.destroy();
   }
@@ -250,6 +273,14 @@ function normalizeRequiredString(value: unknown, field: string): string {
     throw new Error(`${field} is required`);
   }
   return value.trim();
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed !== "" ? trimmed : undefined;
 }
 
 function closeReadableQuietly(stream: Readable, error?: Error): void {
