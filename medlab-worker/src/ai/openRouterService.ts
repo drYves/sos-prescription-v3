@@ -53,8 +53,8 @@ interface RequestAttemptResult {
 }
 
 const FALLBACK_MODELS = [
-  "google/gemini-2.5-flash",
   "anthropic/claude-3.5-sonnet",
+  "google/gemini-2.5-flash",
 ] as const;
 
 export class OpenRouterService {

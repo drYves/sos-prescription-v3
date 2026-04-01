@@ -9,6 +9,28 @@ use SOSPrescription\Services\Notices;
 
 final class PatientShortcode
 {
+    private static function renderLoadingSkeleton(string $title, string $subtitle): string
+    {
+        return '<style id="sp-patient-skeleton-style">'
+            . '@keyframes spPatientSkeletonPulse{0%,100%{opacity:1}50%{opacity:.52}}'
+            . '.sp-patient-skeleton{max-width:980px;margin:14px auto;padding:22px;border:1px solid #e5e7eb;border-radius:18px;background:#fff;box-shadow:0 10px 30px rgba(15,23,42,.05);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}'
+            . '.sp-patient-skeleton__stack{display:grid;gap:14px}'
+            . '.sp-patient-skeleton__line,.sp-patient-skeleton__block{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%);background-size:400% 100%;animation:spPatientSkeletonPulse 2s cubic-bezier(.4,0,.6,1) infinite;border-radius:999px}'
+            . '.sp-patient-skeleton__title{height:22px;width:min(320px,58%)}'
+            . '.sp-patient-skeleton__subtitle{height:14px;width:min(520px,84%)}'
+            . '.sp-patient-skeleton__block{height:92px;border-radius:16px}'
+            . '</style>'
+            . '<div class="sp-patient-skeleton" aria-hidden="true">'
+            . '  <div class="sp-patient-skeleton__stack">'
+            . '    <div class="sp-patient-skeleton__line sp-patient-skeleton__title"></div>'
+            . '    <div class="sp-patient-skeleton__line sp-patient-skeleton__subtitle"></div>'
+            . '    <div class="sp-patient-skeleton__block"></div>'
+            . '    <div class="sp-patient-skeleton__block"></div>'
+            . '    <div class="sp-muted" style="font-size:13px;color:#64748b;">' . esc_html($title) . ' · ' . esc_html($subtitle) . '</div>'
+            . '  </div>'
+            . '</div>';
+    }
+
     public static function register(): void
     {
         add_shortcode('sosprescription_patient', [self::class, 'render']);
@@ -63,10 +85,7 @@ final class PatientShortcode
             . '  <div id="sp-patient-profile-root"></div>'
             . '  <div id="sp-error-surface-patient" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
             . '  <div id="sosprescription-root-form" data-app="patient">'
-            . '    <div class="sp-card">'
-            . '      <div class="sp-card-title">Chargement de votre espace patient…</div>'
-            . '      <div class="sp-muted">Si cette page reste bloquée, vérifiez votre connexion et réessayez.</div>'
-            . '    </div>'
+            . self::renderLoadingSkeleton('Préparation de votre espace patient', 'Chargement sécurisé de vos demandes…')
             . '  </div>'
             . '</div>'
             . '<noscript>Activez JavaScript pour accéder à votre espace patient.</noscript>';

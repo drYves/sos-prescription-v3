@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OpenRouterService = void 0;
 const FALLBACK_MODELS = [
-    "google/gemini-2.5-flash",
     "anthropic/claude-3.5-sonnet",
+    "google/gemini-2.5-flash",
 ];
 class OpenRouterService {
     apiKey;

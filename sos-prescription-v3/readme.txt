@@ -4,7 +4,7 @@ Tags: healthcare, e-sante, prescription, pdf, ocr, security, logs
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 8.2
-Stable tag: 3.4.48
+Stable tag: 3.4.49
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,6 +76,12 @@ Si besoin, visitez le back-office en tant qu'administrateur pour finaliser le fl
 Back-office > Logs, ou directement dans `uploads/sosprescription-private/logs/`.
 
 == Changelog ==
+
+= 3.4.49 =
+* UX médecin : visionneuse de preuve inline pendant l'édition
+* Front patient : polices système et skeleton loader du formulaire
+* Worker IA : Claude 3.5 Sonnet par défaut avec fallback Gemini
+
 
 = 2.0.0 =
 * Version "Gold" (Production Ready) : packaging final et nettoyage.

@@ -69,7 +69,7 @@
       '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
       '.sosprescription-doctor .dc-summary-row--notes strong{white-space:pre-wrap;}',
       '.sosprescription-doctor .dc-med__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}',
-      '.sosprescription-doctor .dc-med__edit{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;white-space:nowrap;}',
+      '.sosprescription-doctor .dc-med__edit{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;white-space:nowrap;position:relative;z-index:2;}',
       '.sosprescription-doctor .dc-med__edit:hover{background:#f8fafc;border-color:#cbd5e1;}',
       '.sosprescription-doctor .dc-med__edit:disabled{opacity:.5;cursor:not-allowed;}',
       '.sosprescription-doctor .dc-modal{border:none;border-radius:18px;padding:0;width:min(94vw,880px);max-width:880px;margin:auto;box-shadow:0 32px 72px rgba(15,23,42,.28);background:transparent;}',
@@ -121,6 +121,21 @@
       '.sosprescription-doctor .dc-detail-tab.is-active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #bfdbfe;}',
       '.sosprescription-doctor .dc-detail-panel{display:none;}',
       '.sosprescription-doctor .dc-detail-panel.is-active{display:block;}',
+      '.sosprescription-doctor .dc-prescription-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;}',
+      '.sosprescription-doctor .dc-prescription-layout.has-proof{grid-template-columns:minmax(0,1fr) minmax(320px,420px);}',
+      '.sosprescription-doctor .dc-prescription-main{display:grid;gap:16px;min-width:0;}',
+      '.sosprescription-doctor .dc-prescription-side{display:grid;gap:16px;align-content:start;min-width:0;}',
+      '.sosprescription-doctor .dc-inline-proof-card{border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;display:grid;gap:12px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__title{font-size:15px;font-weight:800;color:#0f172a;}',
+      '.sosprescription-doctor .dc-inline-proof-card__meta{font-size:12px;color:#64748b;margin-top:4px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__picker{display:flex;flex-wrap:wrap;gap:8px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__picker .dc-proof-item{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:12px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__viewer{display:grid;gap:10px;}',
+      '.sosprescription-doctor .dc-inline-proof-card__image{display:block;max-width:100%;width:100%;height:auto;border-radius:8px;margin-top:10px;border:1px solid #e5e7eb;background:#fff;}',
+      '.sosprescription-doctor .dc-inline-proof-card__frame{display:block;width:100%;height:52vh;min-height:420px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}',
+      '.sosprescription-doctor .dc-inline-proof-card__placeholder{font-size:14px;color:#64748b;padding:10px 0;}',
+      '@media (max-width:1180px){.sosprescription-doctor .dc-prescription-layout.has-proof{grid-template-columns:1fr;}}',
       '.sosprescription-doctor .dc-proof-layout{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:16px;align-items:start;}',
       '.sosprescription-doctor .dc-proof-list{display:grid;gap:8px;}',
       '.sosprescription-doctor .dc-proof-item{appearance:none;border:1px solid #e2e8f0;background:#fff;border-radius:14px;padding:10px 12px;text-align:left;cursor:pointer;transition:all .15s ease;}',
@@ -2566,6 +2581,83 @@
     }).join('');
   }
 
+
+  function buildProofViewerHtml(accessPayload, opts) {
+    opts = opts || {};
+    var artifact = asObject(asObject(accessPayload).artifact);
+    var access = asObject(asObject(accessPayload).access);
+    var frameClass = normalizeText(opts.frameClass) || 'dc-proof-viewer__frame';
+    var imageClass = normalizeText(opts.imageClass) || 'dc-proof-viewer__image';
+    var placeholderClass = normalizeText(opts.placeholderClass) || 'dc-proof-placeholder';
+    var emptyMessage = normalizeText(opts.emptyMessage) || 'Sélectionnez une preuve pour l’afficher.';
+    var accessUrl = normalizeText(access.url);
+    if (!accessUrl) {
+      return '<div class="' + escHtml(placeholderClass) + '">' + escHtml(emptyMessage) + '</div>';
+    }
+    var mime = normalizeText(artifact.mime_type || artifact.mime || access.mime_type || '').toLowerCase();
+    if (mime === 'application/pdf' || /pdf/.test(mime)) {
+      return '<iframe class="' + escHtml(frameClass) + '" src="' + escHtml(String(accessUrl)) + '#toolbar=0&view=FitH" loading="lazy"></iframe>';
+    }
+    return '<img class="' + escHtml(imageClass) + '" src="' + escHtml(String(accessUrl)) + '" alt="Preuve médicale" loading="lazy" />';
+  }
+
+  function renderInlineProofPanel(detail) {
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var proofStore = syncProofStoreFromDetail(detailId, detail);
+    var ids = safeArray(proofStore.ids);
+    if (ids.length < 1) {
+      return '';
+    }
+
+    var selectedId = proofStore.selectedId || ids[0];
+    var accessPayload = asObject(asObject(proofStore.accessById)[selectedId]);
+    var artifact = asObject(accessPayload.artifact);
+    var access = asObject(accessPayload.access);
+    var viewerHtml = '';
+
+    if (proofStore.accessLoading && !access.url) {
+      viewerHtml = '<div class="dc-inline-proof-card__placeholder">Chargement de la preuve…</div>';
+    } else if (proofStore.accessError && !access.url) {
+      viewerHtml = '<div class="dc-inline-proof-card__placeholder">' + escHtml(proofStore.accessError) + '</div>';
+    } else {
+      viewerHtml = buildProofViewerHtml(accessPayload, {
+        frameClass: 'dc-inline-proof-card__frame',
+        imageClass: 'dc-inline-proof-card__image',
+        placeholderClass: 'dc-inline-proof-card__placeholder',
+        emptyMessage: 'Sélectionnez une preuve pour l’afficher.'
+      });
+    }
+
+    var pickerHtml = ids.length > 1 ? '<div class="dc-inline-proof-card__picker">' + ids.map(function (artifactId, index) {
+      var currentPayload = asObject(asObject(proofStore.accessById)[artifactId]);
+      var currentArtifact = asObject(currentPayload.artifact);
+      var label = normalizeText(currentArtifact.original_name) || ('Preuve ' + String(index + 1));
+      var meta = normalizeText(currentArtifact.mime_type) || 'Document';
+      return '<button type="button" class="dc-proof-item' + (artifactId === selectedId ? ' is-active' : '') + '" data-action="select-proof" data-artifact-id="' + escHtml(artifactId) + '"><div class="dc-proof-item__title">' + escHtml(label) + '</div><div class="dc-proof-item__meta">' + escHtml(meta) + '</div></button>';
+    }).join('') + '</div>' : '';
+
+    var openButtonHtml = normalizeText(access.url)
+      ? '<a class="dc-btn dc-btn-secondary" href="' + escHtml(String(access.url)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+      : '';
+
+    var titleLabel = normalizeText(artifact.original_name) || 'Preuve médicale';
+    var titleMeta = normalizeText(artifact.mime_type) || 'Document';
+
+    return [
+      '<div class="dc-inline-proof-card">',
+      '  <div class="dc-inline-proof-card__head">',
+      '    <div>',
+      '      <div class="dc-inline-proof-card__title">Preuve médicale</div>',
+      '      <div class="dc-inline-proof-card__meta">' + escHtml(titleLabel) + ' • ' + escHtml(titleMeta) + '</div>',
+      '    </div>',
+      openButtonHtml,
+      '  </div>',
+      pickerHtml,
+      '  <div class="dc-inline-proof-card__viewer">' + viewerHtml + '</div>',
+      '</div>'
+    ].join('');
+  }
+
   function renderProofPanel(detail) {
     var detailId = Number(detail && detail.id || state.selectedId || 0);
     var flowKey = extractFlowKey(detail);
@@ -2588,15 +2680,13 @@
       viewerHtml = '<div class="dc-proof-placeholder">Chargement de la preuve…</div>';
     } else if (proofStore.accessError && !access.url) {
       viewerHtml = '<div class="dc-proof-placeholder">' + escHtml(proofStore.accessError) + '</div>';
-    } else if (access.url) {
-      var mime = normalizeText(artifact.mime_type || artifact.mime || '');
-      if (mime === 'application/pdf' || /pdf/i.test(mime)) {
-        viewerHtml = '<iframe class="dc-proof-viewer__frame" src="' + escHtml(String(access.url)) + '#toolbar=0&view=FitH" loading="lazy"></iframe>';
-      } else {
-        viewerHtml = '<img class="dc-proof-viewer__image" src="' + escHtml(String(access.url)) + '" alt="Preuve médicale" loading="lazy" />';
-      }
     } else {
-      viewerHtml = '<div class="dc-proof-placeholder">Sélectionnez une preuve pour l’afficher.</div>';
+      viewerHtml = buildProofViewerHtml(accessPayload, {
+        frameClass: 'dc-proof-viewer__frame',
+        imageClass: 'dc-proof-viewer__image',
+        placeholderClass: 'dc-proof-placeholder',
+        emptyMessage: 'Sélectionnez une preuve pour l’afficher.'
+      });
     }
 
     return [
@@ -2682,23 +2772,30 @@
       '  </div>',
       '  <div class="dc-detail-tabs" data-dc-detail-tabs></div>',
       '  <div class="dc-detail-panel" data-dc-panel="prescription">',
-      '    <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
-      '      <div class="dc-card__title">Patient</div>',
-      '      <div class="dc-summary-grid">',
-      '        <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
-      '        <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '    <div class="dc-prescription-layout" data-dc-prescription-layout>',
+      '      <div class="dc-prescription-main">',
+      '        <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
+      '          <div class="dc-card__title">Patient</div>',
+      '          <div class="dc-summary-grid">',
+      '            <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '            <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '          </div>',
+      '        </div>',
+      '        <div class="dc-meds-card">',
+      '          <div class="dc-card__title">Ordonnance</div>',
+      '          <div data-dc-meds></div>',
+      '        </div>',
+      '        <div data-dc-pdf-slot></div>',
+      '        <div class="dc-decisionbar">',
+      '          <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
+      '          <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
+      '        </div>',
+      '        <div data-dc-refusal-slot></div>',
       '      </div>',
+      '      <aside class="dc-prescription-side">',
+      '        <div data-dc-inline-proof-slot></div>',
+      '      </aside>',
       '    </div>',
-      '    <div class="dc-meds-card">',
-      '      <div class="dc-card__title">Ordonnance</div>',
-      '      <div data-dc-meds></div>',
-      '    </div>',
-      '    <div data-dc-pdf-slot></div>',
-      '    <div class="dc-decisionbar">',
-      '      <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
-      '      <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
-      '    </div>',
-      '    <div data-dc-refusal-slot></div>',
       '  </div>',
       '  <div class="dc-detail-panel" data-dc-panel="proofs"></div>',
       '  <div class="dc-detail-panel" data-dc-panel="messages"></div>',
@@ -2790,6 +2887,16 @@
     var pdfSlot = detailEl.querySelector('[data-dc-pdf-slot]');
     renderPdfInto(pdfSlot, detail);
 
+    var inlineProofSlot = detailEl.querySelector('[data-dc-inline-proof-slot]');
+    var inlineProofHtml = renderInlineProofPanel(detail);
+    if (inlineProofSlot) {
+      inlineProofSlot.innerHTML = inlineProofHtml;
+    }
+    var prescriptionLayout = detailEl.querySelector('[data-dc-prescription-layout]');
+    if (prescriptionLayout) {
+      prescriptionLayout.classList.toggle('has-proof', normalizeText(inlineProofHtml) !== '');
+    }
+
     var proofsPanel = detailEl.querySelector('[data-dc-panel="proofs"]');
     if (proofsPanel) {
       proofsPanel.innerHTML = renderProofPanel(detail);
@@ -2820,6 +2927,11 @@
       var proofStore = syncProofStoreFromDetail(detailId, detail);
       if (proofStore.selectedId && !asObject(asObject(proofStore.accessById)[proofStore.selectedId]).access && !proofStore.accessLoading) {
         loadProofAccess(detailId, proofStore.selectedId);
+      }
+    } else if (state.detailTab === 'prescription') {
+      var inlineProofStore = syncProofStoreFromDetail(detailId, detail);
+      if (inlineProofStore.selectedId && !asObject(asObject(inlineProofStore.accessById)[inlineProofStore.selectedId]).access && !inlineProofStore.accessLoading) {
+        loadProofAccess(detailId, inlineProofStore.selectedId);
       }
     }
   }
