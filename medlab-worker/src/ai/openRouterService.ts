@@ -52,10 +52,28 @@ interface RequestAttemptResult {
   model?: string;
 }
 
-const FALLBACK_MODELS = [
-  "anthropic/claude-3.5-sonnet",
-  "google/gemini-2.5-flash",
+interface ParseContext {
+  artifactId: string;
+  model: string;
+  logger?: NdjsonLogger;
+}
+
+const MODEL_CASCADE = [
+  "anthropic/claude-sonnet-4.5",
+  "openai/gpt-4.1",
+  "openai/gpt-4o-mini",
 ] as const;
+
+const ANALYZE_SYSTEM_PROMPT = [
+  "Tu es un analyseur de documents médicaux pour un workflow HDS.",
+  "Réponds UNIQUEMENT et STRICTEMENT par un objet JSON valide.",
+  "N'ajoute AUCUNE balise markdown.",
+  "N'ajoute AUCUN texte d'introduction.",
+  "N'ajoute AUCUN texte de conclusion.",
+  'Le format attendu est exactement : {"is_prescription": boolean, "reasoning": string, "medications": [{"label": string, "scheduleText": string}]}.',
+  "Si le document ne montre aucune ordonnance médicale lisible ni aucune boîte de médicament identifiable, retourne is_prescription=false et medications=[].",
+  "Si le document est exploitable, retourne is_prescription=true et liste les médicaments détectés.",
+].join(" ");
 
 export class OpenRouterService {
   private readonly apiKey?: string;
@@ -168,37 +186,16 @@ export class OpenRouterService {
       model: input.model,
       messages: [
         {
+          role: "system",
+          content: ANALYZE_SYSTEM_PROMPT,
+        },
+        {
           role: "user",
           content: input.userContent,
         },
       ],
       response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "prescription_analysis",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            required: ["is_prescription", "reasoning", "medications"],
-            properties: {
-              is_prescription: { type: "boolean" },
-              reasoning: { type: "string" },
-              medications: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["label", "scheduleText"],
-                  properties: {
-                    label: { type: "string" },
-                    scheduleText: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
-        },
+        type: "json_object",
       },
       temperature: 0,
       max_tokens: 800,
@@ -236,12 +233,21 @@ export class OpenRouterService {
       }
 
       const content = extractAssistantContent(payload);
-      const parsed = parseStructuredAnalysis(content);
+      const parsed = parseStructuredAnalysis(content, {
+        artifactId: input.artifactId,
+        model: input.model,
+        logger: this.logger,
+      });
+      const medications = normalizeMedications(parsed.medications ?? parsed.meds);
+      const inferredPrescription = typeof parsed.is_prescription === "boolean"
+        ? parsed.is_prescription
+        : medications.length > 0;
+
       return {
         result: {
-          is_prescription: !!parsed.is_prescription,
+          is_prescription: inferredPrescription,
           reasoning: normalizeOptionalString(parsed.reasoning) ?? "",
-          medications: normalizeMedications(parsed.medications),
+          medications,
         },
         provider: normalizeOptionalString(payload?.provider),
         model: normalizeOptionalString(payload?.model) ?? input.model,
@@ -284,7 +290,7 @@ export class OpenRouterService {
 }
 
 function buildCandidateModels(primaryModel: string): string[] {
-  const candidates = [primaryModel, ...FALLBACK_MODELS];
+  const candidates = [primaryModel, ...MODEL_CASCADE];
   const out: string[] = [];
   const seen = new Set<string>();
 
@@ -305,15 +311,19 @@ function buildCandidateModels(primaryModel: string): string[] {
 
 function shouldRetryWithFallback(message: string, currentModel: string): boolean {
   const normalized = String(message || "").toLowerCase();
-  if (currentModel === FALLBACK_MODELS[FALLBACK_MODELS.length - 1]) {
+  if (currentModel === MODEL_CASCADE[MODEL_CASCADE.length - 1]) {
     return false;
   }
-  return normalized.startsWith("ml_ai_upstream_failed:")
-    && (
-      normalized.includes("no endpoints found")
-      || normalized.includes("model") && normalized.includes("not found")
-      || normalized.includes("unknown model")
-    );
+
+  if (normalized === "ml_ai_timeout" || normalized === "ml_ai_bad_json" || normalized === "ml_ai_empty_response") {
+    return true;
+  }
+
+  if (normalized.startsWith("ml_ai_upstream_failed:")) {
+    return true;
+  }
+
+  return false;
 }
 
 function buildHeaders(apiKey: string, httpReferer?: string, title?: string): Record<string, string> {
@@ -331,19 +341,17 @@ function buildHeaders(apiKey: string, httpReferer?: string, title?: string): Rec
 }
 
 function buildUserContentParts(mimeType: string, originalName: string, dataUrl: string): Array<Record<string, unknown>> {
-  const prompt = [
-    "Analyse ce document médical et réponds UNIQUEMENT avec un JSON valide.",
-    "Détermine s'il s'agit d'une prescription médicale lisible ou d'une photo exploitable d'une boîte de médicament.",
-    "Si le document ne montre aucune prescription médicale lisible ni aucune boîte de médicament identifiable, retourne is_prescription=false.",
+  const userPrompt = [
+    "Analyse ce document médical.",
+    "Détermine s'il s'agit d'une ordonnance médicale lisible ou d'une photo exploitable d'une boîte de médicament.",
+    "Si le document ne montre aucune ordonnance médicale lisible ni aucune boîte de médicament identifiable, retourne is_prescription=false.",
     "Si le document est exploitable, retourne is_prescription=true et liste les médicaments détectés.",
-    'Le format attendu est exactement : {"is_prescription": boolean, "reasoning": string, "medications": [{"label": string, "scheduleText": string}] }.',
-    "Ne mets aucun texte hors JSON.",
   ].join(" ");
 
   const content: Array<Record<string, unknown>> = [
     {
       type: "text",
-      text: prompt,
+      text: userPrompt,
     },
   ];
 
@@ -400,9 +408,19 @@ function extractAssistantContent(payload: OpenRouterChatResponse | null): string
   throw new Error("ML_AI_EMPTY_RESPONSE");
 }
 
-function parseStructuredAnalysis(rawContent: string): Record<string, unknown> {
-  const text = stripMarkdownFences(rawContent).trim();
-  const candidates = [text, extractBalancedJsonObject(text)].filter((value): value is string => typeof value === "string" && value.trim() !== "");
+function parseStructuredAnalysis(rawContent: string, ctx: ParseContext): Record<string, unknown> {
+  const raw = typeof rawContent === "string" ? rawContent : "";
+  const withoutFences = stripMarkdownFences(raw);
+  const cleaned = withoutFences.trim();
+  const extractedFromCleaned = extractBalancedJsonObject(cleaned);
+  const extractedFromRaw = extractBalancedJsonObject(raw);
+  const candidates = uniqueNonEmptyStrings([
+    cleaned,
+    extractedFromCleaned ?? "",
+    extractedFromRaw ?? "",
+  ]);
+
+  const parseErrors: string[] = [];
 
   for (const candidate of candidates) {
     try {
@@ -410,18 +428,32 @@ function parseStructuredAnalysis(rawContent: string): Record<string, unknown> {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         return parsed as Record<string, unknown>;
       }
-    } catch {
-      // try next candidate
+      parseErrors.push("JSON root is not an object");
+    } catch (err: unknown) {
+      parseErrors.push(err instanceof Error ? err.message : "JSON.parse failed");
     }
   }
+
+  ctx.logger?.warning(
+    "ai.parse_error",
+    {
+      artifact_id: ctx.artifactId,
+      model: ctx.model,
+      parse_errors: parseErrors.slice(0, 5),
+      raw_excerpt: clip(raw, 2000),
+      cleaned_excerpt: clip(cleaned, 2000),
+      extracted_excerpt: clip(extractedFromCleaned ?? extractedFromRaw ?? "", 2000),
+    },
+    undefined,
+  );
 
   throw new Error("ML_AI_BAD_JSON");
 }
 
 function stripMarkdownFences(value: string): string {
-  return value
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
+  return String(value ?? "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
     .trim();
 }
 
@@ -506,4 +538,28 @@ function normalizeOptionalString(value: unknown): string | undefined {
   }
   const normalized = value.trim();
   return normalized === "" ? undefined : normalized;
+}
+
+function uniqueNonEmptyStrings(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const normalized = String(value ?? "").trim();
+    if (normalized === "" || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    out.push(normalized);
+  }
+
+  return out;
+}
+
+function clip(value: string, maxLen: number): string {
+  const input = String(value ?? "");
+  if (input.length <= maxLen) {
+    return input;
+  }
+  return `${input.slice(0, maxLen)}…[truncated]`;
 }
