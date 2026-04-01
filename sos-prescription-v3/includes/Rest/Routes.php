@@ -17,6 +17,7 @@ final class Routes
         $messages = new MessagesController();
         $payments = new PaymentsController();
         $patient = new PatientController();
+        $auth = new AuthController();
 
         register_rest_route('sosprescription/v1', '/medications/search', [
             'methods' => 'GET',
@@ -322,6 +323,47 @@ final class Routes
             'methods' => 'POST',
             'callback' => [$payments, 'stripe_webhook'],
             'permission_callback' => [$payments, 'permissions_check_public'],
+        ]);
+
+        register_rest_route('sosprescription/v1', '/auth/magic-link/request', [
+            'methods' => 'POST',
+            'callback' => [$auth, 'request_magic_link'],
+            'permission_callback' => [$auth, 'permissions_check_public'],
+            'args' => [
+                'email' => [
+                    'required' => true,
+                    'sanitize_callback' => static function ($value) {
+                        return is_scalar($value) ? sanitize_email((string) $value) : '';
+                    },
+                ],
+                'role' => [
+                    'required' => false,
+                    'sanitize_callback' => static function ($value) {
+                        $role = is_scalar($value) ? strtolower(trim((string) $value)) : 'patient';
+                        return in_array($role, ['patient', 'doctor'], true) ? $role : 'patient';
+                    },
+                ],
+                'redirect_to' => [
+                    'required' => false,
+                    'sanitize_callback' => static function ($value) {
+                        return is_scalar($value) ? substr(wp_sanitize_redirect((string) $value), 0, 512) : '';
+                    },
+                ],
+            ],
+        ]);
+
+        register_rest_route('sosprescription/v1', '/auth/magic-link/consume', [
+            'methods' => 'POST',
+            'callback' => [$auth, 'consume_magic_link'],
+            'permission_callback' => [$auth, 'permissions_check_public'],
+            'args' => [
+                'token' => [
+                    'required' => true,
+                    'sanitize_callback' => static function ($value) {
+                        return is_scalar($value) ? trim((string) $value) : '';
+                    },
+                ],
+            ],
         ]);
 
         // Verification pharmacien (/v/{token}) : confirmer la délivrance (code 6 chiffres).
