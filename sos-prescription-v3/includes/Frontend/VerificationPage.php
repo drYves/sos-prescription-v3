@@ -190,7 +190,7 @@ final class VerificationPage
     {
         status_header(404);
         header('Content-Type: text/html; charset=utf-8');
-        echo '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ordonnance introuvable</title></head><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;color:#111827;">'
+        echo '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ordonnance introuvable</title></head><body class="sp-plugin-root sp-plugin-root--verify" data-sp-screen="verify" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;color:#111827;">'
             . '<h1 style="font-size:18px;margin:0 0 8px;">Ordonnance introuvable</h1>'
             . '<p style="margin:0;color:#6b7280;">Le lien est invalide, l’ordonnance n’a pas encore été validée ou n’est plus disponible.</p>'
             . '</body></html>';
@@ -478,7 +478,7 @@ final class VerificationPage
         $templatePath = self::active_template_path();
         $templateHtml = is_readable($templatePath) ? (string) file_get_contents($templatePath) : '';
         if ($templateHtml === '') {
-            echo '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Vérification</title></head><body>';
+            echo '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Vérification</title></head><body class="sp-plugin-root sp-plugin-root--verify" data-sp-screen="verify">';
             echo '<h1>Ordonnance vérifiée</h1>';
             echo '<p>Patient : ' . esc_html($vm['patient_name']) . ' • ' . esc_html($vm['patient_birth']) . '</p>';
             echo $medListHtml;
@@ -506,6 +506,8 @@ final class VerificationPage
             '{{MED_LIST_HTML}}' => $medListHtml,
             '{{HASH_SHORT}}' => esc_html($vm['hash_short']),
         ]);
+
+        $html = self::decorate_verify_html($html);
 
         echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         exit;
@@ -742,6 +744,57 @@ final class VerificationPage
 
         return [];
     }
+
+
+private static function decorate_verify_html(string $html): string
+{
+    if ($html === '') {
+        return $html;
+    }
+
+    if (stripos($html, 'sp-plugin-root--verify') === false) {
+        $html = preg_replace_callback(
+            '/<body\b([^>]*)>/i',
+            static function (array $matches): string {
+                $attrs = isset($matches[1]) ? (string) $matches[1] : '';
+
+                if (preg_match('/\bclass=(["\'])(.*?)\1/i', $attrs, $classMatch) === 1) {
+                    $existing = trim((string) ($classMatch[2] ?? ''));
+                    $augmented = trim($existing . ' sp-plugin-root sp-plugin-root--verify');
+                    $attrs = preg_replace('/\bclass=(["\'])(.*?)\1/i', 'class="' . esc_attr($augmented) . '"', $attrs, 1) ?? $attrs;
+                } else {
+                    $attrs .= ' class="sp-plugin-root sp-plugin-root--verify"';
+                }
+
+                if (stripos($attrs, 'data-sp-screen=') === false) {
+                    $attrs .= ' data-sp-screen="verify"';
+                }
+
+                return '<body' . $attrs . '>';
+            },
+            $html,
+            1
+        ) ?? $html;
+    }
+
+    if (stripos($html, 'sp-plugin-shell--verify') === false) {
+        $opened = false;
+        $html = preg_replace(
+            '/<div class="container">/i',
+            '<div class="sp-plugin-shell sp-plugin-shell--verify"><div class="container">',
+            $html,
+            1,
+            $count
+        ) ?? $html;
+        $opened = isset($count) && (int) $count > 0;
+
+        if ($opened) {
+            $html = preg_replace('/<\/body>/i', '</div></body>', $html, 1) ?? $html;
+        }
+    }
+
+    return $html;
+}
 
     private static function default_template_path(): string
     {

@@ -6,6 +6,7 @@ namespace SosPrescription\Shortcodes;
 use SOSPrescription\Assets\Assets;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\Notices;
+use SOSPrescription\UI\ScreenFrame;
 
 final class PatientShortcode
 {
@@ -50,14 +51,28 @@ final class PatientShortcode
             $login_url = (string) apply_filters('sosprescription_login_url', wp_login_url($redirect), $redirect);
             $register_url = (string) apply_filters('sosprescription_register_url', function_exists('wp_registration_url') ? wp_registration_url() : '', $redirect);
 
-            return '<div class="sosprescription-guard" style="max-width:900px;margin:12px auto;padding:16px;border:1px solid #e5e7eb;background:#fff;border-radius:12px;">'
-                . '<h3 style="margin:0 0 8px 0;">Connexion requise</h3>'
-                . '<p style="margin:0 0 10px 0;">Merci de vous connecter pour accéder à votre espace patient.</p>'
-                . '<p style="margin:0;display:flex;gap:10px;flex-wrap:wrap;">'
-                . '<a class="button button-primary" href="' . esc_url($login_url) . '">Se connecter</a>'
-                . ($register_url !== '' ? '<a class="button" href="' . esc_url($register_url) . '">Créer un compte</a>' : '')
-                . '</p>'
-                . '</div>';
+            $actions = [
+                [
+                    'label' => 'Se connecter',
+                    'url'   => $login_url,
+                    'class' => 'sp-button sp-button--primary button button-primary',
+                ],
+            ];
+            if ($register_url !== '') {
+                $actions[] = [
+                    'label' => 'Créer un compte',
+                    'url'   => $register_url,
+                    'class' => 'sp-button sp-button--secondary button',
+                ];
+            }
+
+            return ScreenFrame::guard(
+                'patient',
+                'login',
+                'Connexion requise',
+                'Merci de vous connecter pour accéder à votre espace patient.',
+                $actions
+            );
         }
 
         Assets::enqueue_form_app();
@@ -79,15 +94,21 @@ final class PatientShortcode
             . '<div class="sp-badge sp-badge-success"><span class="sp-dot sp-dot-online" aria-hidden="true"></span> Connecté : ' . esc_html($display_name) . '</div>'
             . '</div>';
 
-        return $notice
-            . '<div class="sp-ui">'
-            . $connected_badge
-            . '  <div id="sp-patient-profile-root"></div>'
-            . '  <div id="sp-error-surface-patient" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
-            . '  <div id="sosprescription-root-form" data-app="patient">'
+        $content  = ScreenFrame::toolbarMeta('patient', $connected_badge);
+        $content .= ScreenFrame::profileSlot('patient', '<div id="sp-patient-profile-root"></div>');
+        $content .= ScreenFrame::statusSurface(
+            'patient',
+            $notice
+            . '<div id="sp-error-surface-patient" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
+        );
+        $content .= ScreenFrame::mount(
+            'patient',
+            '<div id="sosprescription-root-form" data-app="patient">'
             . self::renderLoadingSkeleton('Préparation de votre espace patient', 'Chargement sécurisé de vos demandes…')
-            . '  </div>'
             . '</div>'
+        );
+
+        return ScreenFrame::screen('patient', $content, [], ['sp-ui'])
             . '<noscript>Activez JavaScript pour accéder à votre espace patient.</noscript>';
     }
 

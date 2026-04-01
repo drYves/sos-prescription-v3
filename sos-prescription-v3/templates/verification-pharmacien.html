@@ -103,7 +103,7 @@
     .footer a{color:var(--blue);text-decoration:none}
   </style>
 </head>
-<body>
+<body class="sp-plugin-root sp-plugin-root--verify" data-sp-screen="verify">
   <div class="topbar">
     <div class="brand">
       <div class="logo" aria-hidden="true">
@@ -117,7 +117,8 @@
     <div class="pill"><span class="dot"></span>Lecture sécurisée</div>
   </div>
 
-  <div class="container">
+  <div class="sp-plugin-shell sp-plugin-shell--verify">
+    <div class="container">
     <div class="card">
       <div class="card-header">
         <div class="card-title">
@@ -184,6 +185,9 @@
     </div>
 
     <div class="footer">Besoin d’aide ? Contactez le support {{PRODUCT}}.</div>
+  </div>
+
+    </div>
   </div>
 
   <script>

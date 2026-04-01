@@ -4,7 +4,7 @@ Tags: healthcare, e-sante, prescription, pdf, ocr, security, logs
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 8.2
-Stable tag: 3.4.52
+Stable tag: 3.4.53
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,6 +76,12 @@ Si besoin, visitez le back-office en tant qu'administrateur pour finaliser le fl
 Back-office > Logs, ou directement dans `uploads/sosprescription-private/logs/`.
 
 == Changelog ==
+
+= 3.4.53 =
+* Fusion du pack UX Handover sur le moteur HDS 3.4.52
+* Ajout des wrappers d'écran `sp-plugin-root--*` pour l'intégration thème
+* Ajout du shortcode server-side `[sosprescription_pricing]` pour le pricing dynamique
+* Conservation stricte des couches HDS, REST et services de la 3.4.52
 
 = 3.4.49 =
 * UX médecin : visionneuse de preuve inline pendant l'édition

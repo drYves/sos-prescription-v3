@@ -5,6 +5,7 @@ namespace SosPrescription\Shortcodes;
 
 use SosPrescription\Assets;
 use SosPrescription\Services\Logger;
+use SOSPrescription\UI\ScreenFrame;
 
 final class BdpmTableShortcode
 {
@@ -46,12 +47,30 @@ final class BdpmTableShortcode
             'style_enqueued' => wp_style_is('sosprescription-bdpm-table', 'enqueued'),
         ]);
 
-        return sprintf(
-            '<div id="sosprescription-bdpm-table-root" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div><noscript>Activez JavaScript pour afficher le tableau BDPM.</noscript>',
-            (int) $per_page,
-            esc_attr($version),
-            esc_attr($imported),
-            esc_url(SOSPRESCRIPTION_URL . 'assets/caduceus.svg')
+        $metaHtml = '';
+        if ($version !== '') {
+            $metaHtml .= '<div class="sp-badge sp-badge-success">BDPM ' . esc_html($version) . '</div>';
+        }
+        if ($imported !== '') {
+            $metaHtml .= '<div class="sp-badge">Import : ' . esc_html($imported) . '</div>';
+        }
+
+        $content = '';
+        if ($metaHtml !== '') {
+            $content .= ScreenFrame::toolbarMeta('doctor-catalog', $metaHtml);
+        }
+        $content .= ScreenFrame::mount(
+            'doctor-catalog',
+            sprintf(
+                '<div id="sosprescription-bdpm-table-root" class="sosprescription-bdpm" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div>',
+                (int) $per_page,
+                esc_attr($version),
+                esc_attr($imported),
+                esc_url(SOSPRESCRIPTION_URL . 'assets/caduceus.svg')
+            )
         );
+
+        return ScreenFrame::screen('doctor-catalog', $content)
+            . '<noscript>Activez JavaScript pour afficher le tableau BDPM.</noscript>';
     }
 }

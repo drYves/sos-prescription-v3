@@ -80,6 +80,45 @@ final class Pricing
         return $out;
     }
 
+
+    /**
+     * Formate un prix stocké en cents pour affichage public.
+     */
+    public static function format_price(int $cents, ?string $currency = null): string
+    {
+        if ($cents < 0) {
+            $cents = 0;
+        }
+
+        if ($currency === null || $currency === '') {
+            $currency = self::get()['currency'];
+        }
+
+        $amount = $cents / 100;
+        $isWhole = abs($amount - round($amount)) < 0.00001;
+        $formatted = number_format($amount, $isWhole ? 0 : 2, ',', ' ');
+
+        $currency = strtoupper(trim((string) $currency));
+
+        if ($currency === 'EUR') {
+            return $formatted . ' €';
+        }
+
+        return trim($formatted . ' ' . $currency);
+    }
+
+    /**
+     * Formate un délai en minutes pour affichage public.
+     */
+    public static function format_eta(int $minutes, bool $approx = false): string
+    {
+        if ($minutes < 1) {
+            $minutes = 1;
+        }
+
+        return ($approx ? '≈ ' : '') . $minutes . ' min';
+    }
+
     /**
      * @return array{standard_cents:int, express_cents:int, standard_eta_minutes:int, express_eta_minutes:int, currency:string, updated_at:string}
      */

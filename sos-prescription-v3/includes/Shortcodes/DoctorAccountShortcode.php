@@ -6,6 +6,7 @@ namespace SOSPrescription\Shortcodes;
 use SOSPrescription\Repositories\FileRepository;
 use SOSPrescription\Services\FileStorage;
 use SOSPrescription\Services\Logger;
+use SOSPrescription\UI\ScreenFrame;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
@@ -85,15 +86,28 @@ final class DoctorAccountShortcode
 
         if (!is_user_logged_in()) {
             $url = wp_login_url((string) get_permalink());
-            return '<div style="max-width:980px;margin:12px auto;padding:14px;border:1px solid #e5e7eb;background:#fff;border-radius:12px;">'
-                . '<strong>Connexion requise.</strong> <a href="' . esc_url($url) . '">Se connecter</a>'
-                . '</div>';
+            return ScreenFrame::guard(
+                'doctor-account',
+                'login',
+                'Connexion requise',
+                'Merci de vous connecter pour accéder à votre compte médecin.',
+                [
+                    [
+                        'label' => 'Se connecter',
+                        'url'   => $url,
+                        'class' => 'sp-button sp-button--primary button button-primary',
+                    ],
+                ]
+            );
         }
 
         if (!self::can_access_doctor_area()) {
-            return '<div style="max-width:980px;margin:12px auto;padding:14px;border:1px solid #fde68a;background:#fffbeb;border-radius:12px;">'
-                . '<strong>Accès réservé.</strong> Cette page est destinée aux médecins et administrateurs.'
-                . '</div>';
+            return ScreenFrame::guard(
+                'doctor-account',
+                'access',
+                'Accès réservé',
+                'Cette page est destinée aux médecins et administrateurs.'
+            );
         }
 
         $current_id = (int) get_current_user_id();
@@ -112,7 +126,12 @@ final class DoctorAccountShortcode
             $user = get_userdata($target_id);
         }
         if (!$user) {
-            return '<div style="max-width:980px;margin:12px auto;padding:14px;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;">Utilisateur introuvable.</div>';
+            return ScreenFrame::guard(
+                'doctor-account',
+                'error',
+                'Utilisateur introuvable',
+                'Le profil demandé est introuvable ou n’est plus accessible.'
+            );
         }
 
         $is_admin_view = self::can_manage_doctors();
@@ -354,7 +373,7 @@ final class DoctorAccountShortcode
         echo '</div>';
 
         $html = (string) ob_get_clean();
-        return $html;
+        return ScreenFrame::screen('doctor-account', $html);
     }
 
     public static function handle_profile_save(): void

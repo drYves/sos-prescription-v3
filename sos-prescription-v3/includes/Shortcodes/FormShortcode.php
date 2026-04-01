@@ -5,6 +5,7 @@ namespace SosPrescription\Shortcodes;
 
 use SosPrescription\Assets;
 use SosPrescription\Services\Logger;
+use SOSPrescription\UI\ScreenFrame;
 
 final class FormShortcode
 {
@@ -83,12 +84,17 @@ final class FormShortcode
         // IMPORTANT: l'entry Vite (build) cherche l'ID "sosprescription-root-form".
         // On ajoute une surface d'erreur unifiée (API / loader) au-dessus du root React.
         // Cette surface peut afficher un ReqID si disponible.
-        return '<div class="sp-ui">'
-            . '  <div id="sp-error-surface-form" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
-            . '  <div id="sosprescription-root-form" data-app="form">'
+        $content  = ScreenFrame::statusSurface('request',
+            '<div id="sp-error-surface-form" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
+        );
+        $content .= ScreenFrame::mount(
+            'request',
+            '<div id="sosprescription-root-form" data-app="form">'
             . self::renderLoadingSkeleton('Préparation du formulaire', 'Chargement sécurisé de l\'application patient…')
-            . '  </div>'
             . '</div>'
+        );
+
+        return ScreenFrame::screen('request', $content, [], ['sp-ui'])
             . '<noscript>Activez JavaScript pour utiliser le formulaire d\'ordonnance.</noscript>';
     }
 }

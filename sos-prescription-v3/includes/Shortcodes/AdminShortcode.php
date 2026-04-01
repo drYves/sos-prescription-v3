@@ -5,6 +5,7 @@ namespace SosPrescription\Shortcodes;
 
 use SosPrescription\Assets;
 use SosPrescription\Services\Logger;
+use SOSPrescription\UI\ScreenFrame;
 
 final class AdminShortcode
 {
@@ -26,18 +27,28 @@ final class AdminShortcode
             $redirect = is_singular() ? (string) get_permalink() : (string) home_url('/');
             $login_url = wp_login_url($redirect);
 
-            return '<div class="sosprescription-guard" style="max-width:980px;margin:12px auto;padding:16px;border:1px solid #e5e7eb;background:#fff;border-radius:12px;">'
-                . '<h3 style="margin:0 0 8px 0;">Connexion requise</h3>'
-                . '<p style="margin:0 0 10px 0;">Merci de vous connecter pour accéder à la console médecin.</p>'
-                . '<p style="margin:0;"><a class="button button-primary" href="' . esc_url($login_url) . '">Se connecter</a></p>'
-                . '</div>';
+            return ScreenFrame::guard(
+                'console',
+                'login',
+                'Connexion requise',
+                'Merci de vous connecter pour accéder à la console médecin.',
+                [
+                    [
+                        'label' => 'Se connecter',
+                        'url'   => $login_url,
+                        'class' => 'sp-button sp-button--primary button button-primary',
+                    ],
+                ]
+            );
         }
 
         if (!current_user_can('sosprescription_validate') && !current_user_can('sosprescription_manage') && !current_user_can('manage_options')) {
-            return '<div class="sosprescription-guard" style="max-width:980px;margin:12px auto;padding:16px;border:1px solid #e5e7eb;background:#fff;border-radius:12px;">'
-                . '<h3 style="margin:0 0 8px 0;">Accès réservé</h3>'
-                . '<p style="margin:0;">Cette page est réservée aux médecins et administrateurs de la plateforme.</p>'
-                . '</div>';
+            return ScreenFrame::guard(
+                'console',
+                'access',
+                'Accès réservé',
+                'Cette page est réservée aux médecins et administrateurs de la plateforme.'
+            );
         }
 
         // Console médecin (vanilla JS) : évite de dépendre d'un build React.
@@ -60,18 +71,22 @@ final class AdminShortcode
         }
         $connected_label = trim($title_prefix . ' ' . $display_name);
 
-		$html  = '<div id="sosprescription-doctor-console-root" class="sosprescription-doctor sp-ui">';
-		$html .= '<div style="max-width:980px;margin:12px auto;">';
-		$html .= '<div class="sp-row sp-row-between" style="margin:0 0 12px 0;">';
-		$html .= '  <div class="sp-badge sp-badge-success"><span class="sp-dot sp-dot-online" aria-hidden="true"></span> Connecté : ' . esc_html($connected_label) . '</div>';
-		$html .= '</div>';
-		$html .= '<div class="sp-card">';
-		$html .= '<div class="sp-card-title">Chargement de la console médecin…</div>';
-		$html .= '<div class="sp-muted" style="margin-top:6px;">'
-			. 'Si l&rsquo;interface reste bloquée, vérifiez les logs / une erreur 403/500, puis rafraîchissez la page.'
+		$badge = '<div class="sp-row sp-row-between" style="margin:0;">'
+			. '  <div class="sp-badge sp-badge-success"><span class="sp-dot sp-dot-online" aria-hidden="true"></span> Connecté : ' . esc_html($connected_label) . '</div>'
 			. '</div>';
-		$html .= '</div></div></div>';
-		$html .= '<noscript>Activez JavaScript pour utiliser la console médecin.</noscript>';
-		return $html;
+
+		$content  = ScreenFrame::toolbarMeta('console', $badge);
+		$content .= ScreenFrame::mount(
+			'console',
+			'<div id="sosprescription-doctor-console-root" class="sosprescription-doctor sp-ui" data-sp-screen="console">'
+			. ScreenFrame::loadingCard(
+				'Chargement de la console médecin…',
+				'Si l’interface reste bloquée, vérifiez les logs / une erreur 403/500, puis rafraîchissez la page.'
+			)
+			. '</div>'
+		);
+
+		return ScreenFrame::screen('console', $content)
+			. '<noscript>Activez JavaScript pour utiliser la console médecin.</noscript>';
     }
 }
