@@ -11,7 +11,7 @@ class NdjsonLogger {
         this.siteId = siteId;
         this.env = env;
     }
-    log(severity, event, context = {}, reqId) {
+    log(severity, event, context = {}, reqId, err) {
         const tsMs = Date.now();
         const ts = new Date(tsMs).toISOString();
         const record = {
@@ -32,19 +32,23 @@ class NdjsonLogger {
             heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
         };
         record.context = sanitizeContext(context);
+        const serializedError = serializeError(err);
+        if (serializedError) {
+            record.error = serializedError;
+        }
         process.stderr.write(`${JSON.stringify(record)}\n`);
     }
-    info(event, context, reqId) {
-        this.log("info", event, context, reqId);
+    info(event, context, reqId, err) {
+        this.log("info", event, context, reqId, err);
     }
-    warning(event, context, reqId) {
-        this.log("warning", event, context, reqId);
+    warning(event, context, reqId, err) {
+        this.log("warning", event, context, reqId, err);
     }
-    error(event, context, reqId) {
-        this.log("error", event, context, reqId);
+    error(event, context, reqId, err) {
+        this.log("error", event, context, reqId, err);
     }
-    critical(event, context, reqId) {
-        this.log("critical", event, context, reqId);
+    critical(event, context, reqId, err) {
+        this.log("critical", event, context, reqId, err);
     }
 }
 exports.NdjsonLogger = NdjsonLogger;
@@ -93,4 +97,33 @@ function truncate(s, maxLen) {
     if (s.length <= maxLen)
         return s;
     return `${s.slice(0, maxLen)}…[truncated]`;
+}
+function serializeError(err) {
+    if (err == null) {
+        return undefined;
+    }
+    if (err instanceof Error) {
+        const error = err;
+        const out = {
+            name: error.name,
+            message: redactStringPatterns(error.message),
+        };
+        if (typeof error.code === "string" || typeof error.code === "number") {
+            out.code = error.code;
+        }
+        if (typeof error.stack === "string" && error.stack.trim() !== "") {
+            out.stack = redactStringPatterns(error.stack);
+        }
+        if (error.cause !== undefined) {
+            out.cause = serializeError(error.cause) ?? sanitizeContext(error.cause);
+        }
+        return out;
+    }
+    if (typeof err === "string") {
+        return { message: redactStringPatterns(err) };
+    }
+    if (typeof err === "object") {
+        return { value: sanitizeContext(err) };
+    }
+    return { value: err };
 }

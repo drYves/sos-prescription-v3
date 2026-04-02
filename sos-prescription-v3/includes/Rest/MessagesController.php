@@ -7,6 +7,7 @@ use SOSPrescription\Core\JobDispatcher;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\ReqId;
 use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\Audit;
 use SosPrescription\Services\RestGuard;
@@ -93,10 +94,21 @@ final class MessagesController
                 $reqId
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_messages_query_failed',
-                'Impossible de récupérer le fil de discussion : ' . $e->getMessage(),
-                ['status' => 502, 'req_id' => $reqId]
+                'Le service de messagerie est temporairement indisponible.',
+                502,
+                $reqId,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'list',
+                    'local_prescription_id' => $localId,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'after_seq' => $afterSeq,
+                    'limit' => $limit,
+                ],
+                'messages.query_failed'
             );
         }
 
@@ -158,10 +170,20 @@ final class MessagesController
                 $reqId
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_messages_create_failed',
-                'Impossible d’envoyer le message : ' . $e->getMessage(),
-                ['status' => 502, 'req_id' => $reqId]
+                'Le service de messagerie est temporairement indisponible.',
+                502,
+                $reqId,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'create',
+                    'local_prescription_id' => $localId,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'attachments_count' => count($attachmentIds),
+                ],
+                'messages.create_failed'
             );
         }
 
@@ -223,10 +245,20 @@ final class MessagesController
                 $reqId
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_messages_read_failed',
-                'Impossible de synchroniser la lecture : ' . $e->getMessage(),
-                ['status' => 502, 'req_id' => $reqId]
+                'Le service de messagerie est temporairement indisponible.',
+                502,
+                $reqId,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'mark_as_read',
+                    'local_prescription_id' => $localId,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'read_upto_seq' => $readUptoSeq,
+                ],
+                'messages.read_failed'
             );
         }
 

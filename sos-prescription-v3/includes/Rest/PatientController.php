@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
+use SOSPrescription\Core\ReqId;
+use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
+use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Utils\Date;
 use WP_Error;
 use WP_REST_Request;
@@ -106,10 +109,18 @@ class PatientController extends \WP_REST_Controller
 
         $updated = wp_update_user($userdata);
         if (is_wp_error($updated)) {
-            return new WP_Error(
+            return ErrorResponder::wp_error(
+                $updated,
                 'sosprescription_patient_profile_update_failed',
-                $updated->get_error_message(),
-                ['status' => 500]
+                'Le profil n’a pas pu être enregistré.',
+                500,
+                $this->build_req_id(),
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'update_profile',
+                    'user_id' => $user_id,
+                ],
+                'patient.profile_update_failed'
             );
         }
 
@@ -277,6 +288,20 @@ class PatientController extends \WP_REST_Controller
         }
         $float = (float) $value;
         return is_finite($float) && $float >= 30.0 && $float <= 300.0;
+    }
+
+
+    private function build_req_id(): string
+    {
+        try {
+            return ReqId::coalesce(Logger::get_request_id());
+        } catch (\Throwable $e) {
+            try {
+                return 'req_' . bin2hex(random_bytes(8));
+            } catch (\Throwable $fallback) {
+                return 'req_' . md5((string) wp_rand() . microtime(true));
+            }
+        }
     }
 
     private function looks_like_email(string $value): bool

@@ -16,6 +16,7 @@ use SOSPrescription\Core\Mls1Verifier;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
+use SosPrescription\Rest\ErrorResponder;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -116,17 +117,17 @@ class PrescriptionController extends \WP_REST_Controller
             $dispatcher = $this->get_job_dispatcher();
             $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
         } catch (\Throwable $e) {
-            $errorMessage = $e->getMessage();
-            error_log('[SOSPrescription] Ingest Failed: ' . $errorMessage);
-
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_worker_ingest_failed',
-                'Échec de transmission HDS. Détail : ' . $errorMessage,
+                'Le service sécurisé est temporairement indisponible.',
+                502,
+                $req_id,
                 [
-                    'status' => 502,
-                    'req_id' => $req_id,
-                    'error' => $errorMessage,
-                ]
+                    'controller' => __CLASS__,
+                    'action' => 'create',
+                ],
+                'prescription.create.worker_ingest_failed'
             );
         }
 
@@ -282,17 +283,20 @@ class PrescriptionController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            $errorMessage = $e->getMessage();
-            error_log('[SOSPrescription] Decision Failed: ' . $errorMessage);
-
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_worker_transition_failed',
-                'Échec HDS : ' . $errorMessage,
+                'La mise à jour du dossier a échoué. Réessayez ultérieurement.',
+                502,
+                $req_id,
                 [
-                    'status' => 502,
-                    'req_id' => $req_id,
-                    'error' => $errorMessage,
-                ]
+                    'controller' => __CLASS__,
+                    'action' => 'decision',
+                    'local_prescription_id' => $id,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'decision' => $decision,
+                ],
+                'prescription.decision.worker_transition_failed'
             );
         }
 
@@ -1043,14 +1047,20 @@ class PrescriptionController extends \WP_REST_Controller
                 $row = $this->prescriptions->get($prescription_id) ?: $row;
                 $workerMeta = $this->extract_worker_shadow_state($row);
             } catch (\Throwable $e) {
-                return new WP_Error(
+                return ErrorResponder::internal_error(
+                    $e,
                     'sosprescription_pdf_dispatch_failed',
-                    'La libération du job PDF a échoué.',
+                    'La génération du document est temporairement indisponible.',
+                    502,
+                    $req_id,
                     [
-                        'status' => 502,
-                        'req_id' => $req_id,
-                        'error' => $e->getMessage(),
-                    ]
+                        'controller' => __CLASS__,
+                        'action' => 'dispatch_pdf_generation',
+                        'local_prescription_id' => $prescription_id,
+                        'worker_prescription_id' => $workerPrescriptionId,
+                        'source' => $source,
+                    ],
+                    'prescription.pdf_dispatch_failed'
                 );
             }
         }

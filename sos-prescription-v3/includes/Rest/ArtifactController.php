@@ -7,6 +7,7 @@ use SOSPrescription\Core\JobDispatcher;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\ReqId;
 use SosPrescription\Repositories\PrescriptionRepository;
+use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\RestGuard;
 use WP_Error;
@@ -138,13 +139,19 @@ final class ArtifactController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_artifact_init_failed',
-                'Échec de préparation de l’upload HDS : ' . $e->getMessage(),
+                'La préparation du document sécurisé a échoué.',
+                502,
+                $req_id,
                 [
-                    'status' => 502,
-                    'req_id' => $req_id,
-                ]
+                    'controller' => __CLASS__,
+                    'action' => 'init_upload',
+                    'artifact_kind' => $kind,
+                    'prescription_id' => $prescription_id > 0 ? $prescription_id : null,
+                ],
+                'artifact.init_upload_failed'
             );
         }
 
@@ -188,13 +195,20 @@ final class ArtifactController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_artifact_access_failed',
-                'Impossible de générer le lien sécurisé : ' . $e->getMessage(),
+                'Le document sécurisé est temporairement indisponible.',
+                502,
+                $req_id,
                 [
-                    'status' => 502,
-                    'req_id' => $req_id,
-                ]
+                    'controller' => __CLASS__,
+                    'action' => 'access',
+                    'artifact_id' => $artifactId,
+                    'prescription_id' => $prescription_id > 0 ? $prescription_id : null,
+                    'disposition' => $disposition,
+                ],
+                'artifact.access_failed'
             );
         }
 
@@ -220,13 +234,18 @@ final class ArtifactController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            return new WP_Error(
+            return ErrorResponder::worker_bridge_error(
+                $e,
                 'sosprescription_artifact_analyze_failed',
-                'Impossible d’analyser le document : ' . $e->getMessage(),
+                'L’analyse du document est temporairement indisponible.',
+                502,
+                $req_id,
                 [
-                    'status' => 502,
-                    'req_id' => $req_id,
-                ]
+                    'controller' => __CLASS__,
+                    'action' => 'analyze',
+                    'artifact_id' => $artifactId,
+                ],
+                'artifact.analyze_failed'
             );
         }
 

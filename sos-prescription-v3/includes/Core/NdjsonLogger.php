@@ -30,28 +30,25 @@ final class NdjsonLogger
         $this->log('info', $event, $context, $reqId);
     }
 
-    public function warning(string $event, array $context = [], ?string $reqId = null): void
+    public function warning(string $event, array $context = [], ?string $reqId = null, ?Throwable $e = null): void
     {
-        $this->log('warning', $event, $context, $reqId);
+        $this->log('warning', $event, $context, $reqId, $e ? self::safeError($e) : null);
     }
 
     public function error(string $event, array $context = [], ?string $reqId = null, ?Throwable $e = null): void
     {
-        if ($e) {
-            $context['error'] = self::safeError($e);
-        }
-        $this->log('error', $event, $context, $reqId);
+        $this->log('error', $event, $context, $reqId, $e ? self::safeError($e) : null);
     }
 
     public function critical(string $event, array $context = [], ?string $reqId = null, ?Throwable $e = null): void
     {
-        if ($e) {
-            $context['error'] = self::safeError($e);
-        }
-        $this->log('critical', $event, $context, $reqId);
+        $this->log('critical', $event, $context, $reqId, $e ? self::safeError($e) : null);
     }
 
-    public function log(string $severity, string $event, array $context = [], ?string $reqId = null): void
+    /**
+     * @param array<string, mixed>|null $error
+     */
+    public function log(string $severity, string $event, array $context = [], ?string $reqId = null, ?array $error = null): void
     {
         $tsMs = (int) floor(microtime(true) * 1000);
         $record = [
@@ -71,6 +68,10 @@ final class NdjsonLogger
             'context'   => self::sanitizeContext($context),
         ];
 
+        if (is_array($error) && $error !== []) {
+            $record['error'] = self::sanitizeError($error);
+        }
+
         $line = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($line) || $line === '') {
             $line = '{"ts_ms":' . $tsMs . ',"severity":"error","component":"' . $this->component . '","event":"logger.encode_failed"}';
@@ -79,16 +80,26 @@ final class NdjsonLogger
         fwrite($this->stream, $line . "\n");
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public static function safeError(Throwable $e): array
     {
         return [
-            'code'         => 'EXCEPTION',
-            'class'        => get_class($e),
-            'message_safe' => 'Unhandled exception',
-            'stack_hash'   => 'sha256:' . hash('sha256', $e->getFile() . ':' . $e->getLine() . ':' . $e->getCode()),
+            'class'      => get_class($e),
+            'code'       => is_scalar($e->getCode()) ? (string) $e->getCode() : 'EXCEPTION',
+            'message'    => $e->getMessage(),
+            'file'       => $e->getFile(),
+            'line'       => $e->getLine(),
+            'trace'      => $e->getTraceAsString(),
+            'stack_hash' => 'sha256:' . hash('sha256', $e->getFile() . ':' . $e->getLine() . ':' . $e->getCode()),
         ];
     }
 
+    /**
+     * @param mixed $value
+     * @return mixed
+     */
     private static function sanitizeContext($value)
     {
         if (is_array($value)) {
@@ -113,6 +124,36 @@ final class NdjsonLogger
         }
 
         return '[UNSERIALIZABLE]';
+    }
+
+    /**
+     * @param array<string, mixed> $error
+     * @return array<string, mixed>
+     */
+    private static function sanitizeError(array $error): array
+    {
+        $out = [];
+        foreach ($error as $key => $value) {
+            $normalizedKey = is_string($key) ? $key : (string) $key;
+            if (is_array($value)) {
+                $out[$normalizedKey] = self::sanitizeError($value);
+                continue;
+            }
+
+            if (is_string($value)) {
+                $out[$normalizedKey] = self::redactStringPatterns($value);
+                continue;
+            }
+
+            if (is_int($value) || is_float($value) || is_bool($value) || $value === null) {
+                $out[$normalizedKey] = $value;
+                continue;
+            }
+
+            $out[$normalizedKey] = '[UNSERIALIZABLE]';
+        }
+
+        return $out;
     }
 
     private static function shouldRedactKey(string $key): bool

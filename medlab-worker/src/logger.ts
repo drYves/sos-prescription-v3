@@ -13,7 +13,7 @@ export class NdjsonLogger {
     private readonly env: string,
   ) {}
 
-  log(severity: Severity, event: string, context: LoggerContext = {}, reqId?: string): void {
+  log(severity: Severity, event: string, context: LoggerContext = {}, reqId?: string, err?: unknown): void {
     const tsMs = Date.now();
     const ts = new Date(tsMs).toISOString();
 
@@ -38,23 +38,28 @@ export class NdjsonLogger {
 
     record.context = sanitizeContext(context);
 
+    const serializedError = serializeError(err);
+    if (serializedError) {
+      record.error = serializedError;
+    }
+
     process.stderr.write(`${JSON.stringify(record)}\n`);
   }
 
-  info(event: string, context?: LoggerContext, reqId?: string): void {
-    this.log("info", event, context, reqId);
+  info(event: string, context?: LoggerContext, reqId?: string, err?: unknown): void {
+    this.log("info", event, context, reqId, err);
   }
 
-  warning(event: string, context?: LoggerContext, reqId?: string): void {
-    this.log("warning", event, context, reqId);
+  warning(event: string, context?: LoggerContext, reqId?: string, err?: unknown): void {
+    this.log("warning", event, context, reqId, err);
   }
 
-  error(event: string, context?: LoggerContext, reqId?: string): void {
-    this.log("error", event, context, reqId);
+  error(event: string, context?: LoggerContext, reqId?: string, err?: unknown): void {
+    this.log("error", event, context, reqId, err);
   }
 
-  critical(event: string, context?: LoggerContext, reqId?: string): void {
-    this.log("critical", event, context, reqId);
+  critical(event: string, context?: LoggerContext, reqId?: string, err?: unknown): void {
+    this.log("critical", event, context, reqId, err);
   }
 }
 
@@ -104,4 +109,42 @@ function redactStringPatterns(s: string): string {
 function truncate(s: string, maxLen: number): string {
   if (s.length <= maxLen) return s;
   return `${s.slice(0, maxLen)}…[truncated]`;
+}
+
+function serializeError(err: unknown): Record<string, unknown> | undefined {
+  if (err == null) {
+    return undefined;
+  }
+
+  if (err instanceof Error) {
+    const error = err as Error & { code?: unknown; cause?: unknown };
+    const out: Record<string, unknown> = {
+      name: error.name,
+      message: redactStringPatterns(error.message),
+    };
+
+    if (typeof error.code === "string" || typeof error.code === "number") {
+      out.code = error.code;
+    }
+
+    if (typeof error.stack === "string" && error.stack.trim() !== "") {
+      out.stack = redactStringPatterns(error.stack);
+    }
+
+    if (error.cause !== undefined) {
+      out.cause = serializeError(error.cause) ?? sanitizeContext(error.cause);
+    }
+
+    return out;
+  }
+
+  if (typeof err === "string") {
+    return { message: redactStringPatterns(err) };
+  }
+
+  if (typeof err === "object") {
+    return { value: sanitizeContext(err) };
+  }
+
+  return { value: err };
 }

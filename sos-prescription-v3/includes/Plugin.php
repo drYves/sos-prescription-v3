@@ -22,6 +22,7 @@ use SosPrescription\Rest\Routes;
 use SosPrescription\Rest\WorkerCallbackController;
 use SosPrescription\Rest\WorkerClaimController;
 use SosPrescription\Rest\WorkerRenderController;
+use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
 use SosPrescription\Shortcodes\DoctorAccountShortcode;
@@ -67,6 +68,7 @@ final class Plugin
 
         add_action('init', [self::class, 'register_shortcodes']);
         add_action('rest_api_init', [Routes::class, 'register']);
+        ErrorResponder::register_hooks();
 
         // Routes worker v3 (signed claim + render + callback).
         WorkerClaimController::register();
@@ -173,7 +175,16 @@ final class Plugin
             }
 
             if ($result instanceof \WP_REST_Response) {
-                $result->header('X-SOSPrescription-Request-ID', Logger::get_request_id());
+                $data = $result->get_data();
+                $responseReqId = Logger::get_request_id();
+                if (is_array($data) && isset($data['req_id']) && is_scalar($data['req_id'])) {
+                    $candidateReqId = trim((string) $data['req_id']);
+                    if ($candidateReqId !== '') {
+                        $responseReqId = $candidateReqId;
+                    }
+                }
+
+                $result->header('X-SOSPrescription-Request-ID', $responseReqId);
                 $result->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
                 $result->header('Pragma', 'no-cache');
                 $result->header('Expires', '0');
@@ -188,8 +199,8 @@ final class Plugin
                 return $result;
             }
 
-            if (is_array($result) && isset($result['code'], $result['message'])) {
-                $result['_request_id'] = Logger::get_request_id();
+            if (is_array($result) && isset($result['code'], $result['message']) && !isset($result['req_id'])) {
+                $result['req_id'] = Logger::get_request_id();
             }
 
             return $result;
@@ -202,12 +213,17 @@ final class Plugin
             }
 
             if (is_wp_error($response)) {
+                $errorData = $response->get_error_data();
+                if (is_array($errorData) && isset($errorData['req_id']) && is_scalar($errorData['req_id']) && trim((string) $errorData['req_id']) !== '') {
+                    return $response;
+                }
+
                 try {
                     Logger::log_scoped('runtime', 'api', 'warning', 'api_error', [
                         'route' => $route,
                         'code' => $response->get_error_code(),
                         'message' => $response->get_error_message(),
-                        'data' => $response->get_error_data(),
+                        'data' => $errorData,
                         'user_id' => get_current_user_id(),
                         'req_id' => Logger::get_request_id(),
                     ]);

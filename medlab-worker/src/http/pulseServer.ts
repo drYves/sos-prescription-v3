@@ -24,6 +24,16 @@ const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
 
+const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
+
+type ErrorResponseBody = {
+  ok: false;
+  code: string;
+  message?: string;
+  req_id?: string;
+  schema_version?: string;
+};
+
 type PostgresApprovalRepo = JobsRepo;
 
 interface ArtifactInitRequestBody {
@@ -86,6 +96,8 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
 
   const server = http.createServer(async (req, res) => {
+    setResponseReqId(res, buildRequestId());
+
     try {
       const method = req.method ?? "GET";
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -191,25 +203,26 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       return sendJson(res, 404, { ok: false, code: "NOT_FOUND" }, signingSecret);
     } catch (err: unknown) {
+      const reqId = getResponseReqId(res);
       deps.logger.error(
         "pulse.unhandled_error",
-        { message: err instanceof Error ? err.message : "Unhandled server error" },
-        undefined,
+        {
+          method: req.method ?? "GET",
+          path: req.url ?? "/",
+        },
+        reqId,
+        err,
       );
-      return sendJson(res, 500, { ok: false, code: "INTERNAL_ERROR" }, signingSecret);
+      return sendJson(res, 500, { ok: false, code: "INTERNAL_ERROR", req_id: reqId }, signingSecret);
     }
   });
 
   server.listen(deps.port, () => {
-    deps.logger.info(
-      "system.pulse_server.listening",
-      {
-        port: deps.port,
-        worker_id: deps.workerId,
-        queue_mode: deps.jobsRepo.mode,
-      },
-      undefined,
-    );
+    deps.logger.info("system.pulse_server.listening", {
+      port: deps.port,
+      worker_id: deps.workerId,
+      queue_mode: deps.jobsRepo.mode,
+    });
   });
 
   return server;
@@ -225,7 +238,7 @@ async function handlePulse(
   const parsed = validateSignedRequestHeader(req, deps.secrets);
   if (parsed.ok !== true) {
     if (parsed.logReason) {
-      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path }, undefined);
+      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path }, getResponseReqId(res));
     }
     return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
   }
@@ -242,13 +255,13 @@ async function handlePulse(
   const now = Date.now();
   const skew = Math.abs(now - canon.tsMs);
   if (skew > deps.skewWindowMs) {
-    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, undefined);
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, getResponseReqId(res));
     return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
   }
 
   const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
   if (!isNew) {
-    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, undefined);
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, getResponseReqId(res));
     return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
   }
 
@@ -289,7 +302,7 @@ async function handlePrescriptionIngress(
     deps.logger.warning(
       "ingest.rejected",
       { reason: "queue_mode_disabled", queue_mode: deps.jobsRepo.mode },
-      undefined,
+      getResponseReqId(res),
     );
     return sendJson(res, 503, { ok: false, code: "ML_INGEST_DISABLED" }, signingSecret);
   }
@@ -300,14 +313,14 @@ async function handlePrescriptionIngress(
   } catch (err: unknown) {
     const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
     const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
-    deps.logger.warning("ingest.rejected", { reason: code }, undefined);
+    deps.logger.warning("ingest.rejected", { reason: code }, getResponseReqId(res));
     return sendJson(res, status, { ok: false, code }, signingSecret);
   }
 
   const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
   if (parsed.ok !== true) {
     if (parsed.logReason) {
-      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: "/api/v1/prescriptions" }, undefined);
+      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: "/api/v1/prescriptions" }, getResponseReqId(res));
     }
     return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
   }
@@ -316,7 +329,7 @@ async function handlePrescriptionIngress(
   try {
     body = JSON.parse(rawBody.toString("utf8")) as IngestPrescriptionRequest;
   } catch {
-    deps.logger.warning("ingest.rejected", { reason: "bad_json" }, undefined);
+    deps.logger.warning("ingest.rejected", { reason: "bad_json" }, getResponseReqId(res));
     return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_JSON" }, signingSecret);
   }
 
@@ -326,7 +339,7 @@ async function handlePrescriptionIngress(
     validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ML_INGEST_BAD_REQUEST";
-    deps.logger.warning("ingest.rejected", { reason: message }, undefined);
+    deps.logger.warning("ingest.rejected", { reason: message }, getResponseReqId(res), err);
     return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_REQUEST" }, signingSecret);
   }
 
@@ -362,6 +375,7 @@ async function handlePrescriptionIngress(
         status_code: statusCode,
       },
       reqId,
+      err,
     );
     return sendJson(res, statusCode, { ok: false, code }, signingSecret);
   }
@@ -373,7 +387,7 @@ async function handleArtifactUploadInit(
   deps: PulseServerDeps,
   signingSecret: string,
 ): Promise<void> {
-  const parsedBody = await parseSignedActionBody(req, deps, "/api/v1/artifacts/upload/init");
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v1/artifacts/upload/init");
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -439,7 +453,7 @@ async function handleArtifactUploadInit(
     const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
     const statusCode = isClientArtifactError(message) ? 400 : 500;
     const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
-    deps.logger.error("artifact.upload_init.failed", { reason: message }, reqId);
+    deps.logger.error("artifact.upload_init.failed", { reason: message }, reqId, err);
     return sendJson(res, statusCode, { ok: false, code }, signingSecret);
   }
 }
@@ -591,7 +605,7 @@ async function handleArtifactUploadDirect(
         size_bytes: ready.sizeBytes,
         s3_key: ready.s3Key,
       },
-      undefined,
+      getResponseReqId(res),
     );
 
     return sendJson(
@@ -615,7 +629,8 @@ async function handleArtifactUploadDirect(
         kind: artifact.kind,
         reason: message,
       },
-      undefined,
+      getResponseReqId(res),
+      err,
     );
     return sendJson(
       res,
@@ -634,7 +649,7 @@ async function handleArtifactAccess(
   signingSecret: string,
   artifactId: string,
 ): Promise<void> {
-  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/artifacts/${artifactId}/access`);
+  const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v1/artifacts/${artifactId}/access`);
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -702,6 +717,7 @@ async function handleArtifactAccess(
         reason: message,
       },
       reqId,
+      err,
     );
     return sendJson(res, 500, { ok: false, code: "ML_ARTIFACT_ACCESS_FAILED" }, signingSecret);
   }
@@ -714,7 +730,7 @@ async function handleArtifactAnalyze(
   signingSecret: string,
   artifactId: string,
 ): Promise<void> {
-  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/artifacts/${artifactId}/analyze`);
+  const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v1/artifacts/${artifactId}/analyze`);
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -753,6 +769,7 @@ async function handleArtifactAnalyze(
           reason_code: failure.code,
         },
         reqId,
+        err,
       );
 
       return sendJson(
@@ -805,6 +822,7 @@ async function handleArtifactAnalyze(
           reason_code: failure.code,
         },
         reqId,
+        err,
       );
 
       return sendJson(
@@ -824,6 +842,7 @@ async function handleArtifactAnalyze(
         reason_code: failure.code,
       },
       reqId,
+      err,
     );
 
     return sendJson(
@@ -951,7 +970,7 @@ async function handlePrescriptionMessagesGet(
       deps.logger.warning(
         "security.mls1.rejected",
         { reason: parsed.logReason, path: `/api/v1/prescriptions/${prescriptionId}/messages` },
-        undefined,
+        getResponseReqId(res),
       );
     }
     return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
@@ -966,7 +985,12 @@ async function handlePrescriptionMessagesGet(
     limit = normalizeMessagesLimitQuery(url);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ML_MESSAGE_BAD_REQUEST";
-    deps.logger.warning("messages.query_rejected", { reason: message, prescription_id: prescriptionId }, undefined);
+    deps.logger.warning(
+      "messages.query_rejected",
+      { reason: message, prescription_id: prescriptionId },
+      getResponseReqId(res),
+      err,
+    );
     return sendJson(res, 400, { ok: false, code: "ML_MESSAGE_BAD_REQUEST" }, signingSecret);
   }
 
@@ -984,7 +1008,7 @@ async function handlePrescriptionMessagesGet(
         expected_path: expectedPath,
         received_path: canon.path,
       },
-      undefined,
+      getResponseReqId(res),
     );
     return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
   }
@@ -992,13 +1016,13 @@ async function handlePrescriptionMessagesGet(
   const now = Date.now();
   const skew = Math.abs(now - canon.tsMs);
   if (skew > deps.skewWindowMs) {
-    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, undefined);
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, getResponseReqId(res));
     return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
   }
 
   const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
   if (!isNew) {
-    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, undefined);
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, getResponseReqId(res));
     return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
   }
 
@@ -1042,7 +1066,7 @@ async function handlePrescriptionMessagesCreate(
   signingSecret: string,
   prescriptionId: string,
 ): Promise<void> {
-  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/prescriptions/${prescriptionId}/messages`);
+  const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v1/prescriptions/${prescriptionId}/messages`);
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -1095,7 +1119,7 @@ async function handlePrescriptionMessagesRead(
   signingSecret: string,
   prescriptionId: string,
 ): Promise<void> {
-  const parsedBody = await parseSignedActionBody(req, deps, `/api/v1/prescriptions/${prescriptionId}/messages/read`);
+  const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v1/prescriptions/${prescriptionId}/messages/read`);
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -1148,7 +1172,7 @@ async function handlePrescriptionApprove(
     return sendJson(res, 503, { ok: false, code: "ML_INGEST_DISABLED" }, signingSecret);
   }
 
-  const parsedBody = await parseSignedActionBody(req, deps, "/approve");
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/approve");
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -1197,7 +1221,7 @@ async function handlePrescriptionApprove(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "approve_failed";
-    deps.logger.error("ingest.approve_failed", { reason: message }, reqId);
+    deps.logger.error("ingest.approve_failed", { reason: message }, reqId, err);
     return sendJson(res, 500, { ok: false, code: "ML_APPROVE_FAILED" }, signingSecret);
   }
 }
@@ -1214,7 +1238,7 @@ async function handlePrescriptionReject(
     return sendJson(res, 503, { ok: false, code: "ML_INGEST_DISABLED" }, signingSecret);
   }
 
-  const parsedBody = await parseSignedActionBody(req, deps, "/reject");
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/reject");
   if (parsedBody.ok !== true) {
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
@@ -1252,7 +1276,7 @@ async function handlePrescriptionReject(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "reject_failed";
-    deps.logger.error("ingest.reject_failed", { reason: message }, reqId);
+    deps.logger.error("ingest.reject_failed", { reason: message }, reqId, err);
     return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
   }
 }
@@ -1271,6 +1295,7 @@ function asApprovalRepo(jobsRepo: JobsRepo): PostgresApprovalRepo | null {
 
 async function parseSignedActionBody(
   req: http.IncomingMessage,
+  res: http.ServerResponse,
   deps: PulseServerDeps,
   pathSuffix: string,
 ): Promise<
@@ -1288,7 +1313,7 @@ async function parseSignedActionBody(
   const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
   if (parsed.ok !== true) {
     if (parsed.logReason) {
-      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: pathSuffix }, undefined);
+      deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: pathSuffix }, getResponseReqId(res));
     }
     return { ok: false, statusCode: parsed.statusCode, code: parsed.code };
   }
@@ -1306,6 +1331,7 @@ async function parseSignedActionBody(
 
   try {
     const reqId = normalizeRequiredString(body.req_id, "req_id");
+    setResponseReqId(res, reqId);
     validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
     return { ok: true, body, reqId };
   } catch {
@@ -1751,6 +1777,157 @@ function normalizeReadUptoSeq(value: unknown): number | null {
   return Math.trunc(parsed);
 }
 
+function buildRequestId(): string {
+  return `req_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+type ResponseWithReqId = http.ServerResponse & {
+  [RESPONSE_REQ_ID_SYMBOL]?: string;
+};
+
+function coalesceRequestId(value: unknown): string {
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim();
+  }
+
+  return buildRequestId();
+}
+
+function setResponseReqId(res: http.ServerResponse, reqId: unknown): string {
+  const normalized = coalesceRequestId(reqId);
+  (res as ResponseWithReqId)[RESPONSE_REQ_ID_SYMBOL] = normalized;
+  return normalized;
+}
+
+function getResponseReqId(res: http.ServerResponse): string {
+  const current = (res as ResponseWithReqId)[RESPONSE_REQ_ID_SYMBOL];
+  if (typeof current === "string" && current.trim() !== "") {
+    return current;
+  }
+
+  return setResponseReqId(res, undefined);
+}
+
+function normalizePublicErrorMessage(code: string, status: number, providedMessage: string | null): string {
+  switch (code) {
+    case "NOT_FOUND":
+      return "Ressource introuvable.";
+    case "INTERNAL_ERROR":
+      return "Une erreur interne est survenue. Réessayez ultérieurement.";
+    case "ML_AUTH_MISSING":
+    case "ML_AUTH_INVALID_SIG":
+    case "ML_AUTH_BAD_PAYLOAD":
+    case "ML_AUTH_BODY_MISMATCH":
+    case "ML_AUTH_SCOPE_DENIED":
+    case "ML_AUTH_EXPIRED":
+    case "ML_AUTH_REPLAY":
+      return "La requête sécurisée n’a pas pu être vérifiée.";
+    case "ML_INGEST_DISABLED":
+      return "Le service sécurisé est temporairement indisponible.";
+    case "ML_INGEST_BAD_JSON":
+    case "ML_INGEST_BAD_REQUEST":
+      return "La requête transmise au service sécurisé est invalide.";
+    case "ML_BODY_TOO_LARGE":
+      return "La requête dépasse la taille maximale autorisée.";
+    case "ML_BODY_ABORTED":
+    case "ML_BODY_READ_FAILED":
+      return "La requête n’a pas pu être lue correctement.";
+    case "ML_ARTIFACT_NOT_FOUND":
+      return "Document introuvable.";
+    case "ML_ARTIFACT_NOT_READY":
+      return "Le document n’est pas encore disponible.";
+    case "ML_ARTIFACT_TOO_LARGE":
+      return "Le fichier dépasse la taille maximale autorisée.";
+    case "ML_ARTIFACT_SIZE_MISMATCH":
+    case "ML_ARTIFACT_CONTENT_TYPE_MISMATCH":
+      return "Le fichier transmis est invalide.";
+    case "ML_ARTIFACT_TICKET_MISSING":
+    case "ML_ARTIFACT_BAD_REQUEST":
+      return "La demande de document est invalide.";
+    case "ML_ARTIFACT_INIT_FAILED":
+      return "La préparation du document sécurisé a échoué.";
+    case "ML_ARTIFACT_UPLOAD_FAILED":
+      return "Le téléversement du document a échoué.";
+    case "ML_ARTIFACT_ACCESS_FAILED":
+      return "Le document sécurisé est temporairement indisponible.";
+    case "ML_MESSAGE_BAD_REQUEST":
+      return "La requête de messagerie est invalide.";
+    case "ML_MESSAGES_FAILED":
+      return "Le service de messagerie est temporairement indisponible.";
+    case "ML_APPROVE_FAILED":
+      return "La validation du dossier a échoué. Réessayez ultérieurement.";
+    case "ML_REJECT_FAILED":
+      return "La mise à jour du dossier a échoué. Réessayez ultérieurement.";
+    case "ML_AI_DISABLED":
+      return "L’analyse automatique du document est temporairement indisponible.";
+    case "ML_AI_TIMEOUT":
+      return "L’analyse automatique du document a expiré. Merci de réessayer.";
+    case "ML_AI_UNSUPPORTED_MIME":
+      return "Ce type de document n’est pas pris en charge pour l’analyse automatique.";
+    case "ML_AI_UPSTREAM_FAILED":
+    case "ML_AI_FAILED":
+      return "L’analyse automatique du document a échoué. Merci de réessayer.";
+    case "ML_AI_S3_READ_FAILED":
+      return "Le document n’a pas pu être relu pour l’analyse automatique. Merci de le réimporter.";
+    case "CORS_FORBIDDEN":
+      return "Origine de requête non autorisée.";
+    default:
+      if (providedMessage && providedMessage.trim() !== "" && (code.startsWith("ML_AI_") || code === "CORS_FORBIDDEN")) {
+        return providedMessage.trim();
+      }
+      if (status >= 500) {
+        return "Le service sécurisé est temporairement indisponible.";
+      }
+      if (status === 401) {
+        return "Connexion requise.";
+      }
+      if (status === 403) {
+        return "Accès refusé.";
+      }
+      if (status === 404) {
+        return "Ressource introuvable.";
+      }
+      if (status === 409) {
+        return "Conflit d’état. Merci de recharger la page.";
+      }
+      if (status === 429) {
+        return "Trop de requêtes. Veuillez réessayer plus tard.";
+      }
+      return "La requête n’a pas pu être traitée.";
+  }
+}
+
+function normalizeErrorResponseBody(res: http.ServerResponse, status: number, body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return body;
+  }
+
+  const row = body as Record<string, unknown>;
+  if (row.ok !== false || typeof row.code !== "string") {
+    return body;
+  }
+
+  const reqId = typeof row.req_id === "string" && row.req_id.trim() !== ""
+    ? setResponseReqId(res, row.req_id)
+    : getResponseReqId(res);
+  const message = normalizePublicErrorMessage(
+    row.code,
+    status,
+    typeof row.message === "string" ? row.message : null,
+  );
+
+  return {
+    ...row,
+    ok: false,
+    code: row.code,
+    message,
+    req_id: reqId,
+    schema_version: typeof row.schema_version === "string" && row.schema_version.trim() !== ""
+      ? row.schema_version
+      : CURRENT_SCHEMA_VERSION,
+  } satisfies ErrorResponseBody & Record<string, unknown>;
+}
+
 function sendMessagesRepoError(
   res: http.ServerResponse,
   deps: PulseServerDeps,
@@ -1760,15 +1937,17 @@ function sendMessagesRepoError(
   event: string,
   context: Record<string, unknown>,
 ): void {
+  const effectiveReqId = setResponseReqId(res, reqId);
+
   if (err instanceof MessagesRepoError) {
-    deps.logger.warning(event, { ...context, reason: err.message, code: err.code }, reqId);
-    sendJson(res, err.statusCode, { ok: false, code: err.code }, signingSecret);
+    deps.logger.warning(event, { ...context, reason: err.message, code: err.code }, effectiveReqId, err);
+    sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
     return;
   }
 
   const message = err instanceof Error ? err.message : "messages_failed";
-  deps.logger.error(event, { ...context, reason: message }, reqId);
-  sendJson(res, 500, { ok: false, code: "ML_MESSAGES_FAILED" }, signingSecret);
+  deps.logger.error(event, { ...context, reason: message }, effectiveReqId, err);
+  sendJson(res, 500, { ok: false, code: "ML_MESSAGES_FAILED", req_id: effectiveReqId }, signingSecret);
 }
 
 function serializeArtifact(artifact: ArtifactRecord): Record<string, unknown> {
@@ -1795,7 +1974,8 @@ function sendJson(
   signingSecret: string,
   extraHeaders?: Record<string, string>,
 ): void {
-  const data = Buffer.from(JSON.stringify(body));
+  const normalizedBody = normalizeErrorResponseBody(res, status, body);
+  const data = Buffer.from(JSON.stringify(normalizedBody));
   const token = buildMls1Token(data, signingSecret);
 
   res.statusCode = status;
