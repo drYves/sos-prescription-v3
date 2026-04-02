@@ -185,7 +185,7 @@ final class Plugin
                 }
 
                 $result->header('X-SOSPrescription-Request-ID', $responseReqId);
-                $result->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+                $result->header('Cache-Control', 'no-store, no-cache, must-revalidate');
                 $result->header('Pragma', 'no-cache');
                 $result->header('Expires', '0');
             }
@@ -253,7 +253,8 @@ final class Plugin
         }
 
         return strpos($route, '/sosprescription/v1/') === 0
-            || strpos($route, '/sosprescription/v3/') === 0;
+            || strpos($route, '/sosprescription/v3/') === 0
+            || strpos($route, '/sosprescription/v4/') === 0;
     }
 
     private static function pin_version_options(string $version): void

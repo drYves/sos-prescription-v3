@@ -76,14 +76,6 @@ final class Assets
         );
 
         wp_enqueue_script(
-            'sosprescription-turnstile-failopen',
-            SOSPRESCRIPTION_URL . 'assets/form-turnstile-failopen.js',
-            [],
-            SOSPRESCRIPTION_VERSION,
-            true
-        );
-
-        wp_enqueue_script(
             'sosprescription-patient-profile-enhancements',
             SOSPRESCRIPTION_URL . 'assets/patient-profile-enhancements.js',
             [],
@@ -91,20 +83,6 @@ final class Assets
             true
         );
 
-        $turnstile_config = [
-            'configured' => Turnstile::is_configured(),
-            'enabled' => Turnstile::is_enabled(),
-        ];
-        $json = wp_json_encode($turnstile_config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if (!is_string($json)) {
-            $json = '{}';
-        }
-
-        wp_add_inline_script(
-            'sosprescription-turnstile-failopen',
-            'window.SOSPrescriptionTurnstileFailOpen = ' . $json . ';',
-            'before'
-        );
     }
 
     private static function maybe_enqueue_turnstile(): bool

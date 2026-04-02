@@ -466,6 +466,7 @@ function handleArtifactUploadDirectOptions(
   const corsOrigin = resolveCorsOrigin(req, deps.uploadAllowedOrigins);
   if (!corsOrigin) {
     res.statusCode = 403;
+    applyApiResponseHeaders(res);
     res.end();
     return;
   }
@@ -475,6 +476,7 @@ function handleArtifactUploadDirectOptions(
   res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Max-Age", "600");
+  applyApiResponseHeaders(res);
   res.end();
 }
 
@@ -1967,6 +1969,20 @@ function serializeArtifact(artifact: ArtifactRecord): Record<string, unknown> {
   };
 }
 
+function applyApiResponseHeaders(
+  res: http.ServerResponse,
+  extraHeaders?: Record<string, string>,
+): void {
+  for (const [header, value] of Object.entries(extraHeaders ?? {})) {
+    res.setHeader(header, value);
+  }
+
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-SOSPrescription-Request-ID", getResponseReqId(res));
+}
+
 function sendJson(
   res: http.ServerResponse,
   status: number,
@@ -1979,9 +1995,7 @@ function sendJson(
   const token = buildMls1Token(data, signingSecret);
 
   res.statusCode = status;
-  for (const [header, value] of Object.entries(extraHeaders ?? {})) {
-    res.setHeader(header, value);
-  }
+  applyApiResponseHeaders(res, extraHeaders);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", data.length);
   res.setHeader("X-MedLab-Signature", token);
