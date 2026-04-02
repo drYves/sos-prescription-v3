@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -26,26 +25,33 @@ enum ArtifactStatus {
   DELETED
 }
 
+enum SubmissionStatus {
+  OPEN
+  FINALIZED
+  EXPIRED
+  CANCELLED
+}
+
 model Doctor {
-  id               String                @id @default(uuid())
-  wpUserId         Int                   @unique // Pont avec le login Hostinger
-  firstName        String?
-  lastName         String?
-  email            String?               @unique
-  phone            String?
-  title            String?
-  specialty        String?
-  rpps             String?               @unique
-  amNumber         String?               // Numéro Assurance Maladie
-  address          String?
-  city             String?
-  zipCode          String?
-  signatureS3Key   String?               // Fichier stocké sécurisé sur S3 (Plus d'image WP)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  prescriptions    Prescription[]
-  authoredMessages PrescriptionMessage[] @relation("DoctorAuthoredMessages")
-  uploadedArtifacts Artifact[]           @relation("DoctorUploadedArtifacts")
+  id                String                @id @default(uuid())
+  wpUserId          Int                   @unique
+  firstName         String?
+  lastName          String?
+  email             String?               @unique
+  phone             String?
+  title             String?
+  specialty         String?
+  rpps              String?               @unique
+  amNumber          String?
+  address           String?
+  city              String?
+  zipCode           String?
+  signatureS3Key    String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  prescriptions     Prescription[]
+  authoredMessages  PrescriptionMessage[] @relation("DoctorAuthoredMessages")
+  uploadedArtifacts Artifact[]            @relation("DoctorUploadedArtifacts")
 }
 
 model Patient {
@@ -64,44 +70,45 @@ model Patient {
 }
 
 model Prescription {
-  id                   String                @id @default(uuid())
-  uid                  String                @unique // Référence publique courte (ex: QEZT4VS62H)
-  doctorId             String?
-  patientId            String
-  doctor               Doctor?               @relation(fields: [doctorId], references: [id])
-  patient              Patient               @relation(fields: [patientId], references: [id])
-  status               String                @default("PENDING") // PENDING, APPROVED, REJECTED
-  items                Json                  // Tableau JSONB natif contenant la posologie
-  privateNotes         String?
-  s3PdfKey             String?               // Lien vers l'artefact généré
-  verifyCode           String?
-  verifyToken          String?               @unique
-  processingStatus     String                @default("PENDING")
-  availableAt          DateTime              @default(now())
-  claimedAt            DateTime?
-  lockExpiresAt        DateTime?
-  workerRef            String?
-  attempts             Int                   @default(0)
-  maxAttempts          Int                   @default(5)
-  lastErrorCode        String?
-  lastErrorMessageSafe String?
-  sourceReqId          String?               @unique
-  flowKey              String?
-  priority             String                @default("standard")
-  hasProof             Boolean               @default(false)
-  proofCount           Int                   @default(0)
-  messageCount         Int                   @default(0)
-  lastMessageSeq       Int                   @default(0)
-  lastMessageAt        DateTime?
-  lastMessageRole      ActorRole?
-  doctorLastReadSeq    Int                   @default(0)
-  patientLastReadSeq   Int                   @default(0)
-  unreadCountDoctor    Int                   @default(0)
-  unreadCountPatient   Int                   @default(0)
-  messages             PrescriptionMessage[]
-  artifacts            Artifact[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                      String                @id @default(uuid())
+  uid                     String                @unique
+  doctorId                String?
+  patientId               String
+  doctor                  Doctor?               @relation(fields: [doctorId], references: [id])
+  patient                 Patient               @relation(fields: [patientId], references: [id])
+  status                  String                @default("PENDING")
+  items                   Json
+  privateNotes            String?
+  s3PdfKey                String?
+  verifyCode              String?
+  verifyToken             String?               @unique
+  processingStatus        String                @default("PENDING")
+  availableAt             DateTime              @default(now())
+  claimedAt               DateTime?
+  lockExpiresAt           DateTime?
+  workerRef               String?
+  attempts                Int                   @default(0)
+  maxAttempts             Int                   @default(5)
+  lastErrorCode           String?
+  lastErrorMessageSafe    String?
+  sourceReqId             String?               @unique
+  flowKey                 String?
+  priority                String                @default("standard")
+  hasProof                Boolean               @default(false)
+  proofCount              Int                   @default(0)
+  messageCount            Int                   @default(0)
+  lastMessageSeq          Int                   @default(0)
+  lastMessageAt           DateTime?
+  lastMessageRole         ActorRole?
+  doctorLastReadSeq       Int                   @default(0)
+  patientLastReadSeq      Int                   @default(0)
+  unreadCountDoctor       Int                   @default(0)
+  unreadCountPatient      Int                   @default(0)
+  messages                PrescriptionMessage[]
+  artifacts               Artifact[]
+  finalizedFromSubmission Submission?           @relation("SubmissionFinalizedPrescription")
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
 
   @@index([doctorId])
   @@index([patientId])
@@ -112,6 +119,26 @@ model Prescription {
   @@index([unreadCountDoctor, status, updatedAt])
   @@index([unreadCountPatient, status, updatedAt])
   @@index([lastMessageAt, updatedAt])
+}
+
+model Submission {
+  id                      String            @id @default(uuid())
+  publicRef               String            @unique
+  ownerRole               ActorRole
+  ownerWpUserId           Int?
+  status                  SubmissionStatus  @default(OPEN)
+  flowKey                 String
+  priority                String            @default("standard")
+  expiresAt               DateTime
+  finalizedPrescriptionId String?           @unique
+  finalizedPrescription   Prescription?     @relation("SubmissionFinalizedPrescription", fields: [finalizedPrescriptionId], references: [id], onDelete: SetNull)
+  artifacts               Artifact[]
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+
+  @@index([expiresAt])
+  @@index([status, expiresAt])
+  @@index([ownerRole, ownerWpUserId, createdAt])
 }
 
 model PrescriptionMessage {
@@ -135,6 +162,8 @@ model Artifact {
   id                 String               @id @default(uuid())
   prescriptionId     String?
   prescription       Prescription?        @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  submissionId       String?
+  submission         Submission?          @relation(fields: [submissionId], references: [id], onDelete: SetNull)
   messageId          String?
   message            PrescriptionMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
   kind               ArtifactKind
@@ -158,6 +187,7 @@ model Artifact {
   deletedAt          DateTime?
 
   @@index([prescriptionId, kind, createdAt])
+  @@index([submissionId, kind, createdAt])
   @@index([messageId, createdAt])
   @@index([ownerWpUserId, createdAt])
 }
