@@ -22,6 +22,7 @@ use SosPrescription\Rest\Routes;
 use SosPrescription\Rest\WorkerCallbackController;
 use SosPrescription\Rest\WorkerClaimController;
 use SosPrescription\Rest\WorkerRenderController;
+use SosPrescription\Rest\SubmissionV4Controller;
 use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
@@ -74,6 +75,7 @@ final class Plugin
         WorkerClaimController::register();
         WorkerRenderController::register();
         WorkerCallbackController::register();
+        SubmissionV4Controller::register();
 
         add_action('admin_enqueue_scripts', function (): void {
             if (!is_admin()) {
