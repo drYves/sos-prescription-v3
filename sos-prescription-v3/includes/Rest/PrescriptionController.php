@@ -156,7 +156,14 @@ class PrescriptionController extends \WP_REST_Controller
 
             return rest_ensure_response($response);
         } catch (\Throwable $e) {
-            return $this->raw_unprocessable_response((string) $e->getMessage(), $req_id);
+            $rawMessage = (string) $e->getMessage();
+            $safeMessage = str_ireplace(
+                ['Worker HTTP', 'Requête bloquée par WordPress', 'détail :', 'detail :'],
+                ['Serveur distant', 'Erreur de connexion réseau', 'Info:', 'Info:'],
+                $rawMessage
+            );
+
+            return $this->raw_unprocessable_response('Échec de transmission : ' . $safeMessage, $req_id);
         }
     }
 
@@ -2107,7 +2114,7 @@ class PrescriptionController extends \WP_REST_Controller
 
     protected function raw_unprocessable_response(string $message, string $req_id): WP_REST_Response
     {
-        $message = trim($message);
+        $message = $this->sanitize_unprocessable_message($message);
         if ($message === '') {
             $message = 'Erreur lors de la création de la demande.';
         }
@@ -2117,6 +2124,15 @@ class PrescriptionController extends \WP_REST_Controller
             'message' => $message,
             'req_id' => $req_id,
         ], 422);
+    }
+
+    protected function sanitize_unprocessable_message(string $message): string
+    {
+        return trim((string) str_ireplace(
+            ['Worker HTTP', 'Requête bloquée par WordPress', 'détail :', 'detail :'],
+            ['Serveur distant', 'Erreur de connexion réseau', 'Info:', 'Info:'],
+            $message
+        ));
     }
 
     protected function normalize_shadow_flow_key(string $flow): string
