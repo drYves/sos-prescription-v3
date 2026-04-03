@@ -273,12 +273,18 @@
         'input[name="last_name"]'
       ]);
       var birthdateInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="sp_patient_identity_birthdate"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="sp_patient_identity_birthdate"]',
+        'input[name="sp_patient_identity_birthdate"]',
         '#sosprescription-root-form[data-app="form"] input[name="birthDate"]',
         '#sosprescription-root-form[data-app="patient"] input[name="birthDate"]',
         'input[name="birthDate"]',
         'input[name="birthdate"]'
       ]);
       var fullNameInput = findInput([
+        '#sosprescription-root-form[data-app="form"] input[name="sp_patient_identity_fullname"]',
+        '#sosprescription-root-form[data-app="patient"] input[name="sp_patient_identity_fullname"]',
+        'input[name="sp_patient_identity_fullname"]',
         '#sosprescription-root-form[data-app="form"] input[name="fullname"]',
         '#sosprescription-root-form[data-app="patient"] input[name="fullname"]',
         'input[name="fullname"]',
@@ -293,7 +299,7 @@
         setReactInputValue(lastNameInput, seed.lastName);
         applied = true;
       }
-      if (birthdateInput && normalizeString(birthdateInput.value) === '' && seed.birthdateIso !== '') {
+      if (birthdateInput && normalizeString(birthdateInput.value) === '' && seed.birthdateFr !== '') {
         setReactInputValue(birthdateInput, seed.birthdateFr);
         applied = true;
       }
