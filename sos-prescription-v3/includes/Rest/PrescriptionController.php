@@ -117,18 +117,11 @@ class PrescriptionController extends \WP_REST_Controller
             $dispatcher = $this->get_job_dispatcher();
             $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
         } catch (\Throwable $e) {
-            return ErrorResponder::worker_bridge_error(
-                $e,
-                'sosprescription_worker_ingest_failed',
-                'Le service sécurisé est temporairement indisponible.',
-                502,
-                $req_id,
-                [
-                    'controller' => __CLASS__,
-                    'action' => 'create',
-                ],
-                'prescription.create.worker_ingest_failed'
-            );
+            return new WP_REST_Response([
+                'ok' => false,
+                'message' => trim((string) $e->getMessage()) !== '' ? (string) $e->getMessage() : 'Erreur lors de la création de la demande.',
+                'req_id' => $req_id,
+            ], 422);
         }
 
         $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
@@ -1348,20 +1341,20 @@ class PrescriptionController extends \WP_REST_Controller
                 isset($result['message']) && is_string($result['message']) && $result['message'] !== ''
                     ? $result['message']
                     : 'Erreur interne lors de la création du shadow record.',
-                ['status' => 500]
+                ['status' => 422]
             );
         }
 
         $localId = isset($result['id']) ? (int) $result['id'] : 0;
         if ($localId < 1) {
-            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 500]);
+            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 422]);
         }
 
         $this->store_shadow_worker_state($localId, $workerResult);
 
         $row = $this->prescriptions->get($localId);
         if (!is_array($row)) {
-            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 500]);
+            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 422]);
         }
 
         return $row;
