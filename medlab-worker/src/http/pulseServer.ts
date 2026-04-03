@@ -19,6 +19,7 @@ import { NdjsonLogger } from "../logger";
 import { buildMls1Token, parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { NonceCache } from "../security/nonceCache";
 import { S3Service } from "../s3/s3Service";
+import { SubmissionRepo, SubmissionRepoError } from "../submissions/submissionRepo";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -49,6 +50,20 @@ interface ArtifactInitRequestBody {
     size_bytes?: unknown;
     meta?: unknown;
   };
+}
+
+interface SubmissionCreateRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  flow?: unknown;
+  priority?: unknown;
+  idempotency_key?: unknown;
 }
 
 interface MessageCreateRequestBody {
@@ -94,6 +109,7 @@ export interface PulseServerDeps {
 
 export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
+  const submissionRepo = new SubmissionRepo({ logger: deps.logger });
 
   const server = http.createServer(async (req, res) => {
     setResponseReqId(res, buildRequestId());
@@ -105,6 +121,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "GET" && path === "/pulse") {
         return await handlePulse(req, res, deps, signingSecret);
+      }
+
+      if (method === "POST" && path === "/api/v2/submissions") {
+        return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
@@ -290,6 +310,138 @@ async function handlePulse(
     },
     signingSecret,
   );
+}
+
+async function handleSubmissionCreate(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  submissionRepo: SubmissionRepo,
+): Promise<void> {
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
+  } catch (err: unknown) {
+    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
+    deps.logger.warning("submission.init.rejected", { reason: code }, getResponseReqId(res));
+    return sendJson(res, status, { ok: false, code }, signingSecret);
+  }
+
+  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: "/api/v2/submissions" },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  let body: SubmissionCreateRequestBody;
+  try {
+    const candidate = JSON.parse(rawBody.toString("utf8")) as unknown;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("bad_json");
+    }
+    body = candidate as SubmissionCreateRequestBody;
+  } catch {
+    return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_JSON" }, signingSecret);
+  }
+
+  const reqId = typeof body.req_id === "string" && body.req_id.trim() !== ""
+    ? setResponseReqId(res, body.req_id)
+    : getResponseReqId(res);
+
+  if (hasSubmissionSignedEnvelope(body)) {
+    try {
+      if (typeof body.req_id !== "string" || body.req_id.trim() === "") {
+        throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "req_id is required");
+      }
+      validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
+    } catch (err: unknown) {
+      if (err instanceof SubmissionRepoError) {
+        deps.logger.warning("submission.init.rejected", { code: err.code, reason: err.message }, reqId, err);
+      } else {
+        const message = err instanceof Error ? err.message : "submission_envelope_invalid";
+        deps.logger.warning("submission.init.rejected", { reason: message }, reqId, err);
+      }
+      return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId }, signingSecret);
+    }
+  }
+
+  try {
+    const actor = normalizeSubmissionActorInput(body.actor);
+    const flowKey = normalizeSubmissionFlow(body.flow);
+    const priority = normalizeSubmissionPriority(body.priority);
+    const idempotencyKey = normalizeSubmissionIdempotencyKey(body.idempotency_key);
+
+    const result = await submissionRepo.createSubmission({
+      actor,
+      flowKey,
+      priority,
+      idempotencyKey,
+    });
+
+    deps.logger.info(
+      result.mode === "replayed" ? "submission.init.replayed" : "submission.init.accepted",
+      {
+        submission_ref: result.submission.publicRef,
+        owner_role: result.submission.ownerRole,
+        owner_wp_user_id: result.submission.ownerWpUserId,
+        flow_key: result.submission.flowKey,
+        priority: result.submission.priority,
+        expires_at: result.submission.expiresAt.toISOString(),
+        idempotency_key_present: Boolean(idempotencyKey),
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      result.mode === "replayed" ? 200 : 201,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        submission_ref: result.submission.publicRef,
+        expires_at: result.submission.expiresAt.toISOString(),
+        status: result.submission.status,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof SubmissionRepoError) {
+      deps.logger.warning(
+        "submission.init.rejected",
+        { code: err.code, reason: err.message },
+        reqId,
+        err,
+      );
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "submission_create_failed";
+    deps.logger.error(
+      "submission.init.failed",
+      { reason: message },
+      reqId,
+      err,
+    );
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId },
+      signingSecret,
+    );
+  }
 }
 
 async function handlePrescriptionIngress(
@@ -1779,6 +1931,55 @@ function normalizeReadUptoSeq(value: unknown): number | null {
   return Math.trunc(parsed);
 }
 
+function hasSubmissionSignedEnvelope(body: SubmissionCreateRequestBody): boolean {
+  return body.ts_ms !== undefined || body.site_id !== undefined || body.nonce !== undefined;
+}
+
+function normalizeSubmissionActorInput(value: unknown): { role: ActorRole; wpUserId: number | null } {
+  const actor = normalizeActorInput(value);
+  if (actor.role !== ActorRole.SYSTEM && actor.wpUserId == null) {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "actor.wp_user_id is required");
+  }
+  return actor;
+}
+
+function normalizeSubmissionFlow(value: unknown): string {
+  return normalizeSubmissionSlug(value, "flow", 64);
+}
+
+function normalizeSubmissionPriority(value: unknown): string {
+  return normalizeSubmissionSlug(value, "priority", 32);
+}
+
+function normalizeSubmissionIdempotencyKey(value: unknown): string | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "idempotency_key is invalid");
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(normalized)) {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "idempotency_key is invalid");
+  }
+
+  return normalized;
+}
+
+function normalizeSubmissionSlug(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== "string") {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, `${field} is required`);
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "" || normalized.length > maxLength || !/^[a-z0-9][a-z0-9_-]*$/.test(normalized)) {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, `${field} is invalid`);
+  }
+
+  return normalized;
+}
+
 function buildRequestId(): string {
   return `req_${crypto.randomBytes(8).toString("hex")}`;
 }
@@ -1829,6 +2030,12 @@ function normalizePublicErrorMessage(code: string, status: number, providedMessa
     case "ML_INGEST_BAD_JSON":
     case "ML_INGEST_BAD_REQUEST":
       return "La requête transmise au service sécurisé est invalide.";
+    case "ML_SUBMISSION_BAD_JSON":
+      return "La requête de soumission sécurisée est invalide.";
+    case "ML_SUBMISSION_BAD_REQUEST":
+      return "La demande de soumission sécurisée est invalide.";
+    case "ML_SUBMISSION_CREATE_FAILED":
+      return "La préparation de la soumission sécurisée a échoué.";
     case "ML_BODY_TOO_LARGE":
       return "La requête dépasse la taille maximale autorisée.";
     case "ML_BODY_ABORTED":
