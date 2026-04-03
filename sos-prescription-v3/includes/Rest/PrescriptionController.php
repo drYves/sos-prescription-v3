@@ -111,12 +111,13 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $req_id = $this->build_req_id();
-        $workerPayload = $this->build_worker_ingress_payload_from_create_params($params, $req_id);
-        if (is_wp_error($workerPayload)) {
-            return $workerPayload;
-        }
 
         try {
+            $workerPayload = $this->build_worker_ingress_payload_from_create_params($params, $req_id);
+            if (is_wp_error($workerPayload)) {
+                return $workerPayload;
+            }
+
             $dispatcher = $this->get_job_dispatcher();
             $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
 
