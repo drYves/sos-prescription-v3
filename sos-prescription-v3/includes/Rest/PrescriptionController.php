@@ -43,6 +43,9 @@ class PrescriptionController extends \WP_REST_Controller
     /** @var string */
     protected $rest_base = 'prescriptions';
 
+    /** @var array<string, true>|null */
+    protected $prescription_table_columns_cache = null;
+
     public function __construct($job_dispatcher = null, $jobs = null, $wpdb = null)
     {
         if ($wpdb instanceof \wpdb) {
@@ -116,49 +119,45 @@ class PrescriptionController extends \WP_REST_Controller
         try {
             $dispatcher = $this->get_job_dispatcher();
             $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
-        } catch (\Throwable $e) {
-            return new WP_REST_Response([
-                'ok' => false,
-                'message' => trim((string) $e->getMessage()) !== '' ? (string) $e->getMessage() : 'Erreur lors de la création de la demande.',
-                'req_id' => $req_id,
-            ], 422);
-        }
 
-        $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
-        if (is_wp_error($shadow)) {
-            return $shadow;
-        }
+            $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
+            if (is_wp_error($shadow)) {
+                return $this->raw_unprocessable_response($shadow->get_error_message(), $req_id);
+            }
 
-        if (isset($shadow['id'])) {
-            Audit::log('prescription_create_proxy', 'prescription', (int) $shadow['id'], (int) $shadow['id'], [
+            if (isset($shadow['id'])) {
+                Audit::log('prescription_create_proxy', 'prescription', (int) $shadow['id'], (int) $shadow['id'], [
+                    'uid' => (string) ($shadow['uid'] ?? ''),
+                    'worker_prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
+                    'worker_job_id' => (string) ($workerResult['job_id'] ?? ''),
+                    'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
+                ]);
+            }
+
+            $response = [
+                'id' => (int) ($shadow['id'] ?? 0),
                 'uid' => (string) ($shadow['uid'] ?? ''),
-                'worker_prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
-                'worker_job_id' => (string) ($workerResult['job_id'] ?? ''),
-                'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
-            ]);
+                'status' => (string) ($shadow['status'] ?? 'pending'),
+                'mode' => 'worker-postgres',
+                'req_id' => $req_id,
+                'worker' => [
+                    'prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
+                    'job_id' => (string) ($workerResult['job_id'] ?? ''),
+                    'status' => (string) ($workerResult['status'] ?? 'PENDING'),
+                    'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
+                    'verify_token' => isset($workerResult['verify_token']) && is_scalar($workerResult['verify_token']) ? (string) $workerResult['verify_token'] : '',
+                    'verify_code' => isset($workerResult['verify_code']) && is_scalar($workerResult['verify_code']) ? (string) $workerResult['verify_code'] : '',
+                ],
+                'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
+                'shadow' => [
+                    'zero_pii' => true,
+                ],
+            ];
+
+            return rest_ensure_response($response);
+        } catch (\Throwable $e) {
+            return $this->raw_unprocessable_response((string) $e->getMessage(), $req_id);
         }
-
-        $response = [
-            'id' => (int) ($shadow['id'] ?? 0),
-            'uid' => (string) ($shadow['uid'] ?? ''),
-            'status' => (string) ($shadow['status'] ?? 'pending'),
-            'mode' => 'worker-postgres',
-            'req_id' => $req_id,
-            'worker' => [
-                'prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
-                'job_id' => (string) ($workerResult['job_id'] ?? ''),
-                'status' => (string) ($workerResult['status'] ?? 'PENDING'),
-                'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
-                'verify_token' => isset($workerResult['verify_token']) && is_scalar($workerResult['verify_token']) ? (string) $workerResult['verify_token'] : '',
-                'verify_code' => isset($workerResult['verify_code']) && is_scalar($workerResult['verify_code']) ? (string) $workerResult['verify_code'] : '',
-            ],
-            'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
-            'shadow' => [
-                'zero_pii' => true,
-            ],
-        ];
-
-        return rest_ensure_response($response);
     }
 
 
@@ -1275,10 +1274,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function create_shadow_prescription_from_worker_result(array $workerResult, array $params): array|WP_Error
     {
-        $flow = strtolower(trim((string) ($params['flow'] ?? 'ro_proof')));
-        if ($flow === '') {
-            $flow = 'ro_proof';
-        }
+        $flow = $this->normalize_shadow_flow_key((string) ($params['flow'] ?? 'ro_proof'));
 
         $priority = strtolower(trim((string) ($params['priority'] ?? 'standard')));
         if ($priority !== 'express') {
@@ -1350,7 +1346,14 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 422]);
         }
 
-        $this->store_shadow_worker_state($localId, $workerResult);
+        if (!$this->store_shadow_worker_state($localId, $workerResult)) {
+            $shadowStoreError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
+            return new WP_Error(
+                'sosprescription_shadow_store_failed',
+                $shadowStoreError !== '' ? $shadowStoreError : 'Impossible de synchroniser le shadow record.',
+                ['status' => 422]
+            );
+        }
 
         $row = $this->prescriptions->get($localId);
         if (!is_array($row)) {
@@ -1507,11 +1510,17 @@ class PrescriptionController extends \WP_REST_Controller
         ];
         $formats = ['%s', '%s'];
 
-        if (isset($incomingWorker['verify_token']) && is_scalar($incomingWorker['verify_token']) && (string) $incomingWorker['verify_token'] !== '') {
+        if ($this->prescription_table_has_column('verify_token')
+            && isset($incomingWorker['verify_token'])
+            && is_scalar($incomingWorker['verify_token'])
+            && (string) $incomingWorker['verify_token'] !== '') {
             $update['verify_token'] = (string) $incomingWorker['verify_token'];
             $formats[] = '%s';
         }
-        if (isset($incomingWorker['verify_code']) && is_scalar($incomingWorker['verify_code']) && (string) $incomingWorker['verify_code'] !== '') {
+        if ($this->prescription_table_has_column('verify_code')
+            && isset($incomingWorker['verify_code'])
+            && is_scalar($incomingWorker['verify_code'])
+            && (string) $incomingWorker['verify_code'] !== '') {
             $update['verify_code'] = (string) $incomingWorker['verify_code'];
             $formats[] = '%s';
         }
@@ -2093,6 +2102,68 @@ class PrescriptionController extends \WP_REST_Controller
             'verify_token' => $verifyToken,
             'verify_code' => $verifyCode,
         ];
+    }
+
+
+    protected function raw_unprocessable_response(string $message, string $req_id): WP_REST_Response
+    {
+        $message = trim($message);
+        if ($message === '') {
+            $message = 'Erreur lors de la création de la demande.';
+        }
+
+        return new WP_REST_Response([
+            'ok' => false,
+            'message' => $message,
+            'req_id' => $req_id,
+        ], 422);
+    }
+
+    protected function normalize_shadow_flow_key(string $flow): string
+    {
+        $normalized = strtolower(trim($flow));
+        if ($normalized === '' || $normalized === 'ro_proof' || $normalized === 'renewal' || $normalized === 'renouvellement') {
+            return 'renewal';
+        }
+
+        if ($normalized === 'depannage_no_proof' || $normalized === 'depannage' || $normalized === 'depannage-sos' || $normalized === 'sos') {
+            return 'depannage';
+        }
+
+        return $normalized;
+    }
+
+    protected function prescription_table_has_column(string $column): bool
+    {
+        $columns = $this->get_prescription_table_columns();
+        return isset($columns[$column]);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    protected function get_prescription_table_columns(): array
+    {
+        if (is_array($this->prescription_table_columns_cache)) {
+            return $this->prescription_table_columns_cache;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $safeTable = str_replace('`', '', $table);
+        $rows = $this->wpdb->get_results("SHOW COLUMNS FROM `{$safeTable}`", ARRAY_A);
+        $columns = [];
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (!is_array($row) || empty($row['Field'])) {
+                    continue;
+                }
+                $columns[(string) $row['Field']] = true;
+            }
+        }
+
+        $this->prescription_table_columns_cache = $columns;
+
+        return $columns;
     }
 
     protected function generate_verify_token(): string

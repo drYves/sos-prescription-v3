@@ -9,6 +9,9 @@ use SosPrescription\Utils\Date;
 
 final class PrescriptionRepository
 {
+    /** @var array<string, array<string, array<string, mixed>>> */
+    private static array $tableColumnsCache = [];
+
     /**
      * @param array<string, mixed> $payload
      * @param array<int, array<string, mixed>> $items
@@ -58,28 +61,54 @@ final class PrescriptionRepository
             $payload_json = '{}';
         }
 
+        $table_columns = $this->tableColumns($table);
+        $insert_data = [];
+
+        if (isset($table_columns['uid'])) {
+            $insert_data['uid'] = $this->truncateNullableString($uid, 64) ?? $uid;
+        }
+        if (isset($table_columns['patient_user_id'])) {
+            $insert_data['patient_user_id'] = $patient_user_id;
+        }
+        if (isset($table_columns['doctor_user_id'])) {
+            $insert_data['doctor_user_id'] = null;
+        }
+        if (isset($table_columns['status'])) {
+            $insert_data['status'] = $this->normalizeStatusForColumn($initial_status, $table_columns['status']);
+        }
+        if (isset($table_columns['flow'])) {
+            $insert_data['flow'] = $this->normalizeShadowFlowForColumn($flow !== null ? $flow : 'renewal', $table_columns['flow']);
+        }
+        if (isset($table_columns['priority'])) {
+            $insert_data['priority'] = $this->normalizeShadowPriorityForColumn($priority !== null ? $priority : 'standard', $table_columns['priority']);
+        }
+        if (isset($table_columns['client_request_id'])) {
+            $insert_data['client_request_id'] = $this->truncateNullableString($client_request_id, 191);
+        }
+        if (isset($table_columns['last_activity_at'])) {
+            $insert_data['last_activity_at'] = $now;
+        }
+        if (isset($table_columns['payload_json'])) {
+            $insert_data['payload_json'] = $payload_json;
+        }
+        if (isset($table_columns['decision_reason'])) {
+            $insert_data['decision_reason'] = null;
+        }
+        if (isset($table_columns['created_at'])) {
+            $insert_data['created_at'] = $now;
+        }
+        if (isset($table_columns['updated_at'])) {
+            $insert_data['updated_at'] = $now;
+        }
+        if (isset($table_columns['decided_at'])) {
+            $insert_data['decided_at'] = null;
+        }
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
         $wpdb->query('START TRANSACTION');
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $ok = $wpdb->insert($table, [
-            'uid' => $uid,
-            'patient_user_id' => $patient_user_id,
-            'doctor_user_id' => null,
-            'status' => $initial_status,
-
-            // Champs V2
-            'flow' => $flow !== null ? $flow : 'renewal',
-            'priority' => $priority !== null ? $priority : 'standard',
-            'client_request_id' => $client_request_id,
-            'last_activity_at' => $now,
-
-            'payload_json' => $payload_json,
-            'decision_reason' => null,
-            'created_at' => $now,
-            'updated_at' => $now,
-            'decided_at' => null,
-        ]);
+        $ok = $wpdb->insert($table, $insert_data);
 
         if (!$ok) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
@@ -166,6 +195,119 @@ final class PrescriptionRepository
             'created_at' => $now,
         ];
     }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function tableColumns(string $table): array
+    {
+        if (isset(self::$tableColumnsCache[$table])) {
+            return self::$tableColumnsCache[$table];
+        }
+
+        global $wpdb;
+
+        $safe_table = str_replace('`', '', $table);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $rows = $wpdb->get_results("SHOW COLUMNS FROM `{$safe_table}`", ARRAY_A);
+        if (!is_array($rows)) {
+            self::$tableColumnsCache[$table] = [];
+            return [];
+        }
+
+        $columns = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['Field'])) {
+                continue;
+            }
+
+            $name = (string) $row['Field'];
+            $columns[$name] = $row;
+        }
+
+        self::$tableColumnsCache[$table] = $columns;
+
+        return $columns;
+    }
+
+    private function truncateNullableString(?string $value, int $max_length): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        if ($max_length < 1) {
+            return '';
+        }
+
+        return function_exists('mb_substr')
+            ? (string) mb_substr($value, 0, $max_length, 'UTF-8')
+            : substr($value, 0, $max_length);
+    }
+
+    /**
+     * @param array<string, mixed> $column
+     */
+    private function normalizeShadowFlowForColumn(string $flow, array $column): string|int
+    {
+        $normalized = strtolower(trim($flow));
+        if ($normalized === '' || $normalized === 'ro_proof' || $normalized === 'renewal' || $normalized === 'renouvellement') {
+            $normalized = 'renewal';
+        } elseif ($normalized === 'depannage_no_proof' || $normalized === 'depannage' || $normalized === 'depannage-sos' || $normalized === 'sos') {
+            $normalized = 'depannage';
+        }
+
+        return $this->normalizeValueForColumn($normalized, $column, 64);
+    }
+
+    /**
+     * @param array<string, mixed> $column
+     */
+    private function normalizeShadowPriorityForColumn(string $priority, array $column): string|int
+    {
+        $normalized = strtolower(trim($priority)) === 'express' ? 'express' : 'standard';
+        return $this->normalizeValueForColumn($normalized, $column, 32);
+    }
+
+    /**
+     * @param array<string, mixed> $column
+     */
+    private function normalizeStatusForColumn(string $status, array $column): string|int
+    {
+        $normalized = strtolower(trim($status));
+        if ($normalized === '') {
+            $normalized = 'pending';
+        }
+
+        return $this->normalizeValueForColumn($normalized, $column, 32);
+    }
+
+    /**
+     * @param array<string, mixed> $column
+     */
+    private function normalizeValueForColumn(string $value, array $column, int $string_max_length): string|int
+    {
+        $type = isset($column['Type']) ? strtolower((string) $column['Type']) : '';
+        if ($type !== '' && preg_match('/(?:tiny|small|medium|big)?int/', $type) === 1) {
+            return match ($value) {
+                'express' => 10,
+                'pending' => 0,
+                'payment_pending' => 5,
+                'approved' => 20,
+                'rejected' => 30,
+                'depannage' => 20,
+                default => 100,
+            };
+        }
+
+        return $this->truncateNullableString($value, $string_max_length) ?? '';
+    }
+
 
     public function update_priority(int $id, string $priority): bool
     {
