@@ -157,14 +157,10 @@ class PrescriptionController extends \WP_REST_Controller
 
             return rest_ensure_response($response);
         } catch (\Throwable $e) {
-            $rawMessage = (string) $e->getMessage();
-            $safeMessage = str_ireplace(
-                ['Worker HTTP', 'Requête bloquée par WordPress', 'détail :', 'detail :'],
-                ['Serveur distant', 'Erreur de connexion réseau', 'Info:', 'Info:'],
-                $rawMessage
+            return $this->raw_exact_unprocessable_response(
+                'Échec de transmission HDS : ' . (string) $e->getMessage(),
+                $req_id
             );
-
-            return $this->raw_unprocessable_response('Échec de transmission : ' . $safeMessage, $req_id);
         }
     }
 
@@ -283,20 +279,9 @@ class PrescriptionController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            return ErrorResponder::worker_bridge_error(
-                $e,
-                'sosprescription_worker_transition_failed',
-                'La mise à jour du dossier a échoué. Réessayez ultérieurement.',
-                502,
-                $req_id,
-                [
-                    'controller' => __CLASS__,
-                    'action' => 'decision',
-                    'local_prescription_id' => $id,
-                    'worker_prescription_id' => $workerPrescriptionId,
-                    'decision' => $decision,
-                ],
-                'prescription.decision.worker_transition_failed'
+            return $this->raw_exact_unprocessable_response(
+                'Échec de transmission HDS : ' . (string) $e->getMessage(),
+                $req_id
             );
         }
 
@@ -2155,6 +2140,20 @@ class PrescriptionController extends \WP_REST_Controller
     protected function raw_unprocessable_response(string $message, string $req_id): WP_REST_Response
     {
         $message = $this->sanitize_unprocessable_message($message);
+        if ($message === '') {
+            $message = 'Erreur lors de la création de la demande.';
+        }
+
+        return new WP_REST_Response([
+            'ok' => false,
+            'message' => $message,
+            'req_id' => $req_id,
+        ], 422);
+    }
+
+    protected function raw_exact_unprocessable_response(string $message, string $req_id): WP_REST_Response
+    {
+        $message = trim($message);
         if ($message === '') {
             $message = 'Erreur lors de la création de la demande.';
         }

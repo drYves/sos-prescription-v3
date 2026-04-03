@@ -13,7 +13,7 @@ final class JobDispatcher
 {
     private const CURRENT_SCHEMA_VERSION = '2026.6';
     private const DEFAULT_INGEST_PATH = '/api/v1/prescriptions';
-    private const DEFAULT_TIMEOUT_S = 12;
+    private const DEFAULT_TIMEOUT_S = 30;
 
     private string $workerBaseUrl;
     private string $ingestPath;
