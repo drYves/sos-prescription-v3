@@ -294,7 +294,7 @@
         applied = true;
       }
       if (birthdateInput && normalizeString(birthdateInput.value) === '' && seed.birthdateIso !== '') {
-        setReactInputValue(birthdateInput, seed.birthdateIso);
+        setReactInputValue(birthdateInput, seed.birthdateFr);
         applied = true;
       }
       if (!firstNameInput && !lastNameInput && fullNameInput && normalizeString(fullNameInput.value) === '' && seed.fullName !== '') {
