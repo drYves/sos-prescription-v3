@@ -113,7 +113,7 @@ final class PrescriptionRepository
         if (!$ok) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
             $wpdb->query('ROLLBACK');
-            return ['error' => 'db_insert_failed', 'message' => (string) $wpdb->last_error];
+            return ['error' => 'shadow_insert_main', 'message' => (string) $wpdb->last_error];
         }
 
         $prescription_id = (int) $wpdb->insert_id;
@@ -131,7 +131,12 @@ final class PrescriptionRepository
                     $params
                 );
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-                $wpdb->query($sql_attach);
+                $attached = $wpdb->query($sql_attach);
+                if ($attached === false) {
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+                    $wpdb->query('ROLLBACK');
+                    return ['error' => 'shadow_attach_evidence', 'message' => (string) $wpdb->last_error];
+                }
             }
         }
 
@@ -179,7 +184,7 @@ final class PrescriptionRepository
             if (!$ok_item) {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
                 $wpdb->query('ROLLBACK');
-                return ['error' => 'db_insert_item_failed', 'message' => (string) $wpdb->last_error];
+                return ['error' => 'shadow_insert_item', 'message' => (string) $wpdb->last_error];
             }
 
             $line_no++;

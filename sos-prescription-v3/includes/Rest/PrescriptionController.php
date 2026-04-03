@@ -122,7 +122,7 @@ class PrescriptionController extends \WP_REST_Controller
 
             $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
             if (is_wp_error($shadow)) {
-                return $this->raw_unprocessable_response($shadow->get_error_message(), $req_id);
+                return $this->raw_unprocessable_response($this->format_shadow_phase_error($shadow), $req_id);
             }
 
             if (isset($shadow['id'])) {
@@ -318,7 +318,10 @@ class PrescriptionController extends \WP_REST_Controller
             $workerResult['processing_status'] = 'FAILED';
         }
 
-        $this->store_shadow_worker_state($id, $workerResult);
+        $shadowStore = $this->store_shadow_worker_state($id, $workerResult);
+        if (is_wp_error($shadowStore)) {
+            return $shadowStore;
+        }
 
         $row = $this->prescriptions->get($id);
         if (!is_array($row)) {
@@ -548,8 +551,9 @@ class PrescriptionController extends \WP_REST_Controller
             'last_error_message_safe' => isset($job['last_error_message_safe']) && is_scalar($job['last_error_message_safe']) ? substr(trim(wp_strip_all_tags((string) $job['last_error_message_safe'])), 0, 255) : '',
         ];
 
-        if (!$this->store_shadow_worker_state($localId, $workerUpdate)) {
-            return new WP_Error('sosprescription_worker_callback_store_failed', 'Impossible de synchroniser le shadow record.', ['status' => 500]);
+        $shadowStore = $this->store_shadow_worker_state($localId, $workerUpdate);
+        if (is_wp_error($shadowStore)) {
+            return $shadowStore;
         }
 
         $row = $this->prescriptions->get($localId);
@@ -1042,7 +1046,10 @@ class PrescriptionController extends \WP_REST_Controller
                     $workerPrescriptionId,
                     $req_id
                 );
-                $this->store_shadow_worker_state($prescription_id, $workerResult);
+                $shadowStore = $this->store_shadow_worker_state($prescription_id, $workerResult);
+                if (is_wp_error($shadowStore)) {
+                    return $shadowStore;
+                }
                 $row = $this->prescriptions->get($prescription_id) ?: $row;
                 $workerMeta = $this->extract_worker_shadow_state($row);
             } catch (\Throwable $e) {
@@ -1339,32 +1346,29 @@ class PrescriptionController extends \WP_REST_Controller
         );
 
         if (isset($result['error'])) {
-            return new WP_Error(
-                'sosprescription_shadow_create_failed',
-                isset($result['message']) && is_string($result['message']) && $result['message'] !== ''
-                    ? $result['message']
-                    : 'Erreur interne lors de la création du shadow record.',
-                ['status' => 422]
-            );
+            $phase = isset($result['error']) && is_string($result['error']) && trim((string) $result['error']) !== ''
+                ? trim((string) $result['error'])
+                : 'shadow_insert_main';
+            $message = isset($result['message']) && is_string($result['message']) && trim((string) $result['message']) !== ''
+                ? trim((string) $result['message'])
+                : 'Erreur SQL locale inconnue lors de la création du shadow record.';
+
+            return new WP_Error($phase, $message, ['status' => 422]);
         }
 
         $localId = isset($result['id']) ? (int) $result['id'] : 0;
         if ($localId < 1) {
-            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 422]);
+            return new WP_Error('shadow_readback', 'Shadow record introuvable après création.', ['status' => 422]);
         }
 
-        if (!$this->store_shadow_worker_state($localId, $workerResult)) {
-            $shadowStoreError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
-            return new WP_Error(
-                'sosprescription_shadow_store_failed',
-                $shadowStoreError !== '' ? $shadowStoreError : 'Impossible de synchroniser le shadow record.',
-                ['status' => 422]
-            );
+        $shadowStore = $this->store_shadow_worker_state($localId, $workerResult);
+        if (is_wp_error($shadowStore)) {
+            return $shadowStore;
         }
 
         $row = $this->prescriptions->get($localId);
         if (!is_array($row)) {
-            return new WP_Error('sosprescription_shadow_create_failed', 'Shadow record introuvable après création.', ['status' => 422]);
+            return new WP_Error('shadow_readback', 'Shadow record introuvable après création.', ['status' => 422]);
         }
 
         return $row;
@@ -1450,8 +1454,9 @@ class PrescriptionController extends \WP_REST_Controller
 
     /**
      * @param array<string, mixed> $workerData
+     * @return true|WP_Error
      */
-    protected function store_shadow_worker_state(int $prescription_id, array $workerData): bool
+    protected function store_shadow_worker_state(int $prescription_id, array $workerData): true|WP_Error
     {
         $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
         $row = $this->wpdb->get_row(
@@ -1463,7 +1468,12 @@ class PrescriptionController extends \WP_REST_Controller
         );
 
         if (!is_array($row)) {
-            return false;
+            $sqlError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
+            return new WP_Error(
+                'shadow_store_payload',
+                $sqlError !== '' ? $sqlError : 'Shadow record introuvable avant synchronisation du payload.',
+                ['status' => 422]
+            );
         }
 
         $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
@@ -1540,9 +1550,17 @@ class PrescriptionController extends \WP_REST_Controller
             ['%d']
         );
 
-        return $updated !== false;
-    }
+        if ($updated === false) {
+            $sqlError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
+            return new WP_Error(
+                'shadow_store_payload',
+                $sqlError !== '' ? $sqlError : 'Échec SQL local lors de la mise à jour du payload shadow.',
+                ['status' => 422]
+            );
+        }
 
+        return true;
+    }
     /**
      * @param array<string, mixed> $existing
      * @param array<string, mixed> $incoming
@@ -2109,6 +2127,27 @@ class PrescriptionController extends \WP_REST_Controller
             'verify_token' => $verifyToken,
             'verify_code' => $verifyCode,
         ];
+    }
+
+
+    protected function format_shadow_phase_error(WP_Error $error): string
+    {
+        $code = trim((string) $error->get_error_code());
+        $message = trim((string) $error->get_error_message());
+
+        if ($code !== '' && $message !== '') {
+            return $code . ': ' . $message;
+        }
+
+        if ($message !== '') {
+            return $message;
+        }
+
+        if ($code !== '') {
+            return $code;
+        }
+
+        return 'Erreur lors de la synchronisation du shadow record.';
     }
 
 
