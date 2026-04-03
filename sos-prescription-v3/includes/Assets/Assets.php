@@ -8,7 +8,6 @@ use SOSPrescription\Services\NoticesConfig;
 use SOSPrescription\Services\NotificationsConfig;
 use SOSPrescription\Services\OcrConfig;
 use SOSPrescription\Services\Turnstile;
-use SOSPrescription\Utils\Date;
 
 final class Assets
 {
@@ -384,12 +383,12 @@ final class Assets
             }
         }
 
-        $birth_iso = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_birthdate', true) : '';
-        $birth_precision = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_birthdate_precision', true) : '';
-        $birth_fr = $birth_iso !== '' ? Date::iso_to_fr($birth_iso) : '';
-        $phone = $user_id > 0 ? self::read_user_meta_first($user_id, ['sosp_phone', 'phone', 'billing_phone', 'telephone', 'mobile']) : '';
-        $weight_kg = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_weight_kg', true) : '';
-        $height_cm = $user_id > 0 ? (string) get_user_meta($user_id, 'sosp_height_cm', true) : '';
+        $birth_iso = '';
+        $birth_precision = '';
+        $birth_fr = '';
+        $phone = '';
+        $weight_kg = '';
+        $height_cm = '';
 
         $full_name = trim($first_name . ' ' . $last_name);
         $public_display_name = self::is_human_display_name($display_name)
@@ -406,6 +405,7 @@ final class Assets
 
         $data = [
             'restBase' => esc_url_raw(rest_url('sosprescription/v1')),
+            'restV4Base' => esc_url_raw(rest_url('sosprescription/v4')),
             'nonce' => wp_create_nonce('wp_rest'),
             'site' => [
                 'urls' => [

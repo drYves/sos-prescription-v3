@@ -20,6 +20,7 @@ import { buildMls1Token, parseCanonicalGet, parseMls1Token, verifyMls1Payload } 
 import { NonceCache } from "../security/nonceCache";
 import { S3Service } from "../s3/s3Service";
 import { SubmissionRepo, SubmissionRepoError } from "../submissions/submissionRepo";
+import { PatientRepo, PatientRepoError, type PatientProfileRecord } from "../patients/patientRepo";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -66,6 +67,30 @@ interface SubmissionCreateRequestBody {
   idempotency_key?: unknown;
 }
 
+interface PatientProfileRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  first_name?: unknown;
+  firstName?: unknown;
+  last_name?: unknown;
+  lastName?: unknown;
+  birthdate?: unknown;
+  birthDate?: unknown;
+  gender?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  weight_kg?: unknown;
+  weightKg?: unknown;
+  height_cm?: unknown;
+  heightCm?: unknown;
+}
+
 interface MessageCreateRequestBody {
   actor?: {
     role?: unknown;
@@ -110,6 +135,7 @@ export interface PulseServerDeps {
 export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
   const submissionRepo = new SubmissionRepo({ logger: deps.logger });
+  const patientRepo = new PatientRepo({ logger: deps.logger });
 
   const server = http.createServer(async (req, res) => {
     setResponseReqId(res, buildRequestId());
@@ -125,6 +151,26 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/submissions") {
         return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
+      }
+
+      const submissionFinalizeMatch = method === "POST" ? path.match(/^\/api\/v2\/submissions\/([^/]+)\/finalize$/) : null;
+      if (submissionFinalizeMatch) {
+        return await handleSubmissionFinalize(
+          req,
+          res,
+          deps,
+          signingSecret,
+          submissionRepo,
+          decodeURIComponent(submissionFinalizeMatch[1]),
+        );
+      }
+
+      if (method === "GET" && path === "/api/v2/patient/profile") {
+        return await handlePatientProfileGet(req, res, deps, signingSecret, patientRepo, url);
+      }
+
+      if (method === "PUT" && path === "/api/v2/patient/profile") {
+        return await handlePatientProfilePut(req, res, deps, signingSecret, patientRepo);
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
@@ -441,6 +487,355 @@ async function handleSubmissionCreate(
       { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId },
       signingSecret,
     );
+  }
+}
+
+async function handleSubmissionFinalize(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  submissionRepo: SubmissionRepo,
+  submissionRef: string,
+): Promise<void> {
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
+  } catch (err: unknown) {
+    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
+    deps.logger.warning("submission.finalize.rejected", { reason: code, submission_ref: submissionRef }, getResponseReqId(res));
+    return sendJson(res, status, { ok: false, code }, signingSecret);
+  }
+
+  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: `/api/v2/submissions/${submissionRef}/finalize` },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    const candidate = JSON.parse(rawBody.toString("utf8")) as unknown;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("bad_json");
+    }
+    body = candidate as Record<string, unknown>;
+  } catch {
+    return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_JSON" }, signingSecret);
+  }
+
+  const reqId = typeof body.req_id === "string" && body.req_id.trim() !== ""
+    ? setResponseReqId(res, body.req_id)
+    : getResponseReqId(res);
+
+  if (hasSignedEnvelopeFields(body)) {
+    try {
+      if (typeof body.req_id !== "string" || body.req_id.trim() === "") {
+        throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "req_id is required");
+      }
+      validateSignedEnvelope(body, deps, reqId);
+    } catch (err: unknown) {
+      if (err instanceof SubmissionRepoError) {
+        deps.logger.warning("submission.finalize.rejected", { code: err.code, reason: err.message, submission_ref: submissionRef }, reqId, err);
+      } else {
+        const message = err instanceof Error ? err.message : "submission_finalize_envelope_invalid";
+        deps.logger.warning("submission.finalize.rejected", { reason: message, submission_ref: submissionRef }, reqId, err);
+      }
+      return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId }, signingSecret);
+    }
+  }
+
+  try {
+    const normalized = normalizeSubmissionFinalizeRequestInput(body);
+    const finalizeRepo = submissionRepo as unknown as {
+      finalizeSubmission: (input: Record<string, unknown>) => Promise<unknown>;
+    };
+
+    const result = await finalizeRepo.finalizeSubmission({
+      submissionRef,
+      submission_ref: submissionRef,
+      actor: normalized.actor,
+      reqId,
+      req_id: reqId,
+      idempotencyKey: normalized.idempotencyKey,
+      idempotency_key: normalized.idempotencyKey,
+      patient: normalized.patient,
+      patient_profile: normalized.patient,
+      profile: normalized.patient,
+      items: normalized.items,
+      privateNotes: normalized.privateNotes,
+      private_notes: normalized.privateNotes,
+      prescription: {
+        items: normalized.items,
+        privateNotes: normalized.privateNotes,
+        private_notes: normalized.privateNotes,
+      },
+      rawBody: body,
+      raw_body: body,
+    });
+
+    const final = normalizeSubmissionFinalizeResult(result);
+
+    deps.logger.info(
+      "submission.finalize.accepted",
+      {
+        submission_ref: submissionRef,
+        prescription_id: final.prescriptionId,
+        uid: final.uid,
+        status: final.status,
+        processing_status: final.processingStatus,
+        item_count: normalized.items.length,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      201,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        prescription_id: final.prescriptionId,
+        uid: final.uid,
+        status: final.status,
+        processing_status: final.processingStatus,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof SubmissionRepoError) {
+      deps.logger.warning(
+        "submission.finalize.rejected",
+        { code: err.code, reason: err.message, submission_ref: submissionRef },
+        reqId,
+        err,
+      );
+      return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+    }
+
+    const message = err instanceof Error ? err.message : "submission_finalize_failed";
+    deps.logger.error(
+      "submission.finalize.failed",
+      { reason: message, submission_ref: submissionRef },
+      reqId,
+      err,
+    );
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_SUBMISSION_FINALIZE_FAILED", req_id: reqId },
+      signingSecret,
+    );
+  }
+}
+
+async function handlePatientProfileGet(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  patientRepo: PatientRepo,
+  url: URL,
+): Promise<void> {
+  const parsed = validateSignedRequestHeader(req, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: "/api/v2/patient/profile" },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  let actor: { role: "PATIENT"; wpUserId: number };
+  try {
+    actor = normalizePatientProfileActorFromQuery(url);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "patient_profile_bad_request";
+    deps.logger.warning("patient_profile.get.rejected", { reason: message }, getResponseReqId(res), err);
+    return sendJson(res, 400, { ok: false, code: "ML_PATIENT_PROFILE_BAD_REQUEST" }, signingSecret);
+  }
+
+  const canon = parseCanonicalGet(parsed.token.payloadBytes);
+  if (!canon) {
+    return sendJson(res, 400, { ok: false, code: "ML_AUTH_BAD_PAYLOAD" }, signingSecret);
+  }
+
+  const expectedPath = buildPatientProfileCanonicalGetPath(actor);
+  if (canon.method !== "GET" || canon.path !== expectedPath) {
+    deps.logger.warning(
+      "security.mls1.rejected",
+      {
+        reason: "scope_denied",
+        expected_path: expectedPath,
+        received_path: canon.path,
+      },
+      getResponseReqId(res),
+    );
+    return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
+  }
+
+  const now = Date.now();
+  const skew = Math.abs(now - canon.tsMs);
+  if (skew > deps.skewWindowMs) {
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, getResponseReqId(res));
+    return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
+  }
+
+  const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
+  if (!isNew) {
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, getResponseReqId(res));
+    return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
+  }
+
+  try {
+    const profile = await patientRepo.getProfileByActor(actor);
+    return sendJson(
+      res,
+      200,
+      buildPatientProfileApiPayload(actor.wpUserId, profile, "Profil chargé."),
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof PatientRepoError) {
+      deps.logger.warning(
+        "patient_profile.get.rejected",
+        { code: err.code, reason: err.message, wp_user_id: actor.wpUserId },
+        getResponseReqId(res),
+        err,
+      );
+      return sendJson(res, err.statusCode, { ok: false, code: err.code }, signingSecret);
+    }
+
+    const message = err instanceof Error ? err.message : "patient_profile_get_failed";
+    deps.logger.error(
+      "patient_profile.get.failed",
+      { reason: message, wp_user_id: actor.wpUserId },
+      getResponseReqId(res),
+      err,
+    );
+    return sendJson(res, 500, { ok: false, code: "ML_PATIENT_PROFILE_GET_FAILED" }, signingSecret);
+  }
+}
+
+async function handlePatientProfilePut(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  patientRepo: PatientRepo,
+): Promise<void> {
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
+  } catch (err: unknown) {
+    const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
+    deps.logger.warning("patient_profile.put.rejected", { reason: code }, getResponseReqId(res));
+    return sendJson(res, status, { ok: false, code }, signingSecret);
+  }
+
+  const parsed = validateSignedJsonBody(req, rawBody, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: "/api/v2/patient/profile" },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  let body: PatientProfileRequestBody;
+  try {
+    const candidate = JSON.parse(rawBody.toString("utf8")) as unknown;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("bad_json");
+    }
+    body = candidate as PatientProfileRequestBody;
+  } catch {
+    return sendJson(res, 400, { ok: false, code: "ML_PATIENT_PROFILE_BAD_REQUEST" }, signingSecret);
+  }
+
+  const reqId = typeof body.req_id === "string" && body.req_id.trim() !== ""
+    ? setResponseReqId(res, body.req_id)
+    : getResponseReqId(res);
+
+  if (hasPatientProfileSignedEnvelope(body)) {
+    try {
+      if (typeof body.req_id !== "string" || body.req_id.trim() === "") {
+        throw new PatientRepoError("ML_PATIENT_PROFILE_BAD_REQUEST", 400, "req_id is required");
+      }
+      validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "patient_profile_envelope_invalid";
+      deps.logger.warning("patient_profile.put.rejected", { reason: message }, reqId, err);
+      return sendJson(res, 400, { ok: false, code: "ML_PATIENT_PROFILE_BAD_REQUEST", req_id: reqId }, signingSecret);
+    }
+  }
+
+  try {
+    const normalized = normalizePatientProfileRequestInput(body);
+    const profile = await patientRepo.upsertProfile({
+      actor: normalized.actor,
+      firstName: normalized.firstName,
+      lastName: normalized.lastName,
+      birthDate: normalized.birthDate,
+      gender: normalized.gender,
+      email: normalized.email,
+      phone: normalized.phone,
+      weightKg: normalized.weightKg,
+      heightCm: normalized.heightCm,
+    });
+
+    deps.logger.info(
+      "patient_profile.put.accepted",
+      {
+        wp_user_id: normalized.actor.wpUserId,
+        has_birthdate: profile.birthDate !== "",
+        has_email: Boolean(profile.email),
+        has_phone: Boolean(profile.phone),
+        has_weight: Boolean(profile.weightKg),
+        has_height: Boolean(profile.heightCm),
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      buildPatientProfileApiPayload(normalized.actor.wpUserId, profile, "Profil enregistré."),
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof PatientRepoError) {
+      deps.logger.warning(
+        "patient_profile.put.rejected",
+        { code: err.code, reason: err.message },
+        reqId,
+        err,
+      );
+      return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+    }
+
+    const message = err instanceof Error ? err.message : "patient_profile_save_failed";
+    deps.logger.error(
+      "patient_profile.put.failed",
+      { reason: message },
+      reqId,
+      err,
+    );
+    return sendJson(res, 500, { ok: false, code: "ML_PATIENT_PROFILE_SAVE_FAILED", req_id: reqId }, signingSecret);
   }
 }
 
@@ -1650,9 +2045,9 @@ function normalizeActorInput(value: unknown): { role: ActorRole; wpUserId: numbe
   const rawRole = normalizeRequiredString(row.role, "actor.role").toUpperCase();
   let role: ActorRole;
   switch (rawRole) {
-    case ActorRole.PATIENT:
-    case ActorRole.DOCTOR:
-    case ActorRole.SYSTEM:
+    case "PATIENT":
+    case "DOCTOR":
+    case "SYSTEM":
       role = rawRole;
       break;
     default:
@@ -1932,12 +2327,12 @@ function normalizeReadUptoSeq(value: unknown): number | null {
 }
 
 function hasSubmissionSignedEnvelope(body: SubmissionCreateRequestBody): boolean {
-  return body.ts_ms !== undefined || body.site_id !== undefined || body.nonce !== undefined;
+  return hasSignedEnvelopeFields(body as unknown as Record<string, unknown>);
 }
 
 function normalizeSubmissionActorInput(value: unknown): { role: ActorRole; wpUserId: number | null } {
   const actor = normalizeActorInput(value);
-  if (actor.role !== ActorRole.SYSTEM && actor.wpUserId == null) {
+  if (actor.role !== "SYSTEM" && actor.wpUserId == null) {
     throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "actor.wp_user_id is required");
   }
   return actor;
@@ -1965,6 +2360,314 @@ function normalizeSubmissionIdempotencyKey(value: unknown): string | null {
   }
 
   return normalized;
+}
+
+function hasPatientProfileSignedEnvelope(body: PatientProfileRequestBody): boolean {
+  return hasSignedEnvelopeFields(body as unknown as Record<string, unknown>);
+}
+
+function hasSignedEnvelopeFields(body: Record<string, unknown>): boolean {
+  return body.ts_ms !== undefined || body.site_id !== undefined || body.nonce !== undefined;
+}
+
+function normalizePatientProfileActorInput(value: unknown): { role: "PATIENT"; wpUserId: number } {
+  const actor = normalizeActorInput(value);
+  if (actor.role !== "PATIENT" || actor.wpUserId == null) {
+    throw new PatientRepoError("ML_PATIENT_PROFILE_BAD_REQUEST", 400, "actor is invalid");
+  }
+
+  return {
+    role: "PATIENT",
+    wpUserId: actor.wpUserId,
+  };
+}
+
+function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpUserId: number } {
+  return normalizePatientProfileActorInput({
+    role: url.searchParams.get("role"),
+    wp_user_id: url.searchParams.get("wp_user_id"),
+  });
+}
+
+function buildPatientProfileCanonicalGetPath(actor: { role: "PATIENT"; wpUserId: number }): string {
+  const search = new URLSearchParams();
+  search.set("role", actor.role);
+  search.set("wp_user_id", String(actor.wpUserId));
+  return `/api/v2/patient/profile?${search.toString()}`;
+}
+
+function normalizePatientProfileRequestInput(body: PatientProfileRequestBody): {
+  actor: { role: "PATIENT"; wpUserId: number };
+  firstName: unknown;
+  lastName: unknown;
+  birthDate: unknown;
+  gender: unknown;
+  email: unknown;
+  phone: unknown;
+  weightKg: unknown;
+  heightCm: unknown;
+} {
+  return {
+    actor: normalizePatientProfileActorInput(body.actor),
+    firstName: pickFirstDefined(body.first_name, body.firstName),
+    lastName: pickFirstDefined(body.last_name, body.lastName),
+    birthDate: pickFirstDefined(body.birthdate, body.birthDate),
+    gender: body.gender,
+    email: body.email,
+    phone: body.phone,
+    weightKg: pickFirstDefined(body.weight_kg, body.weightKg),
+    heightCm: pickFirstDefined(body.height_cm, body.heightCm),
+  };
+}
+
+function normalizeSubmissionFinalizeRequestInput(body: Record<string, unknown>): {
+  actor: { role: ActorRole; wpUserId: number | null };
+  patient: Record<string, unknown>;
+  items: unknown[];
+  privateNotes: string | null;
+  idempotencyKey: string | null;
+} {
+  const patientBlock = pickRecord(body.patient)
+    ?? pickRecord(body.patient_profile)
+    ?? pickRecord(body.profile)
+    ?? body;
+  const prescriptionBlock = pickRecord(body.prescription) ?? body;
+  const itemsValue = prescriptionBlock.items ?? body.items;
+  if (!Array.isArray(itemsValue)) {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "items must be an array");
+  }
+
+  const privateNotesRaw = pickFirstDefined(
+    prescriptionBlock.private_notes,
+    prescriptionBlock.privateNotes,
+    body.private_notes,
+    body.privateNotes,
+  );
+
+  const actor = normalizeSubmissionActorInput(body.actor);
+  const patient = {
+    firstName: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
+    first_name: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
+    lastName: pickFirstDefined(patientBlock.last_name, patientBlock.lastName, body.last_name, body.lastName),
+    last_name: pickFirstDefined(patientBlock.last_name, patientBlock.lastName, body.last_name, body.lastName),
+    birthDate: pickFirstDefined(patientBlock.birthdate, patientBlock.birthDate, body.birthdate, body.birthDate),
+    birthdate: pickFirstDefined(patientBlock.birthdate, patientBlock.birthDate, body.birthdate, body.birthDate),
+    gender: pickFirstDefined(patientBlock.gender, body.gender),
+    email: pickFirstDefined(patientBlock.email, body.email),
+    phone: pickFirstDefined(patientBlock.phone, body.phone),
+    weightKg: pickFirstDefined(patientBlock.weight_kg, patientBlock.weightKg, body.weight_kg, body.weightKg),
+    weight_kg: pickFirstDefined(patientBlock.weight_kg, patientBlock.weightKg, body.weight_kg, body.weightKg),
+    heightCm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
+    height_cm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
+  } satisfies Record<string, unknown>;
+
+  return {
+    actor,
+    patient,
+    items: itemsValue,
+    privateNotes: typeof privateNotesRaw === "string" && privateNotesRaw.trim() !== "" ? privateNotesRaw.trim() : null,
+    idempotencyKey: normalizeSubmissionIdempotencyKey(pickFirstDefined(body.idempotency_key, body.idempotencyKey)),
+  };
+}
+
+function normalizeSubmissionFinalizeResult(value: unknown): {
+  prescriptionId: string;
+  uid: string;
+  status: string;
+  processingStatus: string;
+} {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid finalize result");
+  }
+
+  const row = value as Record<string, unknown>;
+  const nestedPrescription = pickRecord(row.prescription) ?? null;
+  const prescriptionId = readStringField(row, ["prescription_id", "prescriptionId"])
+    ?? readStringField(nestedPrescription, ["id", "prescription_id", "prescriptionId"]);
+  const uid = readStringField(row, ["uid"])
+    ?? readStringField(nestedPrescription, ["uid"]);
+  const status = readStringField(row, ["status"])
+    ?? readStringField(nestedPrescription, ["status"])
+    ?? "PENDING";
+  const processingStatus = readStringField(row, ["processing_status", "processingStatus"])
+    ?? readStringField(nestedPrescription, ["processing_status", "processingStatus"])
+    ?? "PENDING";
+
+  if (!prescriptionId || !uid) {
+    throw new Error("Finalize result is incomplete");
+  }
+
+  return {
+    prescriptionId,
+    uid,
+    status,
+    processingStatus,
+  };
+}
+
+function buildPatientProfileApiPayload(
+  wpUserId: number,
+  profile: PatientProfileRecord | null,
+  message: string,
+): Record<string, unknown> {
+  const profilePayload = buildPatientProfilePayload(profile);
+  return {
+    ok: true,
+    schema_version: CURRENT_SCHEMA_VERSION,
+    message,
+    profile: profilePayload,
+    currentUser: {
+      id: wpUserId,
+      displayName: profilePayload.full_name,
+      email: profilePayload.email,
+      roles: ["patient"],
+      firstName: profilePayload.first_name,
+      lastName: profilePayload.last_name,
+      first_name: profilePayload.first_name,
+      last_name: profilePayload.last_name,
+      birthDate: profilePayload.birthdate_iso,
+      birthdate: profilePayload.birthdate_iso,
+      sosp_birthdate: profilePayload.birthdate_iso,
+      phone: profilePayload.phone,
+    },
+    patientProfile: {
+      first_name: profilePayload.first_name,
+      last_name: profilePayload.last_name,
+      fullname: profilePayload.full_name,
+      birthdate_iso: profilePayload.birthdate_iso,
+      birthdate_fr: profilePayload.birthdate_fr,
+      phone: profilePayload.phone,
+      email: profilePayload.email,
+      weight_kg: profilePayload.weight_kg,
+      height_cm: profilePayload.height_cm,
+      bmi_value: profilePayload.bmi_value,
+      bmi_label: profilePayload.bmi_label,
+    },
+  };
+}
+
+function buildPatientProfilePayload(profile: PatientProfileRecord | null): {
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  birthdate_iso: string;
+  birthdate_fr: string;
+  phone: string;
+  email: string;
+  weight_kg: string;
+  height_cm: string;
+  bmi_value: string;
+  bmi_label: string;
+} {
+  const firstName = profile?.firstName ?? "";
+  const lastName = profile?.lastName ?? "";
+  const fullName = [firstName, lastName].filter((part) => part.trim() !== "").join(" ").trim();
+  const birthdateIso = profile?.birthDate ?? "";
+  const phone = profile?.phone ?? "";
+  const email = profile?.email ?? "";
+  const weightKg = profile?.weightKg ?? "";
+  const heightCm = profile?.heightCm ?? "";
+  const bmiValue = computeProfileBmiValue(weightKg, heightCm);
+  const bmiLabel = computeProfileBmiLabel(weightKg, heightCm);
+
+  return {
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName,
+    birthdate_iso: birthdateIso,
+    birthdate_fr: birthdateIso !== "" ? formatIsoDateToFr(birthdateIso) : "",
+    phone,
+    email,
+    weight_kg: weightKg,
+    height_cm: heightCm,
+    bmi_value: bmiValue !== null ? String(bmiValue) : "",
+    bmi_label: bmiLabel !== "—" ? bmiLabel : "",
+  };
+}
+
+function computeProfileBmiValue(weightKg: unknown, heightCm: unknown): number | null {
+  const weight = typeof weightKg === "number" ? weightKg : Number(String(weightKg ?? "").replace(",", "."));
+  const height = typeof heightCm === "number" ? heightCm : Number(String(heightCm ?? "").replace(",", "."));
+
+  if (!Number.isFinite(weight) || !Number.isFinite(height)) {
+    return null;
+  }
+  if (weight <= 0 || weight > 500 || height <= 0 || height > 300) {
+    return null;
+  }
+
+  const hm = height / 100;
+  if (hm <= 0) {
+    return null;
+  }
+
+  const bmi = weight / (hm * hm);
+  if (!Number.isFinite(bmi) || bmi <= 0) {
+    return null;
+  }
+
+  return Math.round(bmi * 10) / 10;
+}
+
+function computeProfileBmiLabel(weightKg: unknown, heightCm: unknown): string {
+  const bmi = computeProfileBmiValue(weightKg, heightCm);
+  if (bmi === null) {
+    return "—";
+  }
+  if (bmi < 18.5) {
+    return `${bmi} • Insuffisance pondérale`;
+  }
+  if (bmi < 25.0) {
+    return `${bmi} • Corpulence normale`;
+  }
+  if (bmi < 30.0) {
+    return `${bmi} • Surpoids`;
+  }
+  if (bmi < 35.0) {
+    return `${bmi} • Obésité (classe I)`;
+  }
+  if (bmi < 40.0) {
+    return `${bmi} • Obésité (classe II)`;
+  }
+  return `${bmi} • Obésité (classe III)`;
+}
+
+function formatIsoDateToFr(value: string): string {
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return String(value ?? "").trim();
+  }
+
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function pickFirstDefined<T>(...values: T[]): T | undefined {
+  for (const value of values) {
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function pickRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readStringField(row: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!row) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 function normalizeSubmissionSlug(value: unknown, field: string, maxLength: number): string {
@@ -2036,6 +2739,20 @@ function normalizePublicErrorMessage(code: string, status: number, providedMessa
       return "La demande de soumission sécurisée est invalide.";
     case "ML_SUBMISSION_CREATE_FAILED":
       return "La préparation de la soumission sécurisée a échoué.";
+    case "ML_SUBMISSION_NOT_FOUND":
+      return "Soumission sécurisée introuvable.";
+    case "ML_SUBMISSION_EXPIRED":
+      return "Cette soumission sécurisée a expiré. Merci de recommencer.";
+    case "ML_SUBMISSION_NOT_OPEN":
+      return "Cette soumission sécurisée ne peut plus être finalisée.";
+    case "ML_SUBMISSION_FINALIZE_FAILED":
+      return "La création du dossier sécurisé a échoué. Merci de réessayer.";
+    case "ML_PATIENT_PROFILE_BAD_REQUEST":
+      return "Les informations du profil sont invalides.";
+    case "ML_PATIENT_PROFILE_GET_FAILED":
+      return "Le profil patient sécurisé est temporairement indisponible.";
+    case "ML_PATIENT_PROFILE_SAVE_FAILED":
+      return "Le profil patient n’a pas pu être enregistré.";
     case "ML_BODY_TOO_LARGE":
       return "La requête dépasse la taille maximale autorisée.";
     case "ML_BODY_ABORTED":

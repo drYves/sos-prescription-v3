@@ -6,8 +6,42 @@
 
   var PROFILE_ROOT_ID = 'sp-patient-profile-root';
   var PATIENT_ROOT_SELECTOR = '#sosprescription-root-form[data-app="patient"]';
-  var PROFILE_ENDPOINT = '/patient/profile';
+  var PROFILE_PATH = '/patient/profile';
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function resolveProfileRestBase() {
+    var v4 = normalizeString(cfg.restV4Base || '');
+    if (v4 !== '') {
+      return v4.replace(/\/+$/, '');
+    }
+
+    var base = normalizeString(cfg.restBase || '');
+    if (base === '') {
+      return '';
+    }
+
+    return base.replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4').replace(/\/+$/, '');
+  }
+
+  function buildProfileUrl() {
+    var restBase = resolveProfileRestBase();
+    if (restBase === '') {
+      throw new Error('Configuration REST V4 absente.');
+    }
+    return restBase + PROFILE_PATH;
+  }
+
+  function shouldBootstrapProfile() {
+    var currentUser = cfg.currentUser && typeof cfg.currentUser === 'object' ? cfg.currentUser : {};
+    var currentUserId = Number(currentUser.id || 0);
+    if (!Number.isFinite(currentUserId) || currentUserId <= 0) {
+      return false;
+    }
+
+    return !!document.querySelector(PATIENT_ROOT_SELECTOR)
+      || !!document.querySelector('#sosprescription-root-form[data-app="form"]')
+      || !!document.getElementById(PROFILE_ROOT_ID);
+  }
+
 
   function normalizeString(value) {
     return String(value == null ? '' : value).trim();
@@ -334,27 +368,37 @@
     };
   }
 
-  async function submitProfile(payload) {
-    var restBase = normalizeString(cfg.restBase);
+  async function requestProfile(method, payload) {
     var nonce = normalizeString(cfg.nonce);
+    var url = buildProfileUrl();
 
-    if (restBase === '') {
-      throw new Error('Configuration REST absente.');
-    }
     if (nonce === '') {
       throw new Error('Nonce WordPress manquant.');
     }
 
-    var response = await fetch(restBase.replace(/\/+$/, '') + PROFILE_ENDPOINT, {
-      method: 'POST',
+    var upperMethod = String(method || 'GET').toUpperCase();
+    var headers = {
+      'Accept': 'application/json',
+      'X-WP-Nonce': nonce
+    };
+
+    var options = {
+      method: upperMethod,
       credentials: 'same-origin',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-WP-Nonce': nonce
-      },
-      body: JSON.stringify(payload)
-    });
+      headers: headers
+    };
+
+    if (upperMethod === 'GET') {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers['Pragma'] = 'no-cache';
+      var sep = url.indexOf('?') === -1 ? '?' : '&';
+      url += sep + '_ts=' + String(Date.now());
+    } else {
+      headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(payload || {});
+    }
+
+    var response = await fetch(url, options);
 
     var data = null;
     try {
@@ -366,11 +410,21 @@
     if (!response.ok) {
       var message = data && typeof data.message === 'string' && data.message !== ''
         ? data.message
-        : 'Impossible d’enregistrer le profil patient.';
+        : (upperMethod === 'GET'
+          ? 'Impossible de charger le profil patient.'
+          : 'Impossible d’enregistrer le profil patient.');
       throw new Error(message);
     }
 
     return data && typeof data === 'object' ? data : {};
+  }
+
+  function fetchProfile() {
+    return requestProfile('GET');
+  }
+
+  function submitProfile(payload) {
+    return requestProfile('PUT', payload);
   }
 
   function updateBmiPreview(root) {
@@ -470,9 +524,34 @@
     }
   }
 
+  function bootstrapProfile() {
+    var finalize = function () {
+      hydrateFormFromProfile();
+      mountPatientProfileSection();
+    };
+
+    if (!shouldBootstrapProfile()) {
+      finalize();
+      return;
+    }
+
+    fetchProfile()
+      .then(function (data) {
+        if (data && data.profile && typeof data.profile === 'object') {
+          updateGlobalProfile(data.profile);
+        }
+      })
+      .catch(function () {
+        // Le profil Worker devient la source de vérité quand il est disponible,
+        // mais l'UI doit rester utilisable même en cas d'échec transitoire.
+      })
+      .finally(function () {
+        finalize();
+      });
+  }
+
   onReady(function () {
-    hydrateFormFromProfile();
-    mountPatientProfileSection();
+    bootstrapProfile();
   });
 
   window.addEventListener('sosprescription:patient-profile-updated', function () {
