@@ -21,6 +21,9 @@ import { NonceCache } from "../security/nonceCache";
 import { S3Service } from "../s3/s3Service";
 import { SubmissionRepo, SubmissionRepoError } from "../submissions/submissionRepo";
 import { PatientRepo, PatientRepoError, type PatientProfileRecord } from "../patients/patientRepo";
+import { DoctorReadRepo } from "../prescriptions/doctorReadRepo";
+import { PatientReadRepo } from "../prescriptions/patientReadRepo";
+import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -93,6 +96,39 @@ interface PatientProfileRequestBody {
   heightCm?: unknown;
 }
 
+interface LegacyReadFiltersRequestBody {
+  status?: unknown;
+  limit?: unknown;
+  offset?: unknown;
+}
+
+interface LegacyReadListRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  filters?: LegacyReadFiltersRequestBody;
+  status?: unknown;
+  limit?: unknown;
+  offset?: unknown;
+}
+
+interface PrescriptionGetRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  prescription_id?: unknown;
+}
+
 interface MessageCreateRequestBody {
   actor?: {
     role?: unknown;
@@ -138,6 +174,8 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
   const submissionRepo = new SubmissionRepo({ logger: deps.logger });
   const patientRepo = new PatientRepo({ logger: deps.logger });
+  const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
+  const patientReadRepo = new PatientReadRepo({ logger: deps.logger });
 
   const server = http.createServer(async (req, res) => {
     setResponseReqId(res, buildRequestId());
@@ -184,6 +222,18 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "PUT" && path === "/api/v2/patient/profile") {
         return await handlePatientProfilePut(req, res, deps, signingSecret, patientRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/doctor/inbox") {
+        return await handleDoctorInbox(req, res, deps, signingSecret, doctorReadRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/patient/prescriptions/query") {
+        return await handlePatientPrescriptionsQuery(req, res, deps, signingSecret, patientReadRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/prescriptions/get") {
+        return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
@@ -939,6 +989,201 @@ async function handlePatientProfilePut(
       err,
     );
     return sendJson(res, 500, { ok: false, code: "ML_PATIENT_PROFILE_SAVE_FAILED", req_id: reqId }, signingSecret);
+  }
+}
+
+async function handleDoctorInbox(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  doctorReadRepo: DoctorReadRepo,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/doctor/inbox");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const body = parsedBody.body as LegacyReadListRequestBody;
+    const actor = normalizeDoctorReadActorInput(body.actor);
+    const filters = normalizeLegacyReadListFilters(body);
+    const rows = await doctorReadRepo.queryInbox({
+      actor,
+      status: filters.status,
+      limit: filters.limit,
+      offset: filters.offset,
+    });
+
+    deps.logger.info(
+      "doctor.inbox.fetched",
+      {
+        actor_wp_user_id: actor.wpUserId,
+        status: filters.status,
+        limit: filters.limit,
+        offset: filters.offset,
+        returned_count: rows.length,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rows,
+        count: rows.length,
+        limit: filters.limit,
+        offset: filters.offset,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "doctor.inbox.failed",
+      {
+        route: "/api/v2/doctor/inbox",
+      },
+      "ML_DOCTOR_INBOX_FAILED",
+    );
+  }
+}
+
+async function handlePatientPrescriptionsQuery(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  patientReadRepo: PatientReadRepo,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/patient/prescriptions/query");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const body = parsedBody.body as LegacyReadListRequestBody;
+    const actor = normalizePatientReadActorInput(body.actor);
+    const filters = normalizeLegacyReadListFilters(body);
+    const rows = await patientReadRepo.queryPrescriptions({
+      actor,
+      status: filters.status,
+      limit: filters.limit,
+      offset: filters.offset,
+    });
+
+    deps.logger.info(
+      "patient.prescriptions.fetched",
+      {
+        actor_wp_user_id: actor.wpUserId,
+        status: filters.status,
+        limit: filters.limit,
+        offset: filters.offset,
+        returned_count: rows.length,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rows,
+        count: rows.length,
+        limit: filters.limit,
+        offset: filters.offset,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "patient.prescriptions.failed",
+      {
+        route: "/api/v2/patient/prescriptions/query",
+      },
+      "ML_PATIENT_PRESCRIPTIONS_FAILED",
+    );
+  }
+}
+
+async function handlePrescriptionGet(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  doctorReadRepo: DoctorReadRepo,
+  patientReadRepo: PatientReadRepo,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/prescriptions/get");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const body = parsedBody.body as PrescriptionGetRequestBody;
+    const actor = normalizePrescriptionReadActorInput(body.actor);
+    const prescriptionId = normalizeReadPrescriptionId(body.prescription_id);
+
+    const prescription = actor.role === "DOCTOR"
+      ? await doctorReadRepo.getPrescriptionDetail({
+          actor: { role: "DOCTOR", wpUserId: actor.wpUserId },
+          prescriptionId,
+        })
+      : await patientReadRepo.getPrescriptionDetail({
+          actor: { role: "PATIENT", wpUserId: actor.wpUserId },
+          prescriptionId,
+        });
+
+    deps.logger.info(
+      "prescription.get.fetched",
+      {
+        actor_role: actor.role,
+        actor_wp_user_id: actor.wpUserId,
+        prescription_id: prescriptionId,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        prescription,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "prescription.get.failed",
+      {
+        route: "/api/v2/prescriptions/get",
+      },
+      "ML_PRESCRIPTION_GET_FAILED",
+    );
   }
 }
 
@@ -1945,6 +2190,34 @@ function asApprovalRepo(jobsRepo: JobsRepo): PostgresApprovalRepo | null {
   return null;
 }
 
+function sendPrescriptionReadRepoError(
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  err: unknown,
+  reqId: string | undefined,
+  event: string,
+  context: Record<string, unknown>,
+  fallbackCode: string,
+): void {
+  const effectiveReqId = setResponseReqId(res, reqId);
+
+  if (err instanceof PrescriptionReadRepoError) {
+    if (err.statusCode >= 500) {
+      deps.logger.error(event, { ...context, code: err.code, reason: err.message }, effectiveReqId, err);
+    } else {
+      deps.logger.warning(event, { ...context, code: err.code, reason: err.message }, effectiveReqId, err);
+    }
+
+    sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
+    return;
+  }
+
+  const message = err instanceof Error ? err.message : "read_failed";
+  deps.logger.error(event, { ...context, reason: message }, effectiveReqId, err);
+  sendJson(res, 500, { ok: false, code: fallbackCode, req_id: effectiveReqId }, signingSecret);
+}
+
 async function parseSignedActionBody(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -1989,6 +2262,118 @@ async function parseSignedActionBody(
   } catch {
     return { ok: false, statusCode: 400, code: "ML_INGEST_BAD_REQUEST" };
   }
+}
+
+function normalizeDoctorReadActorInput(value: unknown): { role: "DOCTOR"; wpUserId: number } {
+  const actor = normalizeActorInput(value);
+  if (actor.role !== ActorRole.DOCTOR || actor.wpUserId == null) {
+    throw new PrescriptionReadRepoError("ML_READ_FORBIDDEN", 403, "doctor_actor_required");
+  }
+
+  return {
+    role: "DOCTOR",
+    wpUserId: actor.wpUserId,
+  };
+}
+
+function normalizePatientReadActorInput(value: unknown): { role: "PATIENT"; wpUserId: number } {
+  const actor = normalizeActorInput(value);
+  if (actor.role !== ActorRole.PATIENT || actor.wpUserId == null) {
+    throw new PrescriptionReadRepoError("ML_READ_FORBIDDEN", 403, "patient_actor_required");
+  }
+
+  return {
+    role: "PATIENT",
+    wpUserId: actor.wpUserId,
+  };
+}
+
+function normalizePrescriptionReadActorInput(value: unknown): { role: "DOCTOR" | "PATIENT"; wpUserId: number } {
+  const actor = normalizeActorInput(value);
+  if ((actor.role !== ActorRole.DOCTOR && actor.role !== ActorRole.PATIENT) || actor.wpUserId == null) {
+    throw new PrescriptionReadRepoError("ML_READ_FORBIDDEN", 403, "read_actor_required");
+  }
+
+  return {
+    role: actor.role,
+    wpUserId: actor.wpUserId,
+  };
+}
+
+function normalizeLegacyReadListFilters(body: LegacyReadListRequestBody): {
+  status: string | null;
+  limit: number;
+  offset: number;
+} {
+  const filters = body.filters && typeof body.filters === "object" && !Array.isArray(body.filters)
+    ? body.filters
+    : undefined;
+
+  return {
+    status: normalizeLegacyReadStatus((filters as LegacyReadFiltersRequestBody | undefined)?.status ?? body.status),
+    limit: normalizeLegacyReadLimit((filters as LegacyReadFiltersRequestBody | undefined)?.limit ?? body.limit),
+    offset: normalizeLegacyReadOffset((filters as LegacyReadFiltersRequestBody | undefined)?.offset ?? body.offset),
+  };
+}
+
+function normalizeLegacyReadStatus(value: unknown): string | null {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "status_invalid");
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "" || normalized === "all") {
+    return null;
+  }
+
+  if (!["pending", "payment_pending", "approved", "rejected"].includes(normalized)) {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "status_invalid");
+  }
+
+  return normalized;
+}
+
+function normalizeLegacyReadLimit(value: unknown): number {
+  if (value == null || value === "") {
+    return 100;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!globalThis.Number.isFinite(parsed) || parsed <= 0) {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "limit_invalid");
+  }
+
+  return Math.min(200, Math.trunc(parsed));
+}
+
+function normalizeLegacyReadOffset(value: unknown): number {
+  if (value == null || value === "") {
+    return 0;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!globalThis.Number.isFinite(parsed) || parsed < 0) {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "offset_invalid");
+  }
+
+  return Math.trunc(parsed);
+}
+
+function normalizeReadPrescriptionId(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "prescription_id_required");
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 191) {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "prescription_id_invalid");
+  }
+
+  return normalized;
 }
 
 function normalizeActionResult(value: unknown): {
@@ -2951,6 +3336,18 @@ function normalizePublicErrorMessage(code: string, status: number, providedMessa
       return "Le profil patient sécurisé est temporairement indisponible.";
     case "ML_PATIENT_PROFILE_SAVE_FAILED":
       return "Le profil patient n’a pas pu être enregistré.";
+    case "ML_READ_BAD_REQUEST":
+      return "La requête de lecture sécurisée est invalide.";
+    case "ML_READ_FORBIDDEN":
+      return "Accès refusé.";
+    case "ML_PRESCRIPTION_NOT_FOUND":
+      return "Ordonnance introuvable.";
+    case "ML_DOCTOR_INBOX_FAILED":
+      return "La lecture sécurisée des dossiers médecin est temporairement indisponible.";
+    case "ML_PATIENT_PRESCRIPTIONS_FAILED":
+      return "La lecture sécurisée des dossiers patient est temporairement indisponible.";
+    case "ML_PRESCRIPTION_GET_FAILED":
+      return "La lecture sécurisée du dossier est temporairement indisponible.";
     case "ML_BODY_TOO_LARGE":
       return "La requête dépasse la taille maximale autorisée.";
     case "ML_BODY_ABORTED":
