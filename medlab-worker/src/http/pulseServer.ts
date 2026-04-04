@@ -554,31 +554,15 @@ async function handleSubmissionFinalize(
 
   try {
     const normalized = normalizeSubmissionFinalizeRequestInput(body);
-    const finalizeRepo = submissionRepo as unknown as {
-      finalizeSubmission: (input: Record<string, unknown>) => Promise<unknown>;
-    };
 
-    const result = await finalizeRepo.finalizeSubmission({
+    const result = await submissionRepo.finalizeSubmission({
       submissionRef,
-      submission_ref: submissionRef,
       actor: normalized.actor,
       reqId,
-      req_id: reqId,
       idempotencyKey: normalized.idempotencyKey,
-      idempotency_key: normalized.idempotencyKey,
       patient: normalized.patient,
-      patient_profile: normalized.patient,
-      profile: normalized.patient,
       items: normalized.items,
       privateNotes: normalized.privateNotes,
-      private_notes: normalized.privateNotes,
-      prescription: {
-        items: normalized.items,
-        privateNotes: normalized.privateNotes,
-        private_notes: normalized.privateNotes,
-      },
-      rawBody: body,
-      raw_body: body,
     });
 
     const final = normalizeSubmissionFinalizeResult(result);
