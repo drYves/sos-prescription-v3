@@ -2214,7 +2214,7 @@ function St() {
             k(null), q(!0);
             try {
                 const p = I.map((T => String(T.id))).filter(Boolean), R = await ot(a, d, p.length > 0 ? p : void 0), T = R && R.message ? R.message : null, L = R && typeof R.thread_state == "object" ? R.thread_state : null;
-                T && h((Q => [ ...Q, T ])), L && He(L), S(""), O([]), E();
+                T && h((Q => [ ...Q, T ])), L && He(L), S(""), O([]), await G(a), E();
             } catch (p) {
                 k(p != null && p.message ? String(p.message) : "Erreur envoi");
             } finally {

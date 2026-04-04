@@ -3,11 +3,9 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
-use SOSPrescription\Core\JobDispatcher;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\ReqId;
-use SosPrescription\Repositories\PrescriptionRepository;
-use SosPrescription\Rest\ErrorResponder;
+use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\Audit;
 use SosPrescription\Services\RestGuard;
@@ -15,17 +13,16 @@ use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 
-final class MessagesController
+final class MessagesController extends \WP_REST_Controller
 {
+    private const NAMESPACE_V1 = 'sosprescription/v1';
+
     /** @var \wpdb */
     protected $wpdb;
 
-    /** @var JobDispatcher|null */
-    protected $job_dispatcher;
+    private ?WorkerApiClient $workerApiClient = null;
 
-    protected PrescriptionRepository $prescriptions;
-
-    public function __construct($job_dispatcher = null, $wpdb = null)
+    public function __construct($wpdb = null)
     {
         if ($wpdb instanceof \wpdb) {
             $this->wpdb = $wpdb;
@@ -33,9 +30,41 @@ final class MessagesController
             global $wpdb;
             $this->wpdb = $wpdb;
         }
+    }
 
-        $this->job_dispatcher = $job_dispatcher instanceof JobDispatcher ? $job_dispatcher : null;
-        $this->prescriptions = new PrescriptionRepository();
+    public static function register(): void
+    {
+        $controller = new self();
+
+        register_rest_route(self::NAMESPACE_V1, '/prescriptions/(?P<id>\d+)/messages', [
+            'methods' => 'GET',
+            'callback' => [$controller, 'list'],
+            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+            'args' => array_merge(
+                ['id' => EndpointArgs::id()],
+                EndpointArgs::list_messages_v1()
+            ),
+        ]);
+
+        register_rest_route(self::NAMESPACE_V1, '/prescriptions/(?P<id>\d+)/messages', [
+            'methods' => 'POST',
+            'callback' => [$controller, 'create'],
+            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+            'args' => array_merge(
+                ['id' => EndpointArgs::id()],
+                EndpointArgs::create_message_v1()
+            ),
+        ]);
+
+        register_rest_route(self::NAMESPACE_V1, '/prescriptions/(?P<id>\d+)/messages/read', [
+            'methods' => 'POST',
+            'callback' => [$controller, 'mark_as_read'],
+            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+            'args' => array_merge(
+                ['id' => EndpointArgs::id()],
+                EndpointArgs::mark_messages_read_v1()
+            ),
+        ]);
     }
 
     public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
@@ -61,15 +90,15 @@ final class MessagesController
         return true;
     }
 
-    public function list(WP_REST_Request $request)
+    public function list(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         $localId = (int) $request->get_param('id');
         if ($localId < 1) {
             return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $row = $this->get_prescription_row($localId);
-        if (!$row) {
+        $row = $this->get_local_prescription_stub($localId);
+        if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
         if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
@@ -83,15 +112,21 @@ final class MessagesController
 
         $afterSeq = max(0, (int) ($request->get_param('after_seq') ?? 0));
         $limit = max(1, min(200, (int) ($request->get_param('limit') ?? 50)));
+        $actor = $this->build_actor_payload();
         $reqId = $this->build_req_id();
 
+        $params = [
+            'actor_role' => $actor['role'],
+            'actor_wp_user_id' => (string) $actor['wp_user_id'],
+            'after_seq' => (string) $afterSeq,
+            'limit' => (string) $limit,
+        ];
+
         try {
-            $result = $this->get_job_dispatcher()->queryPrescriptionMessages(
-                $workerPrescriptionId,
-                $this->build_actor_payload(),
-                $afterSeq,
-                $limit,
-                $reqId
+            $result = $this->get_worker_api_client()->getSignedJson(
+                '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986),
+                $reqId,
+                'messages_query'
             );
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
@@ -112,26 +147,23 @@ final class MessagesController
             );
         }
 
-        $threadState = isset($result['thread_state']) && is_array($result['thread_state']) ? $result['thread_state'] : [];
-        $this->store_shadow_thread_state($localId, $threadState);
-
         Audit::log('messages_view', 'prescription', $localId, $localId, [
             'after_seq' => $afterSeq,
             'limit' => $limit,
         ]);
 
-        return rest_ensure_response($result);
+        return $this->to_rest_response($result, 200, $reqId);
     }
 
-    public function create(WP_REST_Request $request)
+    public function create(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         $localId = (int) $request->get_param('id');
         if ($localId < 1) {
             return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $row = $this->get_prescription_row($localId);
-        if (!$row) {
+        $row = $this->get_local_prescription_stub($localId);
+        if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
         if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
@@ -160,14 +192,22 @@ final class MessagesController
         }
 
         $reqId = $this->build_req_id();
+        $payload = [
+            'actor' => $this->build_actor_payload(),
+            'message' => [
+                'body' => $body,
+            ],
+        ];
+        if ($attachmentIds !== []) {
+            $payload['message']['attachment_artifact_ids'] = $attachmentIds;
+        }
 
         try {
-            $result = $this->get_job_dispatcher()->createPrescriptionMessage(
-                $workerPrescriptionId,
-                $this->build_actor_payload(),
-                $body,
-                $attachmentIds,
-                $reqId
+            $result = $this->get_worker_api_client()->postSignedJson(
+                '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages',
+                $payload,
+                $reqId,
+                'messages_create'
             );
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
@@ -187,36 +227,22 @@ final class MessagesController
             );
         }
 
-        $threadState = isset($result['thread_state']) && is_array($result['thread_state']) ? $result['thread_state'] : [];
-        $this->store_shadow_thread_state($localId, $threadState);
-        $this->prescriptions->touch_last_activity($localId);
-
-        $currentUserId = (int) get_current_user_id();
-        if ((AccessPolicy::is_doctor() || AccessPolicy::is_admin()) && $currentUserId > 0) {
-            $assigned = isset($row['doctor_user_id']) && $row['doctor_user_id'] !== null ? (int) $row['doctor_user_id'] : null;
-            if ($assigned === null || $assigned < 1) {
-                $this->prescriptions->assign_to_doctor($localId, $currentUserId);
-            }
-        } else {
-            $this->prescriptions->set_status_if_current($localId, 'needs_info', 'pending');
-        }
-
         Audit::log('message_create', 'prescription', $localId, $localId, [
             'attachments_count' => count($attachmentIds),
         ]);
 
-        return new WP_REST_Response($result, 201);
+        return $this->to_rest_response($result, 201, $reqId);
     }
 
-    public function mark_as_read(WP_REST_Request $request)
+    public function mark_as_read(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         $localId = (int) $request->get_param('id');
         if ($localId < 1) {
             return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $row = $this->get_prescription_row($localId);
-        if (!$row) {
+        $row = $this->get_local_prescription_stub($localId);
+        if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
         if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
@@ -236,13 +262,17 @@ final class MessagesController
         $readUptoSeq = max(0, $readUptoSeq);
 
         $reqId = $this->build_req_id();
+        $payload = [
+            'actor' => $this->build_actor_payload(),
+            'read_upto_seq' => $readUptoSeq,
+        ];
 
         try {
-            $result = $this->get_job_dispatcher()->markPrescriptionMessagesRead(
-                $workerPrescriptionId,
-                $this->build_actor_payload(),
-                $readUptoSeq,
-                $reqId
+            $result = $this->get_worker_api_client()->postSignedJson(
+                '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages/read',
+                $payload,
+                $reqId,
+                'messages_read'
             );
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
@@ -262,29 +292,34 @@ final class MessagesController
             );
         }
 
-        $threadState = isset($result['thread_state']) && is_array($result['thread_state']) ? $result['thread_state'] : [];
-        $this->store_shadow_thread_state($localId, $threadState);
-
         Audit::log('messages_read', 'prescription', $localId, $localId, [
             'read_upto_seq' => $readUptoSeq,
         ]);
 
-        return rest_ensure_response($result);
+        return $this->to_rest_response($result, 200, $reqId);
     }
 
     /**
      * @return array<string, mixed>|null
      */
-    private function get_prescription_row(int $prescription_id): ?array
+    private function get_local_prescription_stub(int $prescriptionId): ?array
     {
-        $row = $this->prescriptions->get($prescription_id);
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id, uid, patient_user_id, doctor_user_id, payload_json FROM `{$table}` WHERE id = %d LIMIT 1",
+                $prescriptionId
+            ),
+            ARRAY_A
+        );
+
         return is_array($row) ? $row : null;
     }
 
     private function extract_worker_prescription_id(array $row): string
     {
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-        if ($payload === [] && isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
+        $payload = [];
+        if (isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
             $decoded = json_decode($row['payload_json'], true);
             if (is_array($decoded)) {
                 $payload = $decoded;
@@ -305,7 +340,14 @@ final class MessagesController
      */
     private function read_last_shadow_message_seq(array $row): int
     {
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        $payload = [];
+        if (isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
+            $decoded = json_decode($row['payload_json'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
         $shadow = isset($payload['shadow']) && is_array($payload['shadow']) ? $payload['shadow'] : [];
         $thread = isset($shadow['worker_thread']) && is_array($shadow['worker_thread']) ? $shadow['worker_thread'] : [];
         return isset($thread['last_message_seq']) && is_numeric($thread['last_message_seq']) ? max(0, (int) $thread['last_message_seq']) : 0;
@@ -350,57 +392,8 @@ final class MessagesController
     }
 
     /**
-     * @param array<string, mixed> $threadState
+     * @return array<string, mixed>
      */
-    private function store_shadow_thread_state(int $prescription_id, array $threadState): bool
-    {
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
-        $row = $this->wpdb->get_row(
-            $this->wpdb->prepare(
-                "SELECT id, payload_json FROM `{$table}` WHERE id = %d LIMIT 1",
-                $prescription_id
-            ),
-            ARRAY_A
-        );
-
-        if (!is_array($row)) {
-            return false;
-        }
-
-        $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
-        if (!is_array($payload)) {
-            $payload = [];
-        }
-
-        $shadow = isset($payload['shadow']) && is_array($payload['shadow']) ? $payload['shadow'] : [];
-        $shadow['zero_pii'] = true;
-        $shadow['mode'] = 'worker-postgres';
-        $shadow['worker_thread'] = [
-            'message_count' => isset($threadState['message_count']) && is_numeric($threadState['message_count']) ? max(0, (int) $threadState['message_count']) : 0,
-            'last_message_seq' => isset($threadState['last_message_seq']) && is_numeric($threadState['last_message_seq']) ? max(0, (int) $threadState['last_message_seq']) : 0,
-            'last_message_at' => isset($threadState['last_message_at']) && is_scalar($threadState['last_message_at']) ? trim((string) $threadState['last_message_at']) : null,
-            'last_message_role' => isset($threadState['last_message_role']) && is_scalar($threadState['last_message_role']) ? trim((string) $threadState['last_message_role']) : null,
-            'doctor_last_read_seq' => isset($threadState['doctor_last_read_seq']) && is_numeric($threadState['doctor_last_read_seq']) ? max(0, (int) $threadState['doctor_last_read_seq']) : 0,
-            'patient_last_read_seq' => isset($threadState['patient_last_read_seq']) && is_numeric($threadState['patient_last_read_seq']) ? max(0, (int) $threadState['patient_last_read_seq']) : 0,
-            'unread_count_doctor' => isset($threadState['unread_count_doctor']) && is_numeric($threadState['unread_count_doctor']) ? max(0, (int) $threadState['unread_count_doctor']) : 0,
-            'unread_count_patient' => isset($threadState['unread_count_patient']) && is_numeric($threadState['unread_count_patient']) ? max(0, (int) $threadState['unread_count_patient']) : 0,
-        ];
-        $payload['shadow'] = $shadow;
-
-        $updated = $this->wpdb->update(
-            $table,
-            [
-                'payload_json' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'updated_at' => current_time('mysql'),
-            ],
-            ['id' => $prescription_id],
-            ['%s', '%s'],
-            ['%d']
-        );
-
-        return $updated !== false;
-    }
-
     private function request_data(WP_REST_Request $request): array
     {
         $body = $request->get_json_params();
@@ -427,56 +420,31 @@ final class MessagesController
         }
     }
 
-    protected function get_job_dispatcher(): JobDispatcher
+    private function get_worker_api_client(): WorkerApiClient
     {
-        if ($this->job_dispatcher instanceof JobDispatcher) {
-            return $this->job_dispatcher;
+        if ($this->workerApiClient instanceof WorkerApiClient) {
+            return $this->workerApiClient;
         }
 
-        $secret = $this->get_env_or_constant('ML_HMAC_SECRET');
-        if ($secret === '') {
-            throw new \RuntimeException('Missing ML_HMAC_SECRET');
-        }
-
-        $kid = $this->get_env_or_constant('ML_HMAC_KID', 'primary');
-        $site_id = $this->get_worker_site_id();
-        $logger = new NdjsonLogger('web', $site_id, $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
-
-        $this->job_dispatcher = new JobDispatcher(
-            $this->wpdb,
-            $logger,
-            $site_id,
-            $secret,
-            $kid !== '' ? $kid : null
-        );
-
-        return $this->job_dispatcher;
+        $this->workerApiClient = WorkerApiClient::fromEnv(new NdjsonLogger('web'));
+        return $this->workerApiClient;
     }
 
-    protected function get_worker_site_id(): string
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function to_rest_response(array $payload, int $status, string $reqId): WP_REST_Response
     {
-        $site_id = $this->get_env_or_constant('ML_SITE_ID');
-        if ($site_id === '') {
-            $site_id = home_url('/') ?: 'unknown_site';
+        if (!isset($payload['req_id']) || !is_scalar($payload['req_id']) || trim((string) $payload['req_id']) === '') {
+            $payload['req_id'] = $reqId;
         }
 
-        return trim((string) $site_id);
-    }
+        $response = new WP_REST_Response($payload, $status);
+        $response->header('X-SOSPrescription-Request-ID', (string) $payload['req_id']);
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate');
+        $response->header('Pragma', 'no-cache');
+        $response->header('Expires', '0');
 
-    protected function get_env_or_constant(string $name, string $default = ''): string
-    {
-        $value = getenv($name);
-        if (is_string($value) && trim($value) !== '') {
-            return trim($value);
-        }
-
-        if (defined($name)) {
-            $constant = constant($name);
-            if (is_scalar($constant)) {
-                return trim((string) $constant);
-            }
-        }
-
-        return $default;
+        return $response;
     }
 }

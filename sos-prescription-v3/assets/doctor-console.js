@@ -1119,6 +1119,9 @@
         renderDetail();
       }
       fetchList({ silent: true });
+      if (Number(state.selectedId) === numericId) {
+        loadThread(numericId, { silent: true, markRead: state.detailTab === 'messages' });
+      }
       return payload;
     }).catch(function (error) {
       setThreadStore(numericId, { sending: false, error: error && error.message ? String(error.message) : 'Impossible d’envoyer le message.' });
@@ -3355,7 +3358,19 @@
       if (Number(state.selectedId || 0) !== numericId) {
         return null;
       }
-      return fetchPdfStatus(numericId, { silent: true });
+
+      var thread = getThreadStore(numericId);
+      var detail = asObject(state.details[numericId]);
+      var shadowThreadState = extractThreadShadowState(detail);
+      var unread = Number(asObject(thread.threadState).unread_count_doctor || shadowThreadState.unread_count_doctor || 0);
+      var shouldRefreshThread = state.detailTab === 'messages' || thread.initialized || unread > 0;
+      var nextThread = shouldRefreshThread
+        ? loadThread(numericId, { silent: true, markRead: state.detailTab === 'messages' })
+        : Promise.resolve(null);
+
+      return nextThread.then(function () {
+        return fetchPdfStatus(numericId, { silent: true });
+      });
     });
   }
 

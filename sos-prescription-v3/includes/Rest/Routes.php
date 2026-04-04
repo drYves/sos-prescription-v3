@@ -14,7 +14,6 @@ final class Routes
         $pricing = new PricingController();
         $files = new FilesController();
         $artifacts = new ArtifactController();
-        $messages = new MessagesController();
         $payments = new PaymentsController();
         $patient = new PatientController();
         $auth = new AuthController();
@@ -262,36 +261,6 @@ final class Routes
         ]);
 
 
-        // Messagerie patient/médecin (asynchrone)
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages', [
-            'methods' => 'GET',
-            'callback' => [$messages, 'list'],
-            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::list_messages_v1()
-            ),
-        ]);
-
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages', [
-            'methods' => 'POST',
-            'callback' => [$messages, 'create'],
-            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::create_message_v1()
-            ),
-        ]);
-
-        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/messages/read', [
-            'methods' => 'POST',
-            'callback' => [$messages, 'mark_as_read'],
-            'permission_callback' => [$messages, 'permissions_check_logged_in_nonce'],
-            'args' => array_merge(
-                ['id' => EndpointArgs::id()],
-                EndpointArgs::mark_messages_read_v1()
-            ),
-        ]);
 
         // Paiements (Stripe)
         register_rest_route('sosprescription/v1', '/payments/config', [

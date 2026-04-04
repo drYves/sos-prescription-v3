@@ -25,6 +25,7 @@ use SosPrescription\Rest\WorkerRenderController;
 use SosPrescription\Rest\SubmissionV4Controller;
 use SosPrescription\Rest\ArtifactV4Controller;
 use SosPrescription\Rest\PatientV4Controller;
+use SosPrescription\Rest\MessagesController;
 use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
@@ -74,6 +75,7 @@ final class Plugin
         add_action('rest_api_init', [SubmissionV4Controller::class, 'register']);
         add_action('rest_api_init', [ArtifactV4Controller::class, 'register']);
         add_action('rest_api_init', [PatientV4Controller::class, 'register']);
+        add_action('rest_api_init', [MessagesController::class, 'register']);
         ErrorResponder::register_hooks();
 
         // Routes worker v3 (signed claim + render + callback) + BFF v4.
