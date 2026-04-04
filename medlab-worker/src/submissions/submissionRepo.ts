@@ -31,6 +31,7 @@ export interface CreateSubmissionInput {
   actor: SubmissionActorInput;
   flowKey: string;
   priority: string;
+  reqId?: string | null;
   idempotencyKey?: string | null;
 }
 
@@ -152,10 +153,7 @@ export class SubmissionRepo {
       });
 
       if (existing) {
-        return {
-          mode: "replayed",
-          submission: mapSubmission(existing),
-        };
+        return await resolveExistingCreateSubmission(this.prisma, existing, this.logger, normalized.reqId);
       }
     }
 
@@ -190,10 +188,7 @@ export class SubmissionRepo {
             });
 
             if (existing) {
-              return {
-                mode: "replayed",
-                submission: mapSubmission(existing),
-              };
+              return await resolveExistingCreateSubmission(this.prisma, existing, this.logger, normalized.reqId);
             }
           } else {
             publicRef = generateRandomPublicRef();
@@ -202,11 +197,13 @@ export class SubmissionRepo {
         }
 
         this.logger?.error(
-          "submission.repo_create_failed",
+          "submission.finalize.rejected",
           {
-            reason: err instanceof Error ? err.message : "submission_repo_create_failed",
+            phase: "create",
+            code: "ML_SUBMISSION_CREATE_FAILED",
+            reason: err instanceof Error ? err.message : "submission_create_failed",
           },
-          undefined,
+          normalized.reqId ?? undefined,
           err,
         );
 
@@ -245,7 +242,20 @@ export class SubmissionRepo {
                 data: { status: SubmissionStatus.EXPIRED },
               });
             }
-            throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 409, "submission expired");
+
+            this.logger?.warning(
+              "submission.expired",
+              {
+                phase: "finalize",
+                submission_ref: normalized.submissionRef,
+                submission_id: submission.id,
+                owner_role: submission.ownerRole,
+                owner_wp_user_id: submission.ownerWpUserId,
+              },
+              normalized.reqId ?? undefined,
+            );
+
+            throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "submission expired");
           }
 
           if (submission.status !== SubmissionStatus.OPEN) {
@@ -366,8 +376,10 @@ export class SubmissionRepo {
         }
 
         this.logger?.error(
-          "submission.repo_finalize_failed",
+          "submission.finalize.rejected",
           {
+            phase: "finalize",
+            code: "ML_SUBMISSION_FINALIZE_FAILED",
             submission_ref: normalized.submissionRef,
             reason: err instanceof Error ? err.message : "submission_finalize_failed",
           },
@@ -486,10 +498,56 @@ function buildFinalizeResult(
   };
 }
 
+
+async function resolveExistingCreateSubmission(
+  prisma: PrismaClient,
+  existing: Prisma.SubmissionGetPayload<{ select: ReturnType<typeof submissionSelect> }>,
+  logger?: NdjsonLogger,
+  reqId?: string | null,
+): Promise<CreateSubmissionResult> {
+  if (existing.status === SubmissionStatus.OPEN && existing.expiresAt.getTime() > Date.now()) {
+    return {
+      mode: "replayed",
+      submission: mapSubmission(existing),
+    };
+  }
+
+  if (existing.status === SubmissionStatus.EXPIRED || existing.expiresAt.getTime() <= Date.now()) {
+    if (existing.status === SubmissionStatus.OPEN) {
+      await prisma.submission.updateMany({
+        where: {
+          id: existing.id,
+          status: SubmissionStatus.OPEN,
+        },
+        data: {
+          status: SubmissionStatus.EXPIRED,
+        },
+      });
+    }
+
+    logger?.warning(
+      "submission.expired",
+      {
+        phase: "create",
+        submission_ref: existing.publicRef,
+        submission_id: existing.id,
+        owner_role: existing.ownerRole,
+        owner_wp_user_id: existing.ownerWpUserId,
+      },
+      reqId ?? undefined,
+    );
+
+    throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "submission expired");
+  }
+
+  throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "submission is not open");
+}
+
 function normalizeCreateSubmissionInput(input: CreateSubmissionInput): {
   actor: { role: ActorRole; wpUserId: number | null };
   flowKey: string;
   priority: string;
+  reqId: string | null;
   idempotencyKey: string | null;
 } {
   if (!input || typeof input !== "object") {
@@ -500,6 +558,7 @@ function normalizeCreateSubmissionInput(input: CreateSubmissionInput): {
     actor: normalizeActor(input.actor),
     flowKey: normalizeSlug(input.flowKey, "flowKey", 64),
     priority: normalizeSlug(input.priority, "priority", 32),
+    reqId: normalizeOptionalRequestId(input.reqId),
     idempotencyKey: normalizeIdempotencyKey(input.idempotencyKey),
   };
 }

@@ -307,6 +307,41 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   return server;
 }
 
+function logSubmissionRejected(
+  logger: NdjsonLogger,
+  reqId: string,
+  phase: "create" | "finalize" | "artifact_init",
+  reason: string,
+  code?: string,
+  submissionRef?: string,
+  err?: unknown,
+  severity: "warning" | "error" = "warning",
+): void {
+  const context: Record<string, unknown> = {
+    phase,
+    reason,
+  };
+
+  if (code) {
+    context.code = code;
+  }
+
+  if (submissionRef) {
+    context.submission_ref = submissionRef;
+  }
+
+  if (severity === "error") {
+    logger.error("submission.finalize.rejected", context, reqId, err);
+    return;
+  }
+
+  logger.warning("submission.finalize.rejected", context, reqId, err);
+}
+
+function isSubmissionExpiredError(err: unknown): boolean {
+  return err instanceof SubmissionRepoError && err.code === "ML_SUBMISSION_EXPIRED";
+}
+
 async function handlePulse(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -384,7 +419,7 @@ async function handleSubmissionCreate(
   } catch (err: unknown) {
     const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
     const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
-    deps.logger.warning("submission.init.rejected", { reason: code }, getResponseReqId(res));
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "create", code, code, undefined, err, "warning");
     return sendJson(res, status, { ok: false, code }, signingSecret);
   }
 
@@ -407,7 +442,8 @@ async function handleSubmissionCreate(
       throw new Error("bad_json");
     }
     body = candidate as SubmissionCreateRequestBody;
-  } catch {
+  } catch (err: unknown) {
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "create", "ML_SUBMISSION_BAD_JSON", "ML_SUBMISSION_BAD_JSON", undefined, err, "warning");
     return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_JSON" }, signingSecret);
   }
 
@@ -423,10 +459,10 @@ async function handleSubmissionCreate(
       validateSignedEnvelope(body as unknown as Record<string, unknown>, deps, reqId);
     } catch (err: unknown) {
       if (err instanceof SubmissionRepoError) {
-        deps.logger.warning("submission.init.rejected", { code: err.code, reason: err.message }, reqId, err);
+        logSubmissionRejected(deps.logger, reqId, "create", err.message, err.code, undefined, err, "warning");
       } else {
         const message = err instanceof Error ? err.message : "submission_envelope_invalid";
-        deps.logger.warning("submission.init.rejected", { reason: message }, reqId, err);
+        logSubmissionRejected(deps.logger, reqId, "create", message, "ML_SUBMISSION_BAD_REQUEST", undefined, err, "warning");
       }
       return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId }, signingSecret);
     }
@@ -442,12 +478,14 @@ async function handleSubmissionCreate(
       actor,
       flowKey,
       priority,
+      reqId,
       idempotencyKey,
     });
 
     deps.logger.info(
-      result.mode === "replayed" ? "submission.init.replayed" : "submission.init.accepted",
+      "submission.created",
       {
+        mode: result.mode,
         submission_ref: result.submission.publicRef,
         owner_role: result.submission.ownerRole,
         owner_wp_user_id: result.submission.ownerWpUserId,
@@ -473,12 +511,9 @@ async function handleSubmissionCreate(
     );
   } catch (err: unknown) {
     if (err instanceof SubmissionRepoError) {
-      deps.logger.warning(
-        "submission.init.rejected",
-        { code: err.code, reason: err.message },
-        reqId,
-        err,
-      );
+      if (!isSubmissionExpiredError(err) && err.statusCode < 500) {
+        logSubmissionRejected(deps.logger, reqId, "create", err.message, err.code, undefined, err, "warning");
+      }
       return sendJson(
         res,
         err.statusCode,
@@ -488,12 +523,7 @@ async function handleSubmissionCreate(
     }
 
     const message = err instanceof Error ? err.message : "submission_create_failed";
-    deps.logger.error(
-      "submission.init.failed",
-      { reason: message },
-      reqId,
-      err,
-    );
+    logSubmissionRejected(deps.logger, reqId, "create", message, "ML_SUBMISSION_CREATE_FAILED", undefined, err, "error");
     return sendJson(
       res,
       500,
@@ -512,6 +542,7 @@ async function handleSubmissionArtifactUploadInit(
 ): Promise<void> {
   const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v2/submissions/${submissionRef}/artifacts/init`);
   if (parsedBody.ok !== true) {
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "artifact_init", parsedBody.code, parsedBody.code, submissionRef, undefined, "warning");
     return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
   }
 
@@ -520,7 +551,7 @@ async function handleSubmissionArtifactUploadInit(
     const payload = parsedBody.body as ArtifactInitRequestBody;
     const actor = normalizeSubmissionActorInput(payload.actor);
     const artifactInput = normalizeArtifactInitInput(payload.artifact, deps.artifactUploadMaxBytes);
-    const submission = await resolveSubmissionForArtifactInit(submissionRef, actor);
+    const submission = await resolveSubmissionForArtifactInit(submissionRef, actor, deps.logger, reqId);
 
     const created = await deps.artifactRepo.initUpload({
       kind: artifactInput.kind,
@@ -541,20 +572,6 @@ async function handleSubmissionArtifactUploadInit(
     }
 
     const uploadUrl = `${publicBaseUrl}/api/v1/artifacts/upload/direct?ticket=${encodeURIComponent(ticket)}`;
-
-    deps.logger.info(
-      "artifact.upload_init.accepted",
-      {
-        artifact_id: created.id,
-        kind: created.kind,
-        owner_role: created.ownerRole,
-        prescription_id: created.prescriptionId,
-        submission_id: submission.id,
-        submission_ref: submission.publicRef,
-        size_bytes: created.sizeBytes,
-      },
-      reqId,
-    );
 
     return sendJson(
       res,
@@ -578,12 +595,9 @@ async function handleSubmissionArtifactUploadInit(
     );
   } catch (err: unknown) {
     if (err instanceof SubmissionRepoError) {
-      deps.logger.warning(
-        "submission.artifact_upload_init.rejected",
-        { code: err.code, reason: err.message, submission_ref: submissionRef },
-        reqId,
-        err,
-      );
+      if (!isSubmissionExpiredError(err)) {
+        logSubmissionRejected(deps.logger, reqId, "artifact_init", err.message, err.code, submissionRef, err, "warning");
+      }
       return sendJson(
         res,
         err.statusCode,
@@ -595,12 +609,7 @@ async function handleSubmissionArtifactUploadInit(
     const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
     const statusCode = isClientArtifactError(message) ? 400 : 500;
     const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
-    deps.logger.error(
-      "submission.artifact_upload_init.failed",
-      { reason: message, submission_ref: submissionRef },
-      reqId,
-      err,
-    );
+    logSubmissionRejected(deps.logger, reqId, "artifact_init", message, code, submissionRef, err, statusCode >= 500 ? "error" : "warning");
     return sendJson(res, statusCode, { ok: false, code, req_id: reqId }, signingSecret);
   }
 }
@@ -619,7 +628,7 @@ async function handleSubmissionFinalize(
   } catch (err: unknown) {
     const code = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
     const status = code === "ML_BODY_TOO_LARGE" ? 413 : 400;
-    deps.logger.warning("submission.finalize.rejected", { reason: code, submission_ref: submissionRef }, getResponseReqId(res));
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "finalize", code, code, submissionRef, err, "warning");
     return sendJson(res, status, { ok: false, code }, signingSecret);
   }
 
@@ -642,7 +651,8 @@ async function handleSubmissionFinalize(
       throw new Error("bad_json");
     }
     body = candidate as Record<string, unknown>;
-  } catch {
+  } catch (err: unknown) {
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "finalize", "ML_SUBMISSION_BAD_JSON", "ML_SUBMISSION_BAD_JSON", submissionRef, err, "warning");
     return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_JSON" }, signingSecret);
   }
 
@@ -658,10 +668,10 @@ async function handleSubmissionFinalize(
       validateSignedEnvelope(body, deps, reqId);
     } catch (err: unknown) {
       if (err instanceof SubmissionRepoError) {
-        deps.logger.warning("submission.finalize.rejected", { code: err.code, reason: err.message, submission_ref: submissionRef }, reqId, err);
+        logSubmissionRejected(deps.logger, reqId, "finalize", err.message, err.code, submissionRef, err, "warning");
       } else {
         const message = err instanceof Error ? err.message : "submission_finalize_envelope_invalid";
-        deps.logger.warning("submission.finalize.rejected", { reason: message, submission_ref: submissionRef }, reqId, err);
+        logSubmissionRejected(deps.logger, reqId, "finalize", message, "ML_SUBMISSION_BAD_REQUEST", submissionRef, err, "warning");
       }
       return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId }, signingSecret);
     }
@@ -683,21 +693,23 @@ async function handleSubmissionFinalize(
     const final = normalizeSubmissionFinalizeResult(result);
 
     deps.logger.info(
-      "submission.finalize.accepted",
+      "submission.finalized",
       {
+        mode: result.mode,
         submission_ref: submissionRef,
         prescription_id: final.prescriptionId,
         uid: final.uid,
         status: final.status,
         processing_status: final.processingStatus,
         item_count: normalized.items.length,
+        proof_count: result.proof_count,
       },
       reqId,
     );
 
     return sendJson(
       res,
-      201,
+      result.mode === "replayed" ? 200 : 201,
       {
         ok: true,
         schema_version: CURRENT_SCHEMA_VERSION,
@@ -710,22 +722,14 @@ async function handleSubmissionFinalize(
     );
   } catch (err: unknown) {
     if (err instanceof SubmissionRepoError) {
-      deps.logger.warning(
-        "submission.finalize.rejected",
-        { code: err.code, reason: err.message, submission_ref: submissionRef },
-        reqId,
-        err,
-      );
+      if (!isSubmissionExpiredError(err) && err.statusCode < 500) {
+        logSubmissionRejected(deps.logger, reqId, "finalize", err.message, err.code, submissionRef, err, "warning");
+      }
       return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
     }
 
     const message = err instanceof Error ? err.message : "submission_finalize_failed";
-    deps.logger.error(
-      "submission.finalize.failed",
-      { reason: message, submission_ref: submissionRef },
-      reqId,
-      err,
-    );
+    logSubmissionRejected(deps.logger, reqId, "finalize", message, "ML_SUBMISSION_FINALIZE_FAILED", submissionRef, err, "error");
     return sendJson(
       res,
       500,
@@ -2449,6 +2453,8 @@ function getPulsePrismaClient(): PrismaClient {
 async function resolveSubmissionForArtifactInit(
   submissionRef: string,
   actor: { role: ActorRole; wpUserId: number | null },
+  logger?: NdjsonLogger,
+  reqId?: string,
 ): Promise<SubmissionArtifactInitRow> {
   const normalizedSubmissionRef = normalizeSubmissionRefParam(submissionRef);
   const prisma = getPulsePrismaClient();
@@ -2486,6 +2492,18 @@ async function resolveSubmissionForArtifactInit(
         },
       });
     }
+
+    logger?.warning(
+      "submission.expired",
+      {
+        phase: "artifact_init",
+        submission_ref: normalizedSubmissionRef,
+        submission_id: row.id,
+        owner_role: row.ownerRole,
+        owner_wp_user_id: row.ownerWpUserId,
+      },
+      reqId,
+    );
 
     throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "Submission has expired");
   }
