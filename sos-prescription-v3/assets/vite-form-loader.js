@@ -190,10 +190,16 @@
 
       window.fetch = function (input, init) {
         // Determine if this request targets our REST API.
-        var restBase = (window.SosPrescription && window.SosPrescription.rest_base)
-          ? String(window.SosPrescription.rest_base)
-          : '';
-        var restHint = '/wp-json/sosprescription/v1/';
+        var cfg = window.SosPrescription || {};
+        var restBase = cfg.rest_base
+          ? String(cfg.rest_base)
+          : (cfg.restBase ? String(cfg.restBase) : '');
+        var restV4Base = cfg.rest_v4_base
+          ? String(cfg.rest_v4_base)
+          : (cfg.restV4Base ? String(cfg.restV4Base) : (restBase ? restBase.replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4') : ''));
+        var restHintV1 = '/wp-json/sosprescription/v1/';
+        var restHintV4 = '/wp-json/sosprescription/v4/';
+        var restHintAny = '/wp-json/sosprescription/';
 
         var url = '';
         try {
@@ -203,12 +209,20 @@
         }
 
         var isApi = false;
+        var apiVersion = '';
+        var isFrontendLog = false;
         try {
           if (url) {
-            isApi = (restBase && url.indexOf(restBase) === 0) || (url.indexOf(restHint) !== -1);
+            isFrontendLog = url.indexOf('/logs/frontend') !== -1;
+            var isV1 = (restBase && url.indexOf(restBase) === 0) || (url.indexOf(restHintV1) !== -1);
+            var isV4 = (restV4Base && url.indexOf(restV4Base) === 0) || (url.indexOf(restHintV4) !== -1);
+            isApi = isV1 || isV4 || url.indexOf(restHintAny) !== -1;
+            apiVersion = isV4 ? 'v4' : (isV1 ? 'v1' : (url.indexOf(restHintV4) !== -1 ? 'v4' : (url.indexOf(restHintV1) !== -1 ? 'v1' : '')));
           }
         } catch (_) {
           isApi = false;
+          apiVersion = '';
+          isFrontendLog = false;
         }
 
         var localReqId = '';
@@ -287,12 +301,36 @@
           }
         }
 
+        try {
+          if (isApi && apiVersion === 'v4' && !isFrontendLog) {
+            sendLog('api_v4_request', 'debug', {
+              method: (init && init.method) ? String(init.method).toUpperCase() : (((input && input.method) ? String(input.method) : 'GET').toUpperCase()),
+              url: url,
+              req_id: localReqId || ''
+            });
+          }
+        } catch (_) {
+          // no-op
+        }
+
         return origFetch(input, init)
           .then(function (resp) {
             try {
               if (!isApi || !resp) return resp;
 
               if (resp.ok) {
+                try {
+                  if (apiVersion === 'v4' && !isFrontendLog) {
+                    sendLog('api_v4_response_ok', 'debug', {
+                      method: (init && init.method) ? String(init.method).toUpperCase() : (((input && input.method) ? String(input.method) : 'GET').toUpperCase()),
+                      url: url,
+                      status: resp.status || 200,
+                      req_id: localReqId || ''
+                    });
+                  }
+                } catch (_) {
+                  // no-op
+                }
                 clearUnifiedError();
                 return resp;
               }
@@ -302,6 +340,19 @@
                 reqId = resp.headers.get('X-SOSPrescription-Request-ID') || localReqId || '';
               } catch (_) {
                 reqId = '';
+              }
+
+              try {
+                if (apiVersion === 'v4' && !isFrontendLog) {
+                  sendLog('api_v4_response_error', 'error', {
+                    method: (init && init.method) ? String(init.method).toUpperCase() : (((input && input.method) ? String(input.method) : 'GET').toUpperCase()),
+                    url: url,
+                    status: resp.status || 0,
+                    req_id: reqId || localReqId || ''
+                  });
+                }
+              } catch (_) {
+                // no-op
               }
 
               // Try to enrich the error banner with JSON body data, without consuming the response.
@@ -334,6 +385,16 @@
           .catch(function (err) {
             try {
               if (isApi) {
+                if (apiVersion === 'v4' && !isFrontendLog) {
+                  try {
+                    sendLog('api_v4_network_error', 'error', {
+                      method: (init && init.method) ? String(init.method).toUpperCase() : (((input && input.method) ? String(input.method) : 'GET').toUpperCase()),
+                      url: url,
+                      req_id: localReqId || '',
+                      message: (err && err.message) ? String(err.message) : 'network_error'
+                    });
+                  } catch (_) {}
+                }
                 showUnifiedError(t('error_network_title', 'Erreur réseau'), t('error_network_message', 'Connexion impossible. Merci de réessayer.'), localReqId || '');
               }
             } catch (_) {
@@ -378,6 +439,12 @@
     }
   }
 
+  try {
+    window.__SosPrescriptionSendLog = sendLog;
+  } catch (_) {
+    // no-op
+  }
+
   function renderError(rootId, message) {
     try {
       showUnifiedError(t('error_loading_title', 'Erreur de chargement'), message, '');
@@ -407,7 +474,7 @@
         try {
           // On ne loggue que les erreurs provenant du plugin (évite le bruit).
           var filename = String((e && e.filename) ? e.filename : '');
-          if (filename && filename.indexOf('/wp-content/plugins/sosprescription/') === -1) return;
+          if (filename && filename.indexOf('/wp-content/plugins/sosprescription/') === -1 && filename.indexOf('/wp-content/plugins/sos-prescription-v3/') === -1) return;
 
           sendLog('window_error', 'error', {
             message: String((e && e.message) ? e.message : 'error'),
@@ -435,7 +502,7 @@
 
           // Filtrage léger : on ne loggue que si le message/stack mentionne le plugin.
           var hay = (msg + ' ' + stack);
-          if (hay.indexOf('sosprescription') === -1 && hay.indexOf('SosPrescription') === -1 && hay.indexOf('/wp-content/plugins/sosprescription/') === -1) {
+          if (hay.indexOf('sosprescription') === -1 && hay.indexOf('SosPrescription') === -1 && hay.indexOf('/wp-content/plugins/sosprescription/') === -1 && hay.indexOf('/wp-content/plugins/sos-prescription-v3/') === -1) {
             return;
           }
 

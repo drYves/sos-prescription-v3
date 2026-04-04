@@ -255,6 +255,95 @@ async function spFinalizeSubmissionApi(t, s) {
   }, "form");
 }
 
+function spFrontendLog(t, s = "info", n = {}) {
+    try {
+        if (typeof window != "undefined" && typeof window.__SosPrescriptionSendLog == "function") {
+            window.__SosPrescriptionSendLog(t, s, n || {});
+            return;
+        }
+    } catch {}
+    try {
+        const l = we(), u = String((l == null ? void 0 : l.restBase) || "").replace(/\/$/, ""), g = String((l == null ? void 0 : l.nonce) || "");
+        if (!u || !g || !window.fetch) return;
+        window.fetch(u + "/logs/frontend", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-WP-Nonce": g
+            },
+            body: JSON.stringify({
+                shortcode: "sosprescription_form",
+                event: t,
+                level: s || "info",
+                meta: n || {}
+            }),
+            keepalive: !0
+        }).catch((() => {}));
+    } catch {}
+}
+
+function spResolveFlowFromUrl() {
+    try {
+        const t = new URLSearchParams(window.location.search).get("type"), s = String(t || "").trim().toLowerCase();
+        return s === "renouvellement" || s === "renewal" || s === "ro_proof" ? "ro_proof" : s === "depannage-sos" || s === "depannage_no_proof" || s === "depannage" || s === "sos" ? "depannage_no_proof" : null;
+    } catch {
+        return null;
+    }
+}
+
+function spBuildSubmitBlockInfo(t) {
+    const s = [];
+    if (!t.loggedIn) s.push({
+        code: "auth_missing",
+        message: "Vous devez être connecté pour soumettre une demande."
+    });
+    const n = String(t.flow || "").trim(), l = spSafePatientNameValue(t.fullname), u = spSplitPatientNameValue(l), g = String(t.birthdate || "").trim(), a = Number(t.itemsCount || 0), x = Number(t.filesCount || 0);
+    !n && s.push({
+        code: "flow_missing",
+        message: "Merci de choisir un parcours avant de soumettre votre demande."
+    }), (l.length < 3 || u.firstName === "" || u.lastName === "") && s.push({
+        code: "patient_name_invalid",
+        message: "Merci de saisir le prénom et le nom du patient."
+    }), !g ? s.push({
+        code: "birthdate_missing",
+        message: "Merci de renseigner la date de naissance du patient."
+    }) : yt(g) || s.push({
+        code: "birthdate_invalid",
+        message: "Merci de renseigner une date de naissance valide au format JJ/MM/AAAA."
+    }), n === "ro_proof" && x < 1 && s.push({
+        code: "proof_missing",
+        message: "Merci d'ajouter au moins un document justificatif à analyser."
+    }), n === "depannage_no_proof" && a < 1 && s.push({
+        code: "medication_missing",
+        message: "Merci d'ajouter au moins un médicament."
+    }), n === "depannage_no_proof" && !t.attestationNoProof && s.push({
+        code: "attestation_missing",
+        message: "Merci de confirmer l'attestation de dépannage sans preuve."
+    });
+    if (t.consentRequired) {
+        const o = [];
+        t.consentTelemedicine || o.push("téléconsultation"), t.consentTruth || o.push("attestation sur l'honneur"), 
+        t.consentCgu || o.push("CGU"), t.consentPrivacy || o.push("politique de confidentialité"), 
+        o.length > 0 && s.push({
+            code: "consent_missing",
+            message: "Merci de valider les consentements requis : " + o.join(", ") + "."
+        });
+    }
+    return t.turnstileEnabled && t.turnstileSiteKey && (!t.turnstileToken || t.turnstileToken === "__TURNSTILE_UNAVAILABLE__") && s.push({
+        code: "turnstile_missing",
+        message: "Vérification anti-abus indisponible, action impossible."
+    }), t.analysisInProgress && s.push({
+        code: "analysis_in_progress",
+        message: "Veuillez patienter pendant l'analyse du document."
+    }), {
+        ok: s.length === 0,
+        reasons: s,
+        code: s.length > 0 ? s[0].code : null,
+        message: s.length > 0 ? s[0].message : null
+    };
+}
+
 function spAiSafeText(t) {
     return String(t || "").replace(/ /g, " ").replace(/\s+/g, " ").trim();
 }
@@ -1055,7 +1144,7 @@ function spSplitPatientNameValue(t) {
 
 function vt() {
     var Ae, Ie, Re, $e, De;
-    const t = we(), s = t.notices || {}, n = !!(s != null && s.enabled_form), l = (s != null && s.title ? String(s.title) : "").trim(), u = String((s == null ? void 0 : s.items_text) || "").split(/\r?\n/).map((r => r.trim())).filter(Boolean), [g, a] = c.useState("choose"), [x, o] = c.useState(null), [b, v] = c.useState(null), [M, C] = c.useState(!0), [h, _] = c.useState(null), [N, i] = c.useState("standard"), [S, A] = c.useState((() => {
+    const t = we(), s = t.notices || {}, n = !!(s != null && s.enabled_form), l = (s != null && s.title ? String(s.title) : "").trim(), u = String((s == null ? void 0 : s.items_text) || "").split(/\r?\n/).map((r => r.trim())).filter(Boolean), [g, a] = c.useState((() => spResolveFlowFromUrl() ? "form" : "choose")), [x, o] = c.useState(null), [b, v] = c.useState(null), [M, C] = c.useState(!0), [h, _] = c.useState((() => spResolveFlowFromUrl())), [N, i] = c.useState("standard"), [S, A] = c.useState((() => {
         var w;
         return spSafePatientNameValue(((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.fullname) || "");
     })), [q, I] = c.useState((() => {
@@ -1086,11 +1175,27 @@ function vt() {
             r = !0;
         };
     }), []);
-    const B = ((Ie = t.currentUser) == null ? void 0 : Ie.id) && t.currentUser.id > 0, _e = c.useMemo((() => x ? N === "express" ? x.express_cents : x.standard_cents : null), [ x, N ]), Ee = c.useMemo((() => {
+    const B = ((Ie = t.currentUser) == null ? void 0 : Ie.id) && t.currentUser.id > 0, _e = c.useMemo((() => x ? N === "express" ? x.express_cents : x.standard_cents : null), [ x, N ]), spBlockInfo = c.useMemo((() => {
         var r, y;
-        const w = (r = t.turnstile) != null && r.enabled, z = (y = t.turnstile) != null && y.siteKey, $ = h === "ro_proof" ? E.length > 0 : j.length > 0;
-        return !(!B || !h || !S.trim() || !q.trim() || !$ || h === "ro_proof" && E.length < 1 || h === "depannage_no_proof" && !W || K && !(d && R && L && te) || w && z && (!P || P === "__TURNSTILE_UNAVAILABLE__") || G);
-    }), [ B, h, S, q, E.length, j.length, W, K, d, R, L, te, (Re = t.turnstile) == null ? void 0 : Re.enabled, t.turnstile == null ? void 0 : t.turnstile.siteKey, P, G ]), Pe = c.useMemo((() => jt(q)), [ q ]), pe = r => {
+        return spBuildSubmitBlockInfo({
+            loggedIn: !!B,
+            flow: h,
+            fullname: S,
+            birthdate: q,
+            itemsCount: j.length,
+            filesCount: E.length,
+            attestationNoProof: W,
+            consentRequired: K,
+            consentTelemedicine: d,
+            consentTruth: R,
+            consentCgu: L,
+            consentPrivacy: te,
+            turnstileEnabled: (r = t.turnstile) != null && r.enabled,
+            turnstileSiteKey: (y = t.turnstile) != null && y.siteKey,
+            turnstileToken: P,
+            analysisInProgress: G
+        });
+    }), [ B, h, S, q, j.length, E.length, W, K, d, R, L, te, (Re = t.turnstile) == null ? void 0 : Re.enabled, t.turnstile == null ? void 0 : t.turnstile.siteKey, P, G ]), Ee = spBlockInfo.ok, Pe = c.useMemo((() => jt(q)), [ q ]), pe = r => {
         const y = {
             cis: r.cis,
             cip13: r.cip13 || null,
@@ -1143,94 +1248,208 @@ function vt() {
         }
     }, Qe = async () => {
         var r;
-        if (X(null), !(!Ee || !h)) {
-            Me(!0);
-            try {
-                if (t.turnstile != null && t.turnstile.enabled && t.turnstile.siteKey && (!P || P === "__TURNSTILE_UNAVAILABLE__")) {
-                    X("Vérification anti-abus indisponible, action impossible."), Me(!1);
-                    return;
-                }
-                const __spFullname = spSafePatientNameValue(S), __spSplit = spSplitPatientNameValue(__spFullname);
-                if (__spFullname.length < 3 || __spSplit.firstName === "" || __spSplit.lastName === "") {
-                    X("Merci de saisir le prénom et le nom du patient, et non une adresse e-mail."), 
-                    Me(!1);
-                    return;
-                }
-                const y = {
+        X(null);
+        const y = spBuildSubmitBlockInfo({
+            loggedIn: !!B,
+            flow: h,
+            fullname: S,
+            birthdate: q,
+            itemsCount: j.length,
+            filesCount: E.length,
+            attestationNoProof: W,
+            consentRequired: K,
+            consentTelemedicine: d,
+            consentTruth: R,
+            consentCgu: L,
+            consentPrivacy: te,
+            turnstileEnabled: !!((r = t.turnstile) != null && r.enabled),
+            turnstileSiteKey: !!(t.turnstile != null && t.turnstile.siteKey),
+            turnstileToken: P,
+            analysisInProgress: G
+        });
+        spFrontendLog("submit_clicked", "info", {
+            flow: h || null,
+            stage: g,
+            logged_in: !!B,
+            meds_count: Array.isArray(j) ? j.length : 0,
+            files_count: Array.isArray(E) ? E.length : 0,
+            turnstile_token_present: !!P
+        });
+        if (!y.ok || !h) {
+            const w = Array.isArray(y.reasons) ? y.reasons.map((z => z.code)) : [], z = !y.ok ? y.code : "flow_missing", $ = y.message || "Le formulaire est incomplet. Merci de vérifier les champs requis.";
+            spFrontendLog("submit_blocked", "warning", {
+                flow: h || null,
+                stage: g,
+                reason_code: z || "unknown",
+                reasons: w,
+                message: $,
+                logged_in: !!B,
+                meds_count: Array.isArray(j) ? j.length : 0,
+                files_count: Array.isArray(E) ? E.length : 0,
+                attestation_no_proof: !!W,
+                consent_required: !!K,
+                consent_telemedicine: !!d,
+                consent_truth: !!R,
+                consent_cgu: !!L,
+                consent_privacy: !!te,
+                turnstile_token_present: !!P
+            }), X($);
+            return;
+        }
+        Me(!0);
+        try {
+            if (t.turnstile != null && t.turnstile.enabled && t.turnstile.siteKey && (!P || P === "__TURNSTILE_UNAVAILABLE__")) {
+                spFrontendLog("submit_blocked", "warning", {
                     flow: h,
-                    priority: N,
-                    turnstileToken: P || ""
-                };
-                (r = t.turnstile) != null && r.enabled && (t.turnstile == null ? void 0 : t.turnstile.siteKey) || delete y.turnstileToken;
-                const w = await spCreateSubmissionApi(y), z = String((w == null ? void 0 : w.submission_ref) || "").trim();
-                if (!z) throw new Error("Référence de soumission manquante.");
-                let $ = Array.isArray(j) ? j.slice() : [];
-                if (h === "ro_proof") {
-                    const re = Array.isArray(E) ? E.filter((ie => ie && ie.file)) : [], ie = [], ye = [], Te = [], Ke = [];
-                    le(!0), Se(!0), X(null), oe(null), he([]);
-                    try {
-                        for (const Ue of re) try {
-                            const Fe = Ue.file, qe = await spDirectSubmissionArtifactUpload(Fe, z, "PROOF"), Le = await artifactAnalyzeApi(String((qe == null ? void 0 : qe.id) || "")), Oe = !!(Le && Le.ok === !1), qeItems = spAiMedicationsToItems(Le == null ? void 0 : Le.medications), Je = !!(Le && (Le.is_prescription === !0 || qeItems.length > 0));
-                            if (Oe) {
-                                Te.push(Ue), Ke.push(typeof (Le == null ? void 0 : Le.message) == "string" && Le.message.trim() ? Le.message.trim() : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.");
-                                continue;
-                            }
-                            ie.push(qe), Je && qeItems.length > 0 && ye.push(...qeItems), Je || Te.push(Ue);
-                        } catch (Fe) {
-                            Te.push(Ue), Ke.push(Fe != null && Fe.message ? String(Fe.message) : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.");
-                        }
-                        ie.length > 0 && oe(ye.length > 0 ? "✅ Document reconnu. Les médicaments ont été ajoutés automatiquement." : "✅ Document reconnu."), 
-                        Te.length > 0 && he(Te.map((Fe => Fe.file || Fe))), Ke.length > 0 && X(Ke[0]), 
-                        ye.length > 0 && ($ = spAiMergeMedicationItems($, ye), f($));
-                    } finally {
-                        Se(!1), le(!1);
-                    }
-                    if (ie.length < 1) {
-                        Me(!1);
-                        return;
-                    }
-                }
-                const A = {
-                    patient: {
-                        fullname: __spFullname,
-                        firstName: __spSplit.firstName,
-                        lastName: __spSplit.lastName,
-                        birthdate: q.trim(),
-                        birthDate: q.trim()
-                    },
-                    items: $.map((re => {
-                        const ie = {
-                            label: (re.label || "").trim(),
-                            schedule: re.schedule && typeof re.schedule == "object" ? re.schedule : {}
-                        };
-                        return re.cis && (ie.cis = String(re.cis)), re.cip13 && (ie.cip13 = String(re.cip13)), 
-                        re.quantite && (ie.quantite = String(re.quantite)), ie;
-                    })),
-                    privateNotes: O.trim() || void 0,
-                    consent: K ? {
-                        telemedicine: d,
-                        truth: R,
-                        cgu: L,
-                        privacy: te,
-                        timestamp: (new Date).toISOString(),
-                        cgu_version: U != null && U.cgu_version ? String(U.cgu_version) : "",
-                        privacy_version: U != null && U.privacy_version ? String(U.privacy_version) : ""
-                    } : void 0,
-                    attestation_no_proof: h === "depannage_no_proof" ? W : void 0
-                };
-                if (!Array.isArray(A.items) || A.items.length < 1) throw new Error(h === "ro_proof" ? "Aucun médicament n'a pu être identifié. Merci d'importer un document plus net ou d'utiliser la saisie manuelle." : "Merci d'ajouter au moins un médicament.");
-                const ee = await spFinalizeSubmissionApi(z, A), se = {
-                    id: (ee == null ? void 0 : ee.prescription_id) || ee.id,
-                    uid: ee.uid,
-                    status: ee.status,
-                    created_at: ee.created_at
-                };
-                ce(se), a("done");
-            } catch (y) {
-                X(y != null && y.message ? String(y.message) : "Erreur soumission");
-            } finally {
-                Me(!1);
+                    stage: g,
+                    reason_code: "turnstile_missing",
+                    message: "Vérification anti-abus indisponible, action impossible."
+                }), X("Vérification anti-abus indisponible, action impossible."), Me(!1);
+                return;
             }
+            const w = spSafePatientNameValue(S), z = spSplitPatientNameValue(w);
+            if (w.length < 3 || z.firstName === "" || z.lastName === "") {
+                spFrontendLog("submit_blocked", "warning", {
+                    flow: h,
+                    stage: g,
+                    reason_code: "patient_name_invalid",
+                    message: "Merci de saisir le prénom et le nom du patient, et non une adresse e-mail."
+                }), X("Merci de saisir le prénom et le nom du patient, et non une adresse e-mail."), Me(!1);
+                return;
+            }
+            spFrontendLog("submission_init_start", "info", {
+                flow: h,
+                priority: N,
+                meds_count: Array.isArray(j) ? j.length : 0,
+                files_count: Array.isArray(E) ? E.length : 0
+            });
+            const $ = {
+                flow: h,
+                priority: N,
+                turnstileToken: P || ""
+            };
+            (r = t.turnstile) != null && r.enabled && (t.turnstile == null ? void 0 : t.turnstile.siteKey) || delete $.turnstileToken;
+            const A = await spCreateSubmissionApi($), ee = String((A == null ? void 0 : A.submission_ref) || "").trim();
+            if (!ee) throw new Error("Référence de soumission manquante.");
+            spFrontendLog("submission_init_ok", "info", {
+                flow: h,
+                submission_ref_present: !!ee
+            });
+            let se = Array.isArray(j) ? j.slice() : [];
+            if (h === "ro_proof") {
+                const re = Array.isArray(E) ? E.filter((ue => ue && ue.file)) : [], ie = [], ye = [], Te = [], Ke = [];
+                le(!0), Se(!0), X(null), oe(null), he([]);
+                try {
+                    for (const ue of re) try {
+                        const Fe = ue.file;
+                        spFrontendLog("submission_artifact_start", "debug", {
+                            flow: h,
+                            original_name: Fe && Fe.name ? String(Fe.name) : "upload.bin"
+                        });
+                        const qe = await spDirectSubmissionArtifactUpload(Fe, ee, "PROOF");
+                        spFrontendLog("submission_artifact_uploaded", "info", {
+                            flow: h,
+                            artifact_id: String((qe == null ? void 0 : qe.id) || "")
+                        });
+                        const Le = await artifactAnalyzeApi(String((qe == null ? void 0 : qe.id) || "")), Oe = !!(Le && Le.ok === !1), qeItems = spAiMedicationsToItems(Le == null ? void 0 : Le.medications), Je = !!(Le && (Le.is_prescription === !0 || qeItems.length > 0));
+                        spFrontendLog("submission_artifact_analyzed", "info", {
+                            flow: h,
+                            artifact_id: String((qe == null ? void 0 : qe.id) || ""),
+                            is_prescription: !!(Le && Le.is_prescription === !0),
+                            medications_count: Array.isArray(Le == null ? void 0 : Le.medications) ? Le.medications.length : 0
+                        });
+                        if (Oe) {
+                            Te.push(ue), Ke.push(typeof (Le == null ? void 0 : Le.message) == "string" && Le.message.trim() ? Le.message.trim() : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.");
+                            continue;
+                        }
+                        ie.push(qe), Je && qeItems.length > 0 && ye.push(...qeItems), Je || Te.push(ue);
+                    } catch (Fe) {
+                        Te.push(ue), Ke.push(Fe != null && Fe.message ? String(Fe.message) : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net."), spFrontendLog("submission_artifact_error", "warning", {
+                            flow: h,
+                            message: Fe != null && Fe.message ? String(Fe.message) : "artifact_error"
+                        });
+                    }
+                    ie.length > 0 && oe(ye.length > 0 ? "✅ Document reconnu. Les médicaments ont été ajoutés automatiquement." : "✅ Document reconnu."), Te.length > 0 && he(Te.map((Fe => Fe.file || Fe))), Ke.length > 0 && X(Ke[0]), ye.length > 0 && (se = spAiMergeMedicationItems(se, ye), f(se));
+                } finally {
+                    Se(!1), le(!1);
+                }
+                if (ie.length < 1) {
+                    spFrontendLog("submit_blocked", "warning", {
+                        flow: h,
+                        stage: g,
+                        reason_code: "proof_upload_missing",
+                        message: Ke[0] || "Aucun document exploitable n'a été accepté.",
+                        files_count: Array.isArray(E) ? E.length : 0
+                    }), Me(!1);
+                    return;
+                }
+            }
+            const ne = {
+                patient: {
+                    fullname: w,
+                    firstName: z.firstName,
+                    lastName: z.lastName,
+                    birthdate: q.trim(),
+                    birthDate: q.trim()
+                },
+                items: se.map((ue => {
+                    const Fe = {
+                        label: (ue.label || "").trim(),
+                        schedule: ue.schedule && typeof ue.schedule == "object" ? ue.schedule : {}
+                    };
+                    return ue.cis && (Fe.cis = String(ue.cis)), ue.cip13 && (Fe.cip13 = String(ue.cip13)), ue.quantite && (Fe.quantite = String(ue.quantite)), Fe;
+                })),
+                privateNotes: O.trim() || void 0,
+                consent: K ? {
+                    telemedicine: d,
+                    truth: R,
+                    cgu: L,
+                    privacy: te,
+                    timestamp: (new Date).toISOString(),
+                    cgu_version: U != null && U.cgu_version ? String(U.cgu_version) : "",
+                    privacy_version: U != null && U.privacy_version ? String(U.privacy_version) : ""
+                } : void 0,
+                attestation_no_proof: h === "depannage_no_proof" ? W : void 0
+            };
+            if (!Array.isArray(ne.items) || ne.items.length < 1) {
+                const ue = h === "ro_proof" ? "Aucun médicament n'a pu être identifié. Merci d'importer un document plus net ou d'utiliser la saisie manuelle." : "Merci d'ajouter au moins un médicament.";
+                spFrontendLog("submit_blocked", "warning", {
+                    flow: h,
+                    stage: g,
+                    reason_code: "medication_missing_after_analysis",
+                    message: ue,
+                    items_count: Array.isArray(ne.items) ? ne.items.length : 0
+                });
+                throw new Error(ue);
+            }
+            spFrontendLog("submission_finalize_start", "info", {
+                flow: h,
+                items_count: ne.items.length,
+                files_count: Array.isArray(E) ? E.length : 0
+            });
+            const ae = await spFinalizeSubmissionApi(ee, ne), oeResult = {
+                id: (ae == null ? void 0 : ae.prescription_id) || ae.id,
+                uid: ae.uid,
+                status: ae.status,
+                created_at: ae.created_at
+            };
+            spFrontendLog("submission_finalize_ok", "info", {
+                flow: h,
+                prescription_id: oeResult.id || null,
+                uid: oeResult.uid || null,
+                status: oeResult.status || null
+            }), ce(oeResult), a("done");
+        } catch (w) {
+            const z = w != null && w.message ? String(w.message) : "Erreur soumission";
+            spFrontendLog("submission_error", "error", {
+                flow: h || null,
+                stage: g,
+                message: z,
+                meds_count: Array.isArray(j) ? j.length : 0,
+                files_count: Array.isArray(E) ? E.length : 0
+            }), X(z);
+        } finally {
+            Me(!1);
         }
     }, ye = (($e = t == null ? void 0 : t.urls) == null ? void 0 : $e.patientPortal) || null, Te = J && ye ? `${ye}${ye.includes("?") ? "&" : "?"}rx=${encodeURIComponent(String(J.id))}` : null, Ke = async () => {
         if (J != null && J.uid) try {
@@ -1776,7 +1995,7 @@ function vt() {
                 }), e.jsx(D, {
                     type: "button",
                     onClick: Qe,
-                    disabled: !Ee || ge,
+                    disabled: ge,
                     children: ge ? e.jsxs(e.Fragment, {
                         children: [ e.jsx(V, {}), " Soumission…" ]
                     }) : "Soumettre au médecin"
