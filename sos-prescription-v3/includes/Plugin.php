@@ -23,6 +23,7 @@ use SosPrescription\Rest\WorkerCallbackController;
 use SosPrescription\Rest\WorkerClaimController;
 use SosPrescription\Rest\WorkerRenderController;
 use SosPrescription\Rest\SubmissionV4Controller;
+use SosPrescription\Rest\ArtifactV4Controller;
 use SosPrescription\Rest\PatientV4Controller;
 use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
@@ -71,13 +72,14 @@ final class Plugin
         add_action('init', [self::class, 'register_shortcodes']);
         add_action('rest_api_init', [Routes::class, 'register']);
         add_action('rest_api_init', [SubmissionV4Controller::class, 'register']);
+        add_action('rest_api_init', [ArtifactV4Controller::class, 'register']);
+        add_action('rest_api_init', [PatientV4Controller::class, 'register']);
         ErrorResponder::register_hooks();
 
         // Routes worker v3 (signed claim + render + callback) + BFF v4.
         WorkerClaimController::register();
         WorkerRenderController::register();
         WorkerCallbackController::register();
-        PatientV4Controller::register();
 
         add_action('admin_enqueue_scripts', function (): void {
             if (!is_admin()) {
