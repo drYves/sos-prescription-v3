@@ -25,6 +25,7 @@ class ArtifactRepo {
         const created = await this.prisma.artifact.create({
             data: {
                 prescriptionId: normalizeNullableString(input.prescriptionId),
+                submissionId: normalizeNullableString(input.submissionId),
                 messageId: null,
                 kind: input.kind,
                 status: client_1.ArtifactStatus.STAGED,
@@ -49,6 +50,7 @@ class ArtifactRepo {
             artifact_id: created.id,
             kind: created.kind,
             prescription_id: created.prescriptionId,
+            submission_id: created.submissionId,
             owner_role: created.ownerRole,
             size_bytes: created.sizeBytes,
         }, undefined);
@@ -116,6 +118,7 @@ class ArtifactRepo {
                     id: true,
                     kind: true,
                     prescriptionId: true,
+                    submissionId: true,
                     messageId: true,
                     status: true,
                     linkedAt: true,
@@ -152,6 +155,7 @@ class ArtifactRepo {
                 artifact_id: updated.id,
                 kind: updated.kind,
                 prescription_id: updated.prescriptionId,
+                submission_id: updated.submissionId,
                 s3_key: updated.s3Key,
                 size_bytes: updated.sizeBytes,
             }, undefined);
@@ -207,6 +211,7 @@ function artifactSelect() {
     return {
         id: true,
         prescriptionId: true,
+        submissionId: true,
         messageId: true,
         kind: true,
         status: true,
@@ -231,6 +236,7 @@ function artifactAccessSelect() {
     return {
         id: true,
         prescriptionId: true,
+        submissionId: true,
         messageId: true,
         kind: true,
         status: true,
@@ -269,6 +275,7 @@ function mapAccessRecord(record) {
     return {
         id: record.id,
         prescriptionId: record.prescriptionId,
+        submissionId: record.submissionId,
         messageId: record.messageId,
         kind: record.kind,
         status: record.status,
