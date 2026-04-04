@@ -82,86 +82,11 @@ class PrescriptionController extends \WP_REST_Controller
 
     public function create(WP_REST_Request $request)
     {
-        $params = $this->request_data($request);
-
-        $patientIdentity = $this->extract_patient_identity_from_params($params);
-        $fullname = $patientIdentity['full_name'];
-        $birthdate = $patientIdentity['birth_date'];
-
-        if (self::str_len($fullname) < 2) {
-            return new WP_Error('sosprescription_patient_name_required', 'Nom du patient manquant.', ['status' => 400]);
-        }
-
-        if ($birthdate === '') {
-            return new WP_Error('sosprescription_patient_birthdate_required', 'Date de naissance manquante.', ['status' => 400]);
-        }
-
-        $items = isset($params['items']) && is_array($params['items']) ? array_values($params['items']) : [];
-        if ($items === []) {
-            return new WP_Error('sosprescription_items_required', 'Au moins un médicament est requis.', ['status' => 400]);
-        }
-
-        if (Turnstile::is_enabled()) {
-            $token = trim((string) ($params['turnstileToken'] ?? ($params['turnstile_token'] ?? '')));
-            $remote_ip = isset($_SERVER['REMOTE_ADDR']) ? (string) wp_unslash($_SERVER['REMOTE_ADDR']) : null;
-            $turnstile = Turnstile::verify_token($token, $remote_ip ?: null);
-            if (is_wp_error($turnstile)) {
-                return $turnstile;
-            }
-        }
-
-        $req_id = $this->build_req_id();
-
-        try {
-            $workerPayload = $this->build_worker_ingress_payload_from_create_params($params, $req_id);
-            if (is_wp_error($workerPayload)) {
-                return $workerPayload;
-            }
-
-            $dispatcher = $this->get_job_dispatcher();
-            $workerResult = $dispatcher->submitPrescription($workerPayload, $req_id);
-
-            $shadow = $this->create_shadow_prescription_from_worker_result($workerResult, $params);
-            if (is_wp_error($shadow)) {
-                return $this->raw_unprocessable_response($this->format_shadow_phase_error($shadow), $req_id);
-            }
-
-            if (isset($shadow['id'])) {
-                Audit::log('prescription_create_proxy', 'prescription', (int) $shadow['id'], (int) $shadow['id'], [
-                    'uid' => (string) ($shadow['uid'] ?? ''),
-                    'worker_prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
-                    'worker_job_id' => (string) ($workerResult['job_id'] ?? ''),
-                    'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
-                ]);
-            }
-
-            $response = [
-                'id' => (int) ($shadow['id'] ?? 0),
-                'uid' => (string) ($shadow['uid'] ?? ''),
-                'status' => (string) ($shadow['status'] ?? 'pending'),
-                'mode' => 'worker-postgres',
-                'req_id' => $req_id,
-                'worker' => [
-                    'prescription_id' => (string) ($workerResult['prescription_id'] ?? ''),
-                    'job_id' => (string) ($workerResult['job_id'] ?? ''),
-                    'status' => (string) ($workerResult['status'] ?? 'PENDING'),
-                    'processing_status' => (string) ($workerResult['processing_status'] ?? 'PENDING'),
-                    'verify_token' => isset($workerResult['verify_token']) && is_scalar($workerResult['verify_token']) ? (string) $workerResult['verify_token'] : '',
-                    'verify_code' => isset($workerResult['verify_code']) && is_scalar($workerResult['verify_code']) ? (string) $workerResult['verify_code'] : '',
-                ],
-                'pdf' => $this->build_shadow_pdf_state((int) ($shadow['id'] ?? 0), is_array($shadow) ? $shadow : []),
-                'shadow' => [
-                    'zero_pii' => true,
-                ],
-            ];
-
-            return rest_ensure_response($response);
-        } catch (\Throwable $e) {
-            return $this->raw_exact_unprocessable_response(
-                'Échec de transmission HDS : ' . (string) $e->getMessage(),
-                $req_id
-            );
-        }
+        return new \WP_Error(
+            'sosprescription_v1_deprecated',
+            'Cette version du formulaire est obsolète. Veuillez rafraîchir la page pour utiliser le nouveau système sécurisé.',
+            ['status' => 410]
+        );
     }
 
 
