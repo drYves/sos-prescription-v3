@@ -70,13 +70,13 @@ final class Plugin
 
         add_action('init', [self::class, 'register_shortcodes']);
         add_action('rest_api_init', [Routes::class, 'register']);
+        add_action('rest_api_init', [SubmissionV4Controller::class, 'register']);
         ErrorResponder::register_hooks();
 
-        // Routes worker v3 (signed claim + render + callback).
+        // Routes worker v3 (signed claim + render + callback) + BFF v4.
         WorkerClaimController::register();
         WorkerRenderController::register();
         WorkerCallbackController::register();
-        SubmissionV4Controller::register();
         PatientV4Controller::register();
 
         add_action('admin_enqueue_scripts', function (): void {
