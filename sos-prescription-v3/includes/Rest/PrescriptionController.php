@@ -16,6 +16,7 @@ use SOSPrescription\Core\Mls1Verifier;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
+use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Rest\ErrorResponder;
 use WP_Error;
 use WP_REST_Request;
@@ -36,6 +37,9 @@ class PrescriptionController extends \WP_REST_Controller
 
     /** @var PrescriptionRepository */
     protected $prescriptions;
+
+    /** @var WorkerApiClient|null */
+    protected $worker_api_client = null;
 
     /** @var string */
     protected $namespace = 'sosprescription/v1';
@@ -95,19 +99,65 @@ class PrescriptionController extends \WP_REST_Controller
         $status = trim((string) $request->get_param('status'));
         $limit = max(1, min(200, (int) ($request->get_param('limit') ?? 100)));
         $offset = max(0, (int) ($request->get_param('offset') ?? 0));
-        $current_user_id = (int) get_current_user_id();
+        $req_id = $this->build_req_id();
 
-        if ($current_user_id < 1) {
-            return new WP_Error('sosprescription_auth_required', 'Connexion requise.', ['status' => 401]);
+        $actorContext = $this->build_read_actor_context();
+        if (is_wp_error($actorContext)) {
+            return $actorContext;
         }
 
-        if (AccessPolicy::is_admin()) {
-            $rows = $this->prescriptions->list(null, $status !== '' ? $status : null, $limit, $offset);
-        } elseif (AccessPolicy::is_doctor()) {
-            $rows = $this->prescriptions->list_for_doctor($current_user_id, $status !== '' ? $status : null, $limit, $offset);
-        } else {
-            $rows = $this->prescriptions->list($current_user_id, $status !== '' ? $status : null, $limit, $offset);
+        $filters = [
+            'limit' => $limit,
+            'offset' => $offset,
+        ];
+        if ($status !== '') {
+            $filters['status'] = $status;
         }
+
+        $path = $actorContext['kind'] === 'doctor'
+            ? '/api/v2/doctor/inbox'
+            : '/api/v2/patient/prescriptions/query';
+        $scope = $actorContext['kind'] === 'doctor'
+            ? 'prescriptions_v1_list_doctor_proxy'
+            : 'prescriptions_v1_list_patient_proxy';
+
+        try {
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                $path,
+                [
+                    'actor' => $actorContext['actor'],
+                    'filters' => $filters,
+                ],
+                $req_id,
+                $scope
+            );
+        } catch (\Throwable $e) {
+            return ErrorResponder::worker_bridge_error(
+                $e,
+                'sosprescription_worker_read_failed',
+                'Le service sécurisé de lecture est temporairement indisponible.',
+                502,
+                $req_id,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'list',
+                    'actor_role' => $actorContext['actor']['role'],
+                    'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                ],
+                'prescriptions_v1.list.proxy_failed'
+            );
+        }
+
+        $rows = [];
+        if (isset($workerPayload['rows']) && is_array($workerPayload['rows'])) {
+            foreach ($workerPayload['rows'] as $row) {
+                if (is_array($row)) {
+                    $rows[] = $row;
+                }
+            }
+        }
+
+        $rows = $this->swap_worker_row_ids_with_local_ids($rows);
 
         return rest_ensure_response($rows);
     }
@@ -119,14 +169,83 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
         }
 
-        $row = $this->prescriptions->get($id);
+        $req_id = $this->build_req_id();
+        $actorContext = $this->build_read_actor_context();
+        if (is_wp_error($actorContext)) {
+            return $actorContext;
+        }
+
+        $localRow = $this->find_local_prescription_stub_by_id($id);
+        if (!is_array($localRow)) {
+            return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        try {
+            $workerPrescriptionId = $this->resolve_worker_prescription_id_for_local_stub($localRow, $actorContext, $req_id);
+        } catch (\Throwable $e) {
+            return ErrorResponder::worker_bridge_error(
+                $e,
+                'sosprescription_worker_read_failed',
+                'Le service sécurisé de lecture est temporairement indisponible.',
+                502,
+                $req_id,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'get_one_resolve_worker_id',
+                    'local_id' => $id,
+                    'actor_role' => $actorContext['actor']['role'],
+                    'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                ],
+                'prescriptions_v1.get_one.resolve_failed'
+            );
+        }
+
+        if ($workerPrescriptionId === '') {
+            return new WP_Error(
+                'sosprescription_worker_reference_missing',
+                'Référence Worker introuvable.',
+                ['status' => 404]
+            );
+        }
+
+        try {
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                '/api/v2/prescriptions/get',
+                [
+                    'actor' => $actorContext['actor'],
+                    'prescription_id' => $workerPrescriptionId,
+                ],
+                $req_id,
+                'prescriptions_v1_get_one_proxy'
+            );
+        } catch (\Throwable $e) {
+            return ErrorResponder::worker_bridge_error(
+                $e,
+                'sosprescription_worker_read_failed',
+                'Le service sécurisé de lecture est temporairement indisponible.',
+                502,
+                $req_id,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'get_one',
+                    'local_id' => $id,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'actor_role' => $actorContext['actor']['role'],
+                    'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                ],
+                'prescriptions_v1.get_one.proxy_failed'
+            );
+        }
+
+        $row = isset($workerPayload['prescription']) && is_array($workerPayload['prescription'])
+            ? $workerPayload['prescription']
+            : null;
+
         if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
         }
 
-        if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
-            return new WP_Error('sosprescription_forbidden', 'Accès refusé.', ['status' => 403]);
-        }
+        $row['id'] = $id;
 
         return rest_ensure_response($row);
     }
@@ -1866,6 +1985,252 @@ class PrescriptionController extends \WP_REST_Controller
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * @return array{kind:string,actor:array{role:string,wp_user_id:int}}|WP_Error
+     */
+    protected function build_read_actor_context(): array|WP_Error
+    {
+        $current_user_id = (int) get_current_user_id();
+        if ($current_user_id < 1) {
+            return new WP_Error('sosprescription_auth_required', 'Connexion requise.', ['status' => 401]);
+        }
+
+        if (AccessPolicy::is_admin() || AccessPolicy::is_doctor()) {
+            return [
+                'kind' => 'doctor',
+                'actor' => [
+                    'role' => 'DOCTOR',
+                    'wp_user_id' => $current_user_id,
+                ],
+            ];
+        }
+
+        return [
+            'kind' => 'patient',
+            'actor' => [
+                'role' => 'PATIENT',
+                'wp_user_id' => $current_user_id,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    protected function swap_worker_row_ids_with_local_ids(array $rows): array
+    {
+        $uids = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || !isset($row['uid']) || !is_scalar($row['uid'])) {
+                continue;
+            }
+            $uid = trim((string) $row['uid']);
+            if ($uid !== '') {
+                $uids[] = $uid;
+            }
+        }
+
+        $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
+        if ($localIdsByUid === []) {
+            return $rows;
+        }
+
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+            if ($uid === '' || !isset($localIdsByUid[$uid])) {
+                continue;
+            }
+            $rows[$index]['id'] = (int) $localIdsByUid[$uid];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<int, string> $uids
+     * @return array<string, int>
+     */
+    protected function find_local_prescription_ids_by_uid(array $uids): array
+    {
+        if ($uids === [] || !$this->prescription_table_has_column('uid')) {
+            return [];
+        }
+
+        $uids = array_values(array_unique(array_filter(array_map(static function ($value): string {
+            return is_string($value) ? trim($value) : '';
+        }, $uids), static fn (string $uid): bool => $uid !== '')));
+        if ($uids === []) {
+            return [];
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $placeholders = implode(',', array_fill(0, count($uids), '%s'));
+        $sql = $this->wpdb->prepare(
+            "SELECT id, uid FROM `{$table}` WHERE uid IN ({$placeholders})",
+            $uids
+        );
+
+        $rows = $this->wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+            $id = isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0;
+            if ($uid === '' || $id < 1) {
+                continue;
+            }
+            $out[$uid] = $id;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function find_local_prescription_stub_by_id(int $id): ?array
+    {
+        $id = (int) $id;
+        if ($id < 1) {
+            return null;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $select = ['id'];
+        if ($this->prescription_table_has_column('uid')) {
+            $select[] = 'uid';
+        }
+        if ($this->prescription_table_has_column('payload_json')) {
+            $select[] = 'payload_json';
+        }
+
+        $sql = $this->wpdb->prepare(
+            sprintf('SELECT %s FROM `%s` WHERE id = %%d LIMIT 1', implode(', ', $select), $table),
+            $id
+        );
+        $row = $this->wpdb->get_row($sql, ARRAY_A);
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * @param array<string, mixed> $localRow
+     * @param array{kind:string,actor:array{role:string,wp_user_id:int}} $actorContext
+     */
+    protected function resolve_worker_prescription_id_for_local_stub(array $localRow, array $actorContext, string $req_id): string
+    {
+        $worker = $this->extract_worker_shadow_state($localRow);
+        $workerPrescriptionId = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+            ? trim((string) $worker['prescription_id'])
+            : '';
+
+        if ($this->is_valid_worker_prescription_id($workerPrescriptionId)) {
+            return $workerPrescriptionId;
+        }
+
+        $uid = isset($localRow['uid']) && is_scalar($localRow['uid']) ? trim((string) $localRow['uid']) : '';
+        if ($uid === '') {
+            return '';
+        }
+
+        return $this->find_worker_prescription_id_by_uid($uid, $actorContext, $req_id);
+    }
+
+    /**
+     * @param array{kind:string,actor:array{role:string,wp_user_id:int}} $actorContext
+     */
+    protected function find_worker_prescription_id_by_uid(string $uid, array $actorContext, string $req_id): string
+    {
+        $uid = trim($uid);
+        if ($uid === '') {
+            return '';
+        }
+
+        $path = $actorContext['kind'] === 'doctor'
+            ? '/api/v2/doctor/inbox'
+            : '/api/v2/patient/prescriptions/query';
+        $scope = $actorContext['kind'] === 'doctor'
+            ? 'prescriptions_v1_worker_id_doctor_lookup'
+            : 'prescriptions_v1_worker_id_patient_lookup';
+
+        $limit = 200;
+        $offset = 0;
+        for ($page = 0; $page < 10; $page++) {
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                $path,
+                [
+                    'actor' => $actorContext['actor'],
+                    'filters' => [
+                        'limit' => $limit,
+                        'offset' => $offset,
+                    ],
+                ],
+                $req_id,
+                $scope
+            );
+
+            $rows = isset($workerPayload['rows']) && is_array($workerPayload['rows']) ? $workerPayload['rows'] : [];
+            if ($rows === []) {
+                return '';
+            }
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $rowUid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+                if ($rowUid !== $uid) {
+                    continue;
+                }
+
+                $candidate = isset($row['id']) && is_scalar($row['id']) ? trim((string) $row['id']) : '';
+                if ($this->is_valid_worker_prescription_id($candidate)) {
+                    return $candidate;
+                }
+
+                $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+                $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+                $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+                    ? trim((string) $worker['prescription_id'])
+                    : '';
+                if ($this->is_valid_worker_prescription_id($candidate)) {
+                    return $candidate;
+                }
+            }
+
+            if (count($rows) < $limit) {
+                return '';
+            }
+
+            $offset += $limit;
+        }
+
+        return '';
+    }
+
+    protected function get_worker_api_client(): WorkerApiClient
+    {
+        if ($this->worker_api_client instanceof WorkerApiClient) {
+            return $this->worker_api_client;
+        }
+
+        $siteId = $this->get_worker_site_id();
+        $logger = new NdjsonLogger('web', $siteId, $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
+        $this->worker_api_client = WorkerApiClient::fromEnv($logger, $siteId);
+
+        return $this->worker_api_client;
     }
 
     protected function get_worker_site_id(): string
