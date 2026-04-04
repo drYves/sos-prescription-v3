@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
-import { ActorRole, ArtifactKind, Prisma } from "@prisma/client";
+import { ActorRole, ArtifactKind, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
 import { MemoryGuard } from "../admission/memoryGuard";
 import { OpenRouterService } from "../ai/openRouterService";
 import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
@@ -27,6 +27,8 @@ const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
 
 const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
+
+let pulsePrismaSingleton: PrismaClient | null = null;
 
 type ErrorResponseBody = {
   ok: false;
@@ -151,6 +153,17 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/submissions") {
         return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
+      }
+
+      const submissionArtifactInitMatch = method === "POST" ? path.match(/^\/api\/v2\/submissions\/([^/]+)\/artifacts\/init$/) : null;
+      if (submissionArtifactInitMatch) {
+        return await handleSubmissionArtifactUploadInit(
+          req,
+          res,
+          deps,
+          signingSecret,
+          decodeURIComponent(submissionArtifactInitMatch[1]),
+        );
       }
 
       const submissionFinalizeMatch = method === "POST" ? path.match(/^\/api\/v2\/submissions\/([^/]+)\/finalize$/) : null;
@@ -487,6 +500,108 @@ async function handleSubmissionCreate(
       { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId },
       signingSecret,
     );
+  }
+}
+
+async function handleSubmissionArtifactUploadInit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  submissionRef: string,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, `/api/v2/submissions/${submissionRef}/artifacts/init`);
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const payload = parsedBody.body as ArtifactInitRequestBody;
+    const actor = normalizeSubmissionActorInput(payload.actor);
+    const artifactInput = normalizeArtifactInitInput(payload.artifact, deps.artifactUploadMaxBytes);
+    const submission = await resolveSubmissionForArtifactInit(submissionRef, actor);
+
+    const created = await deps.artifactRepo.initUpload({
+      kind: artifactInput.kind,
+      ownerRole: actor.role,
+      ownerWpUserId: actor.wpUserId,
+      prescriptionId: null,
+      submissionId: submission.id,
+      originalName: artifactInput.originalName,
+      mimeType: artifactInput.mimeType,
+      sizeBytes: artifactInput.sizeBytes,
+      meta: artifactInput.meta as Prisma.InputJsonValue | undefined,
+    });
+
+    const publicBaseUrl = resolvePublicBaseUrl(req, deps.workerPublicBaseUrl);
+    const ticket = created.draftKey;
+    if (!ticket) {
+      throw new Error("Artifact ticket generation failed");
+    }
+
+    const uploadUrl = `${publicBaseUrl}/api/v1/artifacts/upload/direct?ticket=${encodeURIComponent(ticket)}`;
+
+    deps.logger.info(
+      "artifact.upload_init.accepted",
+      {
+        artifact_id: created.id,
+        kind: created.kind,
+        owner_role: created.ownerRole,
+        prescription_id: created.prescriptionId,
+        submission_id: submission.id,
+        submission_ref: submission.publicRef,
+        size_bytes: created.sizeBytes,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      201,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        artifact: serializeArtifact(created),
+        upload: {
+          mode: "worker_direct",
+          method: "PUT",
+          url: uploadUrl,
+          expires_in: Math.floor(deps.artifactUploadTicketTtlMs / 1000),
+          headers: {
+            "Content-Type": created.mimeType,
+          },
+          max_size_bytes: deps.artifactUploadMaxBytes,
+        },
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof SubmissionRepoError) {
+      deps.logger.warning(
+        "submission.artifact_upload_init.rejected",
+        { code: err.code, reason: err.message, submission_ref: submissionRef },
+        reqId,
+        err,
+      );
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
+    const statusCode = isClientArtifactError(message) ? 400 : 500;
+    const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
+    deps.logger.error(
+      "submission.artifact_upload_init.failed",
+      { reason: message, submission_ref: submissionRef },
+      reqId,
+      err,
+    );
+    return sendJson(res, statusCode, { ok: false, code, req_id: reqId }, signingSecret);
   }
 }
 
@@ -2314,6 +2429,87 @@ function hasSubmissionSignedEnvelope(body: SubmissionCreateRequestBody): boolean
   return hasSignedEnvelopeFields(body as unknown as Record<string, unknown>);
 }
 
+type SubmissionArtifactInitRow = {
+  id: string;
+  publicRef: string;
+  ownerRole: ActorRole;
+  ownerWpUserId: number | null;
+  status: SubmissionStatus;
+  expiresAt: Date;
+};
+
+function getPulsePrismaClient(): PrismaClient {
+  if (!pulsePrismaSingleton) {
+    pulsePrismaSingleton = new PrismaClient();
+  }
+
+  return pulsePrismaSingleton;
+}
+
+async function resolveSubmissionForArtifactInit(
+  submissionRef: string,
+  actor: { role: ActorRole; wpUserId: number | null },
+): Promise<SubmissionArtifactInitRow> {
+  const normalizedSubmissionRef = normalizeSubmissionRefParam(submissionRef);
+  const prisma = getPulsePrismaClient();
+  const row = await prisma.submission.findUnique({
+    where: { publicRef: normalizedSubmissionRef },
+    select: {
+      id: true,
+      publicRef: true,
+      ownerRole: true,
+      ownerWpUserId: true,
+      status: true,
+      expiresAt: true,
+    },
+  });
+
+  if (!row) {
+    throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "Submission not found");
+  }
+
+  if (actor.role !== ActorRole.SYSTEM) {
+    if (actor.wpUserId == null || row.ownerRole !== actor.role || row.ownerWpUserId !== actor.wpUserId) {
+      throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "Submission not found");
+    }
+  }
+
+  if (row.status === SubmissionStatus.EXPIRED || row.expiresAt.getTime() <= Date.now()) {
+    if (row.status === SubmissionStatus.OPEN) {
+      await prisma.submission.updateMany({
+        where: {
+          id: row.id,
+          status: SubmissionStatus.OPEN,
+        },
+        data: {
+          status: SubmissionStatus.EXPIRED,
+        },
+      });
+    }
+
+    throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "Submission has expired");
+  }
+
+  if (row.status !== SubmissionStatus.OPEN) {
+    throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "Submission cannot accept new artifacts");
+  }
+
+  return row;
+}
+
+function normalizeSubmissionRefParam(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "submission_ref is invalid");
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 128 || !/^[A-Za-z0-9_-]{8,128}$/.test(normalized)) {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "submission_ref is invalid");
+  }
+
+  return normalized;
+}
+
 function normalizeSubmissionActorInput(value: unknown): { role: ActorRole; wpUserId: number | null } {
   const actor = normalizeActorInput(value);
   if (actor.role !== "SYSTEM" && actor.wpUserId == null) {
@@ -2864,6 +3060,7 @@ function serializeArtifact(artifact: ArtifactRecord): Record<string, unknown> {
   return {
     id: artifact.id,
     prescription_id: artifact.prescriptionId,
+    submission_id: artifact.submissionId,
     message_id: artifact.messageId,
     kind: artifact.kind,
     status: artifact.status,

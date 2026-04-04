@@ -14,6 +14,7 @@ export interface CreateStagedArtifactInput {
   ownerRole: ActorRole;
   ownerWpUserId?: number | null;
   prescriptionId?: string | null;
+  submissionId?: string | null;
   originalName: string;
   mimeType: string;
   sizeBytes: number;
@@ -23,6 +24,7 @@ export interface CreateStagedArtifactInput {
 export interface ArtifactRecord {
   id: string;
   prescriptionId: string | null;
+  submissionId: string | null;
   messageId: string | null;
   kind: ArtifactKind;
   status: ArtifactStatus;
@@ -94,6 +96,7 @@ export class ArtifactRepo {
     const created = await this.prisma.artifact.create({
       data: {
         prescriptionId: normalizeNullableString(input.prescriptionId),
+        submissionId: normalizeNullableString(input.submissionId),
         messageId: null,
         kind: input.kind,
         status: ArtifactStatus.STAGED,
@@ -121,6 +124,7 @@ export class ArtifactRepo {
         artifact_id: created.id,
         kind: created.kind,
         prescription_id: created.prescriptionId,
+        submission_id: created.submissionId,
         owner_role: created.ownerRole,
         size_bytes: created.sizeBytes,
       },
@@ -203,6 +207,7 @@ export class ArtifactRepo {
           id: true,
           kind: true,
           prescriptionId: true,
+          submissionId: true,
           messageId: true,
           status: true,
           linkedAt: true,
@@ -246,6 +251,7 @@ export class ArtifactRepo {
           artifact_id: updated.id,
           kind: updated.kind,
           prescription_id: updated.prescriptionId,
+          submission_id: updated.submissionId,
           s3_key: updated.s3Key,
           size_bytes: updated.sizeBytes,
         },
@@ -319,6 +325,7 @@ function artifactSelect() {
   return {
     id: true,
     prescriptionId: true,
+    submissionId: true,
     messageId: true,
     kind: true,
     status: true,
@@ -344,6 +351,7 @@ function artifactAccessSelect() {
   return {
     id: true,
     prescriptionId: true,
+    submissionId: true,
     messageId: true,
     kind: true,
     status: true,
@@ -383,6 +391,7 @@ function mapAccessRecord(record: Prisma.ArtifactGetPayload<{ select: ReturnType<
   return {
     id: record.id,
     prescriptionId: record.prescriptionId,
+    submissionId: record.submissionId,
     messageId: record.messageId,
     kind: record.kind,
     status: record.status,
