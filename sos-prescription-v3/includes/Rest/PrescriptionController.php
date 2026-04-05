@@ -2034,22 +2034,160 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
-        if ($localIdsByUid === []) {
-            return $rows;
-        }
 
         foreach ($rows as $index => $row) {
             if (!is_array($row)) {
                 continue;
             }
+
             $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-            if ($uid === '' || !isset($localIdsByUid[$uid])) {
+            if ($uid === '') {
                 continue;
             }
+
+            if (!isset($localIdsByUid[$uid])) {
+                $localId = $this->ensure_local_prescription_stub_for_worker_row($row);
+                if ($localId > 0) {
+                    $localIdsByUid[$uid] = $localId;
+                }
+            }
+
+            if (!isset($localIdsByUid[$uid])) {
+                continue;
+            }
+
             $rows[$index]['id'] = (int) $localIdsByUid[$uid];
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    protected function ensure_local_prescription_stub_for_worker_row(array $row): int
+    {
+        $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+        if ($uid === '') {
+            return 0;
+        }
+
+        $existingId = $this->find_local_prescription_id_by_uid($uid);
+        if ($existingId > 0) {
+            return $existingId;
+        }
+
+        $workerPrescriptionId = $this->extract_worker_prescription_id_from_worker_row($row);
+        $status = $this->normalize_local_stub_status($row['status'] ?? null);
+
+        return $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId);
+    }
+
+    protected function find_local_prescription_id_by_uid(string $uid): int
+    {
+        $uid = trim($uid);
+        if ($uid === '') {
+            return 0;
+        }
+
+        $mapped = $this->find_local_prescription_ids_by_uid([$uid]);
+        return isset($mapped[$uid]) ? (int) $mapped[$uid] : 0;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    protected function extract_worker_prescription_id_from_worker_row(array $row): string
+    {
+        $candidate = isset($row['worker_prescription_id']) && is_scalar($row['worker_prescription_id'])
+            ? trim((string) $row['worker_prescription_id'])
+            : '';
+        if ($this->is_valid_worker_prescription_id($candidate)) {
+            return $candidate;
+        }
+
+        $candidate = isset($row['id']) && is_scalar($row['id']) ? trim((string) $row['id']) : '';
+        if ($this->is_valid_worker_prescription_id($candidate)) {
+            return $candidate;
+        }
+
+        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+            ? trim((string) $worker['prescription_id'])
+            : '';
+
+        return $this->is_valid_worker_prescription_id($candidate) ? $candidate : '';
+    }
+
+    protected function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId): int
+    {
+        $uid = trim($uid);
+        if ($uid === '' || !$this->prescription_table_has_column('uid')) {
+            return 0;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $now = current_time('mysql');
+        $data = [
+            'uid' => $uid,
+        ];
+        $formats = ['%s'];
+
+        if ($this->prescription_table_has_column('status')) {
+            $data['status'] = $status;
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('payload_json')) {
+            $data['payload_json'] = $this->build_local_stub_payload_json($workerPrescriptionId);
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('created_at')) {
+            $data['created_at'] = $now;
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('updated_at')) {
+            $data['updated_at'] = $now;
+            $formats[] = '%s';
+        }
+
+        $inserted = $this->wpdb->insert($table, $data, $formats);
+        if ($inserted !== false) {
+            return (int) $this->wpdb->insert_id;
+        }
+
+        $existingId = $this->find_local_prescription_id_by_uid($uid);
+        if ($existingId > 0) {
+            return $existingId;
+        }
+
+        return 0;
+    }
+
+    protected function build_local_stub_payload_json(string $workerPrescriptionId): string
+    {
+        $payload = [
+            'shadow' => [
+                'mode' => 'worker-postgres',
+                'zero_pii' => true,
+            ],
+            'worker' => [
+                'prescription_id' => trim($workerPrescriptionId),
+            ],
+        ];
+
+        $json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return is_string($json) && $json !== '' ? $json : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+    }
+
+    protected function normalize_local_stub_status($value): string
+    {
+        if (!is_scalar($value)) {
+            return 'pending';
+        }
+
+        $status = strtolower(trim((string) $value));
+        return $status !== '' ? $status : 'pending';
     }
 
     /**

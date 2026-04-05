@@ -17,7 +17,24 @@ final class SubmissionV4Controller extends \WP_REST_Controller
 {
     private const NAMESPACE_V4 = 'sosprescription/v4';
 
+    /** @var \wpdb */
+    private $wpdb;
+
+    /** @var array<string, true>|null */
+    private ?array $prescriptionTableColumnsCache = null;
+
     private ?WorkerApiClient $workerApiClient = null;
+
+    public function __construct($wpdb = null)
+    {
+        if ($wpdb instanceof \wpdb) {
+            $this->wpdb = $wpdb;
+            return;
+        }
+
+        global $wpdb;
+        $this->wpdb = $wpdb;
+    }
 
     public static function register(): void
     {
@@ -146,6 +163,11 @@ final class SubmissionV4Controller extends \WP_REST_Controller
                 'submission_v4_finalize'
             );
 
+            $localStubId = $this->ensure_local_prescription_stub_from_worker_payload($workerPayload);
+            if ($localStubId < 1) {
+                error_log('[SOSPrescription] finalize_submission: local stub missing after finalize | req_id=' . $reqId . ' | submission_ref=' . $submissionRef);
+            }
+
             return $this->to_rest_response($workerPayload, 200, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
@@ -243,5 +265,154 @@ final class SubmissionV4Controller extends \WP_REST_Controller
         $response->header('Expires', '0');
 
         return $response;
+    }
+
+    /**
+     * @param array<string, mixed> $workerPayload
+     */
+    private function ensure_local_prescription_stub_from_worker_payload(array $workerPayload): int
+    {
+        $uid = isset($workerPayload['uid']) && is_scalar($workerPayload['uid'])
+            ? trim((string) $workerPayload['uid'])
+            : '';
+        if ($uid === '') {
+            return 0;
+        }
+
+        $existingId = $this->find_local_stub_id_by_uid($uid);
+        if ($existingId > 0) {
+            return $existingId;
+        }
+
+        $workerPrescriptionId = isset($workerPayload['prescription_id']) && is_scalar($workerPayload['prescription_id'])
+            ? trim((string) $workerPayload['prescription_id'])
+            : '';
+
+        $status = $this->normalize_local_stub_status($workerPayload['status'] ?? null);
+
+        return $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId);
+    }
+
+    private function find_local_stub_id_by_uid(string $uid): int
+    {
+        $uid = trim($uid);
+        if ($uid === '' || !$this->prescription_table_has_column('uid')) {
+            return 0;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $id = $this->wpdb->get_var($this->wpdb->prepare(
+            "SELECT id FROM `{$table}` WHERE uid = %s LIMIT 1",
+            $uid
+        ));
+
+        return is_numeric($id) && (int) $id > 0 ? (int) $id : 0;
+    }
+
+    private function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId): int
+    {
+        $uid = trim($uid);
+        if ($uid === '' || !$this->prescription_table_has_column('uid')) {
+            return 0;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $now = current_time('mysql');
+        $data = [
+            'uid' => $uid,
+        ];
+        $formats = ['%s'];
+
+        if ($this->prescription_table_has_column('status')) {
+            $data['status'] = $status;
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('payload_json')) {
+            $data['payload_json'] = $this->build_local_stub_payload_json($workerPrescriptionId);
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('created_at')) {
+            $data['created_at'] = $now;
+            $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('updated_at')) {
+            $data['updated_at'] = $now;
+            $formats[] = '%s';
+        }
+
+        $inserted = $this->wpdb->insert($table, $data, $formats);
+        if ($inserted !== false) {
+            return (int) $this->wpdb->insert_id;
+        }
+
+        $existingId = $this->find_local_stub_id_by_uid($uid);
+        if ($existingId > 0) {
+            return $existingId;
+        }
+
+        return 0;
+    }
+
+    private function build_local_stub_payload_json(string $workerPrescriptionId): string
+    {
+        $payload = [
+            'shadow' => [
+                'mode' => 'worker-postgres',
+                'zero_pii' => true,
+            ],
+            'worker' => [
+                'prescription_id' => trim($workerPrescriptionId),
+            ],
+        ];
+
+        $json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return is_string($json) && $json !== '' ? $json : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+    }
+
+    private function normalize_local_stub_status(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return 'pending';
+        }
+
+        $status = strtolower(trim((string) $value));
+        if ($status === '') {
+            return 'pending';
+        }
+
+        return $status;
+    }
+
+    private function prescription_table_has_column(string $column): bool
+    {
+        $columns = $this->get_prescription_table_columns();
+        return isset($columns[$column]);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function get_prescription_table_columns(): array
+    {
+        if (is_array($this->prescriptionTableColumnsCache)) {
+            return $this->prescriptionTableColumnsCache;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $safeTable = str_replace('`', '', $table);
+        $rows = $this->wpdb->get_results("SHOW COLUMNS FROM `{$safeTable}`", ARRAY_A);
+        $columns = [];
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (!is_array($row) || empty($row['Field'])) {
+                    continue;
+                }
+                $columns[(string) $row['Field']] = true;
+            }
+        }
+
+        $this->prescriptionTableColumnsCache = $columns;
+
+        return $columns;
     }
 }
