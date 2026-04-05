@@ -7,7 +7,6 @@ use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\ReqId;
 use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\RestGuard;
-use SosPrescription\Services\Turnstile;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -59,15 +58,6 @@ final class SubmissionV4Controller extends \WP_REST_Controller
     {
         $reqId = ReqId::coalesce(null);
         $params = $this->request_data($request);
-
-        if (Turnstile::should_enforce()) {
-            $token = trim((string) ($params['turnstileToken'] ?? ($params['turnstile_token'] ?? '')));
-            $remoteIp = isset($_SERVER['REMOTE_ADDR']) ? (string) wp_unslash($_SERVER['REMOTE_ADDR']) : null;
-            $verified = Turnstile::verify_token($token, $remoteIp !== null && trim($remoteIp) !== '' ? $remoteIp : null);
-            if (is_wp_error($verified)) {
-                return $verified;
-            }
-        }
 
         $payload = [
             'actor' => $this->build_patient_actor_payload(),

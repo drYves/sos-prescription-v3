@@ -330,10 +330,7 @@ function spBuildSubmitBlockInfo(t) {
             message: "Merci de valider les consentements requis : " + o.join(", ") + "."
         });
     }
-    return t.turnstileEnabled && t.turnstileSiteKey && (!t.turnstileToken || t.turnstileToken === "__TURNSTILE_UNAVAILABLE__") && s.push({
-        code: "turnstile_missing",
-        message: "Vérification anti-abus indisponible, action impossible."
-    }), t.analysisInProgress && s.push({
+    return t.analysisInProgress && s.push({
         code: "analysis_in_progress",
         message: "Veuillez patienter pendant l'analyse du document."
     }), {
@@ -1024,7 +1021,7 @@ function ft({siteKey: t, enabled: s, onToken: n}) {
             return;
         }
         if (!t) {
-            a("Vérification anti-abus indisponible, action impossible."), n("__TURNSTILE_UNAVAILABLE__");
+            a(null), n("");
             return;
         }
         let x = 0, o = null, b = !1;
@@ -1043,16 +1040,16 @@ function ft({siteKey: t, enabled: s, onToken: n}) {
                             a(null), n("");
                         },
                         "error-callback": () => {
-                            a("Vérification anti-abus indisponible, action impossible."), n("__TURNSTILE_UNAVAILABLE__");
+                            a(null), n("");
                         }
                     }), a(null);
                 } catch {
-                    a("Vérification anti-abus indisponible, action impossible."), n("__TURNSTILE_UNAVAILABLE__");
+                    a(null), n("");
                 }
                 o && window.clearInterval(o), o = null, b = !0;
                 return;
             }
-            x > 50 && !b && (a("Vérification anti-abus indisponible, action impossible."), n("__TURNSTILE_UNAVAILABLE__"), 
+            x > 50 && !b && (a(null), n(""), 
             o && window.clearInterval(o), o = null);
         };
         return a(null), o = window.setInterval(v, 100), v(), () => {
@@ -1298,15 +1295,6 @@ function vt() {
         }
         Me(!0);
         try {
-            if (t.turnstile != null && t.turnstile.enabled && t.turnstile.siteKey && (!P || P === "__TURNSTILE_UNAVAILABLE__")) {
-                spFrontendLog("submit_blocked", "warning", {
-                    flow: h,
-                    stage: g,
-                    reason_code: "turnstile_missing",
-                    message: "Vérification anti-abus indisponible, action impossible."
-                }), X("Vérification anti-abus indisponible, action impossible."), Me(!1);
-                return;
-            }
             const w = spSafePatientNameValue(S), z = spSplitPatientNameValue(w);
             if (w.length < 3 || z.firstName === "" || z.lastName === "") {
                 spFrontendLog("submit_blocked", "warning", {
@@ -1328,7 +1316,7 @@ function vt() {
                 priority: N,
                 turnstileToken: P || ""
             };
-            (r = t.turnstile) != null && r.enabled && (t.turnstile == null ? void 0 : t.turnstile.siteKey) || delete $.turnstileToken;
+            delete $.turnstileToken;
             const A = await spCreateSubmissionApi($), ee = String((A == null ? void 0 : A.submission_ref) || "").trim();
             if (!ee) throw new Error("Référence de soumission manquante.");
             spFrontendLog("submission_init_ok", "info", {
@@ -1973,16 +1961,6 @@ function vt() {
                             }), "." ]
                         }) ]
                     }) ]
-                }) ]
-            }), e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "mb-2 text-sm font-semibold text-gray-900",
-                    children: "Anti-robot"
-                }), e.jsx(ft, {
-                    siteKey: t.turnstile.siteKey,
-                    enabled: t.turnstile.enabled,
-                    onToken: k
                 }) ]
             }), e.jsxs("div", {
                 className: "flex items-center justify-between gap-3",

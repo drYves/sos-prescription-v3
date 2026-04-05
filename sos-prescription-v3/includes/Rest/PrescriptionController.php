@@ -9,7 +9,6 @@ use SOSPrescription\Services\AccessPolicy;
 use SOSPrescription\Services\Audit;
 use SOSPrescription\Services\RestGuard;
 use SOSPrescription\Services\StripeConfig;
-use SOSPrescription\Services\Turnstile;
 use SOSPrescription\Services\UidGenerator;
 use SOSPrescription\Core\JobDispatcher;
 use SOSPrescription\Core\Mls1Verifier;
