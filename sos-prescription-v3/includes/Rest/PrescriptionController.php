@@ -1599,7 +1599,7 @@ class PrescriptionController extends \WP_REST_Controller
     {
         $merged = $existing;
         foreach ($incoming as $key => $value) {
-            if ($this->should_preserve_existing_worker_value($key, $value, $existing)) {
+            if ($this->should_preserve_existing_worker_value($key, $value, $existing, $incoming)) {
                 continue;
             }
             $merged[$key] = $value;
@@ -1610,8 +1610,9 @@ class PrescriptionController extends \WP_REST_Controller
 
     /**
      * @param array<string, mixed> $existing
+     * @param array<string, mixed> $incoming
      */
-    protected function should_preserve_existing_worker_value(string $key, mixed $value, array $existing): bool
+    protected function should_preserve_existing_worker_value(string $key, mixed $value, array $existing, array $incoming): bool
     {
         $stickyStringKeys = [
             's3_key_ref',
