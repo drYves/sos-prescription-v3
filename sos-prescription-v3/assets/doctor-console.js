@@ -57,122 +57,6 @@
     return;
   }
 
-  function ensureInlineStyle() {
-    if (document.getElementById('sosprescription-doctor-console-inline-style')) return;
-
-    var style = document.createElement('style');
-    style.id = 'sosprescription-doctor-console-inline-style';
-    style.textContent = [
-      '.sosprescription-doctor .dc-shell{grid-template-columns:minmax(240px,280px) minmax(0,1fr)!important;align-items:start!important;}',
-      '.sosprescription-doctor .dc-inbox{max-width:280px!important;width:100%!important;}',
-      '.sosprescription-doctor .dc-inbox__list{max-height:calc(100vh - 232px)!important;overflow-y:auto!important;}',
-      '.sosprescription-doctor .dc-summary-grid{grid-template-columns:1fr!important;}',
-      '.sosprescription-doctor .dc-summary-row--notes strong{white-space:pre-wrap;}',
-      '.sosprescription-doctor .dc-med__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}',
-      '.sosprescription-doctor .dc-med__edit{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;white-space:nowrap;position:relative;z-index:2;}',
-      '.sosprescription-doctor .dc-med__edit:hover{background:#f8fafc;border-color:#cbd5e1;}',
-      '.sosprescription-doctor .dc-med__edit:disabled{opacity:.5;cursor:not-allowed;}',
-      '.sosprescription-doctor .dc-modal{border:none;border-radius:18px;padding:0;width:min(94vw,880px);max-width:880px;margin:auto;box-shadow:0 32px 72px rgba(15,23,42,.28);background:transparent;}',
-      '.sosprescription-doctor .dc-modal::backdrop{background:rgba(15,23,42,.56);backdrop-filter:blur(2px);}',
-      '.sosprescription-doctor .dc-modal__card{padding:24px;display:grid;gap:18px;border-radius:18px;background:#fff;}',
-      '.sosprescription-doctor .dc-modal__head{display:grid;gap:4px;}',
-      '.sosprescription-doctor .dc-modal__title{font-size:18px;font-weight:800;color:#0f172a;}',
-      '.sosprescription-doctor .dc-modal__subtitle{font-size:13px;line-height:1.45;color:#64748b;}',
-      '.sosprescription-doctor .dc-modal__fields{display:grid;gap:16px;}',
-      '.sosprescription-doctor .dc-modal__panel{display:grid;gap:12px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;}',
-      '.sosprescription-doctor .dc-modal__grid{display:grid;gap:12px;grid-template-columns:repeat(3,minmax(0,1fr));}',
-      '.sosprescription-doctor .dc-modal__inline{display:flex;gap:8px;}',
-      '.sosprescription-doctor .dc-modal__inline > *{flex:1 1 0;min-width:0;}',
-      '.sosprescription-doctor .dc-modal__actions{display:flex;justify-content:flex-end;gap:10px;}',
-      '.sosprescription-doctor .dc-modal__label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#334155;}',
-      '.sosprescription-doctor .dc-modal__label-text{font-size:13px;font-weight:700;color:#334155;}',
-      '.sosprescription-doctor .dc-modal__input,.sosprescription-doctor .dc-modal__select,.sosprescription-doctor .dc-modal__textarea{width:100%;border:1px solid #cbd5e1;border-radius:12px;background:#fff;padding:10px 12px;font-size:14px;color:#0f172a;outline:none;}',
-      '.sosprescription-doctor .dc-modal__input:focus,.sosprescription-doctor .dc-modal__select:focus,.sosprescription-doctor .dc-modal__textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.15);}',
-      '.sosprescription-doctor .dc-modal__textarea{min-height:96px;resize:vertical;}',
-      '.sosprescription-doctor .dc-modal__schedule-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;}',
-      '.sosprescription-doctor .dc-modal__schedule-hint{font-size:12px;line-height:1.45;color:#64748b;}',
-      '.sosprescription-doctor .dc-modal__schedule-toolbar{display:flex;flex-wrap:wrap;gap:8px;}',
-      '.sosprescription-doctor .dc-modal__schedule-btn{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
-      '.sosprescription-doctor .dc-modal__schedule-btn:hover{background:#f8fafc;border-color:#cbd5e1;}',
-      '.sosprescription-doctor .dc-modal__schedule-warnings{display:grid;gap:6px;margin:0;padding-left:18px;font-size:12px;line-height:1.45;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding-top:10px;padding-right:12px;padding-bottom:10px;}',
-      '.sosprescription-doctor .dc-modal__schedule-rows{display:grid;gap:10px;}',
-      '.sosprescription-doctor .dc-modal__schedule-row{display:grid;gap:10px;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.9fr);align-items:end;}',
-      '.sosprescription-doctor .dc-modal__schedule-row-label{font-size:13px;line-height:1.35;color:#334155;font-weight:700;}',
-      '.sosprescription-doctor .dc-modal__schedule-row-label small{display:block;margin-top:2px;font-size:11px;font-weight:600;color:#94a3b8;}',
-      '.sosprescription-doctor .dc-modal__empty{font-size:13px;line-height:1.45;color:#64748b;}',
-      '@media (max-width:860px){.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr 1fr;}.sosprescription-doctor .dc-modal__grid > :last-child{grid-column:1 / -1;}.sosprescription-doctor .dc-modal__schedule-row{grid-template-columns:1fr;}}',
-      '@media (max-width:640px){.sosprescription-doctor .dc-modal__card{padding:18px;}.sosprescription-doctor .dc-modal__grid{grid-template-columns:1fr;}}',
-      '.sosprescription-doctor .dc-item__meds{margin-top:4px;font-size:12px;line-height:1.35;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-      '.sosprescription-doctor .dc-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
-      '.sosprescription-doctor .dc-filter-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
-      '.sosprescription-doctor .dc-filter-tab:hover{background:#f8fafc;border-color:#cbd5e1;}',
-      '.sosprescription-doctor .dc-filter-tab.is-active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #bfdbfe;}',
-      '@media (max-width:1180px){.sosprescription-doctor .dc-shell{grid-template-columns:1fr!important;}.sosprescription-doctor .dc-inbox{max-width:none!important;}.sosprescription-doctor .dc-inbox__list{max-height:none!important;}}',
-      '.sosprescription-doctor .dc-pdf-card{overflow:hidden!important;}',
-      '.sosprescription-doctor .dc-pdf-frame{width:100%!important;height:76vh!important;min-height:560px!important;max-height:84vh!important;aspect-ratio:auto!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#ffffff!important;display:block!important;}',
-      '.sosprescription-doctor .dc-btn.is-loading{opacity:0.92;cursor:progress;}',
-      '.sosprescription-doctor .dc-btn.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.55);border-top-color:#ffffff;border-radius:999px;animation:dcSpin .8s linear infinite;}',
-      '.sosprescription-doctor .dc-btn-secondary.is-loading::before{border-color:rgba(15,23,42,.18);border-top-color:#0f172a;}',
-      '.sosprescription-doctor .dc-item__alerts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}',
-      '.sosprescription-doctor .dc-pill-danger{background:#fee2e2;color:#991b1b;border-color:#fecaca;}',
-      '.sosprescription-doctor .dc-detail-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 16px;}',
-      '.sosprescription-doctor .dc-detail-tab{appearance:none;border:1px solid #dbe5f1;background:#fff;color:#334155;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s ease;}',
-      '.sosprescription-doctor .dc-detail-tab:hover{background:#f8fafc;border-color:#cbd5e1;}',
-      '.sosprescription-doctor .dc-detail-tab.is-active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #bfdbfe;}',
-      '.sosprescription-doctor .dc-detail-panel{display:none;}',
-      '.sosprescription-doctor .dc-detail-panel.is-active{display:block;}',
-      '.sosprescription-doctor .dc-prescription-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;}',
-      '.sosprescription-doctor .dc-prescription-layout.has-proof{grid-template-columns:minmax(0,1fr) minmax(320px,420px);}',
-      '.sosprescription-doctor .dc-prescription-main{display:grid;gap:16px;min-width:0;}',
-      '.sosprescription-doctor .dc-prescription-side{display:grid;gap:16px;align-content:start;min-width:0;}',
-      '.sosprescription-doctor .dc-inline-proof-card{border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;display:grid;gap:12px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__title{font-size:15px;font-weight:800;color:#0f172a;}',
-      '.sosprescription-doctor .dc-inline-proof-card__meta{font-size:12px;color:#64748b;margin-top:4px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__picker{display:flex;flex-wrap:wrap;gap:8px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__picker .dc-proof-item{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:12px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__viewer{display:grid;gap:10px;}',
-      '.sosprescription-doctor .dc-inline-proof-card__image{display:block;max-width:100%;width:100%;height:auto;border-radius:8px;margin-top:10px;border:1px solid #e5e7eb;background:#fff;}',
-      '.sosprescription-doctor .dc-inline-proof-card__frame{display:block;width:100%;height:52vh;min-height:420px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}',
-      '.sosprescription-doctor .dc-inline-proof-card__placeholder{font-size:14px;color:#64748b;padding:10px 0;}',
-      '@media (max-width:1180px){.sosprescription-doctor .dc-prescription-layout.has-proof{grid-template-columns:1fr;}}',
-      '.sosprescription-doctor .dc-proof-layout{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:16px;align-items:start;}',
-      '.sosprescription-doctor .dc-proof-list{display:grid;gap:8px;}',
-      '.sosprescription-doctor .dc-proof-item{appearance:none;border:1px solid #e2e8f0;background:#fff;border-radius:14px;padding:10px 12px;text-align:left;cursor:pointer;transition:all .15s ease;}',
-      '.sosprescription-doctor .dc-proof-item:hover{background:#f8fafc;border-color:#cbd5e1;}',
-      '.sosprescription-doctor .dc-proof-item.is-active{background:#eff6ff;border-color:#bfdbfe;box-shadow:inset 0 0 0 1px #bfdbfe;}',
-      '.sosprescription-doctor .dc-proof-item__title{font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-      '.sosprescription-doctor .dc-proof-item__meta{font-size:12px;color:#64748b;margin-top:4px;}',
-      '.sosprescription-doctor .dc-proof-viewer{border:1px solid #e2e8f0;border-radius:16px;background:#fff;overflow:hidden;min-height:480px;}',
-      '.sosprescription-doctor .dc-proof-viewer__frame{display:block;width:100%;height:72vh;min-height:480px;border:0;background:#fff;}',
-      '.sosprescription-doctor .dc-proof-viewer__image{display:block;max-width:100%;width:100%;height:auto;background:#fff;}',
-      '.sosprescription-doctor .dc-proof-placeholder{padding:24px;font-size:14px;color:#64748b;}',
-      '.sosprescription-doctor .dc-message-thread{display:grid;gap:12px;max-height:420px;overflow:auto;padding:4px;}',
-      '.sosprescription-doctor .dc-message-row{display:flex;}',
-      '.sosprescription-doctor .dc-message-row.is-doctor{justify-content:flex-end;}',
-      '.sosprescription-doctor .dc-message-row.is-patient{justify-content:flex-start;}',
-      '.sosprescription-doctor .dc-message-bubble{max-width:86%;border-radius:18px;padding:12px 14px;font-size:14px;line-height:1.45;box-shadow:0 1px 2px rgba(15,23,42,.06);}',
-      '.sosprescription-doctor .dc-message-row.is-doctor .dc-message-bubble{background:#0f172a;color:#fff;}',
-      '.sosprescription-doctor .dc-message-row.is-patient .dc-message-bubble{background:#f8fafc;color:#0f172a;border:1px solid #e2e8f0;}',
-      '.sosprescription-doctor .dc-message-meta{margin-top:8px;font-size:11px;opacity:.8;}',
-      '.sosprescription-doctor .dc-message-attachments{display:grid;gap:6px;margin-top:10px;}',
-      '.sosprescription-doctor .dc-message-attachment{appearance:none;border:1px solid rgba(148,163,184,.35);background:rgba(255,255,255,.14);color:inherit;border-radius:12px;padding:8px 10px;text-align:left;font-size:12px;cursor:pointer;}',
-      '.sosprescription-doctor .dc-message-row.is-patient .dc-message-attachment{background:#fff;color:#0f172a;border-color:#e2e8f0;}',
-      '.sosprescription-doctor .dc-message-compose{margin-top:16px;border:1px solid #e2e8f0;border-radius:16px;background:#fff;padding:16px;display:grid;gap:12px;}',
-      '.sosprescription-doctor .dc-message-compose__row{display:flex;align-items:flex-end;gap:10px;}',
-      '.sosprescription-doctor .dc-message-compose__attach{appearance:none;border:1px solid #d1d5db;background:#fff;border-radius:10px;width:40px;height:40px;cursor:pointer;font-size:18px;}',
-      '.sosprescription-doctor .dc-message-compose__textarea{width:100%;border:1px solid #cbd5e1;border-radius:12px;background:#fff;padding:10px 12px;font-size:14px;min-height:78px;resize:vertical;outline:none;}',
-      '.sosprescription-doctor .dc-message-compose__textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,.15);}',
-      '.sosprescription-doctor .dc-message-upload-chips{display:flex;flex-wrap:wrap;gap:8px;}',
-      '.sosprescription-doctor .dc-message-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:999px;padding:6px 10px;font-size:12px;color:#334155;}',
-      '.sosprescription-doctor .dc-message-chip__remove{appearance:none;border:none;background:transparent;color:#64748b;cursor:pointer;font-size:14px;line-height:1;}',
-      '.sosprescription-doctor .dc-message-empty{padding:18px 0;font-size:14px;color:#64748b;}',
-      '@media (max-width:980px){.sosprescription-doctor .dc-proof-layout{grid-template-columns:1fr;}.sosprescription-doctor .dc-proof-viewer__frame{height:60vh;min-height:360px;}}',
-      '@keyframes dcSpin{to{transform:rotate(360deg);}}'
-    ].join('');
-    document.head.appendChild(style);
-  }
-
   function escHtml(value) {
     var s = String(value == null ? '' : value);
     return s
@@ -220,6 +104,36 @@
     if (node.innerHTML !== html) {
       node.innerHTML = html;
     }
+  }
+
+  function preserveLineBreaksHtml(value) {
+    return escHtml(value).replace(/\r?\n/g, '<br />');
+  }
+
+  function buildLucideIcon(name) {
+    var iconName = normalizeText(name).toLowerCase();
+    if (iconName === 'pencil') {
+      return [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '  <path d="M12 20h9"></path>',
+        '  <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"></path>',
+        '</svg>'
+      ].join('');
+    }
+    if (iconName === 'paperclip') {
+      return [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.48-8.48"></path>',
+        '</svg>'
+      ].join('');
+    }
+    return '';
+  }
+
+  function buildButtonIcon(iconName) {
+    var icon = buildLucideIcon(iconName);
+    if (!icon) return '';
+    return '<span class="sp-button__icon" aria-hidden="true">' + icon + '</span>';
   }
 
 
@@ -850,7 +764,7 @@
     var artifact = normalizeText(artifactId);
     var klass = normalizeText(placeholderClass) || 'dc-proof-placeholder';
     var buttonHtml = artifact
-      ? '<div style="margin-top:12px;"><button type="button" class="dc-btn dc-btn-secondary" data-action="retry-proof" data-artifact-id="' + escHtml(artifact) + '">Réessayer</button></div>'
+      ? '<div class="dc-proof-error-actions"><button type="button" class="sp-button sp-button--secondary" data-action="retry-proof" data-artifact-id="' + escHtml(artifact) + '">Réessayer</button></div>'
       : '';
     return '<div class="' + escHtml(klass) + '">' + escHtml(message || 'Impossible de charger la preuve.') + buttonHtml + '</div>';
   }
@@ -2024,7 +1938,7 @@
         '  <div class="dc-med__head">',
         '    <div class="dc-med__label">' + escHtml(med.label) + '</div>',
         canEdit
-          ? '    <button type="button" class="dc-med__edit" data-action="edit-med" data-index="' + String(index) + '">Éditer</button>'
+          ? '    <button type="button" class="sp-button sp-button--ghost" data-action="edit-med" data-index="' + String(index) + '" aria-label="Éditer la posologie de ' + escHtml(med.label) + '">' + buildButtonIcon('pencil') + '<span>Éditer</span></button>'
           : '',
         '  </div>',
         '  <div class="dc-med__posology">' + escHtml(med.posology) + '</div>',
@@ -2357,8 +2271,8 @@
         + '  <div class="dc-modal__schedule-hint">' + (draft.autoTimesEnabled ? 'Horaires auto (répartis entre la 1ère et la dernière prise)' : 'Horaires personnalisés') + '</div>'
         + '  <div class="dc-modal__schedule-toolbar">'
         + (draft.autoTimesEnabled
-            ? '<button type="button" class="dc-modal__schedule-btn" data-action="med-reset-times">Réinitialiser les horaires</button>'
-            : '<button type="button" class="dc-modal__schedule-btn" data-action="med-enable-auto">Horaires auto</button>')
+            ? '<button type="button" class="sp-button sp-button--ghost" data-action="med-reset-times">Réinitialiser les horaires</button>'
+            : '<button type="button" class="sp-button sp-button--ghost" data-action="med-enable-auto">Horaires auto</button>')
         + '  </div>'
         + '</div>'
         + warningsHtml
@@ -2370,8 +2284,8 @@
             var anchor = draft.autoTimesEnabled && (isFirst || isLast) ? '<small>(ancre)</small>' : '';
             return '<div class="dc-modal__schedule-row">'
               + '  <div class="dc-modal__schedule-row-label">' + escHtml(label) + anchor + '</div>'
-              + '  <label class="dc-modal__label"><span class="dc-modal__label-text">Heure</span><input type="time" step="300" class="dc-modal__input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
-              + '  <label class="dc-modal__label"><span class="dc-modal__label-text">Dose</span><input type="text" class="dc-modal__input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
+              + '  <label class="sp-field"><span class="sp-field__label">Heure</span><input type="time" step="300" class="sp-input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
+              + '  <label class="sp-field"><span class="sp-field__label">Dose</span><input type="text" class="sp-input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
               + '</div>';
           }).join('')
         + '</div>'
@@ -2384,20 +2298,20 @@
       '    <div class="dc-modal__title">Modifier la posologie</div>',
       '    <div class="dc-modal__subtitle">' + escHtml(editor.medicationName || 'Médicament') + '</div>',
       '  </div>',
-      '  <div class="dc-modal__fields">',
+      '  <div class="sp-form dc-modal__fields">',
       '    <div class="dc-modal__panel">',
       '      <div class="dc-modal__grid">',
-      '        <label class="dc-modal__label"><span class="dc-modal__label-text">Nombre de prises</span><input type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="dc-modal__input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
-      '        <label class="dc-modal__label"><span class="dc-modal__label-text">Fréquence</span><select class="dc-modal__select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
-      '        <div class="dc-modal__label"><span class="dc-modal__label-text">Durée</span><div class="dc-modal__inline"><input type="number" min="1" class="dc-modal__input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select class="dc-modal__select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
+      '        <label class="sp-field"><span class="sp-field__label">Nombre de prises</span><input type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="sp-input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
+      '        <label class="sp-field"><span class="sp-field__label">Fréquence</span><select class="sp-select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
+      '        <div class="sp-field"><span class="sp-field__label">Durée</span><div class="dc-modal__inline"><input type="number" min="1" class="sp-input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select class="sp-select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
       '      </div>',
       '    </div>',
            rowsHtml,
-      '    <label class="dc-modal__label"><span class="dc-modal__label-text">Précisions de prise (optionnel)</span><textarea class="dc-modal__textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '    <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
       '  </div>',
       '  <div class="dc-modal__actions">',
-      '    <button type="button" class="dc-btn dc-btn-secondary" data-action="close-med-modal">Annuler</button>',
-      '    <button type="button" class="dc-btn dc-btn-success" data-action="save-med-modal">Enregistrer</button>',
+      '    <button type="button" class="sp-button sp-button--secondary" data-action="close-med-modal">Annuler</button>',
+      '    <button type="button" class="sp-button sp-button--primary" data-action="save-med-modal">Enregistrer</button>',
       '  </div>',
       '</div>'
     ].join('');
@@ -2542,11 +2456,13 @@
 
     return [
       '<div class="dc-refusal-panel">',
-      '  <label class="dc-label" for="dc-refusal-reason">Motif du refus</label>',
-      '  <textarea id="dc-refusal-reason" class="dc-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
+      '  <div class="sp-field">',
+      '    <label class="sp-field__label" for="dc-refusal-reason">Motif du refus</label>',
+      '    <textarea id="dc-refusal-reason" class="sp-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
+      '  </div>',
       '  <div class="dc-refusal-actions">',
-      '    <button type="button" class="dc-btn dc-btn-danger' + (isRejecting ? ' is-loading' : '') + '" data-action="confirm-reject"' + (isRejecting ? ' disabled' : '') + '>' + (isRejecting ? 'Refus...' : 'Confirmer le refus') + '</button>',
-      '    <button type="button" class="dc-btn dc-btn-secondary" data-action="cancel-reject"' + (isRejecting ? ' disabled' : '') + '>Annuler</button>',
+      '    <button type="button" class="sp-button sp-button--danger' + (isRejecting ? ' is-loading' : '') + '" data-action="confirm-reject"' + (isRejecting ? ' disabled' : '') + '>' + (isRejecting ? 'Refus...' : 'Confirmer le refus') + '</button>',
+      '    <button type="button" class="sp-button sp-button--secondary" data-action="cancel-reject"' + (isRejecting ? ' disabled' : '') + '>Annuler</button>',
       '  </div>',
       '</div>'
     ].join('');
@@ -2566,7 +2482,7 @@
       '<div class="dc-pdf-card">',
       '  <div class="dc-card__title">Ordonnance PDF</div>',
       '  <div class="dc-pdf-actions">',
-      '    <a class="dc-btn dc-btn-secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
+      '    <a class="sp-button sp-button--secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
       '  </div>',
       '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
       '</div>'
@@ -2703,7 +2619,7 @@
 
     var inlineAccessUrl = getArtifactAccessUrl(accessPayload);
     var openButtonHtml = inlineAccessUrl
-      ? '<a class="dc-btn dc-btn-secondary" href="' + escHtml(String(inlineAccessUrl)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+      ? '<a class="sp-button sp-button--secondary" href="' + escHtml(String(inlineAccessUrl)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
       : '';
 
     var titleLabel = normalizeText(artifact.original_name) || 'Preuve médicale';
@@ -2807,15 +2723,15 @@
     var uploads = safeArray(thread.uploads);
     return [
       thread.error && thread.messages.length > 0 ? '<div class="dc-notice dc-notice-error">' + escHtml(thread.error) + '</div>' : '',
-      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus.' + ' <button type="button" class="dc-btn dc-btn-secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
+      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus.' + ' <button type="button" class="sp-button sp-button--secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
       messagesHtml,
       '<div class="dc-message-compose">',
       '  <div class="dc-card__title">Répondre au patient</div>',
-      '  <input type="file" data-role="message-file-input" multiple accept="image/*,application/pdf" style="display:none;" />',
+      '  <input type="file" data-role="message-file-input" multiple accept="image/*,application/pdf" hidden />',
       '  <div class="dc-message-compose__row">',
-      '    <button type="button" class="dc-message-compose__attach" data-action="pick-message-files" title="Ajouter une pièce jointe">📎</button>',
-      '    <textarea class="dc-message-compose__textarea" data-role="message-body" placeholder="Votre message au patient…">' + escHtml(thread.composerBody || '') + '</textarea>',
-      '    <button type="button" class="dc-btn dc-btn-secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || thread.uploading || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
+      '    <button type="button" class="sp-button sp-button--ghost dc-message-compose__attach" data-action="pick-message-files" title="Ajouter une pièce jointe" aria-label="Ajouter une pièce jointe">' + buildButtonIcon('paperclip') + '</button>',
+      '    <textarea class="sp-textarea" data-role="message-body" placeholder="Votre message au patient…">' + escHtml(thread.composerBody || '') + '</textarea>',
+      '    <button type="button" class="sp-button sp-button--secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || thread.uploading || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
       '  </div>',
       thread.uploading ? '  <div class="dc-message-empty">Upload en cours…</div>' : '',
       uploads.length > 0 ? '  <div class="dc-message-upload-chips">' + uploads.map(function (file) {
@@ -2840,11 +2756,11 @@
       '  <div class="dc-detail-panel" data-dc-panel="prescription">',
       '    <div class="dc-prescription-layout" data-dc-prescription-layout>',
       '      <div class="dc-prescription-main">',
-      '        <div class="dc-summary-card" data-dc-summary-card style="display:none;">',
+      '        <div class="dc-summary-card" data-dc-summary-card hidden>',
       '          <div class="dc-card__title">Patient</div>',
       '          <div class="dc-summary-grid">',
-      '            <div class="dc-summary-row" data-dc-summary-weight-row style="display:none;"><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
-      '            <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row style="display:none;"><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '            <div class="dc-summary-row" data-dc-summary-weight-row hidden><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '            <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row hidden><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
       '          </div>',
       '        </div>',
       '        <div class="dc-meds-card">',
@@ -2853,8 +2769,8 @@
       '        </div>',
       '        <div data-dc-pdf-slot></div>',
       '        <div class="dc-decisionbar">',
-      '          <button type="button" class="dc-btn dc-btn-success dc-btn-large" data-action="approve" data-dc-approve>VALIDER</button>',
-      '          <button type="button" class="dc-btn dc-btn-danger dc-btn-large" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
+      '          <button type="button" class="sp-button sp-button--primary" data-action="approve" data-dc-approve>VALIDER</button>',
+      '          <button type="button" class="sp-button sp-button--danger" data-action="toggle-reject" data-dc-reject>REFUSER</button>',
       '        </div>',
       '        <div data-dc-refusal-slot></div>',
       '      </div>',
@@ -2910,19 +2826,19 @@
     var notesEl = detailEl.querySelector('[data-dc-summary-notes]');
     var medicalNotes = extractMedicalNotes(detail);
     if (summaryCard) {
-      summaryCard.style.display = '';
+      summaryCard.hidden = false;
     }
     if (weightRow && weightEl) {
       weightEl.textContent = patient.weight || 'Non renseigné';
-      weightRow.style.display = '';
+      weightRow.hidden = false;
     }
     if (notesRow && notesEl) {
       if (medicalNotes) {
-        notesEl.textContent = medicalNotes;
-        notesRow.style.display = '';
+        setHtmlIfChanged(notesEl, preserveLineBreaksHtml(medicalNotes));
+        notesRow.hidden = false;
       } else {
-        notesEl.textContent = '';
-        notesRow.style.display = 'none';
+        setHtmlIfChanged(notesEl, '');
+        notesRow.hidden = true;
       }
     }
 
@@ -3031,8 +2947,6 @@
 
   function renderShell() {
     if (state.ui) return state.ui;
-
-    ensureInlineStyle();
 
     root.innerHTML = [
       '<div class="sosprescription-doctor">',
