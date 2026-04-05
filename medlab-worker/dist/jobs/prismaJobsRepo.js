@@ -174,13 +174,30 @@ class PrismaJobsRepo {
                 });
                 finalDoctorId = upsertedDoctor.id;
             }
+            const now = new Date();
+            if (canonicalItems) {
+                await tx.prescription.update({
+                    where: { id: safePrescriptionId },
+                    data: {
+                        items: toInputJsonArray(canonicalItems),
+                        updatedAt: now,
+                    },
+                    select: { id: true },
+                });
+            }
             return tx.prescription.update({
                 where: { id: safePrescriptionId },
                 data: {
                     status: "APPROVED",
+                    processingStatus: "PENDING",
+                    availableAt: now,
+                    claimedAt: null,
+                    lockExpiresAt: null,
+                    workerRef: null,
                     doctorId: finalDoctorId,
-                    items: canonicalItems ? toInputJsonArray(canonicalItems) : undefined,
-                    updatedAt: new Date(),
+                    lastErrorCode: null,
+                    lastErrorMessageSafe: null,
+                    updatedAt: now,
                 },
                 select: ingestSelect(),
             });

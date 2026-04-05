@@ -241,6 +241,7 @@ final class JobDispatcher
 
     /**
      * @param array<string, mixed> $doctorPayload
+     * @param array<int, mixed>|null $items
      * @return array<string, mixed>
      */
     public function approvePrescription(string $workerPrescriptionId, array $doctorPayload, ?string $reqId = null, ?array $items = null): array
@@ -254,7 +255,7 @@ final class JobDispatcher
         $payload = [
             'doctor' => $doctorPayload,
         ];
-        if (is_array($items) && $items !== []) {
+        if ($items !== null && $items !== []) {
             $payload['items'] = array_values($items);
         }
 

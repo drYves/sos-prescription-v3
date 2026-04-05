@@ -70,6 +70,7 @@ final class Plugin
 
         self::register_rest_diagnostics();
 
+        add_action('parse_request', [self::class, 'maybe_render_debug_json'], 0);
         add_action('init', [self::class, 'register_shortcodes']);
         add_action('rest_api_init', [Routes::class, 'register']);
         add_action('rest_api_init', [SubmissionV4Controller::class, 'register']);
@@ -242,6 +243,35 @@ final class Plugin
 
             return $response;
         }, 10, 3);
+    }
+
+    public static function maybe_render_debug_json($wp = null): void
+    {
+        $debug = isset($_GET['sp_debug']) && is_scalar($_GET['sp_debug'])
+            ? strtolower(trim(wp_unslash((string) $_GET['sp_debug'])))
+            : '';
+
+        if ($debug !== 'json') {
+            return;
+        }
+
+        $payload = [
+            'version' => defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '',
+            'status' => 'ok',
+            'php_version' => PHP_VERSION,
+            'logs_dir' => Logger::dir(),
+        ];
+
+        if (!headers_sent()) {
+            status_header(200);
+            header('Content-Type: application/json; charset=' . get_option('blog_charset'));
+            header('Cache-Control: no-store, no-cache, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+        }
+
+        echo (string) wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
     }
 
     public static function register_shortcodes(): void
