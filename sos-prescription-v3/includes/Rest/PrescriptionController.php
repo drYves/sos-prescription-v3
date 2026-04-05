@@ -323,7 +323,7 @@ class PrescriptionController extends \WP_REST_Controller
             );
         } catch (\Throwable $e) {
             return $this->raw_exact_unprocessable_response(
-                'Échec de transmission HDS : ' . (string) $e->getMessage(),
+                'Échec de validation HDS (Veuillez faire un screen) : ' . (string) $e->getMessage(),
                 $req_id
             );
         }
