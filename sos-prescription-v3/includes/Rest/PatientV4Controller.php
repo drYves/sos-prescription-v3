@@ -205,12 +205,13 @@ final class PatientV4Controller extends \WP_REST_Controller
      */
     private function to_rest_response(array $payload, int $status, string $reqId): WP_REST_Response
     {
-        if (!isset($payload['req_id']) || !is_scalar($payload['req_id']) || trim((string) $payload['req_id']) === '') {
-            $payload['req_id'] = $reqId;
+        $responseReqId = $reqId;
+        if (isset($payload['req_id']) && is_scalar($payload['req_id']) && trim((string) $payload['req_id']) !== '') {
+            $responseReqId = trim((string) $payload['req_id']);
         }
 
         $response = new WP_REST_Response($payload, $status);
-        $response->header('X-SOSPrescription-Request-ID', (string) $payload['req_id']);
+        $response->header('X-SOSPrescription-Request-ID', $responseReqId);
         $response->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         $response->header('Pragma', 'no-cache');
         $response->header('Expires', '0');

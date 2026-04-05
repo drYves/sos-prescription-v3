@@ -2011,33 +2011,61 @@ function buildPatientProfileApiPayload(wpUserId, profile, message) {
         ok: true,
         schema_version: CURRENT_SCHEMA_VERSION,
         message,
+        fullname: profilePayload.fullname,
+        firstName: profilePayload.firstName,
+        lastName: profilePayload.lastName,
+        first_name: profilePayload.first_name,
+        last_name: profilePayload.last_name,
+        birthDate: profilePayload.birthDate,
+        birthdate: profilePayload.birthdate,
+        birthdate_iso: profilePayload.birthdate_iso,
+        birthdate_fr: profilePayload.birthdate_fr,
+        phone: profilePayload.phone,
+        email: profilePayload.email,
+        weight_kg: profilePayload.weight_kg,
+        weightKg: profilePayload.weightKg,
+        height_cm: profilePayload.height_cm,
+        heightCm: profilePayload.heightCm,
+        bmi_value: profilePayload.bmi_value,
+        bmiValue: profilePayload.bmiValue,
+        bmi_label: profilePayload.bmi_label,
+        bmiLabel: profilePayload.bmiLabel,
         profile: profilePayload,
         currentUser: {
             id: wpUserId,
-            displayName: profilePayload.full_name,
+            displayName: profilePayload.fullname,
             email: profilePayload.email,
             roles: ["patient"],
-            firstName: profilePayload.first_name,
-            lastName: profilePayload.last_name,
+            firstName: profilePayload.firstName,
+            lastName: profilePayload.lastName,
             first_name: profilePayload.first_name,
             last_name: profilePayload.last_name,
-            birthDate: profilePayload.birthdate_iso,
-            birthdate: profilePayload.birthdate_iso,
+            birthDate: profilePayload.birthDate,
+            birthdate: profilePayload.birthdate,
             sosp_birthdate: profilePayload.birthdate_iso,
             phone: profilePayload.phone,
         },
         patientProfile: {
             first_name: profilePayload.first_name,
             last_name: profilePayload.last_name,
-            fullname: profilePayload.full_name,
+            firstName: profilePayload.firstName,
+            lastName: profilePayload.lastName,
+            full_name: profilePayload.full_name,
+            fullname: profilePayload.fullname,
+            birthDate: profilePayload.birthDate,
+            birthdate: profilePayload.birthdate,
             birthdate_iso: profilePayload.birthdate_iso,
             birthdate_fr: profilePayload.birthdate_fr,
             phone: profilePayload.phone,
             email: profilePayload.email,
             weight_kg: profilePayload.weight_kg,
+            weightKg: profilePayload.weightKg,
             height_cm: profilePayload.height_cm,
+            heightCm: profilePayload.heightCm,
             bmi_value: profilePayload.bmi_value,
+            bmiValue: profilePayload.bmiValue,
             bmi_label: profilePayload.bmi_label,
+            bmiLabel: profilePayload.bmiLabel,
         },
     };
 }
@@ -2046,24 +2074,36 @@ function buildPatientProfilePayload(profile) {
     const lastName = profile?.lastName ?? "";
     const fullName = [firstName, lastName].filter((part) => part.trim() !== "").join(" ").trim();
     const birthdateIso = profile?.birthDate ?? "";
+    const birthdateFr = birthdateIso !== "" ? formatIsoDateToFr(birthdateIso) : "";
     const phone = profile?.phone ?? "";
     const email = profile?.email ?? "";
     const weightKg = profile?.weightKg ?? "";
     const heightCm = profile?.heightCm ?? "";
     const bmiValue = computeProfileBmiValue(weightKg, heightCm);
+    const bmiValueText = bmiValue !== null ? String(bmiValue) : "";
     const bmiLabel = computeProfileBmiLabel(weightKg, heightCm);
+    const bmiLabelText = bmiLabel !== "—" ? bmiLabel : "";
     return {
         first_name: firstName,
         last_name: lastName,
+        firstName,
+        lastName,
         full_name: fullName,
+        fullname: fullName,
+        birthDate: birthdateIso,
+        birthdate: birthdateIso,
         birthdate_iso: birthdateIso,
-        birthdate_fr: birthdateIso !== "" ? formatIsoDateToFr(birthdateIso) : "",
+        birthdate_fr: birthdateFr,
         phone,
         email,
         weight_kg: weightKg,
+        weightKg: weightKg,
         height_cm: heightCm,
-        bmi_value: bmiValue !== null ? String(bmiValue) : "",
-        bmi_label: bmiLabel !== "—" ? bmiLabel : "",
+        heightCm: heightCm,
+        bmi_value: bmiValueText,
+        bmiValue: bmiValueText,
+        bmi_label: bmiLabelText,
+        bmiLabel: bmiLabelText,
     };
 }
 function computeProfileBmiValue(weightKg, heightCm) {
