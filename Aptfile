@@ -6,3 +6,4 @@ libgtk-3-0
 libgbm1
 libx11-xcb1
 libxcb-dri3-0
+libnspr4
