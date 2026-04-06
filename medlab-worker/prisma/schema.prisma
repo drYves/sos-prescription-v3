@@ -35,7 +35,7 @@ enum SubmissionStatus {
 
 model Doctor {
   id                String                @id @default(uuid())
-  wpUserId          Int                   @unique // Pont avec le login Hostinger
+  wpUserId          Int?                  @unique // Pont avec le login Hostinger
   firstName         String?
   lastName          String?
   email             String?               @unique
@@ -48,11 +48,13 @@ model Doctor {
   city              String?
   zipCode           String?
   signatureS3Key    String?               // Fichier stocké sécurisé sur S3 (Plus d'image WP)
+  deletedAt         DateTime?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   prescriptions     Prescription[]
   authoredMessages  PrescriptionMessage[] @relation("DoctorAuthoredMessages")
   uploadedArtifacts Artifact[]            @relation("DoctorUploadedArtifacts")
+
 }
 
 model Patient {
@@ -67,9 +69,11 @@ model Patient {
   weightKg      String?
   heightCm      String?
   note          String?
+  deletedAt     DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   prescriptions Prescription[]
+
 }
 
 model Prescription {
@@ -209,4 +213,3 @@ model AuthToken {
   @@index([email, expiresAt])
   @@index([used, expiresAt])
 }
-

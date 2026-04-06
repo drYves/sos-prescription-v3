@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace SOSPrescription\Shortcodes;
@@ -58,6 +59,11 @@ final class DoctorAccountShortcode
         return current_user_can('sosprescription_manage') || current_user_can('manage_options');
     }
 
+    private static function can_self_delete_account(): bool
+    {
+        return current_user_can('sosprescription_validate');
+    }
+
     /**
      * @param array<string, mixed> $atts
      */
@@ -77,15 +83,7 @@ final class DoctorAccountShortcode
             );
         }
 
-        // Assets (UX upload signature)
-        if (function_exists('wp_enqueue_style')) {
-            wp_enqueue_style(
-                'sosprescription-doctor-account',
-                SOSPRESCRIPTION_URL . 'assets/doctor-account.css',
-                [],
-                SOSPRESCRIPTION_VERSION
-            );
-
+        if (function_exists('wp_enqueue_script')) {
             wp_enqueue_script(
                 'sosprescription-doctor-account',
                 SOSPRESCRIPTION_URL . 'assets/doctor-account.js',
@@ -96,15 +94,19 @@ final class DoctorAccountShortcode
 
             $doctor_account_front_config = [
                 'verifyRppsEndpoint' => esc_url_raw(rest_url('sosprescription/v4/doctor/verify-rpps')),
+                'deleteAccountEndpoint' => esc_url_raw(rest_url('sosprescription/v4/account/delete')),
                 'restNonce' => wp_create_nonce('wp_rest'),
                 'strings' => [
                     'verifyLabel' => 'Vérifier',
                     'verifyingLabel' => 'Vérification…',
-                    'invalidLength' => '❌ RPPS invalide : 11 chiffres requis.',
-                    'successPrefix' => '✅ Identité vérifiée : Dr. ',
-                    'successUnknown' => '✅ RPPS valide.',
-                    'invalidLookup' => '❌ RPPS invalide ou introuvable.',
-                    'serviceUnavailable' => '❌ Vérification RPPS temporairement indisponible.',
+                    'invalidLength' => 'RPPS invalide : 11 chiffres requis.',
+                    'successPrefix' => 'Identité vérifiée : Dr. ',
+                    'successUnknown' => 'RPPS valide.',
+                    'invalidLookup' => 'RPPS invalide ou introuvable.',
+                    'serviceUnavailable' => 'Vérification RPPS temporairement indisponible.',
+                    'deleteAccountConfirm' => 'Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d\'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?',
+                    'deleteAccountBusy' => 'Suppression…',
+                    'deleteAccountError' => 'La suppression du compte a échoué. Merci de réessayer.',
                 ],
             ];
 
@@ -172,222 +174,431 @@ final class DoctorAccountShortcode
             $payload = get_transient($key);
             if (is_array($payload)) {
                 delete_transient($key);
-                $login = isset($payload['login']) ? (string) $payload['login'] : '';
-                $pass = isset($payload['pass']) ? (string) $payload['pass'] : '';
                 $email = isset($payload['email']) ? (string) $payload['email'] : '';
-                $notice_created = '<div class="notice notice-success" style="margin:14px 0;">'
-                    . '<p><strong>Compte médecin créé.</strong> Pensez à transmettre ces informations en canal sécurisé.</p>'
-                    . '<p><code>Login</code> : ' . esc_html($login) . '<br/><code>Email</code> : ' . esc_html($email) . '<br/><code>Mot de passe temporaire</code> : <code>' . esc_html($pass) . '</code></p>'
-                    . '</div>';
+                $notice_created = self::render_alert(
+                    'success',
+                    'Compte médecin créé',
+                    $email !== ''
+                        ? 'Le praticien peut désormais se connecter via Magic Link avec l’adresse ' . $email . '.'
+                        : 'Le praticien peut désormais se connecter via Magic Link à son compte médecin.'
+                );
             }
         }
 
-        $title = $is_self ? 'Mon compte médecin' : ('Compte médecin : ' . (string) $user->display_name);
+        $screen_title = $is_self ? 'Mon compte médecin' : ('Compte médecin : ' . (string) $user->display_name);
+        $profile_values = [
+            'doctor_title' => $doctor_title,
+            'rpps' => $rpps,
+            'specialty' => $specialty,
+            'diploma_label' => $diploma_label,
+            'diploma_university_location' => $diploma_university_location,
+            'diploma_honors' => $diploma_honors,
+            'issue_place' => $issue_place,
+            'address' => $address,
+            'phone' => $phone,
+            'sig_file_id' => $sig_file_id,
+        ];
 
-        ob_start();
-        echo '<div class="wrap" style="max-width:980px; margin: 0 auto;">';
-        echo '<h1 style="display:flex; align-items:center; gap:10px; margin: 22px 0 12px;">';
-        echo '<img src="' . esc_url(SOSPRESCRIPTION_URL . 'assets/caduceus.svg') . '" alt="" style="width:26px;height:26px;" />';
-        echo '<span>' . esc_html($title) . '</span>';
-        echo '</h1>';
+        $content = '';
+        $content .= ScreenFrame::toolbarMeta(
+            'doctor-account',
+            self::render_session_toolbar($current_id, $user, $is_admin_view, $is_self)
+        );
 
-        echo '<p style="max-width:980px; color:#374151;">'
-            . 'Complétez vos informations professionnelles (RPPS, spécialité, adresse) et ajoutez votre signature. '
-            . 'Ces informations seront utilisées pour générer les documents médicaux (ordonnances, compte-rendus) dans les prochaines versions.'
-            . '</p>';
+        $alerts = self::render_status_alerts($updated, $created, $error, $notice_created);
+        if ($alerts !== '') {
+            $content .= ScreenFrame::statusSurface('doctor-account', $alerts);
+        }
+
+        $content .= ScreenFrame::mount(
+            'doctor-account',
+            self::render_profile_section($screen_title, $user, $profile_values, $is_self, $is_admin_view),
+            [],
+            ['sp-ui']
+        );
+
+        if ($is_admin_view) {
+            $content .= ScreenFrame::mount(
+                'doctor-account',
+                self::render_management_section(),
+                [],
+                ['sp-ui']
+            );
+        }
+
+        if ($is_self && self::can_self_delete_account()) {
+            $content .= ScreenFrame::mount(
+                'doctor-account',
+                self::render_delete_account_section(),
+                [],
+                ['sp-ui']
+            );
+        }
+
+        return ScreenFrame::screen('doctor-account', $content, [], ['sp-ui']);
+    }
+
+    private static function render_session_toolbar(int $current_id, \WP_User $target_user, bool $is_admin_view, bool $is_self): string
+    {
+        $current_user = wp_get_current_user();
+        $current_label = self::resolve_doctor_label($current_user instanceof \WP_User ? $current_user : null, $current_id);
+        $target_label = self::resolve_doctor_label($target_user, (int) $target_user->ID);
+
+        $html = '';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= ScreenFrame::badge('Connecté : ' . $current_label, 'success', true);
+
+        if ($is_admin_view && !$is_self) {
+            $html .= ScreenFrame::badge('Profil affiché : ' . $target_label, 'info', false);
+        }
+
+        $html .= self::render_logout_form();
+        $html .= '</div>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    private static function render_logout_form(): string
+    {
+        $html = '';
+        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        $html .= '<input type="hidden" name="action" value="sosprescription_logout" />';
+        $html .= wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
+        $html .= '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>';
+        $html .= '</form>';
+
+        return $html;
+    }
+
+    private static function render_status_alerts(bool $updated, bool $created, string $error, string $notice_created): string
+    {
+        $html = '';
 
         if ($updated) {
-            echo '<div class="notice notice-success is-dismissible" style="margin:14px 0;"><p>Profil enregistré.</p></div>';
+            $html .= self::render_alert('success', 'Profil enregistré', 'Vos informations professionnelles ont été enregistrées.');
         }
-        if ($created) {
-            echo '<div class="notice notice-success is-dismissible" style="margin:14px 0;"><p>Compte médecin créé.</p></div>';
+        if ($created && $notice_created === '') {
+            $html .= self::render_alert('success', 'Compte médecin créé', 'Le praticien peut désormais se connecter avec son adresse e-mail professionnelle.');
         }
         if ($error !== '') {
-            echo '<div class="notice notice-error" style="margin:14px 0;"><p>' . esc_html($error) . '</p></div>';
+            $html .= self::render_alert('error', 'Action impossible', $error);
         }
         if ($notice_created !== '') {
-            echo $notice_created; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+            $html .= $notice_created;
         }
 
-        // --- Profil médecin
-        echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
-        echo '<h2 style="margin-top:0;">Informations professionnelles</h2>';
+        return $html;
+    }
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
-        echo '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';
-        echo '<input type="hidden" name="user_id" value="' . esc_attr((string) $user->ID) . '" />';
-        wp_nonce_field('sosprescription_doctor_profile_save');
+    private static function render_alert(string $variant, string $title, string $body): string
+    {
+        return '<div class="sp-alert sp-alert--' . esc_attr(sanitize_html_class($variant)) . '" role="status" aria-live="polite">'
+            . '<p class="sp-alert__title">' . esc_html($title) . '</p>'
+            . '<p class="sp-alert__body">' . esc_html($body) . '</p>'
+            . '</div>';
+    }
 
-        echo '<table class="form-table" role="presentation"><tbody>';
+    private static function render_delete_account_section(): string
+    {
+        $html = '';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h2>Suppression de compte</h2>';
+        $html .= '<p class="sp-field__help">Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.</p>';
+        $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
+        $html .= '<button type="button" class="sp-button sp-button--secondary" style="color: var(--sp-color-warning, #c2410c); border-color: currentColor;" id="sp-delete-account-btn">Supprimer mon compte</button>';
+        $html .= '</div>';
+        $html .= '</div>';
 
-        echo '<tr><th scope="row">Email</th><td><code>' . esc_html((string) $user->user_email) . '</code></td></tr>';
+        return $html;
+    }
 
-        echo '<tr><th scope="row"><label for="sp_doc_title">Titre</label></th><td>';
-        echo '<select id="sp_doc_title" name="doctor_title">';
-        $title_value = $doctor_title !== '' ? $doctor_title : 'docteur';
-        echo '<option value="docteur"' . selected($title_value, 'docteur', false) . '>Docteur (Dr)</option>';
-        echo '<option value="professeur"' . selected($title_value, 'professeur', false) . '>Professeur (Pr)</option>';
-        echo '</select>';
-        echo '<p class="description">Affichage sur l’ordonnance (en-tête) : <code>Dr</code> ou <code>Pr</code>.</p>';
-        echo '</td></tr>';
+    /**
+     * @param array<string, mixed> $profile_values
+     */
+    private static function render_profile_section(string $screen_title, \WP_User $user, array $profile_values, bool $is_self, bool $is_admin_view): string
+    {
+        $doctor_title = isset($profile_values['doctor_title']) ? (string) $profile_values['doctor_title'] : '';
+        $rpps = isset($profile_values['rpps']) ? (string) $profile_values['rpps'] : '';
+        $specialty = isset($profile_values['specialty']) ? (string) $profile_values['specialty'] : '';
+        $diploma_label = isset($profile_values['diploma_label']) ? (string) $profile_values['diploma_label'] : '';
+        $diploma_university_location = isset($profile_values['diploma_university_location']) ? (string) $profile_values['diploma_university_location'] : '';
+        $diploma_honors = isset($profile_values['diploma_honors']) ? (string) $profile_values['diploma_honors'] : '';
+        $issue_place = isset($profile_values['issue_place']) ? (string) $profile_values['issue_place'] : '';
+        $address = isset($profile_values['address']) ? (string) $profile_values['address'] : '';
+        $phone = isset($profile_values['phone']) ? (string) $profile_values['phone'] : '';
+        $sig_file_id = isset($profile_values['sig_file_id']) ? (int) $profile_values['sig_file_id'] : 0;
 
-        echo '<tr><th scope="row"><label for="sp_doc_display_name">Nom affiché</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_display_name" name="display_name" value="' . esc_attr((string) $user->display_name) . '" />';
-        echo '<p class="description">Nom affiché dans la console et, plus tard, sur les documents.</p>';
-        echo '</td></tr>';
+        $html = '';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h1>' . esc_html($screen_title) . '</h1>';
+        $html .= '<p class="sp-field__help">Complétez vos informations professionnelles et votre signature. Ces données sont utilisées pour générer vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '</div>';
 
-        echo '<tr><th scope="row"><label for="sp_doc_rpps">RPPS</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex: 10001234567" />';
-        echo '<p class="description">Identifiant RPPS du prescripteur. Recommandé (conformité).</p>';
-        echo '</td></tr>';
+        if ($is_admin_view && !$is_self) {
+            $html .= self::render_alert(
+                'info',
+                'Mode administration',
+                'Vous modifiez actuellement le profil professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
+            );
+        }
 
-        echo '<tr><th scope="row"><label for="sp_doc_specialty">Spécialité / qualification</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_specialty" name="specialty" value="' . esc_attr($specialty) . '" placeholder="Ex: Médecin généraliste" />';
-        echo '</td></tr>';
+        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
+        $html .= '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';
+        $html .= wp_nonce_field('sosprescription_doctor_profile_save', '_wpnonce', true, false);
 
-        // Ordonnance "Premium" : Diplôme + lieu de signature
-        echo '<tr><th scope="row"><label for="sp_doc_diploma_label">Diplôme (libellé)</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_diploma_label" name="diploma_label" value="' . esc_attr($diploma_label) . '" placeholder="Ex: Diplômé Faculté" />';
-        echo '<p class="description">Texte affiché sur l’ordonnance (ex: <code>Diplômé Faculté</code>).</p>';
-        echo '</td></tr>';
+        if ($is_admin_view && !$is_self) {
+            $html .= '<input type="hidden" name="target_user_id" value="' . esc_attr((string) $user->ID) . '" />';
+        }
 
-        echo '<tr><th scope="row"><label for="sp_doc_diploma_university">Université / lieu</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_diploma_university" name="diploma_university_location" value="' . esc_attr($diploma_university_location) . '" placeholder="Ex: Paris XIII" />';
-        echo '<p class="description">Exemple affichage : <code>Diplômé Faculté Paris XIII</code>.</p>';
-        echo '</td></tr>';
+        $html .= '<div class="sp-stack">';
 
-        echo '<tr><th scope="row"><label for="sp_doc_diploma_honors">Distinctions (optionnel)</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_diploma_honors" name="diploma_honors" value="' . esc_attr($diploma_honors) . '" placeholder="Ex: Lauréat de l\'Académie" />';
-        echo '<p class="description">Ajouté après un séparateur • si renseigné.</p>';
-        echo '</td></tr>';
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_display_name">Nom affiché</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_display_name" name="display_name" value="' . esc_attr((string) $user->display_name) . '" placeholder="Ex : Dr Marie Dupont" />';
+        $html .= '<p class="sp-field__help">Nom affiché dans votre espace sécurisé et sur vos documents.</p>';
+        $html .= '</div>';
 
-        echo '<tr><th scope="row"><label for="sp_doc_issue_place">Lieu de signature</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_issue_place" name="issue_place" value="' . esc_attr($issue_place) . '" placeholder="Ex: Saint-Laurent-du-Var" />';
-        echo '<p class="description">Sera utilisé dans le footer : <code>Fait à …, le …</code>.</p>';
-        echo '</td></tr>';
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_title">Titre professionnel</label>';
+        $html .= '<select class="sp-select" id="sp_doc_title" name="doctor_title">';
+        $html .= '<option value="docteur"' . selected($doctor_title, 'docteur', false) . '>Docteur</option>';
+        $html .= '<option value="professeur"' . selected($doctor_title, 'professeur', false) . '>Professeur</option>';
+        $html .= '</select>';
+        $html .= '</div>';
 
-        echo '<tr><th scope="row"><label for="sp_doc_address">Adresse professionnelle</label></th><td>';
-        echo '<textarea class="large-text" rows="4" id="sp_doc_address" name="address" placeholder="Adresse (cabinet / structure)">' . esc_textarea($address) . '</textarea>';
-        echo '<p class="description">Cette adresse pourra apparaître sur l’ordonnance PDF.</p>';
-        echo '</td></tr>';
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_rpps">Numéro RPPS</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex : 10001234567" />';
+        $html .= '<div class="sp-stack" data-sp-rpps-actions="1"></div>';
+        $html .= '<p class="sp-field__help">Identifiant professionnel du prescripteur. Recommandé pour la conformité et la vérification d’identité.</p>';
+        $html .= '</div>';
 
-        echo '<tr><th scope="row"><label for="sp_doc_phone">Téléphone professionnel</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_doc_phone" name="phone" value="' . esc_attr($phone) . '" placeholder="Ex: 01 23 45 67 89" />';
-        echo '</td></tr>';
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_specialty">Spécialité / qualification</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_specialty" name="specialty" value="' . esc_attr($specialty) . '" placeholder="Ex : Médecin généraliste" />';
+        $html .= '</div>';
 
-        // Signature
-        echo '<tr><th scope="row">Signature</th><td>';
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_diploma_label">Diplôme (libellé)</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_diploma_label" name="diploma_label" value="' . esc_attr($diploma_label) . '" placeholder="Ex : Diplômé Faculté" />';
+        $html .= '<p class="sp-field__help">Texte affiché sur l’ordonnance, par exemple « Diplômé Faculté ».</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_diploma_university">Université / lieu</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_diploma_university" name="diploma_university_location" value="' . esc_attr($diploma_university_location) . '" placeholder="Ex : Paris XIII" />';
+        $html .= '<p class="sp-field__help">Exemple d’affichage : « Diplômé Faculté Paris XIII ».</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_diploma_honors">Distinctions (optionnel)</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_diploma_honors" name="diploma_honors" value="' . esc_attr($diploma_honors) . '" placeholder="Ex : Lauréat de l’Académie" />';
+        $html .= '<p class="sp-field__help">Ajouté sur le document uniquement si vous le renseignez.</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_issue_place">Lieu de signature</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_issue_place" name="issue_place" value="' . esc_attr($issue_place) . '" placeholder="Ex : Saint-Laurent-du-Var" />';
+        $html .= '<p class="sp-field__help">Utilisé dans la mention « Fait à …, le … ».</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_address">Adresse professionnelle</label>';
+        $html .= '<textarea class="sp-textarea" rows="4" id="sp_doc_address" name="address" placeholder="Adresse du cabinet ou de la structure">' . esc_textarea($address) . '</textarea>';
+        $html .= '<p class="sp-field__help">Cette adresse peut apparaître sur vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_phone">Numéro de transfert (masqué)</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_phone" name="phone" value="' . esc_attr($phone) . '" placeholder="Ex : 06 12 34 56 78" />';
+        $html .= '<p class="sp-field__help">Pour protéger votre vie privée, ce numéro ne sera jamais imprimé sur vos ordonnances. La plateforme génèrera un numéro de standard sécurisé (09) qui redirigera les appels des pharmaciens vers cette ligne.</p>';
+        $html .= '</div>';
+
+        $html .= self::render_signature_field($sig_file_id);
+
+        $html .= '<div class="sp-stack">';
+        $html .= '<button type="submit" class="sp-button sp-button--primary">Enregistrer le profil</button>';
+        if (!$is_self && $is_admin_view) {
+            $back = remove_query_arg('doctor_user_id');
+            $html .= '<a class="sp-button sp-button--secondary" href="' . esc_url($back) . '">Retour à la liste des médecins</a>';
+        }
+        $html .= '</div>';
+
+        $html .= '</div>';
+        $html .= '</form>';
+        $html .= '</div>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    private static function render_signature_field(int $sig_file_id): string
+    {
+        $html = '';
+        $html .= '<div class="sp-field">';
+        $html .= '<span class="sp-field__label">Signature</span>';
+
         if ($sig_file_id > 0) {
             $download_url = wp_nonce_url(
                 admin_url('admin-post.php?action=sosprescription_doctor_file_download&file_id=' . $sig_file_id . '&inline=1'),
                 'sosprescription_doctor_file_download'
             );
-            echo '<div style="margin-bottom:10px;">✅ Signature enregistrée (fichier #' . esc_html((string) $sig_file_id) . ') — '
-                . '<a href="' . esc_url($download_url) . '" target="_blank" rel="noopener">Prévisualiser</a>'
-                . '</div>';
-            echo '<label style="display:block; margin:8px 0;"><input type="checkbox" name="remove_signature" value="1" /> Supprimer la signature actuelle</label>';
+
+            $html .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">';
+            $html .= '<p class="sp-alert__title">Signature enregistrée</p>';
+            $html .= '<p class="sp-alert__body">Une signature privée est déjà associée à votre profil. <a href="' . esc_url($download_url) . '" target="_blank" rel="noopener">Prévisualiser la signature actuelle</a>.</p>';
+            $html .= '</div>';
+            $html .= '<label class="sp-choice">';
+            $html .= '<input class="sp-choice__input" type="checkbox" name="remove_signature" value="1" />';
+            $html .= '<span class="sp-choice__label">Supprimer la signature actuelle lors de l’enregistrement</span>';
+            $html .= '</label>';
         } else {
-            echo '<div style="margin-bottom:10px; color:#6b7280;">Aucune signature enregistrée.</div>';
+            $html .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">';
+            $html .= '<p class="sp-alert__title">Aucune signature enregistrée</p>';
+            $html .= '<p class="sp-alert__body">Ajoutez une signature PNG ou JPG pour préparer vos futurs documents médicaux sécurisés.</p>';
+            $html .= '</div>';
         }
 
-        // Custom file input (label styled as a button) + real-time validation + preview + drag&drop + dimensions hint.
-        echo '<div class="sp-signature-upload-wrap">';
-        echo '<input type="file" id="signature_file" class="sp-hidden-file-input" name="signature_file" accept="image/png,image/jpeg" />';
-        echo '<label for="signature_file" id="sp_signature_label" class="sp-custom-file-upload custom-file-upload" tabindex="0" role="button" aria-label="Choisir une signature (PNG/JPG) ou glisser-déposer">'
-            . '<span class="sp-signature-upload-icon" aria-hidden="true">'
-            . '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            . '<path d="M12 3v10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
-            . '<path d="M8 7l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
-            . '<path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
-            . '</svg>'
-            . '</span>'
-            . '<span class="sp-signature-upload-text">'
-            . '<strong id="sp_signature_label_text">Cliquez ou glissez-déposez votre signature (PNG/JPG)</strong>'
-            . '<span>Recommandé : 800×200 px • &lt; 1 Mo (idéal &lt; 200ko) • fond transparent ou blanc</span>'
-            . '</span>'
-            . '</label>';
+        $html .= '<input class="sp-input" type="file" id="signature_file" name="signature_file" accept="image/png,image/jpeg" />';
+        $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, largeur 600 à 1000 px, hauteur 120 à 250 px, idéalement moins de 200 ko.</p>';
+        $html .= '<div id="sp_signature_feedback" class="sp-alert sp-alert--info" hidden role="status" aria-live="polite"></div>';
+        $html .= '<p id="sp_signature_meta" class="sp-field__help" hidden></p>';
+        $html .= '<div id="sp_signature_preview" class="sp-card" hidden>';
+        $html .= '<div class="sp-stack">';
+        $html .= '<p class="sp-field__help">Prévisualisation locale avant enregistrement.</p>';
+        $html .= '<img id="sp_signature_preview_img" alt="Prévisualisation de la signature" />';
+        $html .= '<div class="sp-stack">';
+        $html .= '<button type="button" id="sp_signature_clear" class="sp-button sp-button--secondary">Retirer le fichier sélectionné</button>';
+        $html .= '</div>';
+        $html .= '</div>';
+        $html .= '</div>';
+        $html .= '</div>';
 
-        echo '<div id="sp_signature_error" class="sp-signature-error" style="display:none" role="alert" aria-live="polite"></div>';
-        echo '<div id="sp_signature_meta" class="sp-signature-meta" style="display:none" aria-live="polite"></div>';
-        echo '<div id="sp_signature_preview" class="sp-signature-preview" style="display:none">'
-            . '<div class="sp-signature-preview-row">'
-            . '<img id="sp_signature_preview_img" alt="Prévisualisation de la signature" />'
-            . '<button type="button" id="sp_signature_clear" class="sp-signature-clear">Retirer</button>'
-            . '</div>'
-            . '</div>';
-        echo '</div>';
+        return $html;
+    }
 
-        echo '<p class="description">Le fichier est stocké en privé (non public). <strong>Astuce :</strong> exportez votre signature en PNG (fond transparent) et recadrez-la au plus près (sans marges) pour un rendu premium sur l’ordonnance. <strong>Recommandé :</strong> <span style="white-space:nowrap;">800×200px</span> (ou largeur 600–1000px, hauteur 120–250px), idéalement <strong>&lt; 200ko</strong>.</p>';
-        echo '</td></tr>';
+    private static function render_management_section(): string
+    {
+        $doctors = get_users([
+            'role__in' => ['sosprescription_doctor'],
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+            'number' => 200,
+        ]);
 
-        echo '</tbody></table>';
+        $html = '';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h2>Gestion des médecins</h2>';
+        $html .= '<p class="sp-field__help">Créez rapidement un compte médecin et accédez ensuite à son profil professionnel, à son RPPS et à sa signature.</p>';
+        $html .= '</div>';
 
-        echo '<p style="margin: 14px 0 0;">';
-        echo '<button type="submit" class="button button-primary">Enregistrer</button>';
-        if (!$is_self && $is_admin_view) {
-            $back = remove_query_arg('doctor_user_id');
-            echo ' <a class="button" href="' . esc_url($back) . '">Retour</a>';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h3>Créer un compte médecin</h3>';
+        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        $html .= '<input type="hidden" name="action" value="sosprescription_doctor_create" />';
+        $html .= wp_nonce_field('sosprescription_doctor_create', '_wpnonce', true, false);
+        $html .= '<div class="sp-stack">';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_new_doc_email">Adresse e-mail</label>';
+        $html .= '<input class="sp-input" type="email" id="sp_new_doc_email" name="email" required />';
+        $html .= '<p class="sp-field__help">Cette adresse servira à la connexion Magic Link du praticien.</p>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_new_doc_name">Nom affiché</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_new_doc_name" name="display_name" placeholder="Dr Marie Dupont" />';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_new_doc_rpps">Numéro RPPS</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_new_doc_rpps" name="rpps" placeholder="10001234567" />';
+        $html .= '<div class="sp-stack" data-sp-rpps-actions="1"></div>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-stack">';
+        $html .= '<button type="submit" class="sp-button sp-button--primary">Créer le compte médecin</button>';
+        $html .= '</div>';
+
+        $html .= '</div>';
+        $html .= '</form>';
+        $html .= '</div>';
+
+        $html .= '<div class="sp-stack">';
+        $html .= '<h3>Comptes médecins existants</h3>';
+        if (empty($doctors)) {
+            $html .= self::render_alert('info', 'Aucun compte médecin', 'Aucun compte avec le rôle sosprescription_doctor n’a été trouvé.');
+        } else {
+            $html .= self::render_doctors_table($doctors);
         }
-        echo '</p>';
-        echo '</form>';
-        echo '</div>';
+        $html .= '</div>';
 
-        // --- Admin : liste & création médecins
-        if ($is_admin_view) {
-            echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
-            echo '<h2 style="margin-top:0;">Gestion des médecins</h2>';
-            echo '<p class="description">Création rapide + accès à l’édition du profil (RPPS, signature…).</p>';
+        $html .= '</div>';
+        $html .= '</div>';
 
-            // Create form
-            echo '<h3>Créer un compte médecin</h3>';
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            echo '<input type="hidden" name="action" value="sosprescription_doctor_create" />';
-            wp_nonce_field('sosprescription_doctor_create');
-            echo '<table class="form-table" role="presentation"><tbody>';
-            echo '<tr><th scope="row"><label for="sp_new_doc_email">Email</label></th><td><input class="regular-text" type="email" id="sp_new_doc_email" name="email" required /></td></tr>';
-            echo '<tr><th scope="row"><label for="sp_new_doc_name">Nom affiché</label></th><td><input class="regular-text" type="text" id="sp_new_doc_name" name="display_name" placeholder="Dr …" /></td></tr>';
-            echo '<tr><th scope="row"><label for="sp_new_doc_rpps">RPPS</label></th><td><input class="regular-text" type="text" id="sp_new_doc_rpps" name="rpps" placeholder="1000…" /></td></tr>';
-            echo '</tbody></table>';
-            echo '<p><button type="submit" class="button">Créer</button></p>';
-            echo '</form>';
+        return $html;
+    }
 
-            // List doctors
-            echo '<h3 style="margin-top:22px;">Comptes médecins existants</h3>';
-            $doctors = get_users([
-                'role__in' => ['sosprescription_doctor'],
-                'orderby' => 'display_name',
-                'order' => 'ASC',
-                'number' => 200,
-            ]);
+    /**
+     * @param array<int, \WP_User> $doctors
+     */
+    private static function render_doctors_table(array $doctors): string
+    {
+        $base_url = is_singular() ? (string) get_permalink() : (string) home_url('/compte-medecin/');
 
-            if (empty($doctors)) {
-                echo '<div class="notice notice-info"><p>Aucun compte médecin (rôle <code>sosprescription_doctor</code>) trouvé.</p></div>';
-            } else {
-                echo '<div style="overflow:auto;">';
-                echo '<table class="widefat striped">';
-                echo '<thead><tr><th>Nom</th><th>Email</th><th>RPPS</th><th style="text-align:right;">Action</th></tr></thead><tbody>';
-                foreach ($doctors as $d) {
-                    $d_id = (int) $d->ID;
-                    $d_rpps = self::read_user_meta_bridge($d_id, [self::META_RPPS, self::LEGACY_META_RPPS], '');
-                    $edit_url = add_query_arg(['doctor_user_id' => $d_id], (string) get_permalink());
-                    echo '<tr>';
-                    echo '<td>' . esc_html((string) $d->display_name) . '</td>';
-                    echo '<td><code>' . esc_html((string) $d->user_email) . '</code></td>';
-                    echo '<td><code>' . esc_html($d_rpps !== '' ? $d_rpps : '—') . '</code></td>';
-                    echo '<td style="text-align:right;"><a class="button button-small" href="' . esc_url($edit_url) . '">Éditer</a></td>';
-                    echo '</tr>';
-                }
-                echo '</tbody></table>';
-                echo '</div>';
-            }
+        $html = '';
+        $html .= '<div class="sp-data-grid">';
+        $html .= '<table class="sp-data-table">';
+        $html .= '<thead><tr><th>Nom</th><th>E-mail</th><th>RPPS</th><th>Action</th></tr></thead>';
+        $html .= '<tbody>';
 
-            echo '</div>';
+        foreach ($doctors as $doctor) {
+            $doctor_id = (int) $doctor->ID;
+            $doctor_rpps = self::read_user_meta_bridge($doctor_id, [self::META_RPPS, self::LEGACY_META_RPPS], '');
+            $edit_url = add_query_arg(['doctor_user_id' => $doctor_id], $base_url);
+
+            $html .= '<tr>';
+            $html .= '<td>' . esc_html(self::resolve_doctor_label($doctor, $doctor_id)) . '</td>';
+            $html .= '<td>' . esc_html((string) $doctor->user_email) . '</td>';
+            $html .= '<td>' . esc_html($doctor_rpps !== '' ? $doctor_rpps : '—') . '</td>';
+            $html .= '<td><a class="sp-button sp-button--secondary" href="' . esc_url($edit_url) . '">Éditer</a></td>';
+            $html .= '</tr>';
         }
 
-        echo '</div>';
+        $html .= '</tbody>';
+        $html .= '</table>';
+        $html .= '</div>';
 
-        $html = (string) ob_get_clean();
-        return ScreenFrame::screen('doctor-account', $html);
+        return $html;
+    }
+
+    private static function resolve_doctor_label(?\WP_User $user, int $user_id): string
+    {
+        if (!$user instanceof \WP_User) {
+            return 'Utilisateur';
+        }
+
+        $title_meta = strtolower(trim((string) self::read_user_meta_bridge($user_id, [self::META_TITLE], '')));
+        $title_prefix = '';
+        if ($title_meta === 'professeur') {
+            $title_prefix = 'Pr';
+        } elseif ($title_meta === 'docteur') {
+            $title_prefix = 'Dr';
+        }
+
+        $display_name = trim((string) $user->display_name);
+        if ($display_name === '') {
+            $display_name = trim((string) $user->user_email);
+        }
+
+        return trim($title_prefix . ' ' . $display_name);
     }
 
     public static function handle_profile_save(): void
@@ -395,42 +606,39 @@ final class DoctorAccountShortcode
         if (!is_user_logged_in()) {
             wp_die('Connexion requise.');
         }
-        if (!self::can_access_doctor_area()) {
-            wp_die('Accès refusé.');
-        }
-
         check_admin_referer('sosprescription_doctor_profile_save');
 
         $current_id = (int) get_current_user_id();
-        $target_id = isset($_POST['user_id']) ? (int) $_POST['user_id'] : $current_id;
-        if ($target_id < 1) {
-            $target_id = $current_id;
+        $target_id = $current_id;
+
+        if (self::can_manage_doctors() && isset($_POST['target_user_id'])) {
+            $maybe = (int) $_POST['target_user_id'];
+            if ($maybe > 0) {
+                $target_id = $maybe;
+            }
         }
 
-        if ($target_id !== $current_id && !self::can_manage_doctors()) {
+        if (!$target_id || (!self::can_manage_doctors() && $target_id !== $current_id)) {
             wp_die('Accès refusé.');
         }
 
         $display_name = isset($_POST['display_name']) ? sanitize_text_field((string) wp_unslash($_POST['display_name'])) : '';
+        $doctor_title = isset($_POST['doctor_title']) ? sanitize_text_field((string) wp_unslash($_POST['doctor_title'])) : 'docteur';
         $rpps = isset($_POST['rpps']) ? preg_replace('/[^0-9]/', '', (string) wp_unslash($_POST['rpps'])) : '';
         $specialty = isset($_POST['specialty']) ? sanitize_text_field((string) wp_unslash($_POST['specialty'])) : '';
-        $address = isset($_POST['address']) ? sanitize_textarea_field((string) wp_unslash($_POST['address'])) : '';
+        $address = isset($_POST['address']) ? wp_kses_post((string) wp_unslash($_POST['address'])) : '';
         $phone = isset($_POST['phone']) ? sanitize_text_field((string) wp_unslash($_POST['phone'])) : '';
 
-        // "Premium" ordonnance
         $diploma_label = isset($_POST['diploma_label']) ? sanitize_text_field((string) wp_unslash($_POST['diploma_label'])) : '';
         $diploma_university_location = isset($_POST['diploma_university_location']) ? sanitize_text_field((string) wp_unslash($_POST['diploma_university_location'])) : '';
         $diploma_honors = isset($_POST['diploma_honors']) ? sanitize_text_field((string) wp_unslash($_POST['diploma_honors'])) : '';
         $issue_place = isset($_POST['issue_place']) ? sanitize_text_field((string) wp_unslash($_POST['issue_place'])) : '';
 
-        // Titre (Docteur / Professeur)
-        $doctor_title = isset($_POST['doctor_title']) ? sanitize_text_field((string) wp_unslash($_POST['doctor_title'])) : '';
         $allowed_titles = ['docteur', 'professeur'];
         if (!in_array($doctor_title, $allowed_titles, true)) {
             $doctor_title = 'docteur';
         }
 
-        // display_name (WP user)
         if ($display_name !== '') {
             wp_update_user([
                 'ID' => $target_id,
@@ -438,7 +646,6 @@ final class DoctorAccountShortcode
             ]);
         }
 
-        // user meta
         self::write_user_meta_bridge($target_id, [self::META_TITLE], (string) $doctor_title);
         self::write_user_meta_bridge($target_id, [self::META_RPPS, self::LEGACY_META_RPPS], (string) $rpps);
         self::write_user_meta_bridge($target_id, [self::META_SPECIALTY, self::LEGACY_META_SPECIALTY], (string) $specialty);
@@ -450,13 +657,11 @@ final class DoctorAccountShortcode
         self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_HONORS], (string) $diploma_honors);
         self::write_user_meta_bridge($target_id, [self::META_ISSUE_PLACE, self::LEGACY_META_ISSUE_PLACE], (string) $issue_place);
 
-        // Remove signature
         $remove_signature = isset($_POST['remove_signature']) && (string) wp_unslash($_POST['remove_signature']) === '1';
         if ($remove_signature) {
             delete_user_meta($target_id, self::META_SIG_FILE_ID);
         }
 
-        // Upload signature if provided
         if (isset($_FILES['signature_file']) && is_array($_FILES['signature_file']) && isset($_FILES['signature_file']['tmp_name']) && (string) $_FILES['signature_file']['tmp_name'] !== '') {
             $stored = FileStorage::store_uploaded($_FILES['signature_file']);
             if (is_wp_error($stored)) {
@@ -525,7 +730,6 @@ final class DoctorAccountShortcode
             exit;
         }
 
-        // Génère un login à partir de l'email (unique)
         $base = preg_replace('/@.*/', '', $email);
         $login = sanitize_user((string) $base, true);
         if ($login === '') {
@@ -561,13 +765,10 @@ final class DoctorAccountShortcode
 
         self::write_user_meta_bridge((int) $user_id, [self::META_RPPS, self::LEGACY_META_RPPS], (string) $rpps);
 
-        // Tente d'envoyer un email WordPress standard (si configuré)
         if (function_exists('wp_new_user_notification')) {
-            // Notify user only
             @wp_new_user_notification((int) $user_id, null, 'user');
         }
 
-        // Notice one-shot pour l'admin
         $admin_id = (int) get_current_user_id();
         set_transient('sosprescription_doctor_created_notice_' . $admin_id, [
             'login' => $login,

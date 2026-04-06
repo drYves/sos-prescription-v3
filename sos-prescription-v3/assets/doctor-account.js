@@ -470,6 +470,70 @@
     });
   }
 
+  function initAccountDeletion() {
+    var config = getDoctorAccountConfig();
+    var button = document.getElementById('sp-delete-account-btn');
+    var feedback = document.getElementById('sp-delete-account-feedback');
+    if (!button || !config || !config.deleteAccountEndpoint || !config.restNonce || typeof window.fetch !== 'function') return;
+
+    var deleteConfirm = normalizeString(config.strings && config.strings.deleteAccountConfirm) || "Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?";
+    var busyLabel = normalizeString(config.strings && config.strings.deleteAccountBusy) || 'Suppression…';
+    var errorLabel = normalizeString(config.strings && config.strings.deleteAccountError) || 'La suppression du compte a échoué. Merci de réessayer.';
+    var originalLabel = normalizeString(button.textContent) || 'Supprimer mon compte';
+
+    function setBusy(isBusy) {
+      button.disabled = !!isBusy;
+      button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+      button.textContent = isBusy ? busyLabel : originalLabel;
+    }
+
+    button.addEventListener('click', function () {
+      clearFeedback(feedback);
+
+      if (!window.confirm(deleteConfirm)) {
+        return;
+      }
+
+      setBusy(true);
+      fetch(config.deleteAccountEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'application/json',
+          'X-WP-Nonce': config.restNonce
+        },
+        body: JSON.stringify({})
+      })
+        .then(function (response) {
+          return response.text().then(function (text) {
+            return {
+              ok: response.ok,
+              status: response.status,
+              data: safeJsonParse(text) || {}
+            };
+          });
+        })
+        .then(function (result) {
+          var data = result.data || {};
+          if (result.ok && data.ok === true && data.deleted === true) {
+            setFeedback(feedback, 'success', 'Compte supprimé. Redirection…');
+            window.location.assign('/');
+            return;
+          }
+
+          var message = normalizeString(data.message || '') || errorLabel;
+          setFeedback(feedback, 'error', message);
+        })
+        .catch(function () {
+          setFeedback(feedback, 'error', errorLabel);
+        })
+        .finally(function () {
+          setBusy(false);
+        });
+    });
+  }
+
   function initRppsVerification() {
     var config = getDoctorAccountConfig();
     if (!config) return;
@@ -485,5 +549,6 @@
   ready(function () {
     initSignatureUpload();
     initRppsVerification();
+    initAccountDeletion();
   });
 })();

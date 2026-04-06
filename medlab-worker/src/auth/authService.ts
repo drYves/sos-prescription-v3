@@ -81,6 +81,8 @@ export class AuthService {
         this.prisma.doctor.findFirst({
           where: {
             email: { equals: email, mode: "insensitive" },
+            deletedAt: null,
+            wpUserId: { not: null },
           },
           select: {
             wpUserId: true,
@@ -89,6 +91,7 @@ export class AuthService {
         this.prisma.patient.findMany({
           where: {
             email: { equals: email, mode: "insensitive" },
+            deletedAt: null,
             wpUserId: { not: null },
           },
           select: {
@@ -289,6 +292,11 @@ export class AuthService {
           return buildInvalidConsumeResult(row.email);
         }
 
+        const ownerIsActive = await doesAuthTokenOwnerStillExist(tx, row.ownerRole, row.ownerWpUserId);
+        if (!ownerIsActive) {
+          return buildInvalidConsumeResult(row.email);
+        }
+
         const updated = await tx.authToken.updateMany({
           where: {
             id: row.id,
@@ -412,6 +420,42 @@ function buildInvalidConsumeResult(email = ""): ConsumeMagicLinkResult {
     ownerRole: null,
     ownerWpUserId: null,
   };
+}
+
+async function doesAuthTokenOwnerStillExist(
+  tx: Prisma.TransactionClient,
+  ownerRole: ActorRole,
+  ownerWpUserId: number,
+): Promise<boolean> {
+  if (ownerRole === ActorRole.DOCTOR) {
+    const doctor = await tx.doctor.findFirst({
+      where: {
+        wpUserId: ownerWpUserId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return doctor != null;
+  }
+
+  if (ownerRole === ActorRole.PATIENT) {
+    const patient = await tx.patient.findFirst({
+      where: {
+        wpUserId: ownerWpUserId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return patient != null;
+  }
+
+  return false;
 }
 
 function isUniqueTokenError(err: unknown): boolean {

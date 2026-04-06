@@ -4,6 +4,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import { ActorRole, ArtifactKind, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
 import { AnnuaireSanteService, AnnuaireSanteServiceError } from "../admission/annuaireSanteService";
+import { AccountService, AccountServiceError } from "../auth/accountService";
 import { AuthService, AuthServiceError } from "../auth/authService";
 import { MemoryGuard } from "../admission/memoryGuard";
 import { OpenRouterService } from "../ai/openRouterService";
@@ -130,6 +131,17 @@ interface AuthVerifyLinkRequestBody {
   token?: unknown;
 }
 
+interface AccountDeleteRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+}
+
 interface LegacyReadFiltersRequestBody {
   status?: unknown;
   limit?: unknown;
@@ -209,6 +221,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const submissionRepo = new SubmissionRepo({ logger: deps.logger });
   const patientRepo = new PatientRepo({ logger: deps.logger });
   const authService = new AuthService({ logger: deps.logger });
+  const accountService = new AccountService({ logger: deps.logger });
   const mailService = new MailService({ logger: deps.logger });
   const annuaireSanteService = new AnnuaireSanteService({ logger: deps.logger });
   const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
@@ -232,6 +245,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/auth/verify-link") {
         return await handleAuthVerifyLink(req, res, deps, signingSecret, authService);
+      }
+
+      if (method === "POST" && path === "/api/v2/account/delete") {
+        return await handleAccountDelete(req, res, deps, signingSecret, accountService);
       }
 
       if (method === "POST" && path === "/api/v2/submissions") {
@@ -1337,6 +1354,76 @@ async function handleAuthVerifyLink(
       res,
       500,
       { ok: false, code: "ML_MAGIC_LINK_VERIFY_FAILED", req_id: reqId },
+      signingSecret,
+    );
+  }
+}
+
+async function handleAccountDelete(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  accountService: AccountService,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/account/delete");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as AccountDeleteRequestBody;
+    const actor = normalizeAccountDeleteActorInput(body.actor);
+    const result = await accountService.deleteAccount(actor.role, actor.wpUserId, reqId);
+
+    deps.logger.info(
+      "account.delete.accepted",
+      {
+        actor_role: actor.role,
+        actor_wp_user_id: actor.wpUserId,
+        account_id: result.accountId,
+        auth_tokens_revoked: result.authTokensRevoked,
+        not_found: result.notFound,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        deleted: true,
+        actor_role: actor.role === ActorRole.DOCTOR ? "doctor" : "patient",
+        req_id: reqId,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof AccountServiceError) {
+      if (err.statusCode >= 500) {
+        deps.logger.error("account.delete.failed", { code: err.code, reason: err.message }, reqId, err);
+      } else {
+        deps.logger.warning("account.delete.failed", { code: err.code, reason: err.message }, reqId, err);
+      }
+
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "account_delete_failed";
+    deps.logger.error("account.delete.failed", { reason: message }, reqId, err);
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_ACCOUNT_DELETE_FAILED", req_id: reqId },
       signingSecret,
     );
   }
@@ -2613,6 +2700,18 @@ async function parseSignedActionBody(
   } catch {
     return { ok: false, statusCode: 400, code: "ML_INGEST_BAD_REQUEST" };
   }
+}
+
+function normalizeAccountDeleteActorInput(value: unknown): { role: ActorRole; wpUserId: number } {
+  const actor = normalizeActorInput(value);
+  if ((actor.role !== ActorRole.DOCTOR && actor.role !== ActorRole.PATIENT) || actor.wpUserId == null) {
+    throw new AccountServiceError("ML_ACCOUNT_DELETE_BAD_REQUEST", 400, "account_actor_required");
+  }
+
+  return {
+    role: actor.role,
+    wpUserId: actor.wpUserId,
+  };
 }
 
 function normalizeDoctorReadActorInput(value: unknown): { role: "DOCTOR"; wpUserId: number } {

@@ -30,6 +30,14 @@
     return restBase + PROFILE_PATH;
   }
 
+  function buildAccountDeleteUrl() {
+    var restBase = resolveProfileRestBase();
+    if (restBase === '') {
+      throw new Error('Configuration REST V4 absente.');
+    }
+    return restBase + '/account/delete';
+  }
+
   function shouldBootstrapProfile() {
     var currentUser = cfg.currentUser && typeof cfg.currentUser === 'object' ? cfg.currentUser : {};
     var currentUserId = Number(currentUser.id || 0);
@@ -551,6 +559,107 @@
     });
   }
 
+  function clearDeleteFeedback(node) {
+    if (!node) {
+      return;
+    }
+
+    node.hidden = true;
+    node.className = 'sp-alert';
+    node.textContent = '';
+    node.setAttribute('role', 'status');
+  }
+
+  function setDeleteFeedback(node, tone, text) {
+    if (!node) {
+      return;
+    }
+
+    node.hidden = false;
+    node.className = 'sp-alert';
+    if (tone === 'error') {
+      node.classList.add('sp-alert--error');
+      node.setAttribute('role', 'alert');
+    } else if (tone === 'success') {
+      node.classList.add('sp-alert--success');
+      node.setAttribute('role', 'status');
+    } else {
+      node.classList.add('sp-alert--info');
+      node.setAttribute('role', 'status');
+    }
+    node.textContent = normalizeString(text);
+  }
+
+  function initAccountDeletion() {
+    var button = document.getElementById('sp-delete-account-btn');
+    var feedback = document.getElementById('sp-delete-account-feedback');
+    if (!button || typeof window.fetch !== 'function') {
+      return;
+    }
+
+    var nonce = normalizeString(cfg.nonce);
+    if (nonce === '') {
+      return;
+    }
+
+    var confirmText = "Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?";
+    var originalText = normalizeString(button.textContent) || 'Supprimer mon compte';
+
+    button.addEventListener('click', function () {
+      clearDeleteFeedback(feedback);
+
+      if (!window.confirm(confirmText)) {
+        return;
+      }
+
+      var url = '';
+      try {
+        url = buildAccountDeleteUrl();
+      } catch (error) {
+        setDeleteFeedback(feedback, 'error', error && error.message ? String(error.message) : 'Configuration de suppression indisponible.');
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Suppression…';
+
+      fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-WP-Nonce': nonce
+        },
+        body: JSON.stringify({})
+      })
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: response.ok, data: data || {} };
+          });
+        })
+        .then(function (result) {
+          if (result.ok && result.data && result.data.ok === true && result.data.deleted === true) {
+            setDeleteFeedback(feedback, 'success', 'Compte supprimé. Redirection…');
+            window.location.assign('/');
+            return;
+          }
+
+          var message = result.data && typeof result.data.message === 'string' && result.data.message !== ''
+            ? result.data.message
+            : 'La suppression du compte a échoué. Merci de réessayer.';
+          setDeleteFeedback(feedback, 'error', message);
+        })
+        .catch(function () {
+          setDeleteFeedback(feedback, 'error', 'La suppression du compte a échoué. Merci de réessayer.');
+        })
+        .finally(function () {
+          button.disabled = false;
+          button.textContent = originalText;
+        });
+    });
+  }
+
   function onReady(callback) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', callback, { once: true });
@@ -563,6 +672,7 @@
     var finalize = function () {
       hydrateFormFromProfile();
       mountPatientProfileSection();
+      initAccountDeletion();
     };
 
     if (!shouldBootstrapProfile()) {

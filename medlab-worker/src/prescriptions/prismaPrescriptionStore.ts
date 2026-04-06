@@ -5,7 +5,7 @@ import { NdjsonLogger } from "../logger";
 
 export interface RenderDoctor {
   id: string;
-  wpUserId: number;
+  wpUserId: number | null;
   firstName: string | null;
   lastName: string | null;
   email: string | null;
