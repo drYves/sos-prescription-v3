@@ -1,106 +1,426 @@
+/// <reference lib="dom" />
+import puppeteer, { Browser, Page } from "puppeteer";
 
-<!--
-    ┌──────────────────────────────────────────────────────────┐
-    │                       FILESTASH                          │
-    │            https://www.filestash.app/docs/               │
-    └──────────────────────────────────────────────────────────┘
--->
-<!DOCTYPE html>
-<html>
-    <head>
-        <meta charset="UTF-8">
-        <base href="/">
-        <link rel="modulepreload" href="./assets/bundle.js?version=dda17d0::bdv&chunk=1" />
-        <link rel="modulepreload" href="./assets/bundle.js?version=dda17d0::bdv&chunk=2" />
-        <link rel="modulepreload" href="./assets/bundle.js?version=dda17d0::bdv&chunk=3" />
-        <link rel="modulepreload" href="./assets/bundle.js?version=dda17d0::bdv&chunk=4" />
-        <link rel="modulepreload" href="./assets/bundle.js?version=dda17d0::bdv&chunk=5" />
-        <link rel="preload" as="style" href="custom.css" onload="this.rel='stylesheet'">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="application-name" content="Filestash">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-        <script>customElements.define("component-bootscreen", class ComponentBootScreen extends HTMLElement { connectedCallback() { this.innerHTML = this.render(); this.timeout = setTimeout(function(){ const $rbw = document.querySelector("#rbw .w"); $rbw.innerHTML = $rbw.innerHTML.repeat(10); const $loader = document.querySelector("#n-lder"); $loader.classList.add("loading"); }, 500); } disconnectedCallback() { clearTimeout(this.timeout); } render() { return `<style>html{ overflow: hidden; } body{ background: #f2f3f5; color: #375160; } body.dark-mode{ background: #232426; } .background-color{ background: #f2f3f5; } body.dark-mode .background-color{ background: #232426; } #n-lder{ max-width: 100%; overflow: hidden; } #n-lder #cat{ position: absolute; top: calc(50% + 45px); left: 0%; margin-left: -250px; margin-top: -125px; width: 100%; height: 150px; } #n-lder.loading #cat{ left: 20%; left: calc(50% + 125px); transition: left 4s ease-out; } #n-lder.loading.done #cat { left: 100%; left: calc(100% + 250px); transition: left 0.5s linear; } #n-lder #cat svg{ height: 160px; width: 250px; position: absolute; } #n-lder #cat #hide-behind{ position: absolute; top: 0; left: 55px; bottom: 0; right: -250px; } #n-lder #rbw{ position: absolute; top: calc(50% + 45px); left: 0; overflow: hidden; height: 145px; margin-top: -110px; width: 100%; } #n-lder #rbw .w{ width: 10000px; } #n-lder #rbw .rbw { z-index: -1; font-size: 16em; float: left; position: relative; } #n-lder #rbw .rbw .wv { height: 20px; width: 55px; } #n-lder #rbw .rbw .wv.wv-1 { background: #ff0000; } #n-lder #rbw .rbw .wv.wv-2 { background: #ff9900; } #n-lder #rbw .rbw .wv.wv-3 { background: #ffff00; } #n-lder #rbw .rbw .wv.wv-4 { background: #33ff00; } #n-lder #rbw .rbw .wv.wv-5 { background: #0099ff; } #n-lder #rbw .rbw .wv.wv-6 { background: #6633ff; } #n-lder #rbw .rbw{ top: 0px; animation: rbw .6s linear infinite; } #n-lder #rbw .rbw.f1{ animation-delay: 0s; } #n-lder #rbw .rbw.f2{ animation-delay: 0.1s; } #n-lder #rbw .rbw.f3{ animation-delay: 0.2s; } #n-lder #rbw .rbw.f4{ animation-delay: 0.3s; } #n-lder #rbw .rbw.f5{ animation-delay: 0.4s; } #n-lder #rbw .rbw.f6{ animation-delay: 0.5s; } @keyframes rbw { 0%{ top: 0px; } 50%{ top: 15px; } 100%{ top: 0px; } } @keyframes nyan_all { 0%{ transform: translateY(0px); } 33%{ transform: translateY(0px); } 34%{ transform: translateY(1px); } 100%{ transform: translateY(1px); } } #n-lder svg g#nyan_all{ animation: nyan_all 0.40s linear infinite; } @keyframes nyan_head { 0%{ transform: translateX(0px) translateY(0px); } 16%{ transform: translateX(0px) translateY(0px); } 17%{ transform: translateX(1px) translateY(0px); } 66%{ transform: translateX(1px) translateY(0px); } 67%{ transform: translateX(0px) translateY(0px); } 83%{ transform: translateX(0px) translateY(0px); } 84%{ transform: translateX(0px) translateY(-1px); } 100%{ transform: translateX(0px) translateY(-1px); } } #n-lder svg g#nyan_head{ animation: nyan_head 0.4s linear infinite; } @keyframes nyan_walk { 0%{ transform: translateX(0px); } 16%{ transform: translateX(0px); } 17%{ transform: translateX(1px); } 33%{ transform: translateX(1px); } 34%{ transform: translateX(2px); } 50%{ transform: translateX(2px); } 51%{ transform: translateX(1px); } 100%{ transform: translateX(0px); } } #n-lder svg g#nyan_feet{ animation: nyan_walk 0.5s linear infinite; } @keyframes nyan_tail { 0%{ transform: rotate(0); } 16%{ transform: rotate(0); } 17%{ transform: rotate(-5deg); } 33%{ transform: rotate(-5deg); } 34%{ transform: rotate(-10deg); } 49%{ transform: rotate(-10deg); } 50%{ transform: rotate(-20deg); } 66%{ transform: rotate(-20deg); } 67%{ transform: rotate(-10deg); } 83%{ transform: rotate(-10deg); } 84%{ transform: rotate(-5deg); } 99%{ transform: rotate(-5deg); } 100%{ transform: rotate(0deg); } } #n-lder svg g#nyan_tail{ animation: nyan_tail 0.5s linear infinite; transform-origin: 4px 8px; }</style><div id="n-lder"><div id="cat"><div id="hide-behind" class="background-color"></div><svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="32" height="21" preserveAspectRatio="xMinYMin meet" viewBox="0 0 33 21"><g id="nyan_all"><g id="nyan_feet"><g><path d="m 4,20 0,-3 1,0 0,-1 4,0 0,3 -1,0 0,1 z" style="fill:#000"></path><path d="m 5,19 0,-2 3,0 0,1 -1,0 0,1 z" style="fill:#999"></path><path d="m 10,20 0,-2 4,0 0,1 -1,0 0,1 z" style="fill:#000"></path><path d="m 11,18 2,0 0,1 -2,0 z" style="fill:#999"></path></g><g transform="matrix(-1,0,0,1,32,0)"><path d="m 10,20 0,-2 4,0 0,1 -1,0 0,1 z" style="fill:#000"></path><path d="m 11,18 2,0 0,1 -2,0 z" style="fill:#999"></path><path d="m 4,20 0,-3 1,0 0,-1 4,0 0,3 -1,0 0,1 z" style="fill:#000"></path><path d="m 5,19 0,-2 3,0 0,1 -1,0 0,1 z" style="fill:#999"></path></g></g><g id="nyan_tail"><path d="M 0,10 0,7 4,7 4,8 5,8 5,9 6,9 6,14 5,14 5,13 3,13 3,12 2,12 2,11 1,11 1,10 z" style="fill:#000"/><path d="m 1,9 0,-1 2,0 0,1 1,0 0,1 1,0 0,1 1,0 0,1 -2,0 0,-1 -1,0 0,-1 -1,0 0,-1 z" style="fill:#999"/></g><g id="nyan_body"><path d="m 7,1 19,0 0,16 -19,0 z" style="fill:#fc9"/><path d="m 8,14 0,-10 1,0 0,-1 1,0 0,-1 13,0 0,1 1,0 0,1 1,0 0,10 -1,0 0,1 -1,0 0,1 -13,0 0,-1 -1,0 0,-1 z" style="fill:#f9f"/><path d="m 22,5 1,0 0,1 -1,0 z m -4,-2 1,0 0,1 -1,0 z m -3,0 1,0 0,1 -1,0 z m -1,4 1,0 0,1 -1,0 z m 1,3 1,0 0,1 -1,0 z m -2,3 1,0 0,1 -1,0 z m -2,-4 1,0 0,1 -1,0 z m -2,2 1,0 0,1 -1,0 z m 1,3 1,0 0,1 -1,0 z m 0,-10 1,0 0,1 -1,0 z" style="fill:#f39"/><path d="m 8,17 17,0 0,1 -17,0 z m 0,-17 17,0 0,1 -17,0 z m 18,16 0,-14 1,0 0,14 z m -20,0 0,-14 1,0 0,14 z m 1,0 1,0 0,1 -1,0 z m 0,-15 1,0 0,1 -1,0 z m 18,0 1,0 0,1 -1,0 z m 0,15 1,0 0,1 -1,0 z" style="fill:#000"/></g><g id="nyan_head"><path d="m 17,15 0,-5 1,0 0,-4 2,0 0,1 1,0 0,1 1,0 0,1 4,0 0,-1 1,0 0,-1 1,0 0,-1 2,0 0,4 1,0 0,5 -1,0 0,1 -1,0 0,1 -10,0 0,-1 -1,0 0,-1 z" style="fill:#999;fill-opacity:1;stroke:none"/><path d="m 29,16 1,0 0,1 -1,0 z m 1,-1 1,0 0,1 -1,0 z m 1,-5 1,0 0,5 -1,0 z m -1,-4 1,0 0,4 -1,0 z m -2,-1 2,0 0,1 -2,0 z m -6,3 4,0 0,1 -4,0 z m -4,-3 2,0 0,1 -2,0 z m -1,1 1,0 0,4 -1,0 z m -1,4 1,0 0,5 -1,0 z m 11,-4 1,0 0,1 -1,0 z m -1,1 1,0 0,1 -1,0 z m -5,0 1,0 0,1 -1,0 z m -1,-1 1,0 0,1 -1,0 z m -1,11 10,0 0,1 -10,0 z m -1,-1 1,0 0,1 -1,0 z m -1,-1 1,0 0,1 -1,0 z" style="fill:#000;fill-opacity:1;stroke:none"/><path d="m 18,13 2,0 0,2 -2,0 z" style="fill:#f99;fill-opacity:1;stroke:none"/><path d="m 29,13 2,0 0,2 -2,0 z" style="fill:#f99;fill-opacity:1;stroke:none"/><path d="m 21,16 0,-2 1,0 0,1 2,0 0,-1 1,0 0,1 2,0 0,-1 1,0 0,2 z" style="fill:#000;fill-opacity:1;stroke:none"/><path d="m 25,12 1,0 0,1 -1,0 z" style="fill:#000;fill-opacity:1;stroke:none"/><g><path d="m 27,13 0,-1 1,0 0,-1 1,0 0,2 z" style="fill:#000;fill-opacity:1;stroke:none"/><path d="m 27,11 1,0 0,1 -1,0 z" style="fill:#fff;fill-opacity:1;stroke:none"/><path d="m 20,13 0,-1 1,0 0,-1 1,0 0,2 z" style="fill:#000;fill-opacity:1;stroke:none"/><path d="m 20,11 1,0 0,1 -1,0 z" style="fill:#fff;fill-opacity:1;stroke:none"/></g></g></g></svg></div><div id="rbw"><div class="w"><div class="rbw f1"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div><div class="rbw f2"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div><div class="rbw f3"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div><div class="rbw f4"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div><div class="rbw f5"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div><div class="rbw f6"><div class="wv wv-1"></div><div class="wv wv-2"></div><div class="wv wv-3"></div><div class="wv wv-4"></div><div class="wv wv-5"></div><div class="wv wv-6"></div></div></div></div></div>`; }});</script>
-    </head>
-    <body>
-        <div id="app"><component-bootscreen></component-bootscreen></div>
+import { NdjsonLogger } from "../logger";
 
-        <template id="body">
-            <script type="module">
-             import main from "./assets/dda17d0553b8468eaad5b45645e20f0645dedf31/lib/skeleton/index.js";
-             import routes from "./assets/dda17d0553b8468eaad5b45645e20f0645dedf31/boot/router_frontoffice.js";
-             main(document.getElementById("app"), routes, {
-                 spinner: `<component-loader></component-loader>`,
-                 beforeStart: import("/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/boot/ctrl_boot_frontoffice.js"),
-             });
-            </script>
-            <component-modal></component-modal>
-            <component-notification></component-notification>
-        </template>
+const DEFAULT_TIMEOUT_MS = 18_000;
+const MIN_TIMEOUT_MS = 15_000;
+const MAX_TIMEOUT_MS = 20_000;
+const DEFAULT_PUBLIC_DETAIL_BASE_URL = "https://annuaire.esante.gouv.fr/pp/detail";
+const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const LAUNCH_ARGS: string[] = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+];
+const DOM_READY_MARKERS = [
+  "identifiant rpps",
+  "professionnel de santé",
+  "situation d'exercice",
+  "situation d’exercice",
+  "dossier du professionnel",
+  "attestation",
+  "source : rpps",
+  "source: rpps",
+  "source : adeli",
+  "source: adeli",
+  "en activité",
+] as const;
+const NOT_FOUND_MARKERS = [
+  "page introuvable",
+  "profil introuvable",
+  "aucun résultat",
+  "aucun professionnel",
+  "résultat introuvable",
+  "resultats introuvables",
+  "404",
+  "410",
+  "n'existe pas",
+] as const;
 
-        <script type="module">
-         //
-         //
-         //
-         //                      /\
-         //                     /  \
-         //                ||  /    \
-         //                || /______\
-         //                |||        |
-         //               |  |        |
-         //               |  |        |
-         //               |__|________|
-         //               |___________|
-         //               |  |        |
-         //               |__|   ||   |\
-         //                |||   ||   | \
-         //               /|||   ||   |  \
-         //              /_|||...||...|___\
-         //                |||::::::::|
-         //                || \::::::/
-         //                ||  ||__||
-         //                ||    ||
-         //                ||     \\_______________
-         // _______________||______`---------------
-         // |
-         // |                                             |
-                     await ignitionSequence()          // |
-         // |
-                                    liftoff()          // |
-         // |                                             |
-         // |_____________________________________________|
-         //
-         //
-         async function ignitionSequence() {
-             try {
-                 if (!HTMLScriptElement.supports?.("importmap")) throw new Error("fastboot is not supported on this platform");
-                 /* LOAD assets/boot/bundler_init.js */ window.bundler = (function(origin) { const esModules = {}; return { register: (path, code) => { const fullpath = origin + path; if (path.endsWith(".js")) { code = code.replace(/from\s?"([^"]+)"/g, (_, spec) => `from "${new URL(spec, fullpath).href}"`, ); code = code.replace(/\bimport\s+"([^"]+)"/g, (_, spec) => `import "${new URL(spec, fullpath).href}"`, ); code = code.replace( /\bimport\.meta\.url\b/g, (match, offset, string) => { const before = string[offset - 1]; const after = string[offset + match.length]; return (before === "\"" || after === "\"") ? match : `"${fullpath}"`; }, ); esModules[fullpath] = "data:text/javascript," + encodeURIComponent( code + `\n//# sourceURL=${path}`, ); } else if (path.endsWith(".css")) { code = code.replace(/@import url\("([^"]+)"\);/g, (m, rel) => { const $style = document.head.querySelector( `style[id="${new URL(rel, fullpath).href}"]` ); if (!$style) throw new DOMException( `Missing CSS dependency: ${rel} (referenced from ${path})`, "NotFoundError", ); return `/* ${m} */`; }); document.head.appendChild(Object.assign(document.createElement("style"), { innerHTML: code + `\n/*# sourceURL=${path} */`, id: fullpath, })); } }, esModules, };})(new URL(import.meta.url).origin);
-                 await Promise.all([
-                     "./assets/bundle.js?version=dda17d0::bdv&chunk=1",
-                     "./assets/bundle.js?version=dda17d0::bdv&chunk=2",
-                     "./assets/bundle.js?version=dda17d0::bdv&chunk=3",
-                     "./assets/bundle.js?version=dda17d0::bdv&chunk=4",
-                     "./assets/bundle.js?version=dda17d0::bdv&chunk=5",
-                 ].map((src) => new Promise((onload, onerror) => document.head.appendChild(Object.assign(document.createElement("script"), {
-                     type: "module", src, onload, onerror,
-                 })))));
-                 /* LOAD assets/boot/bundler_complete.js */ document.head.appendChild(Object.assign(document.createElement("script"), { type: "importmap", textContent: JSON.stringify({ imports: window.bundler.esModules, }, null, 4),}));
-             } catch (err) { console.error(err); }
+export interface AnnuaireSanteLookupResult {
+  valid: boolean;
+  rpps: string;
+  firstName: string;
+  lastName: string;
+  profession: string;
+}
 
-             await Promise.all([
-                 import("/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/components/loader.js"),
-                 import("/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/components/modal.js"),
-                 import("/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/components/notification.js"),
-                 import("/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/helpers/loader.js").then(({ loadCSS }) => {
-                     loadCSS(import.meta.url, "/assets/dda17d0553b8468eaad5b45645e20f0645dedf31/css/designsystem.css");
-                 }),
-             ]);
-         }
+export class AnnuaireSanteServiceError extends Error {
+  constructor(public readonly code: string, public readonly statusCode: number, message: string) {
+    super(message);
+    this.name = "AnnuaireSanteServiceError";
+  }
+}
 
-         function liftoff() {
-             document.body.appendChild(document.querySelector("template#body").content);
-         }
-        </script>
+export interface AnnuaireSanteServiceConfig {
+  logger: NdjsonLogger;
+  timeoutMs?: number;
+  publicDetailBaseUrl?: string;
+  userAgent?: string;
+  chromeExecutablePath?: string;
+}
 
-        <noscript><div style="text-align:center;font-family:monospace;margin-top:5%;font-size:15px;"><h2>Error: Javascript is off</h2></div></noscript>
-    </body>
-</html>
+export class AnnuaireSanteService {
+  private readonly logger: NdjsonLogger;
+  private readonly timeoutMs: number;
+  private readonly publicDetailBaseUrl: string;
+  private readonly userAgent: string;
+  private readonly chromeExecutablePath?: string;
+
+  constructor(config: AnnuaireSanteServiceConfig) {
+    this.logger = config.logger;
+    this.timeoutMs = Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, Math.floor(config.timeoutMs ?? DEFAULT_TIMEOUT_MS)));
+    this.publicDetailBaseUrl = normalizeBaseUrl(config.publicDetailBaseUrl ?? DEFAULT_PUBLIC_DETAIL_BASE_URL);
+    this.userAgent = normalizeHumanText(config.userAgent ?? DEFAULT_USER_AGENT);
+    this.chromeExecutablePath = config.chromeExecutablePath;
+  }
+
+  async verifyRpps(rpps: string, reqId?: string): Promise<AnnuaireSanteLookupResult> {
+    const safeRpps = sanitizeRpps(rpps);
+    if (safeRpps.length !== 11) {
+      return this.buildInvalidResult(safeRpps);
+    }
+
+    const rppsFp = fingerprint(safeRpps);
+    const url = `${this.publicDetailBaseUrl}/${encodeURIComponent(safeRpps)}`;
+    const startMs = Date.now();
+    let browser: Browser | null = null;
+    let statusCode = 0;
+
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        executablePath: this.chromeExecutablePath,
+        args: LAUNCH_ARGS,
+      });
+
+      const page = await browser.newPage();
+      await page.setUserAgent(this.userAgent);
+      await page.setExtraHTTPHeaders({
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+      });
+
+      page.setDefaultNavigationTimeout(this.timeoutMs);
+      page.setDefaultTimeout(this.timeoutMs);
+
+      const response = await page.goto(url, { waitUntil: "networkidle2" });
+      if (response) {
+        statusCode = response.status();
+      }
+
+      if (isUnavailableStatus(statusCode)) {
+        this.logger.warning(
+          "annuaire_sante.unavailable",
+          {
+            host: extractHost(url),
+            status: statusCode,
+            timeout_ms: Date.now() - startMs,
+            rpps_probe: true,
+            strategy: "public_puppeteer",
+          },
+          reqId
+        );
+        return this.buildInvalidResult(safeRpps);
+      }
+
+      if (statusCode === 404 || statusCode === 410) {
+        this.logger.info(
+          "doctor.verify_rpps.not_found",
+          {
+            actor_role: "SYSTEM",
+            actor_wp_user_id: 1,
+            valid: false,
+            rpps_fp: rppsFp,
+            profession_present: false,
+            status: statusCode,
+          },
+          reqId
+        );
+        return this.buildInvalidResult(safeRpps);
+      }
+
+      const isReady = await this.waitForDomHydration(page);
+      if (!isReady) {
+        const rawBody = await page.evaluate(() => document.body.innerText || "");
+        if (looksLikeWafBlock(rawBody)) {
+          this.logger.warning(
+            "annuaire_sante.blocked",
+            {
+              host: extractHost(url),
+              status: statusCode,
+              timeout_ms: Date.now() - startMs,
+              rpps_probe: true,
+              strategy: "public_puppeteer",
+            },
+            reqId
+          );
+          return this.buildInvalidResult(safeRpps);
+        }
+
+        this.logger.warning(
+          "annuaire_sante.unparseable",
+          {
+            host: extractHost(url),
+            status: statusCode,
+            timeout_ms: Date.now() - startMs,
+            rpps_probe: true,
+            strategy: "public_puppeteer",
+          },
+          reqId
+        );
+        return this.buildInvalidResult(safeRpps);
+      }
+
+      const extracted = await page.evaluate(() => {
+        const docText = (document.body.innerText || "").toLowerCase();
+        if (docText.includes("page introuvable") || docText.includes("aucun résultat")) {
+          return null;
+        }
+
+        const extractFromH1 = (): { firstName: string; lastName: string } | null => {
+          const h1 = document.querySelector("h1");
+          if (!h1) return null;
+          const text = (h1.textContent || "").trim();
+          if (!text) return null;
+
+          const parts = text.split(/\s+/);
+          if (parts.length < 2) return { firstName: text, lastName: "" };
+
+          const lastName = parts.shift() || "";
+          const firstName = parts.join(" ");
+          return { firstName, lastName };
+        };
+
+        const extractProfession = (): string => {
+          const headers = Array.from(document.querySelectorAll("h2, h3, .profession, .specialty")) as Element[];
+          for (const h of headers) {
+            const text = (h.textContent || "").trim();
+            if (text && text.length < 120 && !text.toLowerCase().includes("identifiant")) {
+              return text;
+            }
+          }
+          return "";
+        };
+
+        const nameData = extractFromH1();
+        if (!nameData) return null;
+
+        return {
+          firstName: nameData.firstName,
+          lastName: nameData.lastName,
+          profession: extractProfession(),
+        };
+      });
+
+      if (!extracted) {
+        this.logger.info(
+          "doctor.verify_rpps.not_found",
+          {
+            actor_role: "SYSTEM",
+            actor_wp_user_id: 1,
+            valid: false,
+            rpps_fp: rppsFp,
+            profession_present: false,
+            status: statusCode,
+          },
+          reqId
+        );
+        return this.buildInvalidResult(safeRpps);
+      }
+
+      const finalFirstName = normalizeHumanName(extracted.firstName);
+      const finalLastName = normalizeHumanName(extracted.lastName).toUpperCase();
+      const finalProfession = sanitizeProfession(extracted.profession, finalFirstName, finalLastName);
+
+      if (!finalFirstName && !finalLastName) {
+        return this.buildInvalidResult(safeRpps);
+      }
+
+      this.logger.info(
+        "doctor.verify_rpps.verified",
+        {
+          actor_role: "SYSTEM",
+          actor_wp_user_id: 1,
+          valid: true,
+          rpps_fp: rppsFp,
+          profession_present: finalProfession !== "",
+          timeout_ms: Date.now() - startMs,
+        },
+        reqId
+      );
+
+      return {
+        valid: true,
+        rpps: safeRpps,
+        firstName: finalFirstName,
+        lastName: finalLastName,
+        profession: finalProfession,
+      };
+
+    } catch (err: unknown) {
+      const errorCode = normalizeErrorCode(err);
+      this.logger.error(
+        "annuaire_sante.failed",
+        {
+          host: extractHost(url),
+          status: statusCode,
+          timeout_ms: Date.now() - startMs,
+          rpps_probe: true,
+          strategy: "public_puppeteer",
+          error_code: errorCode,
+        },
+        undefined,
+        err
+      );
+      return this.buildInvalidResult(safeRpps);
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeErr) {
+          this.logger.warning("puppeteer.close_failed", { error: String(closeErr) }, reqId);
+        }
+      }
+    }
+  }
+
+  private async waitForDomHydration(page: Page): Promise<boolean> {
+    try {
+      await page.waitForFunction(
+        (readyMarkers, notFoundMarkers) => {
+          const text = (document.body.innerText || "").toLowerCase();
+          if (notFoundMarkers.some(m => text.includes(m))) {
+            return true; 
+          }
+          return readyMarkers.some(m => text.includes(m));
+        },
+        { timeout: this.timeoutMs - 2000, polling: 500 },
+        DOM_READY_MARKERS,
+        NOT_FOUND_MARKERS
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private buildInvalidResult(rpps: string): AnnuaireSanteLookupResult {
+    return {
+      valid: false,
+      rpps,
+      firstName: "",
+      lastName: "",
+      profession: "",
+    };
+  }
+}
+
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "").trim();
+}
+
+function extractHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+function sanitizeRpps(value: string): string {
+  return String(value || "").replace(/\D+/g, "").trim();
+}
+
+function normalizeHumanText(value: string): string {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeLookupKey(value: string): string {
+  return normalizeHumanText(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function fingerprint(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url").slice(0, 12);
+}
+
+function isUnavailableStatus(statusCode: number): boolean {
+  return statusCode === 403 || statusCode === 429 || statusCode === 503 || statusCode === 504;
+}
+
+function normalizeErrorCode(err: unknown): string {
+  if (err instanceof AnnuaireSanteServiceError) {
+    return err.code;
+  }
+  if (isTimeoutLikeError(err)) {
+    return "ML_RPPS_LOOKUP_TIMEOUT";
+  }
+  return "ML_RPPS_LOOKUP_FAILED";
+}
+
+function isTimeoutLikeError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+
+  const maybeError = err as Error & { name?: unknown; message?: unknown };
+  const name = String(maybeError.name || "").toLowerCase();
+  const message = String(maybeError.message || "").toLowerCase();
+
+  return name.includes("timeout") || message.includes("timeout") || message.includes("exceeded");
+}
+
+function normalizeHumanName(value: string): string {
+  const text = normalizeHumanText(value);
+  if (text === "") {
+    return "";
+  }
+  return text.split(/[- ]+/).map(part => {
+    const lower = part.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join(" ");
+}
+
+function sanitizeProfession(value: string, firstName: string, lastName: string): string {
+  const normalized = normalizeHumanText(value);
+  if (normalized === "") {
+    return "";
+  }
+
+  const candidateKey = normalizeLookupKey(normalized);
+  const nameKey = normalizeLookupKey(`${firstName} ${lastName}`);
+  if (candidateKey !== "" && candidateKey === nameKey) {
+    return "";
+  }
+
+  return normalized.length > 120 ? normalized.slice(0, 120).trim() : normalized;
+}
+
+function looksLikeWafBlock(body: string): boolean {
+  const normalized = normalizeLookupKey(body);
+  if (normalized === "") {
+    return false;
+  }
+
+  const markers = [
+    "CLOUDFLARE",
+    "JUST A MOMENT",
+    "ATTENTION REQUIRED",
+    "ACCESS DENIED",
+    "SERVICE TEMPORARILY UNAVAILABLE",
+    "TEMPORARILY UNAVAILABLE",
+    "REQUEST BLOCKED",
+    "INCAPSULA",
+  ];
+
+  return markers.some(m => normalized.includes(m));
+}

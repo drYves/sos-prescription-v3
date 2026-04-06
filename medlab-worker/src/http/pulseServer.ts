@@ -3091,7 +3091,7 @@ function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpU
 function normalizeDoctorVerifyRppsInput(body: DoctorVerifyRppsRequestBody): string {
   const raw = normalizeRequiredString(body.rpps, "rpps").replace(/\D+/g, "");
   if (raw.length !== 11) {
-    throw new AnnuaireSanteServiceError("ML_RPPS_BAD_REQUEST", "rpps must contain exactly 11 digits", 400);
+    throw new AnnuaireSanteServiceError("ML_RPPS_BAD_REQUEST", 400, "rpps must contain exactly 11 digits");
   }
   return raw;
 }
