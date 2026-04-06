@@ -10,6 +10,8 @@ const MAX_TOKEN_GENERATION_ATTEMPTS = 5;
 
 let prismaSingleton: PrismaClient | null = null;
 
+type MagicLinkOwnerRole = "DOCTOR" | "PATIENT";
+
 export interface AuthServiceConfig {
   logger?: NdjsonLogger;
   ttlMs?: number;
@@ -17,7 +19,7 @@ export interface AuthServiceConfig {
 
 export interface AuthOwnerCandidate {
   email: string;
-  ownerRole: ActorRole.DOCTOR | ActorRole.PATIENT;
+  ownerRole: MagicLinkOwnerRole;
   ownerWpUserId: number;
 }
 
@@ -28,7 +30,7 @@ export interface AuthOwnerLookupResult {
 
 export interface IssueMagicLinkInput {
   email: string;
-  ownerRole: ActorRole.DOCTOR | ActorRole.PATIENT;
+  ownerRole: MagicLinkOwnerRole;
   ownerWpUserId: number;
 }
 
@@ -41,7 +43,7 @@ export interface IssueMagicLinkResult {
 export interface ConsumeMagicLinkResult {
   valid: boolean;
   email: string;
-  ownerRole: ActorRole.DOCTOR | ActorRole.PATIENT | null;
+  ownerRole: MagicLinkOwnerRole | null;
   ownerWpUserId: number | null;
 }
 
@@ -79,7 +81,6 @@ export class AuthService {
         this.prisma.doctor.findFirst({
           where: {
             email: { equals: email, mode: "insensitive" },
-            wpUserId: { not: null },
           },
           select: {
             wpUserId: true,
@@ -365,7 +366,7 @@ function normalizeToken(value: string): string {
   return normalized;
 }
 
-function normalizeOwnerRole(value: ActorRole): ActorRole.DOCTOR | ActorRole.PATIENT {
+function normalizeOwnerRole(value: ActorRole): MagicLinkOwnerRole {
   if (value === ActorRole.DOCTOR || value === ActorRole.PATIENT) {
     return value;
   }
