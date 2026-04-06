@@ -94,6 +94,9 @@ interface PatientProfileRequestBody {
   weightKg?: unknown;
   height_cm?: unknown;
   heightCm?: unknown;
+  note?: unknown;
+  medical_notes?: unknown;
+  medicalNotes?: unknown;
 }
 
 interface LegacyReadFiltersRequestBody {
@@ -949,6 +952,7 @@ async function handlePatientProfilePut(
       phone: normalized.phone,
       weightKg: normalized.weightKg,
       heightCm: normalized.heightCm,
+      note: normalized.note,
     });
 
     deps.logger.info(
@@ -960,6 +964,7 @@ async function handlePatientProfilePut(
         has_phone: Boolean(profile.phone),
         has_weight: Boolean(profile.weightKg),
         has_height: Boolean(profile.heightCm),
+        has_note: Boolean(profile.note),
       },
       reqId,
     );
@@ -2990,6 +2995,7 @@ function normalizePatientProfileRequestInput(body: PatientProfileRequestBody): {
   phone: unknown;
   weightKg: unknown;
   heightCm: unknown;
+  note: unknown;
 } {
   return {
     actor: normalizePatientProfileActorInput(body.actor),
@@ -3001,6 +3007,7 @@ function normalizePatientProfileRequestInput(body: PatientProfileRequestBody): {
     phone: body.phone,
     weightKg: pickFirstDefined(body.weight_kg, body.weightKg),
     heightCm: pickFirstDefined(body.height_cm, body.heightCm),
+    note: pickFirstDefined(body.note, body.medical_notes, body.medicalNotes),
   };
 }
 
@@ -3026,9 +3033,24 @@ function normalizeSubmissionFinalizeRequestInput(body: Record<string, unknown>):
     prescriptionBlock.privateNotes,
     body.private_notes,
     body.privateNotes,
+    patientBlock.note,
+    patientBlock.medical_notes,
+    patientBlock.medicalNotes,
+    body.note,
+    body.medical_notes,
+    body.medicalNotes,
   );
 
   const actor = normalizeSubmissionActorInput(body.actor);
+  const patientNote = pickFirstDefined(
+    patientBlock.note,
+    patientBlock.medical_notes,
+    patientBlock.medicalNotes,
+    body.note,
+    body.medical_notes,
+    body.medicalNotes,
+    privateNotesRaw,
+  );
   const patient = {
     firstName: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
     first_name: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
@@ -3043,6 +3065,9 @@ function normalizeSubmissionFinalizeRequestInput(body: Record<string, unknown>):
     weight_kg: pickFirstDefined(patientBlock.weight_kg, patientBlock.weightKg, body.weight_kg, body.weightKg),
     heightCm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
     height_cm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
+    note: patientNote,
+    medical_notes: patientNote,
+    medicalNotes: patientNote,
   } satisfies Record<string, unknown>;
 
   return {
@@ -3114,6 +3139,9 @@ function buildPatientProfileApiPayload(
     weightKg: profilePayload.weightKg,
     height_cm: profilePayload.height_cm,
     heightCm: profilePayload.heightCm,
+    note: profilePayload.note,
+    medical_notes: profilePayload.medical_notes,
+    medicalNotes: profilePayload.medicalNotes,
     bmi_value: profilePayload.bmi_value,
     bmiValue: profilePayload.bmiValue,
     bmi_label: profilePayload.bmi_label,
@@ -3150,6 +3178,9 @@ function buildPatientProfileApiPayload(
       weightKg: profilePayload.weightKg,
       height_cm: profilePayload.height_cm,
       heightCm: profilePayload.heightCm,
+      note: profilePayload.note,
+      medical_notes: profilePayload.medical_notes,
+      medicalNotes: profilePayload.medicalNotes,
       bmi_value: profilePayload.bmi_value,
       bmiValue: profilePayload.bmiValue,
       bmi_label: profilePayload.bmi_label,
@@ -3175,6 +3206,9 @@ function buildPatientProfilePayload(profile: PatientProfileRecord | null): {
   weightKg: string;
   height_cm: string;
   heightCm: string;
+  note: string;
+  medical_notes: string;
+  medicalNotes: string;
   bmi_value: string;
   bmiValue: string;
   bmi_label: string;
@@ -3189,6 +3223,7 @@ function buildPatientProfilePayload(profile: PatientProfileRecord | null): {
   const email = profile?.email ?? "";
   const weightKg = profile?.weightKg ?? "";
   const heightCm = profile?.heightCm ?? "";
+  const note = profile?.note ?? "";
   const bmiValue = computeProfileBmiValue(weightKg, heightCm);
   const bmiValueText = bmiValue !== null ? String(bmiValue) : "";
   const bmiLabel = computeProfileBmiLabel(weightKg, heightCm);
@@ -3211,6 +3246,9 @@ function buildPatientProfilePayload(profile: PatientProfileRecord | null): {
     weightKg: weightKg,
     height_cm: heightCm,
     heightCm: heightCm,
+    note,
+    medical_notes: note,
+    medicalNotes: note,
     bmi_value: bmiValueText,
     bmiValue: bmiValueText,
     bmi_label: bmiLabelText,

@@ -24,6 +24,7 @@ export interface PatientProfileRecord {
   phone: string | null;
   weightKg: string | null;
   heightCm: string | null;
+  note: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +39,7 @@ export interface UpsertPatientProfileInput {
   phone?: unknown;
   weightKg?: unknown;
   heightCm?: unknown;
+  note?: unknown;
 }
 
 export class PatientRepoError extends Error {
@@ -108,6 +110,7 @@ export class PatientRepo {
           phone: next.phone,
           weightKg: next.weightKg,
           heightCm: next.heightCm,
+          note: next.note,
         },
         create: {
           wpUserId: normalizedActor.wpUserId,
@@ -119,6 +122,7 @@ export class PatientRepo {
           phone: next.phone,
           weightKg: next.weightKg,
           heightCm: next.heightCm,
+          note: next.note,
         },
         select: patientSelect(),
       });
@@ -164,6 +168,7 @@ function patientSelect() {
     phone: true,
     weightKg: true,
     heightCm: true,
+    note: true,
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.PatientSelect;
@@ -183,6 +188,7 @@ function mapPatient(
     phone: row.phone,
     weightKg: row.weightKg,
     heightCm: row.heightCm,
+    note: row.note,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -216,6 +222,7 @@ function buildMergedPatientProfile(
   phone: string | null;
   weightKg: string | null;
   heightCm: string | null;
+  note: string | null;
 } {
   return {
     firstName: normalizeNameUpdate(input.firstName, "firstName", 100, existing?.firstName ?? ""),
@@ -226,6 +233,7 @@ function buildMergedPatientProfile(
     phone: normalizePhoneUpdate(input.phone, existing?.phone ?? null),
     weightKg: normalizeMetricUpdate(input.weightKg, "weightKg", 1, 500, existing?.weightKg ?? null),
     heightCm: normalizeMetricUpdate(input.heightCm, "heightCm", 30, 300, existing?.heightCm ?? null),
+    note: normalizeOptionalPlainTextUpdate(input.note, 4000, existing?.note ?? null),
   };
 }
 

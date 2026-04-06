@@ -1148,7 +1148,10 @@ function vt() {
         var w;
         const r = t, y = (w = r == null ? void 0 : r.patientProfile) == null ? void 0 : w.birthdate_fr;
         return y ? String(y) : "";
-    })), [O, m] = c.useState(""), [j, f] = c.useState([]), [P, k] = c.useState(""), [E, Y] = c.useState([]), [G, le] = c.useState(!1), [W, ee] = c.useState(!1), U = t.compliance || {}, K = !!(U != null && U.consent_required), [d, p] = c.useState(!1), [R, T] = c.useState(!1), [L, Q] = c.useState(!1), [te, Oe] = c.useState(!1), [Je, Se] = c.useState(!1), [xe, he] = c.useState([]), [Ce, oe] = c.useState(null), [ge, Me] = c.useState(!1), [ke, X] = c.useState(null), [J, ce] = c.useState(null), [Be, de] = c.useState(!1);
+    })), [O, m] = c.useState((() => {
+        var w, z, $;
+        return String((((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.note) || ((z = t == null ? void 0 : t.patientProfile) == null ? void 0 : z.medical_notes) || (($ = t == null ? void 0 : t.patientProfile) == null ? void 0 : $.medicalNotes) || "")).trim();
+    })), [j, f] = c.useState([]), [P, k] = c.useState(""), [E, Y] = c.useState([]), [G, le] = c.useState(!1), [W, ee] = c.useState(!1), U = t.compliance || {}, K = !!(U != null && U.consent_required), [d, p] = c.useState(!1), [R, T] = c.useState(!1), [L, Q] = c.useState(!1), [te, Oe] = c.useState(!1), [Je, Se] = c.useState(!1), [xe, he] = c.useState([]), [Ce, oe] = c.useState(null), [ge, Me] = c.useState(!1), [ke, X] = c.useState(null), [J, ce] = c.useState(null), [Be, de] = c.useState(!1);
     c.useEffect((() => {
         let r = !1;
         async function y() {
@@ -1378,7 +1381,10 @@ function vt() {
                     firstName: z.firstName,
                     lastName: z.lastName,
                     birthdate: q.trim(),
-                    birthDate: q.trim()
+                    birthDate: q.trim(),
+                    note: O.trim() || void 0,
+                    medical_notes: O.trim() || void 0,
+                    medicalNotes: O.trim() || void 0
                 },
                 items: se.map((ue => {
                     const Fe = {
@@ -1449,7 +1455,7 @@ function vt() {
         var r, y, w;
         a("choose"), _(null), i("standard"), A(spSafePatientNameValue(((r = t == null ? void 0 : t.patientProfile) == null ? void 0 : r.fullname) || "")), 
         I(((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.birthdate_fr) || ""), 
-        m(""), f([]), Y([]), he([]), oe(null), ee(!1), p(!1), T(!1), Q(!1), Oe(!1), X(null), 
+        m(String((((y = t == null ? void 0 : t.patientProfile) == null ? void 0 : y.note) || ((r = t == null ? void 0 : t.patientProfile) == null ? void 0 : r.medical_notes) || ((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.medicalNotes) || "")).trim()), f([]), Y([]), he([]), oe(null), ee(!1), p(!1), T(!1), Q(!1), Oe(!1), X(null), 
         ce(null), de(!1);
     };
     return e.jsxs("div", {
@@ -1655,6 +1661,8 @@ function vt() {
                         className: "mb-1 block text-xs font-medium text-gray-700",
                         children: "Précisions médicales (optionnel)"
                     }), e.jsx(Ne, {
+                        id: "sp-patient-medical-notes",
+                        name: "medical_notes",
                         value: O,
                         onChange: r => m(r.target.value),
                         placeholder: "Allergies, antécédents, contre-indications ou toute information utile au médecin...."

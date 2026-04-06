@@ -95,11 +95,12 @@ interface NormalizedFinalizePatientInput {
   firstName: string;
   lastName: string;
   birthDate: string;
-  gender: string | null;
-  email: string | null;
-  phone: string | null;
-  weightKg: string | null;
-  heightCm: string | null;
+  gender: string | null | undefined;
+  email: string | null | undefined;
+  phone: string | null | undefined;
+  weightKg: string | null | undefined;
+  heightCm: string | null | undefined;
+  note: string | null | undefined;
 }
 
 interface LockedSubmissionRow {
@@ -269,17 +270,17 @@ export class SubmissionRepo {
           const patient = patientWpUserId != null
             ? await tx.patient.upsert({
               where: { wpUserId: patientWpUserId },
-              update: buildPatientWriteData(normalized.patient),
+              update: buildPatientUpdateData(normalized.patient),
               create: {
                 wpUserId: patientWpUserId,
-                ...buildPatientWriteData(normalized.patient),
+                ...buildPatientCreateData(normalized.patient),
               },
               select: { id: true },
             })
             : await tx.patient.create({
               data: {
                 wpUserId: null,
-                ...buildPatientWriteData(normalized.patient),
+                ...buildPatientCreateData(normalized.patient),
               },
               select: { id: true },
             });
@@ -620,15 +621,16 @@ function normalizeFinalizePatientInput(value: Record<string, unknown>): Normaliz
     firstName: normalizeNameRequired(pickFirstDefined(value.firstName, value.first_name), "patient.firstName", 100),
     lastName: normalizeNameRequired(pickFirstDefined(value.lastName, value.last_name), "patient.lastName", 120),
     birthDate: normalizeBirthDateRequired(pickFirstDefined(value.birthDate, value.birthdate), "patient.birthDate"),
-    gender: normalizeOptionalPlainText(pickFirstDefined(value.gender), 32),
-    email: normalizeOptionalEmail(pickFirstDefined(value.email)),
-    phone: normalizeOptionalPhone(pickFirstDefined(value.phone)),
-    weightKg: normalizeOptionalMetric(pickFirstDefined(value.weightKg, value.weight_kg), "patient.weightKg", 1, 500),
-    heightCm: normalizeOptionalMetric(pickFirstDefined(value.heightCm, value.height_cm), "patient.heightCm", 30, 300),
+    gender: normalizeOptionalPlainTextUpdate(pickFirstDefined(value.gender), 32),
+    email: normalizeOptionalEmailUpdate(pickFirstDefined(value.email)),
+    phone: normalizeOptionalPhoneUpdate(pickFirstDefined(value.phone)),
+    weightKg: normalizeOptionalMetricUpdate(pickFirstDefined(value.weightKg, value.weight_kg), "patient.weightKg", 1, 500),
+    heightCm: normalizeOptionalMetricUpdate(pickFirstDefined(value.heightCm, value.height_cm), "patient.heightCm", 30, 300),
+    note: normalizeOptionalNotesUpdate(pickFirstDefined(value.note, value.medical_notes, value.medicalNotes)),
   };
 }
 
-function buildPatientWriteData(patient: NormalizedFinalizePatientInput): {
+function buildPatientCreateData(patient: NormalizedFinalizePatientInput): {
   firstName: string;
   lastName: string;
   birthDate: string;
@@ -637,17 +639,48 @@ function buildPatientWriteData(patient: NormalizedFinalizePatientInput): {
   phone: string | null;
   weightKg: string | null;
   heightCm: string | null;
+  note: string | null;
 } {
   return {
     firstName: patient.firstName,
     lastName: patient.lastName,
     birthDate: patient.birthDate,
-    gender: patient.gender,
-    email: patient.email,
-    phone: patient.phone,
-    weightKg: patient.weightKg,
-    heightCm: patient.heightCm,
+    gender: patient.gender ?? null,
+    email: patient.email ?? null,
+    phone: patient.phone ?? null,
+    weightKg: patient.weightKg ?? null,
+    heightCm: patient.heightCm ?? null,
+    note: patient.note ?? null,
   };
+}
+
+function buildPatientUpdateData(patient: NormalizedFinalizePatientInput): Prisma.PatientUpdateInput {
+  const data: Prisma.PatientUpdateInput = {
+    firstName: patient.firstName,
+    lastName: patient.lastName,
+    birthDate: patient.birthDate,
+  };
+
+  if (patient.gender !== undefined) {
+    data.gender = patient.gender;
+  }
+  if (patient.email !== undefined) {
+    data.email = patient.email;
+  }
+  if (patient.phone !== undefined) {
+    data.phone = patient.phone;
+  }
+  if (patient.weightKg !== undefined) {
+    data.weightKg = patient.weightKg;
+  }
+  if (patient.heightCm !== undefined) {
+    data.heightCm = patient.heightCm;
+  }
+  if (patient.note !== undefined) {
+    data.note = patient.note;
+  }
+
+  return data;
 }
 
 async function lockSubmissionByPublicRef(
@@ -982,6 +1015,14 @@ function normalizeOptionalPlainText(value: unknown, maxLength: number): string |
   return normalized === "" ? null : normalized;
 }
 
+function normalizeOptionalPlainTextUpdate(value: unknown, maxLength: number): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return normalizeOptionalPlainText(value, maxLength);
+}
+
 function normalizeOptionalEmail(value: unknown): string | null {
   if (value == null) {
     return null;
@@ -999,6 +1040,14 @@ function normalizeOptionalEmail(value: unknown): string | null {
   return raw;
 }
 
+function normalizeOptionalEmailUpdate(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return normalizeOptionalEmail(value);
+}
+
 function normalizeOptionalPhone(value: unknown): string | null {
   if (value == null) {
     return null;
@@ -1011,6 +1060,14 @@ function normalizeOptionalPhone(value: unknown): string | null {
 
   const sanitized = raw.replace(/[^0-9+().\-\s]/g, "").replace(/\s+/gu, " ").trim().slice(0, 40);
   return sanitized === "" ? null : sanitized;
+}
+
+function normalizeOptionalPhoneUpdate(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return normalizeOptionalPhone(value);
 }
 
 function normalizeOptionalMetric(value: unknown, field: string, min: number, max: number): string | null {
@@ -1041,6 +1098,14 @@ function normalizeOptionalMetric(value: unknown, field: string, min: number, max
   }
 
   return stringified;
+}
+
+function normalizeOptionalMetricUpdate(value: unknown, field: string, min: number, max: number): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return normalizeOptionalMetric(value, field, min, max);
 }
 
 function normalizeCollapsedText(value: unknown, field: string, maxLength: number, allowEmpty: boolean): string {
@@ -1111,6 +1176,14 @@ function normalizeNullableNotes(value: unknown): string | null {
     .trim();
 
   return normalized === "" ? null : normalized.slice(0, MAX_PRIVATE_NOTES_LENGTH);
+}
+
+function normalizeOptionalNotesUpdate(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return normalizeNullableNotes(value);
 }
 
 function pickFirstDefined<T>(...values: T[]): T | undefined {

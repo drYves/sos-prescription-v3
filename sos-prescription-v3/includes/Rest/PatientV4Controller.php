@@ -157,6 +157,9 @@ final class PatientV4Controller extends \WP_REST_Controller
             'weight_kg',
             'heightCm',
             'height_cm',
+            'note',
+            'medical_notes',
+            'medicalNotes',
         ] as $key) {
             if (array_key_exists($key, $params)) {
                 $payload[$key] = $params[$key];

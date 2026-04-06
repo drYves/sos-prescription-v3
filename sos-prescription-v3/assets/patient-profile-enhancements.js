@@ -156,8 +156,9 @@
     );
     var birthFr = normalizeString(patientProfile.birthdate_fr || formatIsoToFr(birthIso));
     var email = normalizeString(patientProfile.email || currentUser.email || '');
-    var weightKg = normalizeString(patientProfile.weight_kg || '');
-    var heightCm = normalizeString(patientProfile.height_cm || '');
+    var weightKg = normalizeString(patientProfile.weight_kg || patientProfile.weightKg || '');
+    var heightCm = normalizeString(patientProfile.height_cm || patientProfile.heightCm || '');
+    var note = normalizeString(patientProfile.note || patientProfile.medical_notes || patientProfile.medicalNotes || '');
 
     return {
       firstName: firstName,
@@ -168,6 +169,7 @@
       email: email,
       weightKg: weightKg,
       heightCm: heightCm,
+      note: note,
       bmiLabel: normalizeString(patientProfile.bmi_label || bmiLabel(weightKg, heightCm))
     };
   }
@@ -196,8 +198,13 @@
     patientProfile.birthdate_iso = normalizeString(profile.birthdate_iso);
     patientProfile.birthdate_fr = normalizeString(profile.birthdate_fr);
     patientProfile.email = normalizeString(profile.email);
-    patientProfile.weight_kg = normalizeString(profile.weight_kg);
-    patientProfile.height_cm = normalizeString(profile.height_cm);
+    patientProfile.weight_kg = normalizeString(profile.weight_kg || profile.weightKg);
+    patientProfile.weightKg = patientProfile.weight_kg;
+    patientProfile.height_cm = normalizeString(profile.height_cm || profile.heightCm);
+    patientProfile.heightCm = patientProfile.height_cm;
+    patientProfile.note = normalizeString(profile.note || profile.medical_notes || profile.medicalNotes || '');
+    patientProfile.medical_notes = patientProfile.note;
+    patientProfile.medicalNotes = patientProfile.note;
     patientProfile.bmi_value = normalizeString(profile.bmi_value);
     patientProfile.bmi_label = normalizeString(profile.bmi_label || bmiLabel(profile.weight_kg, profile.height_cm));
 
@@ -252,7 +259,7 @@
 
   function hydrateFormFromProfile() {
     var seed = buildProfileSeed();
-    if (seed.firstName === '' && seed.lastName === '' && seed.birthdateIso === '') {
+    if (seed.firstName === '' && seed.lastName === '' && seed.birthdateIso === '' && seed.note === '') {
       return;
     }
 
@@ -290,6 +297,17 @@
         'input[name="fullname"]',
         'input[name="fullName"]'
       ]);
+      var noteInput = findInput([
+        '#sosprescription-root-form[data-app="form"] textarea[name="medical_notes"]',
+        '#sosprescription-root-form[data-app="form"] textarea[name="note"]',
+        '#sosprescription-root-form[data-app="form"] textarea#sp-patient-medical-notes',
+        '#sosprescription-root-form[data-app="patient"] textarea[name="medical_notes"]',
+        '#sosprescription-root-form[data-app="patient"] textarea[name="note"]',
+        '#sosprescription-root-form[data-app="patient"] textarea#sp-patient-medical-notes',
+        'textarea[name="medical_notes"]',
+        'textarea[name="note"]',
+        'textarea#sp-patient-medical-notes'
+      ]);
 
       if (firstNameInput && normalizeString(firstNameInput.value) === '' && seed.firstName !== '') {
         setReactInputValue(firstNameInput, seed.firstName);
@@ -307,8 +325,12 @@
         setReactInputValue(fullNameInput, seed.fullName);
         applied = true;
       }
+      if (noteInput && normalizeString(noteInput.value) === '' && seed.note !== '') {
+        setReactInputValue(noteInput, seed.note);
+        applied = true;
+      }
 
-      if ((firstNameInput || lastNameInput || birthdateInput || fullNameInput) && observer) {
+      if ((firstNameInput || lastNameInput || birthdateInput || fullNameInput || noteInput) && observer) {
         observer.disconnect();
         observer = null;
       }
@@ -350,6 +372,7 @@
       '      <label class="sp-field"><span>Taille (cm)</span><input type="number" name="height_cm" min="30" max="300" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.heightCm) + '" /></label>' +
       '      <div class="sp-field sp-field--readonly"><span>IMC</span><div id="sp-profile-bmi" class="sp-profile-bmi">' + escapeHtml(seed.bmiLabel || 'IMC —') + '</div></div>' +
       '    </div>' +
+      '    <div class="mt-3"><label class="mb-1 block text-xs font-medium text-gray-700">Précisions médicales (optionnel)</label><textarea id="sp-profile-medical-notes" name="note" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin....">' + escapeHtml(seed.note) + '</textarea></div>' +
       '    <div class="sp-profile-actions"><button class="sp-btn sp-btn--primary" type="submit">Enregistrer mes informations</button></div>' +
       '  </form>' +
       '  <div class="sp-profile-hint">Les champs Nom, Prénom et Date de naissance servent à préremplir le formulaire, mais restent toujours modifiables avant l’envoi d’une demande.</div>' +
@@ -363,6 +386,7 @@
     var email = normalizeString(formData.get('email')).toLowerCase();
     var weightKg = normalizeString(formData.get('weight_kg')).replace(',', '.');
     var heightCm = normalizeString(formData.get('height_cm')).replace(',', '.');
+    var note = normalizeString(formData.get('note'));
 
     return {
       first_name: firstName,
@@ -370,7 +394,12 @@
       birthdate: birthdate,
       email: email,
       weight_kg: weightKg,
-      height_cm: heightCm
+      weightKg: weightKg,
+      height_cm: heightCm,
+      heightCm: heightCm,
+      note: note,
+      medical_notes: note,
+      medicalNotes: note
     };
   }
 
