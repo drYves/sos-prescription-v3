@@ -26,6 +26,7 @@ use SosPrescription\Rest\SubmissionV4Controller;
 use SosPrescription\Rest\ArtifactV4Controller;
 use SosPrescription\Rest\PatientV4Controller;
 use SosPrescription\Rest\DoctorV4Controller;
+use SosPrescription\Rest\AuthV4Controller;
 use SosPrescription\Rest\MessagesController;
 use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
@@ -35,6 +36,7 @@ use SosPrescription\Shortcodes\FormShortcode;
 use SosPrescription\Shortcodes\PatientShortcode;
 use SosPrescription\Shortcodes\PricingShortcode;
 use SosPrescription\Frontend\VerificationPage;
+use SosPrescription\Frontend\AuthVerifyPage;
 use SosPrescription\Services\Notifications;
 use SosPrescription\Services\NoCache;
 use SosPrescription\Services\NoIndex;
@@ -60,6 +62,7 @@ final class Plugin
         NoIndex::register_hooks();
         NoCache::register_hooks();
         VerificationPage::register_hooks();
+        AuthVerifyPage::register_hooks();
         ThemeTrace::register();
         PhpDebugTrace::register_hooks();
 
@@ -78,6 +81,7 @@ final class Plugin
         add_action('rest_api_init', [ArtifactV4Controller::class, 'register']);
         add_action('rest_api_init', [PatientV4Controller::class, 'register']);
         add_action('rest_api_init', [DoctorV4Controller::class, 'register']);
+        add_action('rest_api_init', [AuthV4Controller::class, 'register']);
         add_action('rest_api_init', [MessagesController::class, 'register']);
         ErrorResponder::register_hooks();
 

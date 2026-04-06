@@ -4,9 +4,11 @@ import http from "node:http";
 import { URL } from "node:url";
 import { ActorRole, ArtifactKind, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
 import { AnnuaireSanteService, AnnuaireSanteServiceError } from "../admission/annuaireSanteService";
+import { AuthService, AuthServiceError } from "../auth/authService";
 import { MemoryGuard } from "../admission/memoryGuard";
 import { OpenRouterService } from "../ai/openRouterService";
 import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
+import { MailService, MailServiceError } from "../mail/mailService";
 import { MessagesRepo, MessagesRepoError, type ThreadMessageRecord, type ThreadState } from "../messages/messagesRepo";
 import type {
   ApprovePrescriptionRequest,
@@ -112,6 +114,22 @@ interface DoctorVerifyRppsRequestBody {
   rpps?: unknown;
 }
 
+interface AuthRequestLinkRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  email?: unknown;
+}
+
+interface AuthVerifyLinkRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  token?: unknown;
+}
+
 interface LegacyReadFiltersRequestBody {
   status?: unknown;
   limit?: unknown;
@@ -190,6 +208,8 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
   const submissionRepo = new SubmissionRepo({ logger: deps.logger });
   const patientRepo = new PatientRepo({ logger: deps.logger });
+  const authService = new AuthService({ logger: deps.logger });
+  const mailService = new MailService({ logger: deps.logger });
   const annuaireSanteService = new AnnuaireSanteService({ logger: deps.logger });
   const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
   const patientReadRepo = new PatientReadRepo({ logger: deps.logger });
@@ -204,6 +224,14 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "GET" && path === "/pulse") {
         return await handlePulse(req, res, deps, signingSecret);
+      }
+
+      if (method === "POST" && path === "/api/v2/auth/request-link") {
+        return await handleAuthRequestLink(req, res, deps, signingSecret, authService, mailService);
+      }
+
+      if (method === "POST" && path === "/api/v2/auth/verify-link") {
+        return await handleAuthVerifyLink(req, res, deps, signingSecret, authService);
       }
 
       if (method === "POST" && path === "/api/v2/submissions") {
@@ -1101,6 +1129,214 @@ async function handleDoctorVerifyRpps(
       res,
       500,
       { ok: false, code: "ML_RPPS_LOOKUP_UNAVAILABLE", message: "doctor_verify_rpps_failed", req_id: reqId },
+      signingSecret,
+    );
+  }
+}
+
+async function handleAuthRequestLink(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  authService: AuthService,
+  mailService: MailService,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/auth/request-link");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as AuthRequestLinkRequestBody;
+    const email = normalizeMagicLinkRequestEmail(body.email);
+    const lookup = await authService.lookupOwnerByEmail(email, reqId);
+
+    if (lookup.status !== "matched" || !lookup.candidate) {
+      deps.logger.info(
+        "auth.request_link.accepted",
+        {
+          email_fp: fingerprintPublicId(email),
+          owner_match: lookup.status,
+          sent: false,
+        },
+        reqId,
+      );
+
+      return sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          schema_version: CURRENT_SCHEMA_VERSION,
+          sent: true,
+          expires_in: 900,
+          req_id: reqId,
+        },
+        signingSecret,
+      );
+    }
+
+    const issued = await authService.issueMagicLink({
+      email: lookup.candidate.email,
+      ownerRole: lookup.candidate.ownerRole,
+      ownerWpUserId: lookup.candidate.ownerWpUserId,
+    }, reqId);
+
+    await mailService.sendMagicLink(
+      {
+        email: lookup.candidate.email,
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+      },
+      reqId,
+    );
+
+    deps.logger.info(
+      "auth.request_link.accepted",
+      {
+        email_fp: fingerprintPublicId(lookup.candidate.email),
+        owner_role: lookup.candidate.ownerRole,
+        owner_wp_user_id: lookup.candidate.ownerWpUserId,
+        sent: true,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        sent: true,
+        expires_in: issued.expiresIn,
+        req_id: reqId,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof AuthServiceError) {
+      if (err.statusCode >= 500) {
+        deps.logger.error("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+      } else {
+        deps.logger.warning("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+      }
+
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    if (err instanceof MailServiceError) {
+      deps.logger.error("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "auth_request_link_failed";
+    deps.logger.error("auth.request_link.failed", { reason: message }, reqId, err);
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_MAGIC_LINK_REQUEST_FAILED", req_id: reqId },
+      signingSecret,
+    );
+  }
+}
+
+async function handleAuthVerifyLink(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  authService: AuthService,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/auth/verify-link");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as AuthVerifyLinkRequestBody;
+    const token = normalizeMagicLinkToken(body.token);
+    const result = await authService.consumeMagicLink(token, reqId);
+
+    if (!result.valid || result.ownerWpUserId == null || result.ownerRole == null) {
+      deps.logger.info(
+        "auth.verify_link.completed",
+        {
+          valid: false,
+          token_fp: token !== "" ? fingerprintPublicId(token) : null,
+        },
+        reqId,
+      );
+
+      return sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          schema_version: CURRENT_SCHEMA_VERSION,
+          valid: false,
+          req_id: reqId,
+        },
+        signingSecret,
+      );
+    }
+
+    const publicRole = toPublicMagicLinkRole(result.ownerRole);
+    deps.logger.info(
+      "auth.verify_link.completed",
+      {
+        valid: true,
+        owner_role: result.ownerRole,
+        owner_wp_user_id: result.ownerWpUserId,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        valid: true,
+        wp_user_id: result.ownerWpUserId,
+        role: publicRole,
+        req_id: reqId,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof AuthServiceError) {
+      deps.logger.error("auth.verify_link.failed", { code: err.code, reason: err.message }, reqId, err);
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "auth_verify_link_failed";
+    deps.logger.error("auth.verify_link.failed", { reason: message }, reqId, err);
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_MAGIC_LINK_VERIFY_FAILED", req_id: reqId },
       signingSecret,
     );
   }
@@ -3086,6 +3322,39 @@ function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpU
     role: url.searchParams.get("role"),
     wp_user_id: url.searchParams.get("wp_user_id"),
   });
+}
+
+function normalizeMagicLinkRequestEmail(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("email is required");
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    throw new Error("email is invalid");
+  }
+
+  return normalized;
+}
+
+function normalizeMagicLinkToken(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("token is required");
+  }
+
+  const normalized = value.trim();
+  if (normalized.length < 32 || normalized.length > 256) {
+    throw new Error("token is invalid");
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
+    throw new Error("token is invalid");
+  }
+
+  return normalized;
+}
+
+function toPublicMagicLinkRole(role: ActorRole): "doctor" | "patient" {
+  return role === ActorRole.DOCTOR ? "doctor" : "patient";
 }
 
 function normalizeDoctorVerifyRppsInput(body: DoctorVerifyRppsRequestBody): string {

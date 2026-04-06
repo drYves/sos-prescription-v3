@@ -7,6 +7,7 @@ use SOSPrescription\Repositories\FileRepository;
 use SOSPrescription\Services\FileStorage;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\UI\ScreenFrame;
+use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
@@ -66,6 +67,16 @@ final class DoctorAccountShortcode
             'atts_count' => count($atts),
         ]);
 
+        if (!is_user_logged_in()) {
+            AuthMagicLinkUi::enqueue_assets();
+
+            return AuthMagicLinkUi::render_request_screen(
+                'doctor-account',
+                'Connexion médecin',
+                'Saisissez votre adresse e-mail professionnelle pour recevoir un lien de connexion sécurisé vers votre compte médecin.'
+            );
+        }
+
         // Assets (UX upload signature)
         if (function_exists('wp_enqueue_style')) {
             wp_enqueue_style(
@@ -101,23 +112,6 @@ final class DoctorAccountShortcode
                 'sosprescription-doctor-account',
                 'window.SOSPrescriptionDoctorAccount = ' . wp_json_encode($doctor_account_front_config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';',
                 'before'
-            );
-        }
-
-        if (!is_user_logged_in()) {
-            $url = wp_login_url((string) get_permalink());
-            return ScreenFrame::guard(
-                'doctor-account',
-                'login',
-                'Connexion requise',
-                'Merci de vous connecter pour accéder à votre compte médecin.',
-                [
-                    [
-                        'label' => 'Se connecter',
-                        'url'   => $url,
-                        'class' => 'sp-button sp-button--primary button button-primary',
-                    ],
-                ]
             );
         }
 

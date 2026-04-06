@@ -7,6 +7,7 @@ use SOSPrescription\Assets\Assets;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\Notices;
 use SOSPrescription\UI\ScreenFrame;
+use SosPrescription\UI\AuthMagicLinkUi;
 
 final class PatientShortcode
 {
@@ -47,31 +48,12 @@ final class PatientShortcode
         ]);
 
         if (!is_user_logged_in()) {
-            $redirect = is_singular() ? (string) get_permalink() : (string) home_url('/');
-            $login_url = (string) apply_filters('sosprescription_login_url', wp_login_url($redirect), $redirect);
-            $register_url = (string) apply_filters('sosprescription_register_url', function_exists('wp_registration_url') ? wp_registration_url() : '', $redirect);
+            AuthMagicLinkUi::enqueue_assets();
 
-            $actions = [
-                [
-                    'label' => 'Se connecter',
-                    'url'   => $login_url,
-                    'class' => 'sp-button sp-button--primary button button-primary',
-                ],
-            ];
-            if ($register_url !== '') {
-                $actions[] = [
-                    'label' => 'Créer un compte',
-                    'url'   => $register_url,
-                    'class' => 'sp-button sp-button--secondary button',
-                ];
-            }
-
-            return ScreenFrame::guard(
+            return AuthMagicLinkUi::render_request_screen(
                 'patient',
-                'login',
-                'Connexion requise',
-                'Merci de vous connecter pour accéder à votre espace patient.',
-                $actions
+                'Connexion patient',
+                'Saisissez votre adresse e-mail pour recevoir un lien de connexion sécurisé vers votre espace patient.'
             );
         }
 

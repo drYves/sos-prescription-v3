@@ -195,3 +195,18 @@ model Artifact {
   @@index([messageId, createdAt])
   @@index([ownerWpUserId, createdAt])
 }
+
+
+model AuthToken {
+  id            String    @id @default(uuid())
+  token         String    @unique
+  email         String
+  ownerRole     ActorRole
+  ownerWpUserId Int?
+  expiresAt     DateTime
+  used          Boolean   @default(false)
+
+  @@index([email, expiresAt])
+  @@index([used, expiresAt])
+}
+
