@@ -381,9 +381,9 @@ final class DoctorAccountShortcode
         $html .= '</div>';
 
         $html .= '<div class="sp-field">';
-        $html .= '<label class="sp-field__label" for="sp_doc_phone">Téléphone professionnel</label>';
-        $html .= '<input class="sp-input" type="text" id="sp_doc_phone" name="phone" value="' . esc_attr($phone) . '" placeholder="Ex : 01 23 45 67 89" />';
-        $html .= '<p class="sp-field__help">Optionnel sur le profil. Renseignez uniquement le numéro professionnel qui peut figurer sur vos ordonnances ou comptes-rendus ; il n’a pas vocation à servir de canal direct patient.</p>';
+        $html .= '<label class="sp-field__label" for="sp_doc_phone">Numéro de transfert (masqué)</label>';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_phone" name="phone" value="' . esc_attr($phone) . '" placeholder="Ex : 06 12 34 56 78" />';
+        $html .= '<p class="sp-field__help">Pour protéger votre vie privée, ce numéro ne sera jamais imprimé sur vos ordonnances. La plateforme génèrera un numéro de standard sécurisé (09) qui redirigera les appels des pharmaciens vers cette ligne.</p>';
         $html .= '</div>';
 
         $html .= self::render_signature_field($sig_file_id);
