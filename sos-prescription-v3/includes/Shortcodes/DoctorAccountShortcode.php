@@ -82,6 +82,26 @@ final class DoctorAccountShortcode
                 SOSPRESCRIPTION_VERSION,
                 true
             );
+
+            $doctor_account_front_config = [
+                'verifyRppsEndpoint' => esc_url_raw(rest_url('sosprescription/v4/doctor/verify-rpps')),
+                'restNonce' => wp_create_nonce('wp_rest'),
+                'strings' => [
+                    'verifyLabel' => 'Vérifier',
+                    'verifyingLabel' => 'Vérification…',
+                    'invalidLength' => '❌ RPPS invalide : 11 chiffres requis.',
+                    'successPrefix' => '✅ Identité vérifiée : Dr. ',
+                    'successUnknown' => '✅ RPPS valide.',
+                    'invalidLookup' => '❌ RPPS invalide ou introuvable.',
+                    'serviceUnavailable' => '❌ Vérification RPPS temporairement indisponible.',
+                ],
+            ];
+
+            wp_add_inline_script(
+                'sosprescription-doctor-account',
+                'window.SOSPrescriptionDoctorAccount = ' . wp_json_encode($doctor_account_front_config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';',
+                'before'
+            );
         }
 
         if (!is_user_logged_in()) {

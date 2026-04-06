@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account (Signature upload UX Premium) */
+/* SOS Prescription – Doctor Account (Signature upload UX + RPPS verification) */
 
 (function () {
   function ready(fn) {
@@ -21,12 +21,113 @@
   function isAllowedType(file) {
     var allowed = ['image/png', 'image/jpeg'];
     if (file.type && allowed.indexOf(file.type) !== -1) return true;
-    // Fallback: check extension.
     var name = (file.name || '').toLowerCase();
     return name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg');
   }
 
-  ready(function () {
+  function normalizeDigits(value) {
+    return String(value || '').replace(/\D+/g, '');
+  }
+
+  function normalizeString(value) {
+    return String(value == null ? '' : value).trim();
+  }
+
+  function safeJsonParse(text) {
+    try {
+      return JSON.parse(text);
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function getDoctorAccountConfig() {
+    var cfg = window.SOSPrescriptionDoctorAccount || window.SosPrescriptionDoctorAccount || null;
+    if (!cfg || typeof cfg !== 'object') {
+      return null;
+    }
+    return cfg;
+  }
+
+  function getVerifyStrings(config) {
+    var strings = config && config.strings && typeof config.strings === 'object' ? config.strings : {};
+    return {
+      verifyLabel: normalizeString(strings.verifyLabel) || 'Vérifier',
+      verifyingLabel: normalizeString(strings.verifyingLabel) || 'Vérification…',
+      invalidLength: normalizeString(strings.invalidLength) || '❌ RPPS invalide : 11 chiffres requis.',
+      successPrefix: normalizeString(strings.successPrefix) || '✅ Identité vérifiée : Dr. ',
+      successUnknown: normalizeString(strings.successUnknown) || '✅ RPPS valide.',
+      invalidLookup: normalizeString(strings.invalidLookup) || '❌ RPPS invalide ou introuvable.',
+      serviceUnavailable: normalizeString(strings.serviceUnavailable) || '❌ Vérification RPPS temporairement indisponible.'
+    };
+  }
+
+  function buildVerifiedIdentityMessage(data, strings) {
+    var firstName = normalizeString(data && (data.firstName || data.first_name));
+    var lastName = normalizeString(data && (data.lastName || data.last_name));
+    var profession = normalizeString(data && data.profession);
+    var fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+    if (!fullName && !profession) {
+      return strings.successUnknown;
+    }
+
+    var message = strings.successPrefix + (fullName || 'Professionnel identifié');
+    if (profession) {
+      message += ' (' + profession + ')';
+    }
+    return message;
+  }
+
+  function setFeedback(feedback, variant, message) {
+    if (!feedback) return;
+    feedback.hidden = false;
+    feedback.className = 'sp-alert';
+    if (variant === 'success') {
+      feedback.classList.add('sp-alert--success');
+      feedback.setAttribute('role', 'status');
+    } else if (variant === 'error') {
+      feedback.classList.add('sp-alert--error');
+      feedback.setAttribute('role', 'alert');
+    } else {
+      feedback.classList.add('sp-alert--info');
+      feedback.setAttribute('role', 'status');
+    }
+    feedback.textContent = normalizeString(message);
+  }
+
+  function clearFeedback(feedback) {
+    if (!feedback) return;
+    feedback.hidden = true;
+    feedback.textContent = '';
+    feedback.className = 'sp-alert';
+    feedback.setAttribute('role', 'status');
+  }
+
+  function maybeHydrateDoctorFields(input, data) {
+    if (!input || !data) return;
+
+    var form = input.form || input.closest('form');
+    if (!form || !form.querySelector) return;
+
+    var profession = normalizeString(data.profession);
+    var fullName = [
+      normalizeString(data && (data.firstName || data.first_name)),
+      normalizeString(data && (data.lastName || data.last_name))
+    ].filter(Boolean).join(' ').trim();
+
+    var specialtyInput = form.querySelector('#sp_doc_specialty, input[name="specialty"]');
+    if (specialtyInput && specialtyInput.value != null && !normalizeString(specialtyInput.value) && profession) {
+      specialtyInput.value = profession;
+    }
+
+    var displayNameInput = form.querySelector('#sp_doc_display_name, #sp_new_doc_name, input[name="display_name"]');
+    if (displayNameInput && displayNameInput.value != null && !normalizeString(displayNameInput.value) && fullName) {
+      displayNameInput.value = fullName;
+    }
+  }
+
+  function initSignatureUpload() {
     var input = document.getElementById('signature_file');
     if (!input) return;
 
@@ -54,7 +155,6 @@
     }
 
     function setMeta(infoText, warningText) {
-      // Safe rendering (no innerHTML)
       metaEl.innerHTML = '';
       metaEl.appendChild(document.createTextNode(infoText || ''));
       if (warningText) {
@@ -113,7 +213,6 @@
 
           if (!w || !h) return;
 
-          // Simple “premium” guidance, non blocking.
           var ratio = w / h;
           var warning = '';
           if (h > 300 || ratio < 2.0) {
@@ -131,12 +230,11 @@
 
         img.onerror = function () {
           try { URL.revokeObjectURL(url); } catch (_) {}
-          // Best effort only: keep previous meta
         };
 
         img.src = url;
-      } catch (e) {
-        // Best effort only
+      } catch (_e) {
+        // Best effort only.
       }
     }
 
@@ -148,7 +246,7 @@
           try {
             previewImg.src = e.target && e.target.result ? e.target.result : '';
             previewWrap.style.display = previewImg.src ? 'block' : 'none';
-          } catch (err) {
+          } catch (_err) {
             previewWrap.style.display = 'none';
           }
         };
@@ -158,7 +256,7 @@
         };
 
         reader.readAsDataURL(file);
-      } catch (e) {
+      } catch (_e) {
         previewWrap.style.display = 'none';
       }
     }
@@ -169,24 +267,20 @@
         return;
       }
 
-      // A) Bad format
       if (!isAllowedType(file)) {
         input.value = '';
         setError('⛔ Format non supporté. Merci d\'utiliser JPG ou PNG uniquement.');
         return;
       }
 
-      // B) Too heavy (> 1MB)
       if (file.size > 1048576) {
         input.value = '';
         setError('⚠️ Fichier trop lourd. La limite est de 1 Mo (Recommandé : < 200ko).');
         return;
       }
 
-      // C) Success
       setSuccess(file.name || 'signature');
 
-      // Initial meta (will be enriched with dimensions async)
       var typeLabel = (file.type || '').replace('image/', '').toUpperCase();
       if (!typeLabel) typeLabel = 'IMAGE';
       setMeta('Type : ' + typeLabel + ' • Taille : ' + formatBytes(file.size), '');
@@ -198,7 +292,6 @@
     }
 
     function tryAttachFileFromDrop(file) {
-      // Try to attach dropped file to the real input so the form submit works.
       try {
         if (typeof DataTransfer !== 'undefined') {
           var dt = new DataTransfer();
@@ -207,18 +300,17 @@
         } else {
           return false;
         }
-      } catch (e) {
+      } catch (_e) {
         return false;
       }
 
       try {
         return !!(input.files && input.files[0] && input.files[0].name === file.name && input.files[0].size === file.size);
-      } catch (_) {
+      } catch (_err) {
         return false;
       }
     }
 
-    // Input change (click picker)
     input.addEventListener('change', function () {
       if (!input.files || !input.files[0]) {
         resetToDefault();
@@ -227,7 +319,6 @@
       handleFile(input.files[0]);
     });
 
-    // Clear selection
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
         input.value = '';
@@ -235,7 +326,6 @@
       });
     }
 
-    // Keyboard support on label (accessibility)
     label.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -243,7 +333,6 @@
       }
     });
 
-    // Drag & Drop support
     ['dragenter', 'dragover'].forEach(function (evt) {
       label.addEventListener(evt, function (e) {
         e.preventDefault();
@@ -277,5 +366,124 @@
 
       handleFile(file);
     });
+  }
+
+  function enhanceRppsField(input, config) {
+    if (!input || input.dataset.spRppsEnhanced === '1') return;
+    if (!config || !config.verifyRppsEndpoint || !config.restNonce || typeof window.fetch !== 'function') return;
+
+    input.dataset.spRppsEnhanced = '1';
+    input.setAttribute('inputmode', 'numeric');
+    input.setAttribute('maxlength', '11');
+    input.setAttribute('autocomplete', 'off');
+
+    var strings = getVerifyStrings(config);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sp-button sp-button--secondary';
+    button.textContent = strings.verifyLabel;
+    button.setAttribute('aria-label', strings.verifyLabel);
+
+    var feedback = document.createElement('div');
+    feedback.className = 'sp-alert';
+    feedback.hidden = true;
+    feedback.setAttribute('aria-live', 'polite');
+    feedback.setAttribute('role', 'status');
+    if (input.id) {
+      feedback.id = input.id + '_verify_feedback';
+      button.setAttribute('aria-controls', feedback.id);
+    }
+
+    input.insertAdjacentText('afterend', ' ');
+    input.insertAdjacentElement('afterend', button);
+    button.insertAdjacentElement('afterend', feedback);
+
+    function setBusy(isBusy) {
+      button.disabled = !!isBusy;
+      button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+      button.textContent = isBusy ? strings.verifyingLabel : strings.verifyLabel;
+    }
+
+    input.addEventListener('input', function () {
+      var digits = normalizeDigits(input.value);
+      if (digits.length > 11) {
+        digits = digits.slice(0, 11);
+      }
+      if (input.value !== digits) {
+        input.value = digits;
+      }
+      clearFeedback(feedback);
+    });
+
+    button.addEventListener('click', function () {
+      var rpps = normalizeDigits(input.value);
+      input.value = rpps;
+      clearFeedback(feedback);
+
+      if (rpps.length !== 11) {
+        setFeedback(feedback, 'error', strings.invalidLength);
+        return;
+      }
+
+      setBusy(true);
+
+      fetch(config.verifyRppsEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'application/json',
+          'X-WP-Nonce': config.restNonce
+        },
+        body: JSON.stringify({ rpps: rpps })
+      })
+        .then(function (response) {
+          return response.text().then(function (text) {
+            return {
+              ok: response.ok,
+              status: response.status,
+              data: safeJsonParse(text) || {}
+            };
+          });
+        })
+        .then(function (result) {
+          var data = result.data || {};
+          if (result.ok && data.valid === true) {
+            maybeHydrateDoctorFields(input, data);
+            setFeedback(feedback, 'success', buildVerifiedIdentityMessage(data, strings));
+            return;
+          }
+
+          if (result.status >= 500) {
+            setFeedback(feedback, 'error', strings.serviceUnavailable);
+            return;
+          }
+
+          setFeedback(feedback, 'error', strings.invalidLookup);
+        })
+        .catch(function () {
+          setFeedback(feedback, 'error', strings.serviceUnavailable);
+        })
+        .finally(function () {
+          setBusy(false);
+        });
+    });
+  }
+
+  function initRppsVerification() {
+    var config = getDoctorAccountConfig();
+    if (!config) return;
+
+    var inputs = document.querySelectorAll('input[name="rpps"]');
+    if (!inputs || !inputs.length) return;
+
+    Array.prototype.forEach.call(inputs, function (input) {
+      enhanceRppsField(input, config);
+    });
+  }
+
+  ready(function () {
+    initSignatureUpload();
+    initRppsVerification();
   });
 })();

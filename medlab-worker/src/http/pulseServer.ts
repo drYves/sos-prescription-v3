@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
 import { ActorRole, ArtifactKind, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
+import { AnnuaireSanteService, AnnuaireSanteServiceError } from "../admission/annuaireSanteService";
 import { MemoryGuard } from "../admission/memoryGuard";
 import { OpenRouterService } from "../ai/openRouterService";
 import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
@@ -99,6 +100,18 @@ interface PatientProfileRequestBody {
   medicalNotes?: unknown;
 }
 
+interface DoctorVerifyRppsRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  rpps?: unknown;
+}
+
 interface LegacyReadFiltersRequestBody {
   status?: unknown;
   limit?: unknown;
@@ -177,6 +190,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const signingSecret = deps.secrets[0];
   const submissionRepo = new SubmissionRepo({ logger: deps.logger });
   const patientRepo = new PatientRepo({ logger: deps.logger });
+  const annuaireSanteService = new AnnuaireSanteService({ logger: deps.logger });
   const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
   const patientReadRepo = new PatientReadRepo({ logger: deps.logger });
 
@@ -225,6 +239,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "PUT" && path === "/api/v2/patient/profile") {
         return await handlePatientProfilePut(req, res, deps, signingSecret, patientRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/doctor/verify-rpps") {
+        return await handleDoctorVerifyRpps(req, res, deps, signingSecret, annuaireSanteService);
       }
 
       if (method === "POST" && path === "/api/v2/doctor/inbox") {
@@ -994,6 +1012,97 @@ async function handlePatientProfilePut(
       err,
     );
     return sendJson(res, 500, { ok: false, code: "ML_PATIENT_PROFILE_SAVE_FAILED", req_id: reqId }, signingSecret);
+  }
+}
+
+
+async function handleDoctorVerifyRpps(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  annuaireSanteService: AnnuaireSanteService,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/doctor/verify-rpps");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as DoctorVerifyRppsRequestBody;
+    const actor = body.actor != null ? normalizeActorInput(body.actor) : null;
+    if (actor && actor.role !== ActorRole.DOCTOR && actor.role !== ActorRole.SYSTEM) {
+      return sendJson(res, 403, { ok: false, code: "ML_INGEST_FORBIDDEN", req_id: reqId }, signingSecret);
+    }
+
+    const rpps = normalizeDoctorVerifyRppsInput(body);
+    const result = await annuaireSanteService.verifyRpps(rpps, reqId);
+
+    deps.logger.info(
+      result.valid ? "doctor.verify_rpps.completed" : "doctor.verify_rpps.not_found",
+      {
+        actor_role: actor?.role ?? null,
+        actor_wp_user_id: actor?.wpUserId ?? null,
+        valid: result.valid,
+        rpps_fp: fingerprintPublicId(result.rpps),
+        profession_present: result.profession !== "",
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        valid: result.valid,
+        rpps: result.rpps,
+        firstName: result.firstName,
+        first_name: result.firstName,
+        lastName: result.lastName,
+        last_name: result.lastName,
+        profession: result.profession,
+        req_id: reqId,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof AnnuaireSanteServiceError) {
+      const context = {
+        code: err.code,
+        status_code: err.statusCode,
+      };
+
+      if (err.statusCode >= 500) {
+        deps.logger.error("doctor.verify_rpps.failed", context, reqId, err);
+      } else {
+        deps.logger.warning("doctor.verify_rpps.failed", context, reqId, err);
+      }
+
+      return sendJson(
+        res,
+        err.statusCode,
+        {
+          ok: false,
+          code: err.code,
+          message: err.statusCode >= 500 ? "La vérification RPPS est temporairement indisponible." : err.message,
+          req_id: reqId,
+        },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "doctor_verify_rpps_failed";
+    deps.logger.error("doctor.verify_rpps.failed", { reason: message }, reqId, err);
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_RPPS_LOOKUP_UNAVAILABLE", message: "doctor_verify_rpps_failed", req_id: reqId },
+      signingSecret,
+    );
   }
 }
 
@@ -2522,6 +2631,7 @@ function normalizeOptionalString(value: unknown): string | null {
   return normalized === "" ? null : normalized;
 }
 
+
 function normalizeFiniteNumber(value: unknown, field: string): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) {
@@ -2976,6 +3086,14 @@ function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpU
     role: url.searchParams.get("role"),
     wp_user_id: url.searchParams.get("wp_user_id"),
   });
+}
+
+function normalizeDoctorVerifyRppsInput(body: DoctorVerifyRppsRequestBody): string {
+  const raw = normalizeRequiredString(body.rpps, "rpps").replace(/\D+/g, "");
+  if (raw.length !== 11) {
+    throw new AnnuaireSanteServiceError("ML_RPPS_BAD_REQUEST", "rpps must contain exactly 11 digits", 400);
+  }
+  return raw;
 }
 
 function buildPatientProfileCanonicalGetPath(actor: { role: "PATIENT"; wpUserId: number }): string {
@@ -3575,6 +3693,15 @@ function serializeArtifact(artifact: ArtifactRecord): Record<string, unknown> {
     updated_at: artifact.updatedAt.toISOString(),
     linked_at: artifact.linkedAt ? artifact.linkedAt.toISOString() : null,
   };
+}
+
+function fingerprintPublicId(value: string): string {
+  const normalized = String(value || "").trim();
+  if (normalized === "") {
+    return "";
+  }
+
+  return Buffer.from(normalized, "utf8").toString("base64url").slice(0, 12);
 }
 
 function applyApiResponseHeaders(
