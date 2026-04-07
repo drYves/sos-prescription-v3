@@ -44,6 +44,21 @@ final class AdminShortcode
             );
         }
 
+        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_PATH')) {
+            $doctorChatEnhancementsPath = SOSPRESCRIPTION_PATH . 'assets/doctor-chat-enhancements.js';
+            $doctorChatEnhancementsVersion = file_exists($doctorChatEnhancementsPath)
+                ? (string) filemtime($doctorChatEnhancementsPath)
+                : (defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null);
+
+            wp_enqueue_script(
+                'sosprescription-doctor-chat-enhancements',
+                SOSPRESCRIPTION_URL . 'assets/doctor-chat-enhancements.js',
+                [],
+                $doctorChatEnhancementsVersion,
+                true
+            );
+        }
+
         Assets::enqueue('doctor_console');
 
         $user = wp_get_current_user();
