@@ -29,7 +29,7 @@ final class AdminShortcode
             AuthMagicLinkUi::enqueue_assets();
 
             return AuthMagicLinkUi::render_request_screen(
-                'doctor',
+                'console',
                 'Connexion médecin',
                 'Saisissez votre adresse e-mail professionnelle pour recevoir un lien de connexion sécurisé vers la console médecin.'
             );
@@ -44,18 +44,7 @@ final class AdminShortcode
             );
         }
 
-        // Console médecin (vanilla JS) : évite de dépendre d'un build React.
         Assets::enqueue('doctor_console');
-
-        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_VERSION')) {
-            wp_enqueue_script(
-                'sosprescription-patient-chat-enhancements',
-                SOSPRESCRIPTION_URL . 'assets/patient-chat-enhancements.js',
-                [],
-                SOSPRESCRIPTION_VERSION,
-                true
-            );
-        }
 
         $user = wp_get_current_user();
         $display_name = is_object($user) ? trim((string) $user->display_name) : '';
@@ -73,27 +62,24 @@ final class AdminShortcode
         }
         $connected_label = trim($title_prefix . ' ' . $display_name);
 
-        $toolbar = '<div class="sp-card">'
+        $toolbar = '<div class="sp-stack">'
+            . '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">'
+            . '<p class="sp-alert__title">Session active</p>'
+            . '<p class="sp-alert__body">Connecté : ' . esc_html($connected_label) . '</p>'
+            . '</div>'
             . '<div class="sp-stack">'
-            . ScreenFrame::badge('Connecté : ' . $connected_label, 'success', true)
+            . '<a class="sp-button sp-button--secondary" href="' . esc_url(home_url('/compte-medecin/')) . '">Mon compte médecin</a>'
             . self::render_logout_form()
             . '</div>'
             . '</div>';
 
-        $content  = ScreenFrame::toolbarMeta('console', $toolbar);
-        $content .= ScreenFrame::statusSurface(
-            'console',
-            '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">'
-            . '<p class="sp-alert__title">Console médecin</p>'
-            . '<p class="sp-alert__body">Accédez à vos dossiers patients et à vos actions de validation en session sécurisée.</p>'
-            . '</div>'
-        );
+        $content = ScreenFrame::toolbarMeta('console', $toolbar);
         $content .= ScreenFrame::mount(
             'console',
             '<div id="sosprescription-doctor-console-root" class="sosprescription-doctor sp-ui" data-sp-screen="console">'
             . ScreenFrame::loadingCard(
                 'Chargement de la console médecin…',
-                'Si l’interface reste bloquée, vérifiez les logs 403/500 éventuels puis rafraîchissez la page.'
+                'Si l’interface reste bloquée, vérifiez les logs / une erreur 403/500, puis rafraîchissez la page.'
             )
             . '</div>'
         );
@@ -104,13 +90,13 @@ final class AdminShortcode
 
     private static function render_logout_form(): string
     {
-        $html = '';
-        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        $html .= '<input type="hidden" name="action" value="sosprescription_logout" />';
-        $html .= wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
-        $html .= '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>';
-        $html .= '</form>';
+        $action = esc_url(admin_url('admin-post.php'));
+        $nonce = wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
 
-        return $html;
+        return '<form class="sp-form" method="post" action="' . $action . '">'
+            . '<input type="hidden" name="action" value="sosprescription_logout" />'
+            . $nonce
+            . '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>'
+            . '</form>';
     }
 }
