@@ -1,652 +1,720 @@
 (function () {
-  var STATE_KEY = '__spPatientMessagingV4';
-  var LEGACY_SCOPE = '/wp-json/sosprescription/v1';
-  var V4_SCOPE = '/wp-json/sosprescription/v4';
-  var SVG_PAPERCLIP =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>' +
-    '</svg>';
-  var SVG_SEND =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M22 2 11 13"/>' +
-    '<path d="m22 2-7 20-4-9-9-4 20-7Z"/>' +
-    '</svg>';
+  'use strict';
 
-  function getState() {
-    if (!window[STATE_KEY]) {
-      window[STATE_KEY] = {
-        localIdToUid: {},
-        uidToLocalId: {},
-        pendingUidLookups: {},
-        threadStateByUid: {},
-        activeUid: normalizeUid(new URL(window.location.href).searchParams.get('rx_uid') || ''),
-      };
-    }
-    return window[STATE_KEY];
+  var TAG_NAME = 'sp-patient-text-chat';
+  var REFRESH_EVENT = 'sp:patient-chat-refresh';
+  var POLL_VISIBLE_MS = 15000;
+  var POLL_HIDDEN_MS = 30000;
+  var MAX_MESSAGES = 100;
+  var COMPONENT_CSS_URL = resolveComponentCssUrl();
+
+  if (typeof window === 'undefined' || typeof document === 'undefined' || typeof customElements === 'undefined') {
+    return;
   }
 
   function normalizeUid(value) {
-    var uid = String(value || '').trim();
-    return /^[A-Za-z0-9_-]{4,128}$/.test(uid) ? uid : '';
+    var text = String(value || '').trim();
+    return /^[A-Za-z0-9_-]{4,128}$/.test(text) ? text : '';
   }
 
-  function normalizeLocalId(value) {
-    var text = String(value == null ? '' : value).trim();
-    if (!/^\d+$/.test(text)) {
-      return 0;
-    }
-    var id = Number(text);
-    return Number.isFinite(id) && id > 0 ? Math.trunc(id) : 0;
+  function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
-  function qs(root, selector) {
-    try {
-      return root.querySelector(selector);
-    } catch (err) {
-      return null;
-    }
-  }
-
-  function qsa(root, selector) {
-    try {
-      return Array.prototype.slice.call(root.querySelectorAll(selector));
-    } catch (err) {
-      return [];
-    }
-  }
-
-  function findPatientRoot() {
-    return document.querySelector('#sosprescription-app[data-view="patient"]')
-      || document.querySelector('#sosprescription-root-form[data-app="patient"]')
-      || document.querySelector('#sosprescription-root-form')
-      || document.body;
-  }
-
-  function findComposerTextarea(root) {
-    var textareas = qsa(root || document, 'textarea');
-    for (var i = 0; i < textareas.length; i += 1) {
-      var placeholder = String(textareas[i].getAttribute('placeholder') || '').toLowerCase();
-      if (placeholder.indexOf('message') !== -1) {
-        return textareas[i];
-      }
-    }
-    return null;
-  }
-
-  function findComposerRow(textarea) {
-    var node = textarea;
-    for (var i = 0; i < 8; i += 1) {
-      if (!node || !node.parentElement) {
-        break;
-      }
-      node = node.parentElement;
-      if (!node || !node.classList) {
-        continue;
-      }
-      if (node.classList.contains('flex') && node.classList.contains('gap-2')) {
-        return node;
-      }
-    }
-    return textarea.parentElement || null;
-  }
-
-  function findComposerCard(root) {
-    var textarea = findComposerTextarea(root);
-    if (!textarea) {
-      return null;
-    }
-
-    var row = findComposerRow(textarea);
-    var node = row;
-    for (var i = 0; i < 8; i += 1) {
-      if (!node || !node.parentElement) {
-        break;
-      }
-      node = node.parentElement;
-      if (!node || !node.classList) {
-        continue;
-      }
-      if (node.classList.contains('rounded-xl') && node.classList.contains('border')) {
-        return node;
-      }
-    }
-
-    return row;
-  }
-
-  function ensureThreadAlert(card) {
-    if (!card || !card.parentElement) {
-      return null;
-    }
-
-    var alert = card.parentElement.querySelector('.sp-chat-thread-alert');
-    if (alert) {
-      return alert;
-    }
-
-    alert = document.createElement('div');
-    alert.className = 'sp-alert sp-alert--info sp-chat-thread-alert';
-    alert.setAttribute('role', 'status');
-    alert.hidden = true;
-    card.parentElement.insertBefore(alert, card);
-    return alert;
-  }
-
-  function setLegacyComposerHintsHidden(root, hidden) {
-    var candidates = qsa(root || document, 'p, div, span');
-    for (var i = 0; i < candidates.length; i += 1) {
-      var text = String(candidates[i].textContent || '').trim().toLowerCase();
-      if (!text) {
-        continue;
-      }
-      if (text.indexOf('vous pouvez envoyer un message à tout moment') !== -1) {
-        candidates[i].hidden = !!hidden;
-      }
-    }
-  }
-
-  function threadMessageForMode(mode) {
-    if (mode === 'DOCTOR_ONLY') {
-      return 'Le médecin n’a pas encore ouvert cet échange. Vous pourrez répondre dès qu’un premier message vous sera adressé.';
-    }
-    if (mode === 'READ_ONLY') {
-      return 'La messagerie est fermée car une décision médicale définitive a été rendue sur cette demande.';
+  function normalizeMode(value) {
+    var mode = normalizeText(value).toUpperCase();
+    if (mode === 'PATIENT_REPLY' || mode === 'READ_ONLY' || mode === 'DOCTOR_ONLY') {
+      return mode;
     }
     return '';
   }
 
-  function syncPatientComposer() {
-    var state = getState();
-    var uid = normalizeUid(state.activeUid || '');
-    if (!uid) {
-      return;
-    }
-
-    var threadState = state.threadStateByUid[uid];
-    if (!threadState || typeof threadState !== 'object') {
-      return;
-    }
-
-    var mode = String(threadState.mode || '').toUpperCase();
-    if (!mode) {
-      return;
-    }
-
-    var root = findPatientRoot();
-    var card = findComposerCard(root);
-    if (!card) {
-      return;
-    }
-
-    var alert = ensureThreadAlert(card);
-    if (mode === 'PATIENT_REPLY') {
-      card.hidden = false;
-      if (alert) {
-        alert.hidden = true;
-        alert.textContent = '';
-      }
-      setLegacyComposerHintsHidden(root, false);
-      return;
-    }
-
-    card.hidden = true;
-    setLegacyComposerHintsHidden(root, true);
-    if (alert) {
-      alert.hidden = false;
-      alert.textContent = threadMessageForMode(mode);
-    }
+  function normalizeStatus(value) {
+    return normalizeText(value).toUpperCase();
   }
 
-  function enhanceComposerUi() {
-    var root = findPatientRoot();
-    var textarea = findComposerTextarea(root);
-    if (!textarea) {
-      syncPatientComposer();
-      return;
-    }
-
-    textarea.classList.add('sp-chat-textarea');
-
-    var row = findComposerRow(textarea);
-    if (row && row.classList) {
-      row.classList.add('sp-chat-compose-premium');
-
-      var attachBtn = qs(row, 'button[aria-label="Ajouter un document"]');
-      if (attachBtn && !attachBtn.dataset.spEnhanced) {
-        attachBtn.dataset.spEnhanced = '1';
-        attachBtn.classList.add('sp-chat-attach-btn');
-        attachBtn.innerHTML = SVG_PAPERCLIP;
-      }
-
-      var buttons = qsa(row, 'button');
-      for (var i = 0; i < buttons.length; i += 1) {
-        var label = String(buttons[i].textContent || '').trim().toLowerCase();
-        if (label === 'envoyer' && !buttons[i].dataset.spEnhanced) {
-          buttons[i].dataset.spEnhanced = '1';
-          buttons[i].classList.add('sp-chat-send');
-          buttons[i].innerHTML = SVG_SEND + '<span>Envoyer</span>';
-        }
-      }
-    }
-
-    var card = findComposerCard(root);
-    if (card && card.classList) {
-      card.classList.add('sp-chat-card');
-      if (!qs(card, '.sp-chat-footnote')) {
-        var foot = document.createElement('div');
-        foot.className = 'sp-chat-footnote';
-        foot.textContent = 'Échanges sécurisés et journalisés.';
-        card.appendChild(foot);
-      }
-    }
-
-    syncPatientComposer();
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
-  function toUrl(value) {
+  function config() {
+    return window.SOSPrescription || window.SosPrescription || {};
+  }
+
+  function restV4Base() {
+    var cfg = config();
+    var base = normalizeText(cfg && cfg.restV4Base ? cfg.restV4Base : '');
+    if (base) {
+      return base.replace(/\/$/, '');
+    }
+
+    var legacyBase = normalizeText(cfg && cfg.restBase ? cfg.restBase : '');
+    if (legacyBase) {
+      return legacyBase.replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4').replace(/\/$/, '');
+    }
+
+    return '';
+  }
+
+  function restNonce() {
+    var cfg = config();
+    return normalizeText(cfg && cfg.nonce ? cfg.nonce : '');
+  }
+
+  function urlUid() {
     try {
-      if (value instanceof Request) {
-        return new URL(value.url, window.location.href);
-      }
-      return new URL(String(value), window.location.href);
+      return normalizeUid(new URL(window.location.href).searchParams.get('rx_uid') || '');
     } catch (err) {
-      return null;
+      return '';
     }
   }
 
-  function cloneHeaders(headersLike) {
-    var out = {};
-    if (!headersLike) {
-      return out;
+  function buildApiUrl(uid, suffix, params) {
+    var base = restV4Base();
+    if (!base) {
+      throw new Error('Configuration REST V4 absente.');
     }
 
-    if (typeof Headers !== 'undefined' && headersLike instanceof Headers) {
-      headersLike.forEach(function (value, key) {
-        out[key] = value;
-      });
-      return out;
+    var url = base + '/prescriptions/' + encodeURIComponent(uid) + suffix;
+    if (!params || typeof params !== 'object') {
+      return url;
     }
 
-    if (Array.isArray(headersLike)) {
-      for (var i = 0; i < headersLike.length; i += 1) {
-        var entry = headersLike[i];
-        if (!Array.isArray(entry) || entry.length < 2) {
-          continue;
-        }
-        out[String(entry[0])] = String(entry[1]);
+    var search = new URLSearchParams();
+    var keys = Object.keys(params);
+    for (var i = 0; i < keys.length; i += 1) {
+      var key = keys[i];
+      var value = params[key];
+      if (value == null || value === '') {
+        continue;
       }
-      return out;
+      search.set(key, String(value));
     }
 
-    if (typeof headersLike === 'object') {
-      var keys = Object.keys(headersLike);
-      for (var j = 0; j < keys.length; j += 1) {
-        out[keys[j]] = String(headersLike[keys[j]]);
-      }
-    }
-
-    return out;
+    var query = search.toString();
+    return query ? url + '?' + query : url;
   }
 
-  function mergeHeaders(input, init) {
-    var headers = {};
-    if (input instanceof Request) {
-      headers = cloneHeaders(input.headers);
-    }
-    if (init && init.headers) {
-      var override = cloneHeaders(init.headers);
-      var keys = Object.keys(override);
-      for (var i = 0; i < keys.length; i += 1) {
-        headers[keys[i]] = override[keys[i]];
-      }
-    }
-    return headers;
-  }
-
-  function getMethod(input, init) {
-    var method = init && init.method ? init.method : (input instanceof Request ? input.method : 'GET');
-    return String(method || 'GET').toUpperCase();
-  }
-
-  function shallowCloneInit(input, init) {
-    var out = {};
-    if (input instanceof Request) {
-      out.method = input.method;
-      out.credentials = input.credentials;
-      out.cache = input.cache;
-      out.mode = input.mode;
-      out.redirect = input.redirect;
-      out.referrer = input.referrer;
-      out.referrerPolicy = input.referrerPolicy;
-      out.integrity = input.integrity;
-      out.keepalive = input.keepalive;
-      out.signal = input.signal;
-    }
-    if (init && typeof init === 'object') {
-      var keys = Object.keys(init);
-      for (var i = 0; i < keys.length; i += 1) {
-        out[keys[i]] = init[keys[i]];
-      }
-    }
-    return out;
-  }
-
-  function matchesLegacyListOrDetail(url, method) {
-    if (!url || method !== 'GET') {
-      return false;
-    }
-    return /\/wp-json\/sosprescription\/v1\/prescriptions(?:\/\d+)?$/.test(url.pathname);
-  }
-
-  function extractLegacyMessageRoute(url) {
-    if (!url) {
-      return null;
+  function fetchJson(method, url, payload, scope) {
+    var nonce = restNonce();
+    if (!nonce) {
+      return Promise.reject(new Error('Nonce WordPress introuvable.'));
     }
 
-    var match = url.pathname.match(/\/wp-json\/sosprescription\/v1\/prescriptions\/(\d+)\/messages(?:\/(read))?$/);
-    if (!match) {
-      return null;
-    }
-
-    return {
-      localId: normalizeLocalId(match[1]),
-      isRead: match[2] === 'read',
+    var headers = {
+      'X-WP-Nonce': nonce,
+      'X-Sos-Scope': scope || 'patient'
     };
-  }
 
-  function isLegacyArtifactInit(url, method) {
-    return !!url && method === 'POST' && /\/wp-json\/sosprescription\/v1\/artifacts\/init$/.test(url.pathname);
-  }
-
-  function captureMappings(value, depth) {
-    if (depth > 6 || !value) {
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      for (var i = 0; i < value.length; i += 1) {
-        captureMappings(value[i], depth + 1);
-      }
-      return;
-    }
-
-    if (typeof value !== 'object') {
-      return;
-    }
-
-    var localId = normalizeLocalId(value.id);
-    var uid = normalizeUid(value.uid);
-    if (localId > 0 && uid) {
-      var state = getState();
-      state.localIdToUid[String(localId)] = uid;
-      state.uidToLocalId[uid] = localId;
-    }
-
-    var keys = Object.keys(value);
-    for (var j = 0; j < keys.length; j += 1) {
-      captureMappings(value[keys[j]], depth + 1);
-    }
-  }
-
-  function captureResponseMappings(response) {
-    if (!response || typeof response.clone !== 'function') {
-      return;
-    }
-
-    response.clone().json().then(function (payload) {
-      captureMappings(payload, 0);
-    }).catch(function () {
-      return null;
-    });
-  }
-
-  function recordThreadState(uid, threadState) {
-    var normalizedUid = normalizeUid(uid);
-    if (!normalizedUid || !threadState || typeof threadState !== 'object') {
-      return;
-    }
-
-    var state = getState();
-    state.threadStateByUid[normalizedUid] = threadState;
-    state.activeUid = normalizedUid;
-    syncPatientComposer();
-  }
-
-  function captureThreadStateFromResponse(uid, response) {
-    if (!response || typeof response.clone !== 'function') {
-      return;
-    }
-
-    response.clone().json().then(function (payload) {
-      if (payload && typeof payload === 'object' && payload.thread_state && typeof payload.thread_state === 'object') {
-        recordThreadState(uid, payload.thread_state);
-      }
-    }).catch(function () {
-      return null;
-    });
-  }
-
-  function resolveUidForLocalId(localId, nonceHeader, originalFetch) {
-    var normalizedLocalId = normalizeLocalId(localId);
-    if (normalizedLocalId < 1) {
-      return Promise.resolve('');
-    }
-
-    var state = getState();
-    var existing = normalizeUid(state.localIdToUid[String(normalizedLocalId)] || '');
-    if (existing) {
-      return Promise.resolve(existing);
-    }
-
-    if (state.pendingUidLookups[String(normalizedLocalId)]) {
-      return state.pendingUidLookups[String(normalizedLocalId)];
-    }
-
-    var detailUrl = new URL(LEGACY_SCOPE + '/prescriptions/' + String(normalizedLocalId), window.location.origin);
-    detailUrl.searchParams.set('_ts', String(Date.now()));
-
-    state.pendingUidLookups[String(normalizedLocalId)] = originalFetch(detailUrl.toString(), {
-      method: 'GET',
-      headers: {
-        'X-WP-Nonce': String(nonceHeader || ''),
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
-      },
+    var init = {
+      method: String(method || 'GET').toUpperCase(),
+      headers: headers,
       credentials: 'same-origin',
       cache: 'no-store'
-    }).then(function (response) {
-      if (!response.ok) {
-        return '';
-      }
-      return response.clone().json().then(function (payload) {
-        captureMappings(payload, 0);
-        return normalizeUid(getState().localIdToUid[String(normalizedLocalId)] || '');
-      }).catch(function () {
-        return '';
+    };
+
+    if (init.method === 'GET') {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers.Pragma = 'no-cache';
+    } else {
+      headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(payload || {});
+    }
+
+    return fetch(url, init).then(function (response) {
+      return response.text().then(function (text) {
+        var data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (err) {
+          data = null;
+        }
+
+        if (!response.ok) {
+          var message = data && typeof data.message === 'string'
+            ? data.message
+            : data && typeof data.code === 'string'
+              ? data.code
+              : 'Erreur messagerie';
+          var error = new Error(message);
+          error.status = response.status;
+          error.payload = data;
+          throw error;
+        }
+
+        return {
+          status: response.status,
+          payload: data
+        };
       });
-    }).catch(function () {
+    });
+  }
+
+  function resolveMode(threadState, status) {
+    var mode = normalizeMode(threadState && threadState.mode ? threadState.mode : '');
+    if (mode) {
+      return mode;
+    }
+
+    var normalizedStatus = normalizeStatus(status);
+    if (normalizedStatus === 'APPROVED' || normalizedStatus === 'REJECTED') {
+      return 'READ_ONLY';
+    }
+
+    return 'DOCTOR_ONLY';
+  }
+
+  function roleLabel(role) {
+    var normalized = normalizeText(role).toUpperCase();
+    return normalized === 'PATIENT' ? 'Vous' : 'Médecin';
+  }
+
+  function roleClass(role) {
+    return normalizeText(role).toUpperCase() === 'PATIENT' ? 'is-patient' : 'is-doctor';
+  }
+
+  function threadModeMessage(mode) {
+    if (mode === 'DOCTOR_ONLY') {
+      return 'En attente d’un message du médecin.';
+    }
+    if (mode === 'READ_ONLY') {
+      return 'Décision médicale rendue. La messagerie est désormais verrouillée en lecture seule.';
+    }
+    return '';
+  }
+
+  function emptyStateMessage(mode) {
+    if (mode === 'DOCTOR_ONLY') {
+      return 'Le médecin n’a pas encore ouvert l’échange. Vous pourrez répondre dès réception de son premier message.';
+    }
+    if (mode === 'READ_ONLY') {
+      return 'Aucun message n’a été échangé avant la clôture médicale de cette demande.';
+    }
+    return 'Aucun message pour le moment. Votre réponse apparaîtra ici après envoi.';
+  }
+
+  function resolveComponentCssUrl() {
+    var currentScript = document.currentScript;
+    var source = currentScript && currentScript.src ? String(currentScript.src) : '';
+
+    if (!source) {
+      var fallback = document.querySelector('script[src*="patient-chat-enhancements.js"]');
+      source = fallback && fallback.src ? String(fallback.src) : '';
+    }
+
+    if (!source) {
       return '';
-    }).finally(function () {
-      delete getState().pendingUidLookups[String(normalizedLocalId)];
-    });
-
-    return state.pendingUidLookups[String(normalizedLocalId)];
-  }
-
-  function buildV4PrescriptionUrl(uid, suffix, sourceUrl) {
-    var target = new URL(V4_SCOPE + '/prescriptions/' + encodeURIComponent(uid) + suffix, sourceUrl.origin);
-    sourceUrl.searchParams.forEach(function (value, key) {
-      if (key === '_ts') {
-        return;
-      }
-      target.searchParams.append(key, value);
-    });
-    return target;
-  }
-
-  function rewriteMessageRequest(url, input, init, originalFetch) {
-    var route = extractLegacyMessageRoute(url);
-    if (!route || route.localId < 1) {
-      return Promise.resolve(null);
     }
 
-    var headers = mergeHeaders(input, init);
-    var nonceHeader = headers['X-WP-Nonce'] || headers['x-wp-nonce'] || '';
+    return source.replace(/patient-chat-enhancements\.js(?:\?.*)?$/i, 'patient-chat-enhancements.css');
+  }
 
-    return resolveUidForLocalId(route.localId, nonceHeader, originalFetch).then(function (uid) {
-      uid = normalizeUid(uid);
-      if (!uid) {
+  function PatientTextChatElement() {
+    return Reflect.construct(HTMLElement, [], PatientTextChatElement);
+  }
+
+  PatientTextChatElement.prototype = Object.create(HTMLElement.prototype);
+  PatientTextChatElement.prototype.constructor = PatientTextChatElement;
+  Object.setPrototypeOf(PatientTextChatElement, HTMLElement);
+
+  PatientTextChatElement.observedAttributes = ['data-rx-uid', 'data-rx-status'];
+
+  PatientTextChatElement.prototype.connectedCallback = function () {
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: 'open' });
+    }
+
+    if (!this._booted) {
+      this._booted = true;
+      this._state = {
+        uid: '',
+        status: '',
+        loading: false,
+        sending: false,
+        error: '',
+        flash: '',
+        draft: '',
+        payload: null
+      };
+      this._requestSeq = 0;
+      this._pollTimer = 0;
+      this._abortController = null;
+      this._onShadowClick = this.onShadowClick.bind(this);
+      this._onShadowInput = this.onShadowInput.bind(this);
+      this._onShadowSubmit = this.onShadowSubmit.bind(this);
+      this._onVisibilityChange = this.onVisibilityChange.bind(this);
+      this._onRefresh = this.onRefresh.bind(this);
+
+      this.shadowRoot.addEventListener('click', this._onShadowClick);
+      this.shadowRoot.addEventListener('input', this._onShadowInput);
+      this.shadowRoot.addEventListener('submit', this._onShadowSubmit);
+    }
+
+    if (!this._globalListenersBound) {
+      document.addEventListener('visibilitychange', this._onVisibilityChange);
+      window.addEventListener(REFRESH_EVENT, this._onRefresh);
+      this._globalListenersBound = true;
+    }
+
+    this.renderFrame();
+    this.syncFromAttributes(true);
+  };
+
+  PatientTextChatElement.prototype.disconnectedCallback = function () {
+    this.stopPolling();
+    this.abortPending();
+    if (this._globalListenersBound) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      window.removeEventListener(REFRESH_EVENT, this._onRefresh);
+      this._globalListenersBound = false;
+    }
+  };
+
+  PatientTextChatElement.prototype.attributeChangedCallback = function (name, oldValue, newValue) {
+    if (oldValue === newValue || !this.isConnected) {
+      return;
+    }
+    this.syncFromAttributes(name === 'data-rx-uid');
+  };
+
+  PatientTextChatElement.prototype.abortPending = function () {
+    if (this._abortController && typeof this._abortController.abort === 'function') {
+      try {
+        this._abortController.abort();
+      } catch (err) {
         return null;
       }
-
-      var targetUrl = buildV4PrescriptionUrl(uid, route.isRead ? '/messages/read' : '/messages', url);
-      var nextInit = shallowCloneInit(input, init);
-      nextInit.headers = headers;
-      return {
-        uid: uid,
-        url: targetUrl.toString(),
-        init: nextInit,
-      };
-    });
-  }
-
-  function parseJsonBody(init) {
-    if (!init || typeof init.body !== 'string' || init.body.trim() === '') {
-      return null;
     }
+    this._abortController = null;
+    return null;
+  };
 
-    try {
-      return JSON.parse(init.body);
-    } catch (err) {
-      return null;
+  PatientTextChatElement.prototype.stopPolling = function () {
+    if (this._pollTimer) {
+      window.clearTimeout(this._pollTimer);
+      this._pollTimer = 0;
     }
-  }
+  };
 
-  function isMessageAttachmentInit(body) {
-    if (!body || typeof body !== 'object') {
-      return false;
-    }
-
-    var kind = String(body.kind || '').toUpperCase();
-    var purpose = String(body.purpose || '').toLowerCase();
-    return kind === 'MESSAGE_ATTACHMENT'
-      || kind === 'MESSAGE'
-      || kind === 'ATTACHMENT'
-      || purpose === 'message'
-      || purpose === 'attachment'
-      || purpose === 'compose';
-  }
-
-  function rewriteArtifactInitRequest(url, input, init, originalFetch) {
-    var nextInit = shallowCloneInit(input, init);
-    var headers = mergeHeaders(input, init);
-    var body = parseJsonBody(nextInit);
-    if (!isMessageAttachmentInit(body)) {
-      return Promise.resolve(null);
-    }
-
-    var localId = normalizeLocalId(body && body.prescription_id);
-    if (localId < 1) {
-      return Promise.resolve(null);
-    }
-
-    var nonceHeader = headers['X-WP-Nonce'] || headers['x-wp-nonce'] || '';
-
-    return resolveUidForLocalId(localId, nonceHeader, originalFetch).then(function (uid) {
-      uid = normalizeUid(uid);
-      if (!uid) {
-        return null;
-      }
-
-      var targetUrl = buildV4PrescriptionUrl(uid, '/messages/attachments', url);
-      nextInit.headers = headers;
-      nextInit.body = JSON.stringify({
-        kind: 'MESSAGE_ATTACHMENT',
-        purpose: 'message',
-        original_name: body && body.original_name ? body.original_name : '',
-        mime_type: body && body.mime_type ? body.mime_type : '',
-        size_bytes: body && typeof body.size_bytes === 'number' ? body.size_bytes : Number(body && body.size_bytes ? body.size_bytes : 0),
-        meta: body && body.meta && typeof body.meta === 'object' ? body.meta : undefined,
-      });
-      return {
-        uid: uid,
-        url: targetUrl.toString(),
-        init: nextInit,
-      };
-    });
-  }
-
-  function installFetchBridge() {
-    if (typeof window.fetch !== 'function' || window.fetch.__spPatientMessagingV4) {
+  PatientTextChatElement.prototype.schedulePolling = function () {
+    var self = this;
+    this.stopPolling();
+    if (!this.isConnected || !this._state.uid) {
       return;
     }
 
-    var originalFetch = window.fetch.bind(window);
+    var delay = document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
+    this._pollTimer = window.setTimeout(function () {
+      self.loadThread({ silent: true });
+    }, delay);
+  };
 
-    window.fetch = function (input, init) {
-      var url = toUrl(input);
-      var method = getMethod(input, init);
+  PatientTextChatElement.prototype.onVisibilityChange = function () {
+    if (!this.isConnected || !this._state.uid) {
+      return;
+    }
+    this.schedulePolling();
+  };
 
-      if (!url) {
-        return originalFetch(input, init);
+  PatientTextChatElement.prototype.onRefresh = function () {
+    if (!this.isConnected || !this._state.uid) {
+      return;
+    }
+    this.loadThread({ silent: true, force: true });
+  };
+
+  PatientTextChatElement.prototype.syncFromAttributes = function (forceReload) {
+    var nextUid = normalizeUid(this.getAttribute('data-rx-uid') || '') || urlUid();
+    var nextStatus = normalizeStatus(this.getAttribute('data-rx-status') || '');
+    var uidChanged = nextUid !== this._state.uid;
+    var statusChanged = nextStatus !== this._state.status;
+
+    if (!uidChanged && !statusChanged && !forceReload) {
+      return;
+    }
+
+    this._state.uid = nextUid;
+    this._state.status = nextStatus;
+    this._state.error = '';
+    this._state.flash = '';
+
+    if (uidChanged) {
+      this._state.draft = '';
+      this._state.payload = null;
+    }
+
+    if (!nextUid) {
+      this.stopPolling();
+      this.abortPending();
+      this.render();
+      return;
+    }
+
+    this.loadThread({ force: true });
+  };
+
+  PatientTextChatElement.prototype.renderFrame = function () {
+    if (!this.shadowRoot) {
+      return;
+    }
+
+    if (!this._frame) {
+      var link = document.createElement('link');
+      link.setAttribute('rel', 'stylesheet');
+      if (COMPONENT_CSS_URL) {
+        link.setAttribute('href', COMPONENT_CSS_URL);
       }
 
-      if (matchesLegacyListOrDetail(url, method)) {
-        return originalFetch(input, init).then(function (response) {
-          captureResponseMappings(response);
-          return response;
-        });
-      }
+      var mount = document.createElement('div');
+      mount.className = 'sp-patient-chat-host';
 
-      var legacyMessageRoute = extractLegacyMessageRoute(url);
-      if (legacyMessageRoute) {
-        return rewriteMessageRequest(url, input, init, originalFetch).then(function (rewritten) {
-          if (!rewritten) {
-            return originalFetch(input, init).then(function (response) {
-              captureResponseMappings(response);
-              return response;
-            });
-          }
+      this.shadowRoot.appendChild(link);
+      this.shadowRoot.appendChild(mount);
+      this._frame = mount;
+    }
+  };
 
-          return originalFetch(rewritten.url, rewritten.init).then(function (response) {
-            captureThreadStateFromResponse(rewritten.uid, response);
-            return response;
-          });
-        });
-      }
+  PatientTextChatElement.prototype.loadThread = function (options) {
+    var self = this;
+    var opts = options && typeof options === 'object' ? options : {};
+    var uid = this._state.uid;
 
-      if (isLegacyArtifactInit(url, method)) {
-        return rewriteArtifactInitRequest(url, input, init, originalFetch).then(function (rewritten) {
-          if (!rewritten) {
-            return originalFetch(input, init);
-          }
-          return originalFetch(rewritten.url, rewritten.init);
-        });
-      }
+    if (!uid) {
+      return Promise.resolve(null);
+    }
 
-      return originalFetch(input, init);
+    this.stopPolling();
+    this.abortPending();
+
+    var seq = (this._requestSeq || 0) + 1;
+    this._requestSeq = seq;
+
+    if (!opts.silent) {
+      this._state.loading = true;
+      this._state.error = '';
+      this.render();
+    }
+
+    if (typeof AbortController !== 'undefined') {
+      this._abortController = new AbortController();
+    }
+
+    var url = buildApiUrl(uid, '/messages', {
+      limit: MAX_MESSAGES,
+      _ts: Date.now()
+    });
+
+    var headers = {
+      'X-WP-Nonce': restNonce(),
+      'X-Sos-Scope': 'patient',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache'
     };
 
-    window.fetch.__spPatientMessagingV4 = true;
+    return fetch(url, {
+      method: 'GET',
+      headers: headers,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: this._abortController ? this._abortController.signal : undefined
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (err) {
+          data = null;
+        }
+
+        if (!response.ok) {
+          var message = data && typeof data.message === 'string' ? data.message : 'Impossible de charger la messagerie sécurisée.';
+          var error = new Error(message);
+          error.status = response.status;
+          throw error;
+        }
+
+        if (seq !== self._requestSeq) {
+          return null;
+        }
+
+        self._state.payload = data && typeof data === 'object' ? data : {
+          messages: [],
+          thread_state: null
+        };
+        self._state.loading = false;
+        self._state.error = '';
+        self.render();
+        self.schedulePolling();
+        self.markReadIfNeeded();
+        return self._state.payload;
+      });
+    }).catch(function (error) {
+      if (error && (error.name === 'AbortError' || error.code === 20)) {
+        return null;
+      }
+
+      if (seq !== self._requestSeq) {
+        return null;
+      }
+
+      self._state.loading = false;
+      self._state.error = error && error.message ? String(error.message) : 'Impossible de charger la messagerie sécurisée.';
+      self.render();
+      self.schedulePolling();
+      return null;
+    });
+  };
+
+  PatientTextChatElement.prototype.markReadIfNeeded = function () {
+    var payload = this._state.payload;
+    var uid = this._state.uid;
+    if (!uid || !payload || typeof payload !== 'object') {
+      return;
+    }
+
+    var threadState = payload.thread_state && typeof payload.thread_state === 'object' ? payload.thread_state : null;
+    var unreadCount = threadState ? Number(threadState.unread_count_patient || 0) : 0;
+    var lastMessageSeq = threadState ? Number(threadState.last_message_seq || 0) : 0;
+
+    if (unreadCount < 1 || lastMessageSeq < 1) {
+      return;
+    }
+
+    fetchJson('POST', buildApiUrl(uid, '/messages/read'), {
+      read_upto_seq: lastMessageSeq
+    }, 'patient').then(function (result) {
+      if (!result || !result.payload || typeof result.payload !== 'object') {
+        return null;
+      }
+      var nextThreadState = result.payload.thread_state && typeof result.payload.thread_state === 'object'
+        ? result.payload.thread_state
+        : null;
+      if (!nextThreadState || !payload || payload !== this._state.payload) {
+        return null;
+      }
+      this._state.payload.thread_state = nextThreadState;
+      this.render();
+      return null;
+    }.bind(this)).catch(function () {
+      return null;
+    });
+  };
+
+  PatientTextChatElement.prototype.onShadowClick = function (event) {
+    var button = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+    if (!button) {
+      return;
+    }
+
+    var action = normalizeText(button.getAttribute('data-action'));
+    if (action === 'refresh') {
+      event.preventDefault();
+      if (!this._state.loading) {
+        this.loadThread({ force: true });
+      }
+    }
+  };
+
+  PatientTextChatElement.prototype.onShadowInput = function (event) {
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    if (target.getAttribute('data-role') !== 'composer-body') {
+      return;
+    }
+    this._state.draft = String(target.value || '');
+  };
+
+  PatientTextChatElement.prototype.onShadowSubmit = function (event) {
+    var form = event.target;
+    if (!(form instanceof Element) || form.getAttribute('data-role') !== 'composer-form') {
+      return;
+    }
+
+    event.preventDefault();
+    this.submitMessage();
+  };
+
+  PatientTextChatElement.prototype.submitMessage = function () {
+    var self = this;
+    var uid = this._state.uid;
+    var body = String(this._state.draft || '').trim();
+    var mode = resolveMode(this.currentThreadState(), this._state.status);
+
+    if (!uid || !body || this._state.sending || mode !== 'PATIENT_REPLY') {
+      return Promise.resolve(null);
+    }
+
+    this._state.sending = true;
+    this._state.error = '';
+    this._state.flash = '';
+    this.render();
+
+    return fetchJson('POST', buildApiUrl(uid, '/messages'), {
+      message: {
+        body: body
+      }
+    }, 'patient').then(function (result) {
+      if (!result || result.status !== 201) {
+        throw new Error('Le message n’a pas été confirmé par le serveur.');
+      }
+
+      var payload = result.payload && typeof result.payload === 'object' ? result.payload : null;
+      var createdMessage = payload && payload.message && typeof payload.message === 'object' ? payload.message : null;
+      var nextThreadState = payload && payload.thread_state && typeof payload.thread_state === 'object' ? payload.thread_state : null;
+
+      if (!self._state.payload || typeof self._state.payload !== 'object') {
+        self._state.payload = {
+          messages: [],
+          thread_state: nextThreadState || null
+        };
+      }
+
+      if (!Array.isArray(self._state.payload.messages)) {
+        self._state.payload.messages = [];
+      }
+
+      if (createdMessage) {
+        self._state.payload.messages = self._state.payload.messages.concat([createdMessage]);
+      }
+      if (nextThreadState) {
+        self._state.payload.thread_state = nextThreadState;
+      }
+
+      self._state.draft = '';
+      self._state.sending = false;
+      self._state.flash = 'Message envoyé.';
+      self.render();
+      self.loadThread({ silent: true, force: true });
+      return null;
+    }).catch(function (error) {
+      self._state.sending = false;
+      self._state.error = error && error.message ? String(error.message) : 'Le message n’a pas pu être envoyé.';
+      self.render();
+      return null;
+    });
+  };
+
+  PatientTextChatElement.prototype.currentThreadState = function () {
+    var payload = this._state.payload;
+    return payload && typeof payload === 'object' && payload.thread_state && typeof payload.thread_state === 'object'
+      ? payload.thread_state
+      : null;
+  };
+
+  PatientTextChatElement.prototype.currentMessages = function () {
+    var payload = this._state.payload;
+    return payload && typeof payload === 'object' && Array.isArray(payload.messages)
+      ? payload.messages
+      : [];
+  };
+
+  PatientTextChatElement.prototype.render = function () {
+    if (!this._frame) {
+      this.renderFrame();
+    }
+    if (!this._frame) {
+      return;
+    }
+
+    var uid = this._state.uid;
+    var mode = resolveMode(this.currentThreadState(), this._state.status);
+    var messages = this.currentMessages();
+    var flash = this._state.flash ? '<div class="sp-alert sp-alert--success" role="status">' + escapeHtml(this._state.flash) + '</div>' : '';
+    var error = this._state.error ? '<div class="sp-alert sp-alert--error" role="alert">' + escapeHtml(this._state.error) + '</div>' : '';
+    var modeMessage = threadModeMessage(mode);
+    var modeAlert = modeMessage ? '<div class="sp-alert sp-alert--info" role="status">' + escapeHtml(modeMessage) + '</div>' : '';
+    var unreadCount = this.currentThreadState() ? Number(this.currentThreadState().unread_count_patient || 0) : 0;
+    var unreadNote = unreadCount > 0 ? '<p class="sp-patient-chat__hint">Un nouveau message du médecin vient d’être synchronisé.</p>' : '';
+
+    var bodyHtml = '';
+
+    if (!uid) {
+      bodyHtml = '<div class="sp-alert sp-alert--info" role="status">Aucune demande sélectionnée pour la messagerie.</div>';
+    } else if (this._state.loading && messages.length === 0) {
+      bodyHtml = '<div class="sp-patient-chat__loading" aria-live="polite">Chargement de la messagerie sécurisée…</div>';
+    } else {
+      bodyHtml = this.renderMessages(messages, mode) + this.renderComposer(mode);
+    }
+
+    this._frame.innerHTML = ''
+      + '<section class="sp-patient-chat" aria-live="polite">'
+      + '  <div class="sp-patient-chat__header">'
+      + '    <div class="sp-patient-chat__header-copy">'
+      + '      <h2 class="sp-patient-chat__title">Messagerie sécurisée</h2>'
+      + '      <p class="sp-patient-chat__subtitle">Échange textuel asynchrone avec votre médecin.</p>'
+      + unreadNote
+      + '    </div>'
+      + '    <button type="button" class="sp-button sp-button--secondary" data-action="refresh"' + (uid ? '' : ' disabled') + '>' + (this._state.loading ? 'Actualisation…' : 'Rafraîchir') + '</button>'
+      + '  </div>'
+      + flash
+      + error
+      + modeAlert
+      + bodyHtml
+      + '</section>';
+  };
+
+  PatientTextChatElement.prototype.renderMessages = function (messages, mode) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return ''
+        + '<div class="sp-patient-chat__panel">'
+        + '  <div class="sp-patient-chat__empty">'
+        + '    <p class="sp-patient-chat__empty-title">Aucun message</p>'
+        + '    <p class="sp-patient-chat__empty-body">' + escapeHtml(emptyStateMessage(mode)) + '</p>'
+        + '  </div>'
+        + '</div>';
+    }
+
+    var items = [];
+    for (var i = 0; i < messages.length; i += 1) {
+      var message = messages[i] && typeof messages[i] === 'object' ? messages[i] : {};
+      var role = normalizeText(message.author_role || 'doctor');
+      items.push(''
+        + '<article class="sp-patient-chat__message ' + escapeHtml(roleClass(role)) + '">'
+        + '  <div class="sp-patient-chat__bubble">'
+        + '    <p class="sp-patient-chat__author">' + escapeHtml(roleLabel(role)) + '</p>'
+        + '    <div class="sp-patient-chat__body">' + escapeHtml(String(message.body || '')).replace(/\n/g, '<br>') + '</div>'
+        + '    <p class="sp-patient-chat__meta">' + escapeHtml(String(message.created_at || '')) + '</p>'
+        + '  </div>'
+        + '</article>');
+    }
+
+    return ''
+      + '<div class="sp-patient-chat__panel">'
+      + '  <div class="sp-patient-chat__messages">'
+      + items.join('')
+      + '  </div>'
+      + '</div>';
+  };
+
+  PatientTextChatElement.prototype.renderComposer = function (mode) {
+    if (mode !== 'PATIENT_REPLY') {
+      return '';
+    }
+
+    var disabled = this._state.sending ? ' disabled' : '';
+    return ''
+      + '<div class="sp-patient-chat__panel sp-patient-chat__composer-panel">'
+      + '  <form class="sp-form sp-patient-chat__composer" data-role="composer-form">'
+      + '    <div class="sp-field">'
+      + '      <label class="sp-field__label" for="sp-patient-chat-body">Votre réponse</label>'
+      + '      <textarea id="sp-patient-chat-body" class="sp-textarea sp-patient-chat__textarea" rows="4" placeholder="Écrivez votre message au médecin…" data-role="composer-body"' + disabled + '>' + escapeHtml(this._state.draft) + '</textarea>'
+      + '      <p class="sp-field__help">Messagerie 100% textuelle. Aucun document ne peut être joint dans cet échange.</p>'
+      + '    </div>'
+      + '    <div class="sp-patient-chat__composer-actions">'
+      + '      <button type="submit" class="sp-button sp-button--primary"' + (this._state.sending || String(this._state.draft || '').trim() === '' ? ' disabled' : '') + '>' + (this._state.sending ? 'Envoi en cours…' : 'Envoyer') + '</button>'
+      + '    </div>'
+      + '  </form>'
+      + '</div>';
+  };
+
+  if (!customElements.get(TAG_NAME)) {
+    customElements.define(TAG_NAME, PatientTextChatElement);
   }
-
-  function boot() {
-    installFetchBridge();
-    enhanceComposerUi();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot, { once: true });
-  } else {
-    boot();
-  }
-
-  var observer = new MutationObserver(function () {
-    enhanceComposerUi();
-  });
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
 })();

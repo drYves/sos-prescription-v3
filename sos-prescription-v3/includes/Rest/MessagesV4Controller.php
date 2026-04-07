@@ -143,8 +143,18 @@ final class MessagesV4Controller extends \WP_REST_Controller
         $reqId = ReqId::coalesce(null);
         $actor = $this->build_actor_payload();
         $params = $this->request_data($request);
+        $messageInput = isset($params['message']) && is_array($params['message']) ? $params['message'] : [];
         $body = array_key_exists('body', $params) ? trim((string) $params['body']) : '';
-        $attachmentIds = $this->normalize_string_ids($params['attachment_artifact_ids'] ?? $params['attachments'] ?? []);
+        if ($body === '' && array_key_exists('body', $messageInput)) {
+            $body = trim((string) $messageInput['body']);
+        }
+        $attachmentIds = $this->normalize_string_ids(
+            $params['attachment_artifact_ids']
+                ?? $params['attachments']
+                ?? $messageInput['attachment_artifact_ids']
+                ?? $messageInput['attachments']
+                ?? []
+        );
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);

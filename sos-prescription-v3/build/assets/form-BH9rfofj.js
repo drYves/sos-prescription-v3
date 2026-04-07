@@ -255,6 +255,35 @@ async function spFinalizeSubmissionApi(t, s) {
   }, "form");
 }
 
+function spPatientChatUidFromLocation() {
+    if (typeof window == "undefined") return "";
+    try {
+        const t = new URL(window.location.href).searchParams.get("rx_uid");
+        return typeof t == "string" ? t.trim() : "";
+    } catch {
+        return "";
+    }
+}
+
+function spSyncPatientChatLocation(t) {
+    if (typeof window == "undefined" || !window.history || typeof window.history.replaceState != "function") return;
+    try {
+        const s = new URL(window.location.href), n = String(t || "").trim();
+        n ? s.searchParams.set("rx_uid", n) : s.searchParams.delete("rx_uid"), s.searchParams.delete("rx");
+        const l = s.toString();
+        l !== window.location.href && window.history.replaceState(window.history.state, "", l);
+    } catch {}
+}
+
+function spDispatchPatientChatRefresh(t = {}) {
+    if (typeof window == "undefined") return;
+    try {
+        window.dispatchEvent(new CustomEvent("sp:patient-chat-refresh", {
+            detail: t
+        }));
+    } catch {}
+}
+
 function spFrontendLog(t, s = "info", n = {}) {
     try {
         if (typeof window != "undefined" && typeof window.__SosPrescriptionSendLog == "function") {
@@ -1445,7 +1474,7 @@ function vt() {
         } finally {
             Me(!1);
         }
-    }, ye = (($e = t == null ? void 0 : t.urls) == null ? void 0 : $e.patientPortal) || null, Te = J && ye ? `${ye}${ye.includes("?") ? "&" : "?"}rx=${encodeURIComponent(String(J.id))}` : null, Ke = async () => {
+    }, ye = (($e = t == null ? void 0 : t.urls) == null ? void 0 : $e.patientPortal) || null, Te = J && ye ? `${ye}${ye.includes("?") ? "&" : "?"}rx_uid=${encodeURIComponent(String((J == null ? void 0 : J.uid) || (J == null ? void 0 : J.id) || ""))}` : null, Ke = async () => {
         if (J != null && J.uid) try {
             await navigator.clipboard.writeText(J.uid), de(!0), window.setTimeout((() => de(!1)), 1500);
         } catch {
@@ -2317,8 +2346,8 @@ function St() {
             l(p);
             let R = a;
             if (p.length > 0) if (R != null && p.some((L => Number(L == null ? void 0 : L.id) === Number(R)))) ; else {
-                const L = new URLSearchParams(window.location.search).get("rx"), Q = L ? Number.parseInt(L, 10) : NaN, te = Number.isFinite(Q) ? p.find((fe => Number(fe == null ? void 0 : fe.id) === Q)) : null;
-                R = Number(te ? te.id : p[0].id);
+                const L = spPatientChatUidFromLocation(), Q = L ? p.find((te => String((te == null ? void 0 : te.uid) || "") === L)) : null, fe = new URLSearchParams(window.location.search).get("rx"), Ie = fe ? Number.parseInt(fe, 10) : NaN, be = Number.isFinite(Ie) ? p.find((te => Number(te == null ? void 0 : te.id) === Ie)) : null;
+                R = Number((Q || be || p[0]).id);
             } else R = null;
             return x(R), R;
         } catch (d) {
@@ -2331,10 +2360,10 @@ function St() {
         k(null), M(!0);
         try {
             const p = await it(d);
-            return b(p), p;
+            return b(p), spSyncPatientChatLocation(String((p == null ? void 0 : p.uid) || "")), p;
         } catch (p) {
             return k(p != null && p.message ? String(p.message) : "Erreur chargement"), b(null), 
-            null;
+            spSyncPatientChatLocation(""), null;
         } finally {
             M(!1);
         }
@@ -2355,7 +2384,9 @@ function St() {
             N(!1);
         }
     }, de = () => {
-        E(), a && (Y(a), G(a), me(a, !0));
+        E(), a && (Y(a), me(a, !0)), spDispatchPatientChatRefresh({
+            reason: "manual_refresh"
+        });
     };
     c.useEffect((() => {
         if (!s) return;
@@ -2364,10 +2395,14 @@ function St() {
     }), [ s ]), c.useEffect((() => {
         if (!s) return;
         if (!a) {
-            b(null), h([]), He(null), H(null), pe(null), ce();
+            b(null), h([]), He(null), H(null), pe(null), ce(), spSyncPatientChatLocation(""), spDispatchPatientChatRefresh({
+                reason: "selection_cleared"
+            });
             return;
         }
-        b(null), h([]), He(null), H(null), pe(null), Y(a), G(a), S(""), O([]);
+        b(null), h([]), He(null), H(null), pe(null), Y(a), S(""), O([]), spDispatchPatientChatRefresh({
+            reason: "selection_changed"
+        });
     }), [ a, s ]);
     const le = c.useMemo((() => {
         const d = {};
@@ -2611,128 +2646,11 @@ function St() {
                                     children: "—"
                                 }) ]
                             }) ]
-                        }), e.jsxs("div", {
-                            children: [ e.jsx("div", {
-                                className: "mb-2 text-sm font-semibold text-gray-900",
-                                children: "Messagerie"
-                            }), ye && Number(ye.unread_count_patient || 0) > 0 && e.jsxs("div", {
-                                className: "mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900",
-                                children: [ e.jsxs("span", {
-                                    children: [ String(ye.unread_count_patient), " message(s) non lu(s)." ]
-                                }), e.jsx("span", {
-                                    className: "ml-2",
-                                    children: e.jsx(D, {
-                                        type: "button",
-                                        variant: "secondary",
-                                        onClick: JeRead,
-                                        children: "Marquer comme lus"
-                                    })
-                                }) ]
-                            }), _ ? e.jsxs("div", {
-                                className: "flex items-center gap-2 text-sm text-gray-600",
-                                children: [ e.jsx(V, {}), " Chargement…" ]
-                            }) : C.length === 0 ? e.jsx("div", {
-                                className: "text-sm text-gray-600",
-                                children: "Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment."
-                            }) : e.jsx("div", {
-                                className: "space-y-2",
-                                children: C.map((d => {
-                                    const p = d.author_role === "patient", R = Array.isArray(d.attachments) ? d.attachments : [];
-                                    return e.jsx("div", {
-                                        className: `flex ${p ? "justify-end" : "justify-start"}`,
-                                        children: e.jsxs("div", {
-                                            className: `max-w-[88%] rounded-2xl px-4 py-2 text-sm ${p ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"}`,
-                                            children: [ e.jsx("div", {
-                                                className: "whitespace-pre-wrap",
-                                                children: d.body
-                                            }), R.length > 0 && e.jsx("div", {
-                                                className: "mt-2 space-y-1",
-                                                children: R.map((T => {
-                                                    const L = String((T == null ? void 0 : T.id) || ""), Q = String((T == null ? void 0 : T.original_name) || "Pièce jointe");
-                                                    return e.jsxs("button", {
-                                                        type: "button",
-                                                        className: `block w-full rounded-lg border px-3 py-1 text-left text-xs ${p ? "border-gray-700 bg-gray-800 text-white" : "border-gray-200 bg-white text-gray-900"}`,
-                                                        onClick: () => GeOpen(L),
-                                                        children: [ "📎 ", Q ]
-                                                    }, L || Q);
-                                                }))
-                                            }), e.jsx("div", {
-                                                className: `mt-2 text-[11px] ${p ? "text-gray-300" : "text-gray-500"}`,
-                                                children: d.created_at
-                                            }) ]
-                                        })
-                                    }, d.id);
-                                }))
-                            }), o.status !== "approved" && o.status !== "rejected" ? e.jsxs("div", {
-                                className: "mt-4 rounded-xl border border-gray-200 bg-white p-3",
-                                children: [ e.jsx("div", {
-                                    className: "text-sm font-semibold text-gray-900",
-                                    children: "Envoyer un message"
-                                }), e.jsxs("div", {
-                                    className: "mt-2",
-                                    children: [ e.jsxs("div", {
-                                        className: "flex items-end gap-2",
-                                        children: [ e.jsx("input", {
-                                            ref: f,
-                                            type: "file",
-                                            multiple: !0,
-                                            accept: "image/*,application/pdf",
-                                            className: "hidden",
-                                            onChange: d => {
-                                                ee(d.target.files), d.currentTarget.value = "";
-                                            }
-                                        }), e.jsx("button", {
-                                            type: "button",
-                                            className: "inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400",
-                                            onClick: () => {
-                                                var d;
-                                                return (d = f.current) == null ? void 0 : d.click();
-                                            },
-                                            "aria-label": "Ajouter un document",
-                                            title: "Ajouter un document",
-                                            disabled: m || A,
-                                            children: e.jsx("span", {
-                                                "aria-hidden": "true",
-                                                children: "📎"
-                                            })
-                                        }), e.jsx("div", {
-                                            className: "flex-1",
-                                            children: e.jsx(Ne, {
-                                                value: i,
-                                                onChange: d => S(d.target.value),
-                                                rows: 2,
-                                                placeholder: "Votre message au médecin…"
-                                            })
-                                        }), e.jsx(D, {
-                                            type: "button",
-                                            onClick: U,
-                                            disabled: A || m || i.trim().length < 1,
-                                            children: A ? e.jsx(V, {}) : "Envoyer"
-                                        }) ]
-                                    }), m && e.jsxs("div", {
-                                        className: "mt-2 flex items-center gap-2 text-sm text-gray-600",
-                                        children: [ e.jsx(V, {}), " Upload en cours…" ]
-                                    }), I.length > 0 && e.jsx("div", {
-                                        className: "mt-2 flex flex-wrap gap-2",
-                                        children: I.map((d => e.jsxs("span", {
-                                            className: "inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700",
-                                            children: [ e.jsx("span", {
-                                                className: "max-w-[220px] truncate",
-                                                children: d.original_name
-                                            }), e.jsx("button", {
-                                                type: "button",
-                                                className: "text-gray-500 hover:text-gray-700",
-                                                onClick: () => O((p => p.filter((R => R.id !== d.id)))),
-                                                "aria-label": `Retirer ${d.original_name}`,
-                                                children: "×"
-                                            }) ]
-                                        }, d.id)))
-                                    }) ]
-                                }) ]
-                            }) : e.jsx("div", {
-                                className: "mt-4 text-sm text-gray-600",
-                                children: "La messagerie est en lecture seule pour cette demande."
-                            }) ]
+                        }), e.jsx("div", {
+                            children: e.jsx("sp-patient-text-chat", {
+                                "data-rx-uid": String((o == null ? void 0 : o.uid) || ""),
+                                "data-rx-status": String((o == null ? void 0 : o.status) || "")
+                            })
                         }) ]
                     }) ]
                 })
