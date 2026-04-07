@@ -1,3 +1,7 @@
+import net from "node:net";
+import tls from "node:tls";
+import { randomBytes } from "node:crypto";
+
 import { NdjsonLogger } from "../logger";
 
 const DEFAULT_VERIFY_BASE_URL = "https://sosprescription.fr/auth/verify";
@@ -5,8 +9,37 @@ const DEFAULT_PATIENT_PORTAL_URL = "https://sosprescription.fr/espace-patient/";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 2_000;
 const MAX_TIMEOUT_MS = 30_000;
+const SMTP_CONNECT_TIMEOUT_MS = 10_000;
+const SMTP_DEFAULT_PORT_SECURE = 465;
+const SMTP_DEFAULT_PORT_STARTTLS = 587;
 
-type DeliveryMode = "webhook" | "mock";
+type DeliveryMode = "smtp" | "webhook" | "mock";
+
+interface SmtpRuntimeConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  requireTls: boolean;
+  username: string;
+  password: string;
+  fromEmail: string;
+  fromName: string;
+  heloHost: string;
+  timeoutMs: number;
+}
+
+interface MailEnvelope {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+interface SmtpResponse {
+  code: number;
+  lines: string[];
+  message: string;
+}
 
 export interface MailServiceConfig {
   logger?: NdjsonLogger;
@@ -16,6 +49,16 @@ export interface MailServiceConfig {
   webhookBearer?: string;
   requestTimeoutMs?: number;
   fromName?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpRequireTls?: boolean;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  smtpFromEmail?: string;
+  smtpFromName?: string;
+  smtpHeloHost?: string;
+  smtpTimeoutMs?: number;
 }
 
 export interface SendMagicLinkMailInput {
@@ -59,6 +102,10 @@ export class MailService {
   private readonly webhookBearer: string;
   private readonly requestTimeoutMs: number;
   private readonly fromName: string;
+  private readonly smtpConfig: SmtpRuntimeConfig | null;
+  private readonly smtpConfigured: boolean;
+  private readonly smtpPartiallyConfigured: boolean;
+  private readonly productionMode: boolean;
 
   constructor(cfg: MailServiceConfig = {}) {
     this.logger = cfg.logger;
@@ -92,9 +139,29 @@ export class MailService {
     );
     this.fromName = normalizeOptionalString(
       cfg.fromName
+        ?? process.env.ML_SMTP_FROM_NAME
+        ?? process.env.SMTP_FROM_NAME
         ?? process.env.ML_MAGIC_LINK_FROM_NAME
         ?? process.env.MAGIC_LINK_FROM_NAME,
     ) || "SOS Prescription";
+
+    const smtpResolved = resolveSmtpRuntimeConfig({
+      smtpHost: cfg.smtpHost,
+      smtpPort: cfg.smtpPort,
+      smtpSecure: cfg.smtpSecure,
+      smtpRequireTls: cfg.smtpRequireTls,
+      smtpUsername: cfg.smtpUsername,
+      smtpPassword: cfg.smtpPassword,
+      smtpFromEmail: cfg.smtpFromEmail,
+      smtpFromName: cfg.smtpFromName ?? this.fromName,
+      smtpHeloHost: cfg.smtpHeloHost,
+      smtpTimeoutMs: cfg.smtpTimeoutMs ?? this.requestTimeoutMs,
+    });
+
+    this.smtpConfig = smtpResolved.config;
+    this.smtpConfigured = smtpResolved.state === "ready";
+    this.smtpPartiallyConfigured = smtpResolved.state === "partial";
+    this.productionMode = isProductionRuntime();
   }
 
   async sendMagicLink(input: SendMagicLinkMailInput, reqId?: string): Promise<SendMagicLinkMailResult> {
@@ -178,23 +245,71 @@ export class MailService {
     reqId: string | undefined,
     failureCode: string,
   ): Promise<{ sent: boolean; deliveryMode: DeliveryMode }> {
-    if (this.webhookUrl === "") {
-      this.logger?.info(
-        input.mockLogEvent,
-        {
-          email_fp: fingerprint(input.email),
-          delivery_mode: "mock",
-          ...input.successLogContext,
-        },
-        reqId,
-      );
-
-      return {
-        sent: true,
-        deliveryMode: "mock",
-      };
+    if (this.productionMode) {
+      const smtp = this.requireProductionSmtpConfig(input, reqId, failureCode);
+      return this.dispatchViaSmtp(input, smtp, reqId, failureCode);
     }
 
+    if (this.smtpPartiallyConfigured) {
+      this.logDispatchFailure(input, reqId, "smtp_configuration_incomplete", "smtp");
+      throw new MailServiceError(failureCode, 500, "smtp_configuration_incomplete");
+    }
+
+    if (this.smtpConfigured && this.smtpConfig) {
+      return this.dispatchViaSmtp(input, this.smtpConfig, reqId, failureCode);
+    }
+
+    if (this.webhookUrl !== "") {
+      return this.dispatchViaWebhook(input, reqId, failureCode);
+    }
+
+    this.logger?.info(
+      input.mockLogEvent,
+      {
+        email_fp: fingerprint(input.email),
+        delivery_mode: "mock",
+        ...input.successLogContext,
+      },
+      reqId,
+    );
+
+    return {
+      sent: true,
+      deliveryMode: "mock",
+    };
+  }
+
+  private requireProductionSmtpConfig(
+    input: {
+      email: string;
+      errorLogEvent: string;
+    },
+    reqId: string | undefined,
+    failureCode: string,
+  ): SmtpRuntimeConfig {
+    if (this.smtpConfigured && this.smtpConfig) {
+      return this.smtpConfig;
+    }
+
+    const reason = this.smtpPartiallyConfigured ? "smtp_configuration_incomplete" : "smtp_configuration_missing";
+    this.logDispatchFailure(input, reqId, reason, "smtp");
+    throw new MailServiceError(failureCode, 500, reason);
+  }
+
+  private async dispatchViaWebhook(
+    input: {
+      email: string;
+      subject: string;
+      text: string;
+      html: string;
+      meta: Record<string, unknown>;
+      successLogEvent: string;
+      errorLogEvent: string;
+      successLogContext: Record<string, unknown>;
+    },
+    reqId: string | undefined,
+    failureCode: string,
+  ): Promise<{ sent: boolean; deliveryMode: DeliveryMode }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
@@ -232,36 +347,703 @@ export class MailService {
       };
     } catch (err: unknown) {
       if (err instanceof MailServiceError) {
-        this.logger?.error(
-          input.errorLogEvent,
-          {
-            email_fp: fingerprint(input.email),
-            delivery_mode: "webhook",
-            reason: err.message,
-          },
-          reqId,
-          err,
-        );
+        this.logDispatchFailure(input, reqId, err.message, "webhook", err);
         throw err;
       }
 
       const message = isAbortError(err) ? "mail_timeout" : err instanceof Error ? err.message : "mail_failed";
-      this.logger?.error(
-        input.errorLogEvent,
-        {
-          email_fp: fingerprint(input.email),
-          delivery_mode: "webhook",
-          reason: message,
-        },
-        reqId,
-        err,
-      );
-
+      this.logDispatchFailure(input, reqId, message, "webhook", err);
       throw new MailServiceError(failureCode, 502, message, { cause: err instanceof Error ? err : undefined });
     } finally {
       clearTimeout(timeoutId);
     }
   }
+
+  private async dispatchViaSmtp(
+    input: {
+      email: string;
+      subject: string;
+      text: string;
+      html: string;
+      successLogEvent: string;
+      errorLogEvent: string;
+      successLogContext: Record<string, unknown>;
+    },
+    smtp: SmtpRuntimeConfig,
+    reqId: string | undefined,
+    failureCode: string,
+  ): Promise<{ sent: boolean; deliveryMode: DeliveryMode }> {
+    try {
+      await sendMailViaSmtp(
+        smtp,
+        {
+          to: input.email,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+        },
+      );
+
+      this.logger?.info(
+        input.successLogEvent,
+        {
+          email_fp: fingerprint(input.email),
+          delivery_mode: "smtp",
+          smtp_host: smtp.host,
+          smtp_port: smtp.port,
+          ...input.successLogContext,
+        },
+        reqId,
+      );
+
+      return {
+        sent: true,
+        deliveryMode: "smtp",
+      };
+    } catch (err: unknown) {
+      const message = err instanceof MailServiceError
+        ? err.message
+        : isAbortError(err)
+          ? "smtp_timeout"
+          : err instanceof Error
+            ? err.message
+            : "smtp_failed";
+
+      this.logDispatchFailure(input, reqId, message, "smtp", err);
+
+      if (err instanceof MailServiceError) {
+        throw new MailServiceError(failureCode, err.statusCode, err.message, { cause: err });
+      }
+
+      throw new MailServiceError(failureCode, 502, message, { cause: err instanceof Error ? err : undefined });
+    }
+  }
+
+  private logDispatchFailure(
+    input: { email: string; errorLogEvent: string },
+    reqId: string | undefined,
+    reason: string,
+    deliveryMode: DeliveryMode,
+    err?: unknown,
+  ): void {
+    this.logger?.error(
+      input.errorLogEvent,
+      {
+        email_fp: fingerprint(input.email),
+        delivery_mode: deliveryMode,
+        reason,
+      },
+      reqId,
+      err,
+    );
+  }
+}
+
+async function sendMailViaSmtp(cfg: SmtpRuntimeConfig, envelope: MailEnvelope): Promise<void> {
+  const session = await SmtpSession.connect(cfg);
+
+  try {
+    let ehlo = await session.ehlo();
+
+    if (!cfg.secure && (cfg.requireTls || ehlo.features.has("STARTTLS"))) {
+      if (!ehlo.features.has("STARTTLS")) {
+        throw new MailServiceError("ML_SMTP_TLS_REQUIRED", 502, "smtp_starttls_unavailable");
+      }
+
+      await session.startTls();
+      ehlo = await session.ehlo();
+    }
+
+    if (cfg.username !== "" || cfg.password !== "") {
+      await session.authenticate(cfg.username, cfg.password, ehlo.features);
+    }
+
+    await session.mailFrom(cfg.fromEmail);
+    await session.rcptTo(envelope.to);
+    await session.data(buildMimeMessage(cfg, envelope));
+    await session.quit();
+  } catch (err: unknown) {
+    await session.close();
+    throw err;
+  }
+}
+
+class SmtpSession {
+  private socket: net.Socket | tls.TLSSocket;
+  private channel: SmtpChannel;
+  private readonly cfg: SmtpRuntimeConfig;
+
+  private constructor(socket: net.Socket | tls.TLSSocket, cfg: SmtpRuntimeConfig) {
+    this.socket = socket;
+    this.channel = new SmtpChannel(socket);
+    this.cfg = cfg;
+  }
+
+  static async connect(cfg: SmtpRuntimeConfig): Promise<SmtpSession> {
+    const socket = cfg.secure
+      ? await connectTlsSocket(cfg)
+      : await connectPlainSocket(cfg);
+
+    const session = new SmtpSession(socket, cfg);
+    const greeting = await session.channel.readResponse(cfg.timeoutMs);
+    assertSmtpResponse(greeting, [220], "smtp_greeting_invalid");
+    return session;
+  }
+
+  async ehlo(): Promise<{ features: Map<string, string> }> {
+    const response = await this.sendCommand(`EHLO ${this.cfg.heloHost}`, [250], "smtp_ehlo_failed");
+    return {
+      features: parseEhloFeatures(response.lines),
+    };
+  }
+
+  async startTls(): Promise<void> {
+    await this.sendCommand("STARTTLS", [220], "smtp_starttls_failed");
+
+    this.channel.dispose();
+    const upgradedSocket = await upgradeSocketToTls(this.socket, this.cfg);
+    this.socket = upgradedSocket;
+    this.channel = new SmtpChannel(upgradedSocket);
+  }
+
+  async authenticate(username: string, password: string, features: Map<string, string>): Promise<void> {
+    if (username === "" && password === "") {
+      return;
+    }
+    if (username === "" || password === "") {
+      throw new MailServiceError("ML_SMTP_AUTH_CONFIG_INVALID", 500, "smtp_auth_config_invalid");
+    }
+
+    const authLine = (features.get("AUTH") ?? "").toUpperCase();
+    const methods = authLine.split(/\s+/).map((entry) => entry.trim()).filter(Boolean);
+
+    if (methods.includes("PLAIN")) {
+      const token = Buffer.from(`\u0000${username}\u0000${password}`, "utf8").toString("base64");
+      await this.sendCommand(`AUTH PLAIN ${token}`, [235], "smtp_auth_failed");
+      return;
+    }
+
+    if (methods.includes("LOGIN") || methods.length === 0) {
+      const first = await this.sendCommand("AUTH LOGIN", [334], "smtp_auth_failed");
+      if (first.code !== 334) {
+        throw new MailServiceError("ML_SMTP_AUTH_FAILED", 502, "smtp_auth_failed");
+      }
+
+      const userResponse = await this.sendCommand(Buffer.from(username, "utf8").toString("base64"), [334], "smtp_auth_failed");
+      if (userResponse.code !== 334) {
+        throw new MailServiceError("ML_SMTP_AUTH_FAILED", 502, "smtp_auth_failed");
+      }
+
+      await this.sendCommand(Buffer.from(password, "utf8").toString("base64"), [235], "smtp_auth_failed");
+      return;
+    }
+
+    throw new MailServiceError("ML_SMTP_AUTH_UNSUPPORTED", 502, "smtp_auth_unsupported");
+  }
+
+  async mailFrom(fromEmail: string): Promise<void> {
+    await this.sendCommand(`MAIL FROM:<${fromEmail}>`, [250], "smtp_mail_from_failed");
+  }
+
+  async rcptTo(toEmail: string): Promise<void> {
+    await this.sendCommand(`RCPT TO:<${toEmail}>`, [250, 251], "smtp_rcpt_to_failed");
+  }
+
+  async data(mimeMessage: string): Promise<void> {
+    await this.sendCommand("DATA", [354], "smtp_data_start_failed");
+    await this.write(`${dotStuff(mimeMessage)}\r\n.\r\n`);
+    const response = await this.channel.readResponse(this.cfg.timeoutMs);
+    assertSmtpResponse(response, [250], "smtp_data_commit_failed");
+  }
+
+  async quit(): Promise<void> {
+    try {
+      await this.sendCommand("QUIT", [221, 250], "smtp_quit_failed");
+    } finally {
+      await this.close();
+    }
+  }
+
+  async close(): Promise<void> {
+    this.channel.dispose();
+    if (!this.socket.destroyed) {
+      this.socket.destroy();
+    }
+  }
+
+  private async sendCommand(command: string, acceptedCodes: number[], errorMessage: string): Promise<SmtpResponse> {
+    await this.write(`${command}\r\n`);
+    const response = await this.channel.readResponse(this.cfg.timeoutMs);
+    assertSmtpResponse(response, acceptedCodes, errorMessage);
+    return response;
+  }
+
+  private async write(chunk: string): Promise<void> {
+    await writeSocketChunk(this.socket, chunk, this.cfg.timeoutMs);
+  }
+}
+
+class SmtpChannel {
+  private readonly socket: net.Socket | tls.TLSSocket;
+  private readonly lineQueue: string[] = [];
+  private buffer = "";
+  private pending: {
+    resolve: (value: SmtpResponse) => void;
+    reject: (reason?: unknown) => void;
+    timer: NodeJS.Timeout;
+    lines: string[];
+    expectedCode: string | null;
+  } | null = null;
+  private readonly onDataBound: (chunk: Buffer | string) => void;
+  private readonly onErrorBound: (err: Error) => void;
+  private readonly onCloseBound: () => void;
+
+  constructor(socket: net.Socket | tls.TLSSocket) {
+    this.socket = socket;
+    this.onDataBound = (chunk: Buffer | string) => {
+      this.buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      let newlineIndex = this.buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = this.buffer.slice(0, newlineIndex).replace(/\r$/, "");
+        this.buffer = this.buffer.slice(newlineIndex + 1);
+        if (line !== "") {
+          this.lineQueue.push(line);
+        }
+        newlineIndex = this.buffer.indexOf("\n");
+      }
+      this.flushPending();
+    };
+    this.onErrorBound = (err: Error) => {
+      if (!this.pending) {
+        return;
+      }
+      const pending = this.pending;
+      this.pending = null;
+      clearTimeout(pending.timer);
+      pending.reject(err);
+    };
+    this.onCloseBound = () => {
+      if (!this.pending) {
+        return;
+      }
+      const pending = this.pending;
+      this.pending = null;
+      clearTimeout(pending.timer);
+      pending.reject(new MailServiceError("ML_SMTP_CONNECTION_CLOSED", 502, "smtp_connection_closed"));
+    };
+
+    socket.on("data", this.onDataBound);
+    socket.on("error", this.onErrorBound);
+    socket.on("close", this.onCloseBound);
+  }
+
+  dispose(): void {
+    this.socket.off("data", this.onDataBound);
+    this.socket.off("error", this.onErrorBound);
+    this.socket.off("close", this.onCloseBound);
+    if (this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(new MailServiceError("ML_SMTP_CONNECTION_CLOSED", 502, "smtp_connection_replaced"));
+      this.pending = null;
+    }
+  }
+
+  async readResponse(timeoutMs: number): Promise<SmtpResponse> {
+    if (this.pending) {
+      throw new MailServiceError("ML_SMTP_PROTOCOL_ERROR", 502, "smtp_pending_response_exists");
+    }
+
+    return await new Promise<SmtpResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending) {
+          return;
+        }
+        this.pending = null;
+        reject(new MailServiceError("ML_SMTP_TIMEOUT", 502, "smtp_timeout"));
+      }, Math.max(250, Math.min(timeoutMs, MAX_TIMEOUT_MS)));
+
+      this.pending = {
+        resolve,
+        reject,
+        timer,
+        lines: [],
+        expectedCode: null,
+      };
+
+      this.flushPending();
+    });
+  }
+
+  private flushPending(): void {
+    if (!this.pending) {
+      return;
+    }
+
+    while (this.pending && this.lineQueue.length > 0) {
+      const line = this.lineQueue.shift() as string;
+      this.pending.lines.push(line);
+
+      const match = line.match(/^(\d{3})([\s-])(.*)$/);
+      if (!match) {
+        continue;
+      }
+
+      if (!this.pending.expectedCode) {
+        this.pending.expectedCode = match[1];
+      }
+
+      if (match[2] === " " && match[1] === this.pending.expectedCode) {
+        const pending = this.pending;
+        this.pending = null;
+        clearTimeout(pending.timer);
+        pending.resolve({
+          code: Number.parseInt(match[1], 10),
+          lines: pending.lines.slice(),
+          message: pending.lines.join("\n"),
+        });
+        return;
+      }
+    }
+  }
+}
+
+function resolveSmtpRuntimeConfig(cfg: {
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpRequireTls?: boolean;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  smtpFromEmail?: string;
+  smtpFromName?: string;
+  smtpHeloHost?: string;
+  smtpTimeoutMs?: number;
+}): { state: "absent" | "partial" | "ready"; config: SmtpRuntimeConfig | null } {
+  const host = normalizeOptionalString(
+    cfg.smtpHost
+      ?? process.env.ML_SMTP_HOST
+      ?? process.env.SMTP_HOST,
+  );
+  const rawPort = normalizeSmtpPort(
+    cfg.smtpPort
+      ?? readPositiveIntEnv("ML_SMTP_PORT", readPositiveIntEnv("SMTP_PORT", 0)),
+  );
+  const secure = normalizeBooleanEnv(
+    cfg.smtpSecure,
+    process.env.ML_SMTP_SECURE,
+    process.env.SMTP_SECURE,
+    rawPort === SMTP_DEFAULT_PORT_SECURE,
+  );
+  const port = rawPort > 0 ? rawPort : (host !== "" ? (secure ? SMTP_DEFAULT_PORT_SECURE : SMTP_DEFAULT_PORT_STARTTLS) : 0);
+  const requireTls = normalizeBooleanEnv(
+    cfg.smtpRequireTls,
+    process.env.ML_SMTP_REQUIRE_TLS,
+    process.env.SMTP_REQUIRE_TLS,
+    secure ? false : true,
+  );
+  const username = normalizeOptionalString(
+    cfg.smtpUsername
+      ?? process.env.ML_SMTP_USERNAME
+      ?? process.env.SMTP_USERNAME
+      ?? process.env.ML_SMTP_USER
+      ?? process.env.SMTP_USER,
+  );
+  const password = normalizeOptionalString(
+    cfg.smtpPassword
+      ?? process.env.ML_SMTP_PASSWORD
+      ?? process.env.SMTP_PASSWORD
+      ?? process.env.ML_SMTP_PASS
+      ?? process.env.SMTP_PASS,
+  );
+  const fromEmail = normalizeEmail(
+    cfg.smtpFromEmail
+      ?? process.env.ML_SMTP_FROM_EMAIL
+      ?? process.env.SMTP_FROM_EMAIL
+      ?? process.env.ML_FROM_EMAIL
+      ?? process.env.FROM_EMAIL
+      ?? "",
+  );
+  const fromName = normalizeOptionalString(
+    cfg.smtpFromName
+      ?? process.env.ML_SMTP_FROM_NAME
+      ?? process.env.SMTP_FROM_NAME,
+  ) || "SOS Prescription";
+  const heloHost = normalizeOptionalString(
+    cfg.smtpHeloHost
+      ?? process.env.ML_SMTP_HELO_HOSTNAME
+      ?? process.env.SMTP_HELO_HOSTNAME
+      ?? process.env.ML_SITE_ID,
+  ) || "localhost";
+  const timeoutMs = clampTimeout(
+    cfg.smtpTimeoutMs
+      ?? readPositiveIntEnv("ML_SMTP_TIMEOUT_MS", readPositiveIntEnv("SMTP_TIMEOUT_MS", DEFAULT_TIMEOUT_MS)),
+  );
+
+  const providedFields = [host !== "", port > 0, fromEmail !== "", username !== "", password !== ""];
+  const hasAnyConfig = providedFields.some(Boolean);
+  if (!hasAnyConfig) {
+    return { state: "absent", config: null };
+  }
+
+  const authConsistent = (username === "" && password === "") || (username !== "" && password !== "");
+  const ready = host !== "" && port > 0 && fromEmail !== "" && authConsistent;
+
+  if (!ready) {
+    return { state: "partial", config: null };
+  }
+
+  return {
+    state: "ready",
+    config: {
+      host,
+      port,
+      secure,
+      requireTls,
+      username,
+      password,
+      fromEmail,
+      fromName,
+      heloHost,
+      timeoutMs,
+    },
+  };
+}
+
+async function connectPlainSocket(cfg: SmtpRuntimeConfig): Promise<net.Socket> {
+  return await new Promise<net.Socket>((resolve, reject) => {
+    const socket = net.createConnection({ host: cfg.host, port: cfg.port });
+    let settled = false;
+
+    const cleanup = (): void => {
+      socket.off("connect", onConnect);
+      socket.off("error", onError);
+      clearTimeout(timer);
+    };
+
+    const onConnect = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      socket.setNoDelay(true);
+      resolve(socket);
+    };
+
+    const onError = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(new MailServiceError("ML_SMTP_CONNECT_FAILED", 502, err.message, { cause: err }));
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(new MailServiceError("ML_SMTP_TIMEOUT", 502, "smtp_connect_timeout"));
+    }, Math.max(SMTP_CONNECT_TIMEOUT_MS, Math.min(cfg.timeoutMs, MAX_TIMEOUT_MS)));
+
+    socket.once("connect", onConnect);
+    socket.once("error", onError);
+  });
+}
+
+async function connectTlsSocket(cfg: SmtpRuntimeConfig): Promise<tls.TLSSocket> {
+  return await new Promise<tls.TLSSocket>((resolve, reject) => {
+    const socket = tls.connect({
+      host: cfg.host,
+      port: cfg.port,
+      servername: cfg.host,
+      minVersion: "TLSv1.2",
+    });
+    let settled = false;
+
+    const cleanup = (): void => {
+      socket.off("secureConnect", onConnect);
+      socket.off("error", onError);
+      clearTimeout(timer);
+    };
+
+    const onConnect = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      socket.setNoDelay(true);
+      resolve(socket);
+    };
+
+    const onError = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(new MailServiceError("ML_SMTP_CONNECT_FAILED", 502, err.message, { cause: err }));
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(new MailServiceError("ML_SMTP_TIMEOUT", 502, "smtp_connect_timeout"));
+    }, Math.max(SMTP_CONNECT_TIMEOUT_MS, Math.min(cfg.timeoutMs, MAX_TIMEOUT_MS)));
+
+    socket.once("secureConnect", onConnect);
+    socket.once("error", onError);
+  });
+}
+
+async function upgradeSocketToTls(socket: net.Socket | tls.TLSSocket, cfg: SmtpRuntimeConfig): Promise<tls.TLSSocket> {
+  return await new Promise<tls.TLSSocket>((resolve, reject) => {
+    const upgraded = tls.connect({
+      socket: socket as net.Socket,
+      servername: cfg.host,
+      minVersion: "TLSv1.2",
+    });
+    let settled = false;
+
+    const cleanup = (): void => {
+      upgraded.off("secureConnect", onConnect);
+      upgraded.off("error", onError);
+      clearTimeout(timer);
+    };
+
+    const onConnect = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      upgraded.setNoDelay(true);
+      resolve(upgraded);
+    };
+
+    const onError = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(new MailServiceError("ML_SMTP_STARTTLS_FAILED", 502, err.message, { cause: err }));
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      upgraded.destroy();
+      reject(new MailServiceError("ML_SMTP_TIMEOUT", 502, "smtp_starttls_timeout"));
+    }, Math.max(SMTP_CONNECT_TIMEOUT_MS, Math.min(cfg.timeoutMs, MAX_TIMEOUT_MS)));
+
+    upgraded.once("secureConnect", onConnect);
+    upgraded.once("error", onError);
+  });
+}
+
+async function writeSocketChunk(
+  socket: net.Socket | tls.TLSSocket,
+  chunk: string,
+  timeoutMs: number,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(new MailServiceError("ML_SMTP_TIMEOUT", 502, "smtp_write_timeout"));
+    }, Math.max(250, Math.min(timeoutMs, MAX_TIMEOUT_MS)));
+
+    socket.write(chunk, "utf8", (err?: Error | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (err) {
+        reject(new MailServiceError("ML_SMTP_WRITE_FAILED", 502, err.message, { cause: err }));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function assertSmtpResponse(response: SmtpResponse, acceptedCodes: number[], message: string): void {
+  if (acceptedCodes.includes(response.code)) {
+    return;
+  }
+
+  throw new MailServiceError(
+    "ML_SMTP_RESPONSE_UNEXPECTED",
+    response.code >= 500 ? 502 : 500,
+    `${message}:${response.code}`,
+  );
+}
+
+function parseEhloFeatures(lines: string[]): Map<string, string> {
+  const features = new Map<string, string>();
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^\d{3}[\s-]?/, "").trim();
+    if (line === "") {
+      continue;
+    }
+    const separatorIndex = line.indexOf(" ");
+    const key = (separatorIndex >= 0 ? line.slice(0, separatorIndex) : line).trim().toUpperCase();
+    const value = separatorIndex >= 0 ? line.slice(separatorIndex + 1).trim() : "";
+    if (key !== "") {
+      features.set(key, value);
+    }
+  }
+  return features;
+}
+
+function buildMimeMessage(cfg: SmtpRuntimeConfig, envelope: MailEnvelope): string {
+  const boundary = `=_sp_${randomBytes(12).toString("hex")}`;
+  const fromHeader = formatAddressHeader(cfg.fromName, cfg.fromEmail);
+  const toHeader = formatAddressHeader("", envelope.to);
+  const subjectHeader = encodeHeaderValue(envelope.subject);
+  const textBody = encodeMimeBase64(envelope.text);
+  const htmlBody = encodeMimeBase64(envelope.html);
+  const messageId = buildMessageId(cfg.fromEmail);
+
+  return [
+    `From: ${fromHeader}`,
+    `To: ${toHeader}`,
+    `Subject: ${subjectHeader}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${messageId}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "X-Mailer: SOS Prescription Worker",
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="utf-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    textBody,
+    `--${boundary}`,
+    'Content-Type: text/html; charset="utf-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    htmlBody,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
 }
 
 function buildWebhookHeaders(bearer: string): Record<string, string> {
@@ -382,6 +1164,13 @@ function normalizeToken(value: string): string {
   return normalized;
 }
 
+function normalizeSmtpPort(value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > 65535) {
+    return 0;
+  }
+  return Math.trunc(value);
+}
+
 function clampTimeout(value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
     return DEFAULT_TIMEOUT_MS;
@@ -419,6 +1208,85 @@ function isAbortError(err: unknown): boolean {
   const name = typeof candidate.name === "string" ? candidate.name : "";
   const message = typeof candidate.message === "string" ? candidate.message : "";
   return name === "AbortError" || /abort/i.test(message) || /timeout/i.test(message);
+}
+
+function isProductionRuntime(): boolean {
+  const env = normalizeOptionalString(process.env.SOSPRESCRIPTION_ENV).toLowerCase();
+  if (env === "prod" || env === "production") {
+    return true;
+  }
+
+  return normalizeOptionalString(process.env.NODE_ENV).toLowerCase() === "production";
+}
+
+function normalizeBooleanEnv(
+  explicitValue: boolean | undefined,
+  primaryEnv: string | undefined,
+  secondaryEnv: string | undefined,
+  fallback: boolean,
+): boolean {
+  if (typeof explicitValue === "boolean") {
+    return explicitValue;
+  }
+
+  const raw = normalizeOptionalString(primaryEnv) || normalizeOptionalString(secondaryEnv);
+  if (raw === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+function formatAddressHeader(name: string, email: string): string {
+  const normalizedEmail = normalizeEmail(email);
+  if (normalizedEmail === "") {
+    throw new MailServiceError("ML_SMTP_ADDRESS_INVALID", 500, "smtp_address_invalid");
+  }
+
+  const normalizedName = normalizeOptionalString(name);
+  if (normalizedName === "") {
+    return `<${normalizedEmail}>`;
+  }
+
+  return `${encodeHeaderValue(normalizedName)} <${normalizedEmail}>`;
+}
+
+function encodeHeaderValue(value: string): string {
+  const normalized = String(value || "").replace(/[\r\n]+/g, " ").trim();
+  if (normalized === "") {
+    return "";
+  }
+  if (/^[\x20-\x7E]+$/.test(normalized)) {
+    return normalized;
+  }
+  return `=?UTF-8?B?${Buffer.from(normalized, "utf8").toString("base64")}?=`;
+}
+
+function buildMessageId(fromEmail: string): string {
+  const domain = normalizeEmail(fromEmail).split("@")[1] || "sosprescription.local";
+  return `<${Date.now()}.${randomBytes(8).toString("hex")}@${domain}>`;
+}
+
+function encodeMimeBase64(value: string): string {
+  return chunkString(Buffer.from(String(value || ""), "utf8").toString("base64"), 76).join("\r\n");
+}
+
+function chunkString(value: string, chunkSize: number): string[] {
+  if (value === "") {
+    return [""];
+  }
+
+  const chunks: string[] = [];
+  for (let offset = 0; offset < value.length; offset += chunkSize) {
+    chunks.push(value.slice(offset, offset + chunkSize));
+  }
+  return chunks;
+}
+
+function dotStuff(value: string): string {
+  return value
+    .replace(/\r?\n/g, "\r\n")
+    .replace(/(^|\r\n)\./g, "$1..");
 }
 
 function escapeHtml(value: string): string {

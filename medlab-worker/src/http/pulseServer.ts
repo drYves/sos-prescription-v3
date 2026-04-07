@@ -2453,18 +2453,7 @@ async function handlePrescriptionMessagesCreate(
     });
 
     if (actor.role === ActorRole.DOCTOR && result.threadState.unreadCountPatient === 1) {
-      try {
-        await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
-      } catch (notificationError: unknown) {
-        deps.logger.warning(
-          "messages.patient_notification_failed",
-          {
-            prescription_id: prescriptionId,
-          },
-          reqId,
-          notificationError,
-        );
-      }
+      await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
     }
 
     return sendJson(
@@ -4129,6 +4118,12 @@ function sendMessagesRepoError(
 
   if (err instanceof MessagesRepoError) {
     deps.logger.warning(event, { ...context, reason: err.message, code: err.code }, effectiveReqId, err);
+    sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
+    return;
+  }
+
+  if (err instanceof MailServiceError) {
+    deps.logger.error(event, { ...context, reason: err.message, code: err.code }, effectiveReqId, err);
     sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
     return;
   }
