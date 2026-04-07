@@ -468,7 +468,7 @@ function assertActorCanAccessPrescription(
 
   switch (actor.role) {
     case ActorRole.DOCTOR:
-      if (actor.wpUserId == null || doctorWpUserId !== actor.wpUserId) {
+      if (actor.wpUserId == null || (doctorWpUserId != null && doctorWpUserId !== actor.wpUserId)) {
         throw new MessagesRepoError("ML_MESSAGE_FORBIDDEN", 403, "Doctor cannot access this prescription thread");
       }
       return;
