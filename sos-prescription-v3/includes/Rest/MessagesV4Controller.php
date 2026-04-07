@@ -1,10 +1,10 @@
 <?php // includes/Rest/MessagesV4Controller.php
+
 declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
 use SOSPrescription\Core\WorkerApiClient;
-use SosPrescription\Core\NdjsonLogger;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
@@ -100,13 +100,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
                 'limit' => (string) $limit,
             ], '', '&', PHP_QUERY_RFC3986);
 
-            $rawPayload = $this->get_worker_api_client()->getSignedJson(
+            $workerPayload = $this->get_worker_api_client()->getSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages?' . $query,
                 $reqId,
                 'messages_v4_query'
             );
 
-            return $this->to_rest_response($rawPayload, 200, $reqId);
+            return $this->to_rest_response($workerPayload, 200, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -146,7 +146,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $rawPayload = $this->get_worker_api_client()->postSignedJson(
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages',
                 [
                     'actor' => $actor,
@@ -158,7 +158,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
                 'messages_v4_create'
             );
 
-            return $this->to_rest_response($rawPayload, 201, $reqId);
+            return $this->to_rest_response($workerPayload, 201, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -196,14 +196,14 @@ final class MessagesV4Controller extends \WP_REST_Controller
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $rawPayload = $this->get_worker_api_client()->postSignedJson(
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages/read',
                 $payload,
                 $reqId,
                 'messages_v4_read'
             );
 
-            return $this->to_rest_response($rawPayload, 200, $reqId);
+            return $this->to_rest_response($workerPayload, 200, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -244,7 +244,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $localWorkerId;
         }
 
-        $rawPayload = $this->get_worker_api_client()->postSignedJson(
+        $workerPayload = $this->get_worker_api_client()->postSignedJson(
             '/api/v2/prescriptions/get',
             [
                 'actor' => $actor,
@@ -254,10 +254,8 @@ final class MessagesV4Controller extends \WP_REST_Controller
             'messages_v4_resolve_uid'
         );
 
-        $workerPayload = $this->normalize_payload($rawPayload);
-        $prescription = $this->normalize_payload($workerPayload['prescription'] ?? []);
-        $workerId = $this->extract_worker_prescription_id_from_worker_detail($prescription);
-
+        $normalized = $this->normalize_payload($workerPayload);
+        $workerId = $this->extract_worker_prescription_id_from_worker_payload($normalized);
         if (!$this->is_valid_worker_prescription_id($workerId)) {
             throw new \RuntimeException('Canonical Worker prescription id not found for uid');
         }
@@ -294,47 +292,55 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return '';
         }
 
-        $payload = $this->normalize_payload($decoded['payload'] ?? []);
-        $worker = $this->normalize_payload($payload['worker'] ?? ($decoded['worker'] ?? []));
-        $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
-            ? trim((string) $worker['prescription_id'])
-            : '';
-
-        return $candidate;
+        return $this->extract_worker_prescription_id_from_worker_payload($decoded);
     }
 
     /**
-     * @param array<string, mixed> $detail
+     * @param array<string, mixed> $payload
      */
-    private function extract_worker_prescription_id_from_worker_detail(array $detail): string
+    private function extract_worker_prescription_id_from_worker_payload(array $payload): string
     {
-        $payload = $this->normalize_payload($detail['payload'] ?? []);
-        $worker = $this->normalize_payload($payload['worker'] ?? []);
-        $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+        $candidates = [
+            $this->extract_worker_id_from_node($payload['payload'] ?? null),
+            $this->extract_worker_id_from_node($payload['prescription'] ?? null),
+            $this->extract_worker_id_from_node($payload['data'] ?? null),
+            $this->extract_worker_id_from_node($payload),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($this->is_valid_worker_prescription_id($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    private function extract_worker_id_from_node(mixed $node): string
+    {
+        $arrayNode = $this->normalize_payload($node);
+        if ($arrayNode === []) {
+            return '';
+        }
+
+        $worker = $this->normalize_payload($arrayNode['worker'] ?? []);
+        $direct = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
             ? trim((string) $worker['prescription_id'])
             : '';
-        if ($this->is_valid_worker_prescription_id($candidate)) {
-            return $candidate;
+        if ($this->is_valid_worker_prescription_id($direct)) {
+            return $direct;
         }
 
-        $candidate = isset($detail['id']) && is_scalar($detail['id'])
-            ? trim((string) $detail['id'])
-            : '';
-        if ($this->is_valid_worker_prescription_id($candidate)) {
-            return $candidate;
-        }
-
-        $prescription = $this->normalize_payload($detail['prescription'] ?? []);
-        $candidate = isset($prescription['id']) && is_scalar($prescription['id'])
+        $prescription = $this->normalize_payload($arrayNode['prescription'] ?? []);
+        $nested = isset($prescription['id']) && is_scalar($prescription['id'])
             ? trim((string) $prescription['id'])
             : '';
-        if ($this->is_valid_worker_prescription_id($candidate)) {
-            return $candidate;
+        if ($this->is_valid_worker_prescription_id($nested)) {
+            return $nested;
         }
 
-        $worker = $this->normalize_payload($detail['worker'] ?? []);
-        $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
-            ? trim((string) $worker['prescription_id'])
+        $candidate = isset($arrayNode['id']) && is_scalar($arrayNode['id'])
+            ? trim((string) $arrayNode['id'])
             : '';
         if ($this->is_valid_worker_prescription_id($candidate)) {
             return $candidate;
@@ -382,15 +388,112 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $this->workerApiClient;
         }
 
-        $siteId = $this->get_env_or_constant('ML_SITE_ID', '');
-        $env = $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod');
-        $logger = new NdjsonLogger('web', $siteId !== '' ? $siteId : null, $env !== '' ? $env : null);
+        $factory = new \ReflectionMethod(WorkerApiClient::class, 'fromEnv');
+        $args = [];
 
-        $this->workerApiClient = $siteId !== ''
-            ? WorkerApiClient::fromEnv($logger, $siteId)
-            : WorkerApiClient::fromEnv($logger);
+        foreach ($factory->getParameters() as $parameter) {
+            if ($parameter->isOptional()) {
+                continue;
+            }
+            $args[] = $this->build_factory_argument($parameter);
+        }
 
+        $client = $factory->invokeArgs(null, $args);
+        if (!($client instanceof WorkerApiClient)) {
+            throw new \RuntimeException('WorkerApiClient::fromEnv() returned an invalid instance');
+        }
+
+        $this->workerApiClient = $client;
         return $this->workerApiClient;
+    }
+
+    private function build_factory_argument(\ReflectionParameter $parameter): mixed
+    {
+        $type = $parameter->getType();
+        if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
+            return $this->instantiate_dependency($type->getName());
+        }
+
+        if ($parameter->allowsNull()) {
+            return null;
+        }
+
+        return $this->default_scalar_dependency_value($parameter);
+    }
+
+    private function instantiate_dependency(string $className): object
+    {
+        $reflection = new \ReflectionClass($className);
+        if (!$reflection->isInstantiable()) {
+            throw new \RuntimeException('Unable to instantiate dependency: ' . $className);
+        }
+
+        $constructor = $reflection->getConstructor();
+        if (!($constructor instanceof \ReflectionMethod) || $constructor->getNumberOfRequiredParameters() === 0) {
+            return $reflection->newInstance();
+        }
+
+        $args = [];
+        foreach ($constructor->getParameters() as $parameter) {
+            if ($parameter->isOptional()) {
+                continue;
+            }
+
+            $type = $parameter->getType();
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
+                $args[] = $this->instantiate_dependency($type->getName());
+                continue;
+            }
+
+            if ($parameter->allowsNull()) {
+                $args[] = null;
+                continue;
+            }
+
+            $args[] = $this->default_scalar_dependency_value($parameter);
+        }
+
+        return $reflection->newInstanceArgs($args);
+    }
+
+    private function default_scalar_dependency_value(\ReflectionParameter $parameter): mixed
+    {
+        if ($parameter->isDefaultValueAvailable()) {
+            return $parameter->getDefaultValue();
+        }
+
+        $type = $parameter->getType();
+        $typeName = $type instanceof \ReflectionNamedType ? strtolower($type->getName()) : '';
+        $name = strtolower($parameter->getName());
+
+        if ($typeName === 'string') {
+            if ($name === 'component' || $name === 'channel' || $name === 'scope' || $name === 'name') {
+                return 'web';
+            }
+            return '';
+        }
+
+        if ($typeName === 'int') {
+            return 0;
+        }
+
+        if ($typeName === 'float') {
+            return 0.0;
+        }
+
+        if ($typeName === 'bool') {
+            return false;
+        }
+
+        if ($typeName === 'array') {
+            return [];
+        }
+
+        if ($parameter->allowsNull()) {
+            return null;
+        }
+
+        throw new \RuntimeException('Unable to resolve scalar dependency: $' . $parameter->getName());
     }
 
     /**
@@ -435,39 +538,19 @@ final class MessagesV4Controller extends \WP_REST_Controller
         }
     }
 
-    private function get_env_or_constant(string $name, string $default = ''): string
-    {
-        if (defined($name)) {
-            $value = constant($name);
-            if (is_string($value) && $value !== '') {
-                return $value;
-            }
-            if (is_scalar($value) && (string) $value !== '') {
-                return (string) $value;
-            }
-        }
-
-        $env = getenv($name);
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return $default;
-    }
-
     private function to_rest_response(mixed $payload, int $status, string $reqId): WP_REST_Response
     {
         $normalizedPayload = $this->normalize_payload($payload);
-        $responseReqId = $reqId;
+        $responseRequestId = $reqId;
 
         if (isset($normalizedPayload['req_id']) && is_scalar($normalizedPayload['req_id']) && trim((string) $normalizedPayload['req_id']) !== '') {
-            $responseReqId = trim((string) $normalizedPayload['req_id']);
+            $responseRequestId = trim((string) $normalizedPayload['req_id']);
         } else {
-            $normalizedPayload['req_id'] = $responseReqId;
+            $normalizedPayload['req_id'] = $responseRequestId;
         }
 
         $response = new WP_REST_Response($normalizedPayload, $status);
-        $response->header('X-SOSPrescription-Request-ID', $responseReqId);
+        $response->header('X-SOSPrescription-Request-ID', $responseRequestId);
         $response->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         $response->header('Pragma', 'no-cache');
         $response->header('Expires', '0');
