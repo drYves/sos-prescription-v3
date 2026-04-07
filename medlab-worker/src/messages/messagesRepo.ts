@@ -37,6 +37,11 @@ export interface MarkAsReadInput {
   readUptoSeq?: number | null;
 }
 
+export interface EnsureThreadWritableInput {
+  prescriptionId: string;
+  actor: MessageActorInput;
+}
+
 export interface ThreadAttachmentRecord {
   id: string;
   kind: ArtifactKind;
@@ -59,7 +64,10 @@ export interface ThreadMessageRecord {
   attachments: ThreadAttachmentRecord[];
 }
 
+export type ThreadMode = "DOCTOR_ONLY" | "PATIENT_REPLY" | "READ_ONLY";
+
 export interface ThreadState {
+  mode: ThreadMode;
   messageCount: number;
   lastMessageSeq: number;
   lastMessageAt: Date | null;
@@ -98,6 +106,7 @@ export class MessagesRepoError extends Error {
 
 type LockedPrescriptionRow = {
   id: string;
+  status: string;
   doctorId: string | null;
   patientId: string;
   messageCount: number;
@@ -114,6 +123,7 @@ type LockedPrescriptionRow = {
 
 type PrescriptionProjection = {
   id: string;
+  status: string;
   messageCount: number;
   lastMessageSeq: number;
   lastMessageAt: Date | null;
@@ -172,6 +182,9 @@ export class MessagesRepo {
     const result = await this.prisma.$transaction(async (tx) => {
       const locked = await lockPrescription(tx, prescriptionId);
       assertActorCanAccessPrescription(locked, actor);
+
+      const lockedThreadState = buildThreadStateFromLockedPrescription(locked);
+      assertActorCanWriteThread(lockedThreadState, actor);
 
       const now = new Date();
       const nextSeq = locked.lastMessageSeq + 1;
@@ -240,6 +253,27 @@ export class MessagesRepo {
     );
 
     return result;
+  }
+
+  async ensureThreadWritable(input: EnsureThreadWritableInput): Promise<ThreadState> {
+    const prescriptionId = normalizeRequiredString(input.prescriptionId, "prescriptionId");
+    const actor = normalizeActorInput(input.actor);
+
+    const projection = await this.prisma.prescription.findUnique({
+      where: { id: prescriptionId },
+      select: prescriptionProjectionSelect(),
+    });
+
+    if (!projection) {
+      throw new MessagesRepoError("ML_PRESCRIPTION_NOT_FOUND", 404, "Prescription not found");
+    }
+
+    assertActorCanAccessPrescription(projection, actor);
+
+    const threadState = mapThreadState(projection);
+    assertActorCanWriteThread(threadState, actor);
+
+    return threadState;
   }
 
   async getThread(input: GetThreadInput): Promise<GetThreadResult> {
@@ -343,6 +377,7 @@ async function lockPrescription(
   const rows = await tx.$queryRaw<LockedPrescriptionRow[]>`
     SELECT
       p."id",
+      p."status",
       p."doctorId",
       p."patientId",
       p."messageCount",
@@ -367,6 +402,51 @@ async function lockPrescription(
   }
 
   return rows[0];
+}
+
+function resolveThreadMode(status: string, messageCount: number): ThreadMode {
+  const normalizedStatus = normalizePrescriptionStatus(status);
+  if (normalizedStatus === "APPROVED" || normalizedStatus === "REJECTED") {
+    return "READ_ONLY";
+  }
+
+  if (messageCount < 1) {
+    return "DOCTOR_ONLY";
+  }
+
+  return "PATIENT_REPLY";
+}
+
+function normalizePrescriptionStatus(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function buildThreadStateFromLockedPrescription(locked: LockedPrescriptionRow): ThreadState {
+  return {
+    mode: resolveThreadMode(locked.status, locked.messageCount),
+    messageCount: locked.messageCount,
+    lastMessageSeq: locked.lastMessageSeq,
+    lastMessageAt: locked.lastMessageAt,
+    lastMessageRole: locked.lastMessageRole,
+    doctorLastReadSeq: locked.doctorLastReadSeq,
+    patientLastReadSeq: locked.patientLastReadSeq,
+    unreadCountDoctor: locked.unreadCountDoctor,
+    unreadCountPatient: locked.unreadCountPatient,
+  };
+}
+
+function assertActorCanWriteThread(threadState: ThreadState, actor: { role: ActorRole; wpUserId: number | null }): void {
+  if (actor.role === ActorRole.SYSTEM) {
+    return;
+  }
+
+  if (threadState.mode === "READ_ONLY") {
+    throw new MessagesRepoError("ML_MESSAGE_THREAD_READ_ONLY", 409, "Thread is read-only");
+  }
+
+  if (actor.role === ActorRole.PATIENT && threadState.mode === "DOCTOR_ONLY") {
+    throw new MessagesRepoError("ML_MESSAGE_DOCTOR_INIT_REQUIRED", 403, "Doctor must open the thread first");
+  }
 }
 
 function assertActorCanAccessPrescription(
@@ -572,6 +652,7 @@ function buildThreadStateAfterMessage(
   now: Date,
 ): ThreadState {
   const thread: ThreadState = {
+    mode: resolveThreadMode(locked.status, locked.messageCount + 1),
     messageCount: locked.messageCount + 1,
     lastMessageSeq: nextSeq,
     lastMessageAt: now,
@@ -634,6 +715,7 @@ function buildThreadStateAfterRead(
   effectiveReadSeq: number,
 ): ThreadState {
   const thread: ThreadState = {
+    mode: resolveThreadMode(locked.status, locked.messageCount),
     messageCount: locked.messageCount,
     lastMessageSeq: locked.lastMessageSeq,
     lastMessageAt: locked.lastMessageAt,
@@ -669,6 +751,7 @@ function buildThreadStateAfterRead(
 function prescriptionProjectionSelect() {
   return {
     id: true,
+    status: true,
     messageCount: true,
     lastMessageSeq: true,
     lastMessageAt: true,
@@ -790,6 +873,7 @@ function mapMessage(row: {
 }
 
 function mapThreadState(row: {
+  status: string;
   messageCount: number;
   lastMessageSeq: number;
   lastMessageAt: Date | null;
@@ -802,6 +886,7 @@ function mapThreadState(row: {
   patient?: { wpUserId: number | null } | null;
 }): ThreadState {
   return {
+    mode: resolveThreadMode(row.status, row.messageCount),
     messageCount: row.messageCount,
     lastMessageSeq: row.lastMessageSeq,
     lastMessageAt: row.lastMessageAt,

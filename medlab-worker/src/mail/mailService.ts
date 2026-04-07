@@ -1,13 +1,17 @@
 import { NdjsonLogger } from "../logger";
 
 const DEFAULT_VERIFY_BASE_URL = "https://sosprescription.fr/auth/verify";
+const DEFAULT_PATIENT_PORTAL_URL = "https://sosprescription.fr/espace-patient/";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 2_000;
 const MAX_TIMEOUT_MS = 30_000;
 
+type DeliveryMode = "webhook" | "mock";
+
 export interface MailServiceConfig {
   logger?: NdjsonLogger;
   verifyBaseUrl?: string;
+  patientPortalUrl?: string;
   webhookUrl?: string;
   webhookBearer?: string;
   requestTimeoutMs?: number;
@@ -20,9 +24,19 @@ export interface SendMagicLinkMailInput {
   expiresAt: Date;
 }
 
+export interface SendNewMessageNotificationInput {
+  email: string;
+  prescriptionUid?: string | null;
+}
+
 export interface SendMagicLinkMailResult {
   sent: boolean;
-  deliveryMode: "webhook" | "mock";
+  deliveryMode: DeliveryMode;
+}
+
+export interface SendNewMessageNotificationResult {
+  sent: boolean;
+  deliveryMode: DeliveryMode;
 }
 
 export class MailServiceError extends Error {
@@ -40,6 +54,7 @@ export class MailServiceError extends Error {
 export class MailService {
   private readonly logger?: NdjsonLogger;
   private readonly verifyBaseUrl: string;
+  private readonly patientPortalUrl: string;
   private readonly webhookUrl: string;
   private readonly webhookBearer: string;
   private readonly requestTimeoutMs: number;
@@ -53,6 +68,13 @@ export class MailService {
         ?? process.env.MAGIC_LINK_VERIFY_URL
         ?? DEFAULT_VERIFY_BASE_URL,
       DEFAULT_VERIFY_BASE_URL,
+    );
+    this.patientPortalUrl = normalizeBaseUrl(
+      cfg.patientPortalUrl
+        ?? process.env.ML_PATIENT_PORTAL_URL
+        ?? process.env.PATIENT_PORTAL_URL
+        ?? DEFAULT_PATIENT_PORTAL_URL,
+      DEFAULT_PATIENT_PORTAL_URL,
     );
     this.webhookUrl = normalizeOptionalString(
       cfg.webhookUrl
@@ -84,18 +106,85 @@ export class MailService {
 
     const magicUrl = buildMagicUrl(this.verifyBaseUrl, token);
     const ttlMinutes = Math.max(1, Math.ceil(Math.max(1, input.expiresAt.getTime() - Date.now()) / 60_000));
-    const subject = `[${this.fromName}] Votre lien de connexion sécurisé`;
-    const text = buildPlainTextBody(magicUrl, ttlMinutes);
-    const html = buildHtmlBody(magicUrl, ttlMinutes);
 
-    if (this.webhookUrl === "") {
-      this.logger?.info(
-        "mail.magic_link.mock_dispatched",
-        {
-          email_fp: fingerprint(email),
-          delivery_mode: "mock",
+    return this.dispatchMail(
+      {
+        email,
+        subject: `[${this.fromName}] Votre lien de connexion sécurisé`,
+        text: buildMagicLinkPlainTextBody(magicUrl, ttlMinutes),
+        html: buildMagicLinkHtmlBody(magicUrl, ttlMinutes),
+        meta: {
+          channel: "magic_link",
+          ttl_minutes: ttlMinutes,
+        },
+        successLogEvent: "mail.magic_link.dispatched",
+        mockLogEvent: "mail.magic_link.mock_dispatched",
+        errorLogEvent: "mail.magic_link.dispatch_failed",
+        successLogContext: {
           verify_host: safeHost(this.verifyBaseUrl),
           ttl_minutes: ttlMinutes,
+        },
+      },
+      reqId,
+      "ML_MAGIC_LINK_MAIL_FAILED",
+    );
+  }
+
+  async sendNewMessageNotification(
+    input: SendNewMessageNotificationInput,
+    reqId?: string,
+  ): Promise<SendNewMessageNotificationResult> {
+    const email = normalizeEmail(input.email);
+    if (email === "") {
+      throw new MailServiceError("ML_MESSAGE_NOTIFICATION_BAD_REQUEST", 400, "message_notification_input_invalid");
+    }
+
+    const portalUrl = buildPatientPortalUrl(this.patientPortalUrl, input.prescriptionUid);
+
+    return this.dispatchMail(
+      {
+        email,
+        subject: `[${this.fromName}] Nouveau message de votre médecin`,
+        text: buildNewMessageNotificationPlainTextBody(portalUrl),
+        html: buildNewMessageNotificationHtmlBody(portalUrl),
+        meta: {
+          channel: "patient_new_message",
+          prescription_uid: normalizeOptionalString(input.prescriptionUid) || null,
+        },
+        successLogEvent: "mail.patient_new_message.dispatched",
+        mockLogEvent: "mail.patient_new_message.mock_dispatched",
+        errorLogEvent: "mail.patient_new_message.dispatch_failed",
+        successLogContext: {
+          portal_host: safeHost(portalUrl),
+        },
+      },
+      reqId,
+      "ML_MESSAGE_NOTIFICATION_FAILED",
+    );
+  }
+
+  private async dispatchMail(
+    input: {
+      email: string;
+      subject: string;
+      text: string;
+      html: string;
+      meta: Record<string, unknown>;
+      successLogEvent: string;
+      mockLogEvent: string;
+      errorLogEvent: string;
+      successLogContext: Record<string, unknown>;
+    },
+    reqId: string | undefined,
+    failureCode: string,
+  ): Promise<{ sent: boolean; deliveryMode: DeliveryMode }> {
+    if (this.webhookUrl === "") {
+      this.logger?.info(
+        input.mockLogEvent,
+        {
+          email_fp: fingerprint(input.email),
+          delivery_mode: "mock",
+          ...input.successLogContext,
         },
         reqId,
       );
@@ -114,33 +203,25 @@ export class MailService {
         method: "POST",
         headers: buildWebhookHeaders(this.webhookBearer),
         body: JSON.stringify({
-          to: email,
-          subject,
-          text,
-          html,
-          meta: {
-            channel: "magic_link",
-            ttl_minutes: ttlMinutes,
-          },
+          to: input.email,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+          meta: input.meta,
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        throw new MailServiceError(
-          "ML_MAGIC_LINK_MAIL_FAILED",
-          502,
-          `magic_link_mail_http_${response.status}`,
-        );
+        throw new MailServiceError(failureCode, 502, `mail_http_${response.status}`);
       }
 
       this.logger?.info(
-        "mail.magic_link.dispatched",
+        input.successLogEvent,
         {
-          email_fp: fingerprint(email),
+          email_fp: fingerprint(input.email),
           delivery_mode: "webhook",
-          verify_host: safeHost(this.verifyBaseUrl),
-          ttl_minutes: ttlMinutes,
+          ...input.successLogContext,
         },
         reqId,
       );
@@ -152,9 +233,9 @@ export class MailService {
     } catch (err: unknown) {
       if (err instanceof MailServiceError) {
         this.logger?.error(
-          "mail.magic_link.dispatch_failed",
+          input.errorLogEvent,
           {
-            email_fp: fingerprint(email),
+            email_fp: fingerprint(input.email),
             delivery_mode: "webhook",
             reason: err.message,
           },
@@ -164,11 +245,11 @@ export class MailService {
         throw err;
       }
 
-      const message = isAbortError(err) ? "magic_link_mail_timeout" : err instanceof Error ? err.message : "magic_link_mail_failed";
+      const message = isAbortError(err) ? "mail_timeout" : err instanceof Error ? err.message : "mail_failed";
       this.logger?.error(
-        "mail.magic_link.dispatch_failed",
+        input.errorLogEvent,
         {
-          email_fp: fingerprint(email),
+          email_fp: fingerprint(input.email),
           delivery_mode: "webhook",
           reason: message,
         },
@@ -176,7 +257,7 @@ export class MailService {
         err,
       );
 
-      throw new MailServiceError("ML_MAGIC_LINK_MAIL_FAILED", 502, message, { cause: err instanceof Error ? err : undefined });
+      throw new MailServiceError(failureCode, 502, message, { cause: err instanceof Error ? err : undefined });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -196,7 +277,7 @@ function buildWebhookHeaders(bearer: string): Record<string, string> {
   return headers;
 }
 
-function buildPlainTextBody(magicUrl: string, ttlMinutes: number): string {
+function buildMagicLinkPlainTextBody(magicUrl: string, ttlMinutes: number): string {
   return [
     "Bonjour,",
     "",
@@ -209,7 +290,7 @@ function buildPlainTextBody(magicUrl: string, ttlMinutes: number): string {
   ].join("\n");
 }
 
-function buildHtmlBody(magicUrl: string, ttlMinutes: number): string {
+function buildMagicLinkHtmlBody(magicUrl: string, ttlMinutes: number): string {
   const escapedUrl = escapeHtml(magicUrl);
   const ttlLabel = `${ttlMinutes} minute${ttlMinutes > 1 ? "s" : ""}`;
 
@@ -227,9 +308,44 @@ function buildHtmlBody(magicUrl: string, ttlMinutes: number): string {
   ].join("");
 }
 
+function buildNewMessageNotificationPlainTextBody(portalUrl: string): string {
+  return [
+    "Bonjour,",
+    "",
+    "Vous avez un nouveau message de votre médecin sur SOS Prescription.",
+    "Connectez-vous à votre espace pour lui répondre.",
+    portalUrl,
+  ].join("\n");
+}
+
+function buildNewMessageNotificationHtmlBody(portalUrl: string): string {
+  const escapedUrl = escapeHtml(portalUrl);
+
+  return [
+    "<!doctype html>",
+    '<html lang="fr">',
+    "<body>",
+    "<p>Bonjour,</p>",
+    "<p>Vous avez un nouveau message de votre médecin sur SOS Prescription.</p>",
+    "<p>Connectez-vous à votre espace pour lui répondre.</p>",
+    `<p><a href="${escapedUrl}">${escapedUrl}</a></p>`,
+    "</body>",
+    "</html>",
+  ].join("");
+}
+
 function buildMagicUrl(baseUrl: string, token: string): string {
   const url = new URL(baseUrl);
   url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function buildPatientPortalUrl(baseUrl: string, prescriptionUid?: string | null): string {
+  const url = new URL(baseUrl);
+  const normalizedUid = normalizeOptionalString(prescriptionUid);
+  if (normalizedUid !== "") {
+    url.searchParams.set("rx_uid", normalizedUid);
+  }
   return url.toString();
 }
 

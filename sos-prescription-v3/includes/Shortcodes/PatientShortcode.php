@@ -38,12 +38,17 @@ final class PatientShortcode
 
         Assets::enqueue_form_app();
 
-        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_VERSION')) {
+        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_PATH')) {
+            $patientChatEnhancementsPath = SOSPRESCRIPTION_PATH . 'assets/patient-chat-enhancements.js';
+            $patientChatEnhancementsVersion = file_exists($patientChatEnhancementsPath)
+                ? (string) filemtime($patientChatEnhancementsPath)
+                : (defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null);
+
             wp_enqueue_script(
                 'sosprescription-patient-chat-enhancements',
                 SOSPRESCRIPTION_URL . 'assets/patient-chat-enhancements.js',
                 [],
-                SOSPRESCRIPTION_VERSION,
+                $patientChatEnhancementsVersion,
                 true
             );
         }

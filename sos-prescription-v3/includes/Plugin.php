@@ -29,6 +29,7 @@ use SosPrescription\Rest\DoctorV4Controller;
 use SosPrescription\Rest\AuthV4Controller;
 use SosPrescription\Rest\AccountV4Controller;
 use SosPrescription\Rest\MessagesController;
+use SosPrescription\Rest\MessagesV4Controller;
 use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
@@ -85,6 +86,7 @@ final class Plugin
         add_action('rest_api_init', [AuthV4Controller::class, 'register']);
         add_action('rest_api_init', [AccountV4Controller::class, 'register']);
         add_action('rest_api_init', [MessagesController::class, 'register']);
+        add_action('rest_api_init', [MessagesV4Controller::class, 'register']);
         ErrorResponder::register_hooks();
 
         // Routes worker v3 (signed claim + render + callback) + BFF v4.

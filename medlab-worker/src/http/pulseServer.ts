@@ -36,6 +36,7 @@ const CURRENT_SCHEMA_VERSION = "2026.6";
 const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
 
 let pulsePrismaSingleton: PrismaClient | null = null;
+let pulseMailServiceSingleton: MailService | null = null;
 
 type ErrorResponseBody = {
   ok: false;
@@ -223,6 +224,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const authService = new AuthService({ logger: deps.logger });
   const accountService = new AccountService({ logger: deps.logger });
   const mailService = new MailService({ logger: deps.logger });
+  pulseMailServiceSingleton = mailService;
   const annuaireSanteService = new AnnuaireSanteService({ logger: deps.logger });
   const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
   const patientReadRepo = new PatientReadRepo({ logger: deps.logger });
@@ -1730,6 +1732,17 @@ async function handleArtifactUploadInit(
     const actor = normalizeActorInput(payload.actor);
     const artifactInput = normalizeArtifactInitInput(payload.artifact, deps.artifactUploadMaxBytes);
 
+    if (artifactInput.kind === ArtifactKind.MESSAGE_ATTACHMENT) {
+      if (!artifactInput.prescriptionId) {
+        throw new MessagesRepoError("ML_MESSAGE_BAD_REQUEST", 400, "artifact.prescription_id is required");
+      }
+
+      await deps.messagesRepo.ensureThreadWritable({
+        prescriptionId: artifactInput.prescriptionId,
+        actor,
+      });
+    }
+
     const created = await deps.artifactRepo.initUpload({
       kind: artifactInput.kind,
       ownerRole: actor.role,
@@ -1782,6 +1795,24 @@ async function handleArtifactUploadInit(
       signingSecret,
     );
   } catch (err: unknown) {
+    if (err instanceof MessagesRepoError) {
+      deps.logger.warning(
+        "artifact.upload_init.thread_forbidden",
+        {
+          code: err.code,
+          reason: err.message,
+        },
+        reqId,
+        err,
+      );
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, message: err.message },
+        signingSecret,
+      );
+    }
+
     const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
     const statusCode = isClientArtifactError(message) ? 400 : 500;
     const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
@@ -2420,6 +2451,21 @@ async function handlePrescriptionMessagesCreate(
       body: typeof messageBlock.body === "string" ? messageBlock.body : null,
       attachmentArtifactIds: normalizeAttachmentArtifactIds(messageBlock.attachment_artifact_ids),
     });
+
+    if (actor.role === ActorRole.DOCTOR && result.threadState.unreadCountPatient === 1) {
+      try {
+        await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
+      } catch (notificationError: unknown) {
+        deps.logger.warning(
+          "messages.patient_notification_failed",
+          {
+            prescription_id: prescriptionId,
+          },
+          reqId,
+          notificationError,
+        );
+      }
+    }
 
     return sendJson(
       res,
@@ -3138,6 +3184,7 @@ function extractFileExtension(originalName: string): string {
 
 function serializeThreadState(threadState: ThreadState): Record<string, unknown> {
   return {
+    mode: threadState.mode,
     message_count: threadState.messageCount,
     last_message_seq: threadState.lastMessageSeq,
     last_message_at: threadState.lastMessageAt ? threadState.lastMessageAt.toISOString() : null,
@@ -3284,6 +3331,52 @@ function getPulsePrismaClient(): PrismaClient {
   }
 
   return pulsePrismaSingleton;
+}
+
+function getPulseMailService(logger?: NdjsonLogger): MailService {
+  if (!pulseMailServiceSingleton) {
+    pulseMailServiceSingleton = new MailService({ logger });
+  }
+
+  return pulseMailServiceSingleton;
+}
+
+async function maybeNotifyPatientAboutNewMessage(
+  deps: PulseServerDeps,
+  prescriptionId: string,
+  reqId?: string,
+): Promise<void> {
+  const prisma = getPulsePrismaClient();
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+    select: {
+      id: true,
+      uid: true,
+      patient: {
+        select: {
+          email: true,
+          deletedAt: true,
+        },
+      },
+    },
+  });
+
+  if (!prescription || !prescription.patient || prescription.patient.deletedAt !== null) {
+    return;
+  }
+
+  const email = normalizeOptionalString(prescription.patient.email);
+  if (!email) {
+    return;
+  }
+
+  await getPulseMailService(deps.logger).sendNewMessageNotification(
+    {
+      email,
+      prescriptionUid: prescription.uid,
+    },
+    reqId,
+  );
 }
 
 async function resolveSubmissionForArtifactInit(
