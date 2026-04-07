@@ -3,11 +3,10 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\ReqId;
-use SOSPrescription\Core\WorkerApiClient;
+use SosPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\RestGuard;
+use SosPrescription\Services\Logger;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -54,12 +53,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
             'callback' => [$controller, 'mark_as_read'],
             'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
         ]);
-
-        register_rest_route(self::NAMESPACE_V4, '/prescriptions/(?P<uid>[A-Za-z0-9_-]{4,128})/messages/attachments', [
-            'methods' => 'POST',
-            'callback' => [$controller, 'init_attachment_upload'],
-            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
-        ]);
     }
 
     public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
@@ -91,7 +84,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = ReqId::coalesce(null);
+        $reqId = Logger::get_request_id();
         $actor = $this->build_actor_payload();
         $afterSeq = max(0, (int) ($request->get_param('after_seq') ?? 0));
         $limit = max(1, min(100, (int) ($request->get_param('limit') ?? 50)));
@@ -140,21 +133,16 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = ReqId::coalesce(null);
+        $reqId = Logger::get_request_id();
         $actor = $this->build_actor_payload();
         $params = $this->request_data($request);
-        $messageInput = isset($params['message']) && is_array($params['message']) ? $params['message'] : [];
-        $body = array_key_exists('body', $params) ? trim((string) $params['body']) : '';
-        if ($body === '' && array_key_exists('body', $messageInput)) {
-            $body = trim((string) $messageInput['body']);
+
+        $body = '';
+        if (isset($params['message']['body']) && is_scalar($params['message']['body'])) {
+            $body = trim((string) $params['message']['body']);
+        } elseif (isset($params['body']) && is_scalar($params['body'])) {
+            $body = trim((string) $params['body']);
         }
-        $attachmentIds = $this->normalize_string_ids(
-            $params['attachment_artifact_ids']
-                ?? $params['attachments']
-                ?? $messageInput['attachment_artifact_ids']
-                ?? $messageInput['attachments']
-                ?? []
-        );
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
@@ -164,9 +152,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'body' => $body,
                 ],
             ];
-            if ($attachmentIds !== []) {
-                $payload['message']['attachment_artifact_ids'] = $attachmentIds;
-            }
 
             $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages',
@@ -187,7 +172,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'controller' => __CLASS__,
                     'action' => 'create',
                     'uid' => $uid,
-                    'attachments_count' => count($attachmentIds),
                     'wp_user_id' => $actor['wp_user_id'],
                     'actor_role' => $actor['role'],
                 ],
@@ -203,7 +187,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = ReqId::coalesce(null);
+        $reqId = Logger::get_request_id();
         $actor = $this->build_actor_payload();
         $params = $this->request_data($request);
         $payload = [
@@ -238,72 +222,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'actor_role' => $actor['role'],
                 ],
                 'messages_v4.read.failed'
-            );
-        }
-    }
-
-    public function init_attachment_upload(WP_REST_Request $request): WP_REST_Response|WP_Error
-    {
-        $uid = $this->normalize_uid((string) $request->get_param('uid'));
-        if ($uid === '') {
-            return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
-        }
-
-        $reqId = ReqId::coalesce(null);
-        $actor = $this->build_actor_payload();
-        $params = $this->request_data($request);
-        $artifactInput = isset($params['artifact']) && is_array($params['artifact']) ? $params['artifact'] : $params;
-
-        $originalName = isset($artifactInput['original_name']) ? trim((string) $artifactInput['original_name']) : '';
-        $mimeType = isset($artifactInput['mime_type']) ? trim((string) $artifactInput['mime_type']) : '';
-        $sizeBytes = isset($artifactInput['size_bytes']) ? (int) $artifactInput['size_bytes'] : 0;
-        $meta = isset($artifactInput['meta']) && is_array($artifactInput['meta']) ? $artifactInput['meta'] : null;
-
-        if ($originalName === '' || $mimeType === '' || $sizeBytes < 1) {
-            return new WP_Error('sosprescription_bad_attachment', 'La pièce jointe de messagerie est invalide.', ['status' => 400]);
-        }
-
-        try {
-            $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $payload = [
-                'actor' => $actor,
-                'artifact' => [
-                    'kind' => 'MESSAGE_ATTACHMENT',
-                    'prescription_id' => $workerPrescriptionId,
-                    'original_name' => $originalName,
-                    'mime_type' => $mimeType,
-                    'size_bytes' => $sizeBytes,
-                ],
-            ];
-            if ($meta !== null) {
-                $payload['artifact']['meta'] = $meta;
-            }
-
-            $workerPayload = $this->get_worker_api_client()->postSignedJson(
-                '/api/v1/artifacts/upload/init',
-                $payload,
-                $reqId,
-                'messages_v4_attachment_init'
-            );
-
-            return $this->to_rest_response($workerPayload, 201, $reqId);
-        } catch (\Throwable $e) {
-            return ErrorResponder::worker_bridge_error(
-                $e,
-                'sosprescription_messages_v4_attachment_failed',
-                'La pièce jointe n’a pas pu être préparée.',
-                502,
-                $reqId,
-                [
-                    'controller' => __CLASS__,
-                    'action' => 'init_attachment_upload',
-                    'uid' => $uid,
-                    'size_bytes' => $sizeBytes,
-                    'mime_type' => $mimeType,
-                    'wp_user_id' => $actor['wp_user_id'],
-                    'actor_role' => $actor['role'],
-                ],
-                'messages_v4.attachment_init.failed'
             );
         }
     }
@@ -449,41 +367,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
         return is_array($body) ? $body : [];
     }
 
-    /**
-     * @param mixed $value
-     * @return list<string>
-     */
-    private function normalize_string_ids(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($value as $item) {
-            if (!is_scalar($item)) {
-                continue;
-            }
-            $normalized = trim((string) $item);
-            if ($normalized === '') {
-                continue;
-            }
-            $out[] = $normalized;
-            if (count($out) >= 20) {
-                break;
-            }
-        }
-
-        return array_values(array_unique($out));
-    }
-
     private function get_worker_api_client(): WorkerApiClient
     {
         if ($this->workerApiClient instanceof WorkerApiClient) {
             return $this->workerApiClient;
         }
 
-        $this->workerApiClient = WorkerApiClient::fromEnv(new NdjsonLogger('web'));
+        $this->workerApiClient = WorkerApiClient::fromEnv();
 
         return $this->workerApiClient;
     }
