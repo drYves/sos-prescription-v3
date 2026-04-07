@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
-use SosPrescription\Core\WorkerApiClient;
+use SOSPrescription\Core\WorkerApiClient;
+use SosPrescription\Core\NdjsonLogger;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
@@ -293,7 +294,8 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return '';
         }
 
-        $worker = isset($decoded['worker']) && is_array($decoded['worker']) ? $decoded['worker'] : [];
+        $payload = $this->normalize_payload($decoded['payload'] ?? []);
+        $worker = $this->normalize_payload($payload['worker'] ?? ($decoded['worker'] ?? []));
         $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
             ? trim((string) $worker['prescription_id'])
             : '';
@@ -306,9 +308,17 @@ final class MessagesV4Controller extends \WP_REST_Controller
      */
     private function extract_worker_prescription_id_from_worker_detail(array $detail): string
     {
-        $worker = $this->normalize_payload($detail['worker'] ?? []);
+        $payload = $this->normalize_payload($detail['payload'] ?? []);
+        $worker = $this->normalize_payload($payload['worker'] ?? []);
         $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
             ? trim((string) $worker['prescription_id'])
+            : '';
+        if ($this->is_valid_worker_prescription_id($candidate)) {
+            return $candidate;
+        }
+
+        $candidate = isset($detail['id']) && is_scalar($detail['id'])
+            ? trim((string) $detail['id'])
             : '';
         if ($this->is_valid_worker_prescription_id($candidate)) {
             return $candidate;
@@ -322,9 +332,15 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $candidate;
         }
 
-        return isset($detail['id']) && is_scalar($detail['id'])
-            ? trim((string) $detail['id'])
+        $worker = $this->normalize_payload($detail['worker'] ?? []);
+        $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+            ? trim((string) $worker['prescription_id'])
             : '';
+        if ($this->is_valid_worker_prescription_id($candidate)) {
+            return $candidate;
+        }
+
+        return '';
     }
 
     private function is_valid_worker_prescription_id(string $value): bool
@@ -366,8 +382,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $this->workerApiClient;
         }
 
-        // CORRECTION DIESEL: WorkerApiClient::fromEnv() s'attend à 0 paramètre côté PHP dans notre implémentation v3.
-        $this->workerApiClient = WorkerApiClient::fromEnv();
+        $siteId = $this->get_env_or_constant('ML_SITE_ID', '');
+        $env = $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod');
+        $logger = new NdjsonLogger('web', $siteId !== '' ? $siteId : null, $env !== '' ? $env : null);
+
+        $this->workerApiClient = $siteId !== ''
+            ? WorkerApiClient::fromEnv($logger, $siteId)
+            : WorkerApiClient::fromEnv($logger);
 
         return $this->workerApiClient;
     }
@@ -377,22 +398,20 @@ final class MessagesV4Controller extends \WP_REST_Controller
      */
     private function normalize_payload(mixed $payload): array
     {
-        if (is_array($payload)) {
-            $encoded = wp_json_encode($payload);
+        if (is_array($payload) || is_object($payload)) {
+            $encoded = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             if (is_string($encoded) && $encoded !== '') {
                 $decoded = json_decode($encoded, true);
                 if (is_array($decoded)) {
                     return $decoded;
                 }
             }
-
-            return $payload;
         }
 
-        if (is_object($payload)) {
-            $encoded = wp_json_encode($payload);
-            if (is_string($encoded) && $encoded !== '') {
-                $decoded = json_decode($encoded, true);
+        if (is_string($payload)) {
+            $trimmed = trim($payload);
+            if ($trimmed !== '' && ($trimmed[0] === '{' || $trimmed[0] === '[')) {
+                $decoded = json_decode($trimmed, true);
                 if (is_array($decoded)) {
                     return $decoded;
                 }
@@ -414,6 +433,26 @@ final class MessagesV4Controller extends \WP_REST_Controller
         } catch (\Throwable $e) {
             return 'req_' . md5((string) wp_rand() . microtime(true));
         }
+    }
+
+    private function get_env_or_constant(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
+            if (is_scalar($value) && (string) $value !== '') {
+                return (string) $value;
+            }
+        }
+
+        $env = getenv($name);
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return $default;
     }
 
     private function to_rest_response(mixed $payload, int $status, string $reqId): WP_REST_Response
