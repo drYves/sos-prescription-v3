@@ -98,11 +98,12 @@ final class MessagesV4Controller extends \WP_REST_Controller
                 'limit' => (string) $limit,
             ];
 
-            $workerPayload = $this->get_worker_api_client()->getSignedJson(
+            $rawPayload = $this->get_worker_api_client()->getSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986),
                 $reqId,
                 'messages_v4_query'
             );
+            $workerPayload = $this->normalize_payload($rawPayload);
 
             return $this->to_rest_response($workerPayload, 200, $reqId);
         } catch (\Throwable $e) {
@@ -116,10 +117,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'controller' => __CLASS__,
                     'action' => 'list',
                     'uid' => $uid,
-                    'after_seq' => $afterSeq,
-                    'limit' => $limit,
-                    'wp_user_id' => $actor['wp_user_id'],
-                    'actor_role' => $actor['role'],
                 ],
                 'messages_v4.query_failed'
             );
@@ -153,12 +150,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
                 ],
             ];
 
-            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+            $rawPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages',
                 $payload,
                 $reqId,
                 'messages_v4_create'
             );
+            $workerPayload = $this->normalize_payload($rawPayload);
 
             return $this->to_rest_response($workerPayload, 201, $reqId);
         } catch (\Throwable $e) {
@@ -172,8 +170,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'controller' => __CLASS__,
                     'action' => 'create',
                     'uid' => $uid,
-                    'wp_user_id' => $actor['wp_user_id'],
-                    'actor_role' => $actor['role'],
                 ],
                 'messages_v4.create.failed'
             );
@@ -199,12 +195,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+            $rawPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages/read',
                 $payload,
                 $reqId,
                 'messages_v4_read'
             );
+            $workerPayload = $this->normalize_payload($rawPayload);
 
             return $this->to_rest_response($workerPayload, 200, $reqId);
         } catch (\Throwable $e) {
@@ -218,8 +215,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'controller' => __CLASS__,
                     'action' => 'mark_as_read',
                     'uid' => $uid,
-                    'wp_user_id' => $actor['wp_user_id'],
-                    'actor_role' => $actor['role'],
                 ],
                 'messages_v4.read.failed'
             );
@@ -249,7 +244,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $localWorkerId;
         }
 
-        $workerPayload = $this->get_worker_api_client()->postSignedJson(
+        $rawPayload = $this->get_worker_api_client()->postSignedJson(
             '/api/v2/prescriptions/get',
             [
                 'actor' => $actor,
@@ -258,6 +253,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             $reqId,
             'messages_v4_resolve_uid'
         );
+        $workerPayload = $this->normalize_payload($rawPayload);
 
         $prescription = isset($workerPayload['prescription']) && is_array($workerPayload['prescription'])
             ? $workerPayload['prescription']
@@ -376,6 +372,15 @@ final class MessagesV4Controller extends \WP_REST_Controller
         $this->workerApiClient = WorkerApiClient::fromEnv();
 
         return $this->workerApiClient;
+    }
+
+    private function normalize_payload(mixed $payload): array
+    {
+        if (is_object($payload)) {
+            $payload = json_decode(wp_json_encode($payload), true);
+        }
+
+        return is_array($payload) ? $payload : [];
     }
 
     /**
