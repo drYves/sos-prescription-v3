@@ -12,6 +12,8 @@
   var UID_ATTR = 'data-sp-rx-uid';
   var LOCAL_ID_ATTR = 'data-sp-local-id';
   var ACTIVE_ATTR = 'data-sp-chat-active';
+  var OWNED_ATTR = 'data-sp-chat-owned';
+  var OWNED_PANEL_SELECTOR = PANEL_SELECTOR + '[' + OWNED_ATTR + '="1"]';
   var COMPONENT_CSS_URL = resolveComponentCssUrl();
   var LEGACY_UID_BY_ID = Object.create(null);
   var CHAT_STATE_BY_UID = Object.create(null);
@@ -388,6 +390,100 @@
     return document.getElementById('sosprescription-doctor-console-root') || document.body;
   }
 
+  function observeCurrentRoot() {
+    if (!observer || !observerRoot) {
+      return;
+    }
+
+    observer.observe(observerRoot, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-case-id', 'data-dc-panel']
+    });
+  }
+
+  function isOwnedPanel(node) {
+    return node instanceof HTMLElement
+      && node.matches(PANEL_SELECTOR)
+      && node.getAttribute(OWNED_ATTR) === '1';
+  }
+
+  function isShieldedPanel(node) {
+    return isOwnedPanel(node) && !!node.shadowRoot;
+  }
+
+  function closestShieldedPanel(node) {
+    if (!(node instanceof Element)) {
+      return null;
+    }
+
+    var panel = node.closest(OWNED_PANEL_SELECTOR);
+    return isShieldedPanel(panel) ? panel : null;
+  }
+
+  function nodeContainsRelevantSurface(node) {
+    if (!(node instanceof Element)) {
+      return false;
+    }
+
+    if (node.matches(PANEL_SELECTOR) || node.matches(DETAIL_SELECTOR)) {
+      return true;
+    }
+
+    return !!(node.querySelector && (node.querySelector(PANEL_SELECTOR) || node.querySelector(DETAIL_SELECTOR)));
+  }
+
+  function nodeListContainsRelevantSurface(nodeList) {
+    if (!nodeList || typeof nodeList.length !== 'number') {
+      return false;
+    }
+
+    for (var i = 0; i < nodeList.length; i += 1) {
+      if (nodeContainsRelevantSurface(nodeList[i])) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function mutationsNeedEnhancement(records) {
+    if (!records || typeof records.length !== 'number') {
+      return false;
+    }
+
+    for (var i = 0; i < records.length; i += 1) {
+      var record = records[i];
+      var target = record && record.target instanceof Element ? record.target : null;
+
+      if (record && record.type === 'attributes') {
+        if (target && (target.matches(PANEL_SELECTOR) || target.matches(DETAIL_SELECTOR))) {
+          return true;
+        }
+        continue;
+      }
+
+      if (!record || record.type !== 'childList') {
+        continue;
+      }
+
+      if (target && (isShieldedPanel(target) || closestShieldedPanel(target))) {
+        continue;
+      }
+
+      if (nodeListContainsRelevantSurface(record.addedNodes) || nodeListContainsRelevantSurface(record.removedNodes)) {
+        return true;
+      }
+
+      if (target && nodeContainsRelevantSurface(target)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function ensureObserver() {
     var nextRoot = currentObserverRoot();
     if (!nextRoot) {
@@ -395,8 +491,10 @@
     }
 
     if (!observer) {
-      observer = new MutationObserver(function () {
-        scheduleEnhancement();
+      observer = new MutationObserver(function (records) {
+        if (mutationsNeedEnhancement(records)) {
+          scheduleEnhancement();
+        }
       });
     }
 
@@ -406,12 +504,7 @@
 
     observer.disconnect();
     observerRoot = nextRoot;
-    observer.observe(observerRoot, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'data-case-id']
-    });
+    observeCurrentRoot();
   }
 
   function scheduleEnhancement() {
@@ -441,14 +534,98 @@
         enhancePanel(panels[i]);
       }
     } finally {
-      if (observer && observerRoot) {
-        observer.observe(observerRoot, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['class', 'data-case-id']
-        });
+      observeCurrentRoot();
+    }
+  }
+
+  function ensurePanelHost(panel) {
+    if (!(panel instanceof HTMLElement)) {
+      return null;
+    }
+
+    if (panel.__spDoctorChatHost instanceof HTMLElement && panel.__spDoctorChatHost.isConnected) {
+      panel.setAttribute(OWNED_ATTR, '1');
+      return panel.__spDoctorChatHost;
+    }
+
+    var root = panel.shadowRoot || null;
+    if (!root && typeof panel.attachShadow === 'function') {
+      while (panel.firstChild) {
+        panel.removeChild(panel.firstChild);
       }
+
+      try {
+        root = panel.attachShadow({ mode: 'open' });
+      } catch (error) {
+        root = panel.shadowRoot || null;
+      }
+    }
+
+    if (!root) {
+      return null;
+    }
+
+    var host = root.querySelector('[data-sp-chat-host="1"]');
+    if (!(host instanceof HTMLElement)) {
+      while (root.firstChild) {
+        root.removeChild(root.firstChild);
+      }
+      host = document.createElement('div');
+      host.setAttribute('data-sp-chat-host', '1');
+      root.appendChild(host);
+    }
+
+    panel.__spDoctorChatHost = host;
+    panel.setAttribute(OWNED_ATTR, '1');
+    return host;
+  }
+
+  function ensurePanelComponent(panel) {
+    if (!(panel instanceof HTMLElement)) {
+      return null;
+    }
+
+    var host = ensurePanelHost(panel);
+    if (host) {
+      var shadowElement = host.querySelector(TAG_NAME);
+      if (shadowElement instanceof HTMLElement) {
+        return shadowElement;
+      }
+      shadowElement = document.createElement(TAG_NAME);
+      host.appendChild(shadowElement);
+      return shadowElement;
+    }
+
+    var fallbackElement = panel.querySelector(TAG_NAME);
+    if (fallbackElement instanceof HTMLElement) {
+      panel.setAttribute(OWNED_ATTR, '1');
+      return fallbackElement;
+    }
+
+    panel.innerHTML = '';
+    fallbackElement = document.createElement(TAG_NAME);
+    panel.appendChild(fallbackElement);
+    panel.setAttribute(OWNED_ATTR, '1');
+    return fallbackElement;
+  }
+
+  function syncPanelComponent(element, uid, localId, active) {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    var normalizedUid = normalizeUid(uid);
+    var normalizedLocalId = normalizeLocalId(localId);
+    var nextActive = active ? '1' : '0';
+
+    if (element.getAttribute('data-rx-uid') !== normalizedUid) {
+      element.setAttribute('data-rx-uid', normalizedUid);
+    }
+    if (element.getAttribute('data-local-id') !== String(normalizedLocalId)) {
+      element.setAttribute('data-local-id', String(normalizedLocalId));
+    }
+    if (element.getAttribute('data-active') !== nextActive) {
+      element.setAttribute('data-active', nextActive);
     }
   }
 
@@ -460,44 +637,32 @@
     var detailPane = panel.closest(DETAIL_SELECTOR);
     var localId = normalizeLocalId(detailPane && detailPane.getAttribute('data-case-id'));
     var active = panel.classList.contains('is-active');
+    var mappedUid = localId > 0 ? normalizeUid(LEGACY_UID_BY_ID[localId]) : '';
+    var currentUid = normalizeUid(panel.getAttribute(UID_ATTR));
+    var uid = mappedUid || currentUid || '';
 
-    if (localId < 1) {
-      return;
+    if (localId > 0) {
+      panel.setAttribute(LOCAL_ID_ATTR, String(localId));
+    } else {
+      panel.removeAttribute(LOCAL_ID_ATTR);
     }
 
-    panel.setAttribute(LOCAL_ID_ATTR, String(localId));
     panel.setAttribute(ACTIVE_ATTR, active ? '1' : '0');
 
-    var uid = normalizeUid(panel.getAttribute(UID_ATTR)) || normalizeUid(LEGACY_UID_BY_ID[localId]);
-    if (!uid) {
+    if (uid) {
+      panel.setAttribute(UID_ATTR, uid);
+    } else {
+      panel.removeAttribute(UID_ATTR);
+    }
+
+    var element = ensurePanelComponent(panel);
+    if (!element) {
       return;
     }
 
-    panel.setAttribute(UID_ATTR, uid);
-
-    var existing = panel.querySelector(TAG_NAME);
-    if (existing) {
-      if (existing.getAttribute('data-rx-uid') !== uid) {
-        existing.setAttribute('data-rx-uid', uid);
-      }
-      if (existing.getAttribute('data-local-id') !== String(localId)) {
-        existing.setAttribute('data-local-id', String(localId));
-      }
-      if (existing.getAttribute('data-active') !== (active ? '1' : '0')) {
-        existing.setAttribute('data-active', active ? '1' : '0');
-      }
-      panel.setAttribute(ENHANCED_ATTR, '1');
-      return;
-    }
-
-    panel.innerHTML = '';
-
-    var element = document.createElement(TAG_NAME);
-    element.setAttribute('data-rx-uid', uid);
-    element.setAttribute('data-local-id', String(localId));
-    element.setAttribute('data-active', active ? '1' : '0');
-    panel.appendChild(element);
+    syncPanelComponent(element, uid, localId, active);
     panel.setAttribute(ENHANCED_ATTR, '1');
+    panel.setAttribute(OWNED_ATTR, '1');
   }
 
   function readSharedState(uid) {

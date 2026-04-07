@@ -394,7 +394,7 @@ async function lockPrescription(
     LEFT JOIN "Doctor" d ON d."id" = p."doctorId"
     LEFT JOIN "Patient" pt ON pt."id" = p."patientId"
     WHERE p."id" = ${prescriptionId}
-    FOR UPDATE
+    FOR UPDATE OF p
   `;
 
   if (rows.length !== 1) {
