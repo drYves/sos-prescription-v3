@@ -5,8 +5,8 @@ namespace SosPrescription\Rest;
 
 use SosPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\AccessPolicy;
-use SosPrescription\Services\RestGuard;
 use SosPrescription\Services\Logger;
+use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -26,10 +26,11 @@ final class MessagesV4Controller extends \WP_REST_Controller
     {
         if ($wpdb instanceof \wpdb) {
             $this->wpdb = $wpdb;
-        } else {
-            global $wpdb;
-            $this->wpdb = $wpdb;
+            return;
         }
+
+        global $wpdb;
+        $this->wpdb = $wpdb;
     }
 
     public static function register(): void
@@ -84,28 +85,27 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = Logger::get_request_id();
+        $reqId = $this->build_req_id();
         $actor = $this->build_actor_payload();
         $afterSeq = max(0, (int) ($request->get_param('after_seq') ?? 0));
         $limit = max(1, min(100, (int) ($request->get_param('limit') ?? 50)));
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $params = [
+            $query = http_build_query([
                 'actor_role' => $actor['role'],
                 'actor_wp_user_id' => (string) $actor['wp_user_id'],
                 'after_seq' => (string) $afterSeq,
                 'limit' => (string) $limit,
-            ];
+            ], '', '&', PHP_QUERY_RFC3986);
 
             $rawPayload = $this->get_worker_api_client()->getSignedJson(
-                '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986),
+                '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages?' . $query,
                 $reqId,
                 'messages_v4_query'
             );
-            $workerPayload = $this->normalize_payload($rawPayload);
 
-            return $this->to_rest_response($workerPayload, 200, $reqId);
+            return $this->to_rest_response($rawPayload, 200, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -117,6 +117,8 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'controller' => __CLASS__,
                     'action' => 'list',
                     'uid' => $uid,
+                    'after_seq' => $afterSeq,
+                    'limit' => $limit,
                 ],
                 'messages_v4.query_failed'
             );
@@ -130,35 +132,32 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = Logger::get_request_id();
+        $reqId = $this->build_req_id();
         $actor = $this->build_actor_payload();
         $params = $this->request_data($request);
 
         $body = '';
-        if (isset($params['message']['body']) && is_scalar($params['message']['body'])) {
+        if (isset($params['message']) && is_array($params['message']) && array_key_exists('body', $params['message']) && is_scalar($params['message']['body'])) {
             $body = trim((string) $params['message']['body']);
-        } elseif (isset($params['body']) && is_scalar($params['body'])) {
+        } elseif (array_key_exists('body', $params) && is_scalar($params['body'])) {
             $body = trim((string) $params['body']);
         }
 
         try {
             $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($uid, $actor, $reqId);
-            $payload = [
-                'actor' => $actor,
-                'message' => [
-                    'body' => $body,
-                ],
-            ];
-
             $rawPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v1/prescriptions/' . rawurlencode($workerPrescriptionId) . '/messages',
-                $payload,
+                [
+                    'actor' => $actor,
+                    'message' => [
+                        'body' => $body,
+                    ],
+                ],
                 $reqId,
                 'messages_v4_create'
             );
-            $workerPayload = $this->normalize_payload($rawPayload);
 
-            return $this->to_rest_response($workerPayload, 201, $reqId);
+            return $this->to_rest_response($rawPayload, 201, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -183,12 +182,13 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return new WP_Error('sosprescription_bad_uid', 'Référence de prescription invalide.', ['status' => 400]);
         }
 
-        $reqId = Logger::get_request_id();
+        $reqId = $this->build_req_id();
         $actor = $this->build_actor_payload();
         $params = $this->request_data($request);
         $payload = [
             'actor' => $actor,
         ];
+
         if (array_key_exists('read_upto_seq', $params)) {
             $payload['read_upto_seq'] = (int) $params['read_upto_seq'];
         }
@@ -201,9 +201,8 @@ final class MessagesV4Controller extends \WP_REST_Controller
                 $reqId,
                 'messages_v4_read'
             );
-            $workerPayload = $this->normalize_payload($rawPayload);
 
-            return $this->to_rest_response($workerPayload, 200, $reqId);
+            return $this->to_rest_response($rawPayload, 200, $reqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -253,13 +252,11 @@ final class MessagesV4Controller extends \WP_REST_Controller
             $reqId,
             'messages_v4_resolve_uid'
         );
+
         $workerPayload = $this->normalize_payload($rawPayload);
-
-        $prescription = isset($workerPayload['prescription']) && is_array($workerPayload['prescription'])
-            ? $workerPayload['prescription']
-            : [];
-
+        $prescription = $this->normalize_payload($workerPayload['prescription'] ?? []);
         $workerId = $this->extract_worker_prescription_id_from_worker_detail($prescription);
+
         if (!$this->is_valid_worker_prescription_id($workerId)) {
             throw new \RuntimeException('Canonical Worker prescription id not found for uid');
         }
@@ -309,7 +306,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
      */
     private function extract_worker_prescription_id_from_worker_detail(array $detail): string
     {
-        $worker = isset($detail['worker']) && is_array($detail['worker']) ? $detail['worker'] : [];
+        $worker = $this->normalize_payload($detail['worker'] ?? []);
         $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
             ? trim((string) $worker['prescription_id'])
             : '';
@@ -317,7 +314,7 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $candidate;
         }
 
-        $prescription = isset($detail['prescription']) && is_array($detail['prescription']) ? $detail['prescription'] : [];
+        $prescription = $this->normalize_payload($detail['prescription'] ?? []);
         $candidate = isset($prescription['id']) && is_scalar($prescription['id'])
             ? trim((string) $prescription['id'])
             : '';
@@ -325,11 +322,9 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $candidate;
         }
 
-        $candidate = isset($detail['id']) && is_scalar($detail['id'])
+        return isset($detail['id']) && is_scalar($detail['id'])
             ? trim((string) $detail['id'])
             : '';
-
-        return $candidate;
     }
 
     private function is_valid_worker_prescription_id(string $value): bool
@@ -352,15 +347,17 @@ final class MessagesV4Controller extends \WP_REST_Controller
      */
     private function request_data(WP_REST_Request $request): array
     {
-        $body = $request->get_json_params();
-        if (!is_array($body) || $body === []) {
-            $body = $request->get_body_params();
-        }
-        if (!is_array($body) || $body === []) {
-            $body = $request->get_params();
+        $json = $this->normalize_payload($request->get_json_params());
+        if ($json !== []) {
+            return $json;
         }
 
-        return is_array($body) ? $body : [];
+        $body = $this->normalize_payload($request->get_body_params());
+        if ($body !== []) {
+            return $body;
+        }
+
+        return $this->normalize_payload($request->get_params());
     }
 
     private function get_worker_api_client(): WorkerApiClient
@@ -369,31 +366,68 @@ final class MessagesV4Controller extends \WP_REST_Controller
             return $this->workerApiClient;
         }
 
+        // CORRECTION DIESEL: WorkerApiClient::fromEnv() s'attend à 0 paramètre côté PHP dans notre implémentation v3.
         $this->workerApiClient = WorkerApiClient::fromEnv();
 
         return $this->workerApiClient;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function normalize_payload(mixed $payload): array
     {
-        if (is_object($payload)) {
-            $payload = json_decode(wp_json_encode($payload), true);
+        if (is_array($payload)) {
+            $encoded = wp_json_encode($payload);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            return $payload;
         }
 
-        return is_array($payload) ? $payload : [];
+        if (is_object($payload)) {
+            $encoded = wp_json_encode($payload);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
     }
 
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function to_rest_response(array $payload, int $status, string $reqId): WP_REST_Response
+    private function build_req_id(): string
     {
-        $responseReqId = $reqId;
-        if (isset($payload['req_id']) && is_scalar($payload['req_id']) && trim((string) $payload['req_id']) !== '') {
-            $responseReqId = trim((string) $payload['req_id']);
+        $reqId = trim((string) Logger::get_request_id());
+        if ($reqId !== '') {
+            return $reqId;
         }
 
-        $response = new WP_REST_Response($payload, $status);
+        try {
+            return 'req_' . bin2hex(random_bytes(8));
+        } catch (\Throwable $e) {
+            return 'req_' . md5((string) wp_rand() . microtime(true));
+        }
+    }
+
+    private function to_rest_response(mixed $payload, int $status, string $reqId): WP_REST_Response
+    {
+        $normalizedPayload = $this->normalize_payload($payload);
+        $responseReqId = $reqId;
+
+        if (isset($normalizedPayload['req_id']) && is_scalar($normalizedPayload['req_id']) && trim((string) $normalizedPayload['req_id']) !== '') {
+            $responseReqId = trim((string) $normalizedPayload['req_id']);
+        } else {
+            $normalizedPayload['req_id'] = $responseReqId;
+        }
+
+        $response = new WP_REST_Response($normalizedPayload, $status);
         $response->header('X-SOSPrescription-Request-ID', $responseReqId);
         $response->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         $response->header('Pragma', 'no-cache');
