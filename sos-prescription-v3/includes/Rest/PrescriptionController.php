@@ -120,6 +120,18 @@ class PrescriptionController extends \WP_REST_Controller
             ? 'prescriptions_v1_list_doctor_proxy'
             : 'prescriptions_v1_list_patient_proxy';
 
+        $this->debug_bridge_log('list.calling_worker', [
+            'req_id' => $req_id,
+            'route' => $path,
+            'scope' => $scope,
+            'actor_kind' => $actorContext['kind'],
+            'actor_role' => $actorContext['actor']['role'],
+            'wp_user_id' => $actorContext['actor']['wp_user_id'],
+            'status' => $status,
+            'limit' => $limit,
+            'offset' => $offset,
+        ]);
+
         try {
             $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 $path,
@@ -131,6 +143,29 @@ class PrescriptionController extends \WP_REST_Controller
                 $scope
             );
         } catch (\Throwable $e) {
+            $this->debug_bridge_log('list.worker_call_failed', [
+                'req_id' => $req_id,
+                'route' => $path,
+                'scope' => $scope,
+                'actor_role' => $actorContext['actor']['role'],
+                'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+                'exception_file' => $e->getFile(),
+                'exception_line' => $e->getLine(),
+            ]);
+
+            if ($this->is_soft_empty_worker_bridge_error($e)) {
+                $this->debug_bridge_log('list.worker_soft_empty_fallback', [
+                    'req_id' => $req_id,
+                    'route' => $path,
+                    'scope' => $scope,
+                    'exception_message' => $e->getMessage(),
+                ]);
+
+                return $this->to_proxy_response([], 200, $req_id);
+            }
+
             return ErrorResponder::worker_bridge_error(
                 $e,
                 'sosprescription_worker_read_failed',
@@ -149,7 +184,34 @@ class PrescriptionController extends \WP_REST_Controller
             );
         }
 
-        $rows = $this->swap_worker_row_ids_with_local_ids($this->extract_worker_rows_from_payload($workerPayload));
+        $this->debug_bridge_log('list.worker_response_received', [
+            'req_id' => $req_id,
+            'summary' => $this->debug_payload_summary($workerPayload),
+        ]);
+
+        try {
+            $rows = $this->extract_worker_rows_from_payload($workerPayload);
+            $this->debug_bridge_log('list.starting_mapping', [
+                'req_id' => $req_id,
+                'row_count' => count($rows),
+            ]);
+            $rows = $this->swap_worker_row_ids_with_local_ids($rows, $req_id);
+            $rows = $this->sanitize_proxy_rows($rows, $req_id);
+        } catch (\Throwable $e) {
+            $this->debug_bridge_log('list.mapping_failed', [
+                'req_id' => $req_id,
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+                'exception_file' => $e->getFile(),
+                'exception_line' => $e->getLine(),
+            ]);
+            $rows = [];
+        }
+
+        $this->debug_bridge_log('list.proxy_response_ready', [
+            'req_id' => $req_id,
+            'row_count' => count($rows),
+        ]);
 
         return $this->to_proxy_response($rows, 200, $req_id);
     }
@@ -700,6 +762,148 @@ class PrescriptionController extends \WP_REST_Controller
                 return 'req_' . md5((string) wp_rand() . microtime(true));
             }
         }
+    }
+
+    protected function debug_bridge_log(string $stage, array $context = []): void
+    {
+        $parts = [];
+        foreach ($context as $key => $value) {
+            if (is_array($value)) {
+                $encoded = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $parts[] = $key . '=' . (is_string($encoded) && $encoded !== '' ? $encoded : '[array]');
+                continue;
+            }
+
+            if (is_object($value)) {
+                $parts[] = $key . '=[object:' . get_class($value) . ']';
+                continue;
+            }
+
+            if (is_bool($value)) {
+                $parts[] = $key . '=' . ($value ? 'true' : 'false');
+                continue;
+            }
+
+            if ($value === null) {
+                $parts[] = $key . '=null';
+                continue;
+            }
+
+            $parts[] = $key . "=" . str_replace(["\r", "\n"], [" ", " "], (string) $value);
+        }
+
+        error_log('[sosprescription][v1][prescriptions] ' . $stage . ($parts !== [] ? ' | ' . implode(' | ', $parts) : ''));
+    }
+
+    protected function is_soft_empty_worker_bridge_error(\Throwable $error): bool
+    {
+        $message = strtolower(trim($error->getMessage()));
+        if ($message === '') {
+            return false;
+        }
+
+        foreach ([
+            'empty worker response body',
+            'invalid worker json response',
+            'json decode failed',
+            'json_error',
+            'json error',
+        ] as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function debug_payload_summary($payload): array
+    {
+        $normalized = $this->normalize_worker_payload($payload);
+        if ($normalized === []) {
+            return [
+                'root_type' => gettype($payload),
+                'empty' => true,
+            ];
+        }
+
+        $summary = [
+            'root_type' => gettype($payload),
+            'keys' => array_slice(array_keys($normalized), 0, 20),
+        ];
+
+        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
+            if (isset($normalized[$key]) && is_array($normalized[$key])) {
+                $summary[$key . '_count'] = count($normalized[$key]);
+            }
+        }
+
+        $data = isset($normalized['data']) ? $this->normalize_worker_payload($normalized['data']) : [];
+        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
+            if (isset($data[$key]) && is_array($data[$key])) {
+                $summary['data_' . $key . '_count'] = count($data[$key]);
+            }
+        }
+
+        return $summary;
+    }
+
+    protected function sanitize_proxy_rows(array $rows, ?string $reqId = null): array
+    {
+        $sanitized = [];
+        foreach ($rows as $index => $row) {
+            try {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $sanitized[] = $this->sanitize_proxy_value($row);
+            } catch (\Throwable $e) {
+                $this->debug_bridge_log('list.sanitize_row_failed', [
+                    'req_id' => $reqId,
+                    'index' => $index,
+                    'exception_class' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                    'exception_file' => $e->getFile(),
+                    'exception_line' => $e->getLine(),
+                ]);
+            }
+        }
+
+        return $sanitized;
+    }
+
+    protected function sanitize_proxy_value($value)
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $key => $item) {
+                $safeKey = is_int($key) ? $key : (string) $key;
+                $out[$safeKey] = $this->sanitize_proxy_value($item);
+            }
+            return $out;
+        }
+
+        if (is_object($value)) {
+            $encoded = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $this->sanitize_proxy_value($decoded);
+                }
+            }
+
+            return [];
+        }
+
+        if (is_string($value)) {
+            return wp_check_invalid_utf8($value, true);
+        }
+
+        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+            return $value;
+        }
+
+        return is_scalar($value) ? (string) $value : null;
     }
 
     /**
@@ -2016,20 +2220,44 @@ class PrescriptionController extends \WP_REST_Controller
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
-    protected function swap_worker_row_ids_with_local_ids(array $rows): array
+    protected function swap_worker_row_ids_with_local_ids(array $rows, ?string $reqId = null): array
     {
         $uids = [];
-        foreach ($rows as $row) {
-            if (!is_array($row) || !isset($row['uid']) || !is_scalar($row['uid'])) {
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)) {
+                $this->debug_bridge_log('list.mapping_item_skipped_non_array', [
+                    'req_id' => $reqId,
+                    'index' => $index,
+                    'value_type' => gettype($row),
+                ]);
                 continue;
             }
-            $uid = trim((string) $row['uid']);
-            if ($uid !== '') {
-                $uids[] = $uid;
+
+            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+            if ($uid === '') {
+                $this->debug_bridge_log('list.mapping_item_skipped_missing_uid', [
+                    'req_id' => $reqId,
+                    'index' => $index,
+                    'keys' => implode(',', array_slice(array_keys($row), 0, 12)),
+                ]);
+                continue;
             }
+
+            $uids[] = $uid;
         }
 
-        $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
+        try {
+            $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
+        } catch (\Throwable $e) {
+            $this->debug_bridge_log('list.mapping_local_lookup_failed', [
+                'req_id' => $reqId,
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+                'exception_file' => $e->getFile(),
+                'exception_line' => $e->getLine(),
+            ]);
+            $localIdsByUid = [];
+        }
 
         foreach ($rows as $index => $row) {
             if (!is_array($row)) {
@@ -2037,22 +2265,58 @@ class PrescriptionController extends \WP_REST_Controller
             }
 
             $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+            $workerId = $this->extract_worker_prescription_id_from_worker_row($row);
+
+            $this->debug_bridge_log('list.mapping_item_start', [
+                'req_id' => $reqId,
+                'index' => $index,
+                'uid' => $uid,
+                'worker_prescription_id' => $workerId,
+            ]);
+
             if ($uid === '') {
                 continue;
             }
 
-            if (!isset($localIdsByUid[$uid])) {
-                $localId = $this->ensure_local_prescription_stub_for_worker_row($row);
-                if ($localId > 0) {
-                    $localIdsByUid[$uid] = $localId;
+            try {
+                if (!isset($localIdsByUid[$uid])) {
+                    $localId = $this->ensure_local_prescription_stub_for_worker_row($row);
+                    if ($localId > 0) {
+                        $localIdsByUid[$uid] = $localId;
+                    }
                 }
-            }
 
-            if (!isset($localIdsByUid[$uid])) {
-                continue;
-            }
+                if (!isset($localIdsByUid[$uid])) {
+                    $this->debug_bridge_log('list.mapping_item_no_local_id', [
+                        'req_id' => $reqId,
+                        'index' => $index,
+                        'uid' => $uid,
+                        'worker_prescription_id' => $workerId,
+                    ]);
+                    continue;
+                }
 
-            $rows[$index]['id'] = (int) $localIdsByUid[$uid];
+                $rows[$index]['id'] = (int) $localIdsByUid[$uid];
+
+                $this->debug_bridge_log('list.mapping_item_done', [
+                    'req_id' => $reqId,
+                    'index' => $index,
+                    'uid' => $uid,
+                    'local_id' => (int) $localIdsByUid[$uid],
+                    'worker_prescription_id' => $workerId,
+                ]);
+            } catch (\Throwable $e) {
+                $this->debug_bridge_log('list.mapping_item_failed', [
+                    'req_id' => $reqId,
+                    'index' => $index,
+                    'uid' => $uid,
+                    'worker_prescription_id' => $workerId,
+                    'exception_class' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                    'exception_file' => $e->getFile(),
+                    'exception_line' => $e->getLine(),
+                ]);
+            }
         }
 
         return $rows;
@@ -2150,8 +2414,23 @@ class PrescriptionController extends \WP_REST_Controller
 
         $inserted = $this->wpdb->insert($table, $data, $formats);
         if ($inserted !== false) {
-            return (int) $this->wpdb->insert_id;
+            $insertId = (int) $this->wpdb->insert_id;
+            $this->debug_bridge_log('list.stub_inserted', [
+                'uid' => $uid,
+                'local_id' => $insertId,
+                'worker_prescription_id' => $workerPrescriptionId,
+                'status' => $status,
+            ]);
+            return $insertId;
         }
+
+        $this->debug_bridge_log('list.stub_insert_failed', [
+            'uid' => $uid,
+            'worker_prescription_id' => $workerPrescriptionId,
+            'status' => $status,
+            'db_error' => (string) $this->wpdb->last_error,
+            'db_errno' => isset($this->wpdb->last_errno) ? (string) $this->wpdb->last_errno : '',
+        ]);
 
         $existingId = $this->find_local_prescription_id_by_uid($uid);
         if ($existingId > 0) {
@@ -2394,15 +2673,36 @@ class PrescriptionController extends \WP_REST_Controller
     protected function extract_worker_rows_from_payload($payload): array
     {
         $normalized = $this->normalize_worker_payload($payload);
+        if ($normalized === []) {
+            return [];
+        }
+
         $candidates = [];
 
-        if (isset($normalized['rows'])) {
-            $candidates[] = $normalized['rows'];
+        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
+            if (isset($normalized[$key]) && is_array($normalized[$key])) {
+                $candidates[] = $normalized[$key];
+            }
         }
 
         $data = isset($normalized['data']) ? $this->normalize_worker_payload($normalized['data']) : [];
-        if (isset($data['rows'])) {
-            $candidates[] = $data['rows'];
+        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
+            if (isset($data[$key]) && is_array($data[$key])) {
+                $candidates[] = $data[$key];
+            }
+        }
+        if (array_is_list($data)) {
+            $candidates[] = $data;
+        }
+
+        $payloadNode = isset($normalized['payload']) ? $this->normalize_worker_payload($normalized['payload']) : [];
+        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
+            if (isset($payloadNode[$key]) && is_array($payloadNode[$key])) {
+                $candidates[] = $payloadNode[$key];
+            }
+        }
+        if (array_is_list($payloadNode)) {
+            $candidates[] = $payloadNode;
         }
 
         if (array_is_list($normalized)) {
@@ -2415,10 +2715,22 @@ class PrescriptionController extends \WP_REST_Controller
             }
 
             $rows = [];
-            foreach ($candidate as $row) {
-                $normalizedRow = $this->normalize_worker_payload($row);
-                if ($normalizedRow !== []) {
-                    $rows[] = $normalizedRow;
+            foreach ($candidate as $index => $row) {
+                try {
+                    $normalizedRow = $this->normalize_worker_payload($row);
+                    if ($normalizedRow !== []) {
+                        $rows[] = $normalizedRow;
+                    } elseif (is_array($row)) {
+                        $rows[] = $row;
+                    }
+                } catch (\Throwable $e) {
+                    $this->debug_bridge_log('list.extract_row_failed', [
+                        'index' => $index,
+                        'exception_class' => get_class($e),
+                        'exception_message' => $e->getMessage(),
+                        'exception_file' => $e->getFile(),
+                        'exception_line' => $e->getLine(),
+                    ]);
                 }
             }
 
@@ -2474,7 +2786,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function to_proxy_response($payload, int $status, string $reqId): WP_REST_Response
     {
-        $normalized = is_array($payload) ? $payload : [];
+        $normalized = is_array($payload) ? $this->sanitize_proxy_value($payload) : [];
         $isList = array_is_list($normalized);
 
         if (!$isList) {
