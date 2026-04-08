@@ -15,6 +15,10 @@ final class Assets
     public const ENTRY_ADMIN = 'src/entries/admin.tsx';
 
     private static bool $module_filter_registered = false;
+    /**
+     * @var array<string, bool>
+     */
+    private static array $module_handles = [];
 
     public static function enqueue_form_app(): void
     {
@@ -290,10 +294,23 @@ final class Assets
         wp_add_inline_script($handle, $script, 'before');
     }
 
+    public static function ensure_module_script(string $handle): void
+    {
+        self::mark_script_as_module($handle);
+    }
+
     private static function mark_script_as_module(string $handle): void
     {
+        $handle = trim($handle);
+        if ($handle === '') {
+            return;
+        }
+
+        self::$module_handles[$handle] = true;
+
         if (function_exists('wp_script_add_data')) {
             wp_script_add_data($handle, 'type', 'module');
+            wp_script_add_data($handle, 'crossorigin', 'anonymous');
         }
 
         if (self::$module_filter_registered) {
@@ -302,25 +319,64 @@ final class Assets
 
         self::$module_filter_registered = true;
 
-        add_filter('script_loader_tag', static function (string $tag, string $h, string $src): string {
-            $module_handles = [
-                'vite-client',
-                'sosprescription-form',
-                'sosprescription-admin',
-                'sosprescription-doctor-console',
-            ];
-
-            if (!in_array($h, $module_handles, true)) {
-                return $tag;
-            }
-
-            if (str_contains($tag, 'type="module"') || str_contains($tag, "type='module'")) {
-                return $tag;
-            }
-
-            $new = preg_replace('/^<script\b/', '<script type="module"', $tag, 1);
-            return is_string($new) && $new !== '' ? $new : $tag;
+        add_filter('script_loader_tag', static function (string $tag, string $handle, string $src): string {
+            return self::filter_module_script_loader_tag($tag, $handle, $src);
         }, 10, 3);
+    }
+
+    private static function filter_module_script_loader_tag(string $tag, string $handle, string $src): string
+    {
+        unset($src);
+
+        if (!self::should_force_module_tag($handle)) {
+            return $tag;
+        }
+
+        $tag = self::replace_script_attribute($tag, 'type', 'module');
+        $tag = self::replace_script_attribute($tag, 'crossorigin', 'anonymous');
+
+        return $tag;
+    }
+
+    private static function should_force_module_tag(string $handle): bool
+    {
+        $handle = trim($handle);
+        if ($handle === '') {
+            return false;
+        }
+
+        if (isset(self::$module_handles[$handle])) {
+            return true;
+        }
+
+        $fallback_handles = [
+            'vite-client',
+            'sosprescription-form',
+            'sosprescription-admin',
+            'sosprescription-doctor-console',
+        ];
+
+        return in_array($handle, $fallback_handles, true);
+    }
+
+    private static function replace_script_attribute(string $tag, string $attribute, string $value): string
+    {
+        $attribute = trim($attribute);
+        if ($attribute === '') {
+            return $tag;
+        }
+
+        $original = $tag;
+        $pattern = '/\s+' . preg_quote($attribute, '/') . '\s*=\s*(?:"[^"]*"|\'[^\']*\')/i';
+        $stripped = preg_replace($pattern, '', $tag);
+        if (!is_string($stripped) || $stripped === '') {
+            $stripped = $original;
+        }
+
+        $replacement = '<script ' . $attribute . '="' . esc_attr($value) . '"';
+        $updated = preg_replace('/^<script\b/i', $replacement, $stripped, 1);
+
+        return is_string($updated) && $updated !== '' ? $updated : $original;
     }
 
     /**

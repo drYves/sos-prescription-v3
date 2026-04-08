@@ -61,11 +61,11 @@ final class Assets
             true
         );
 
-        if (function_exists('wp_script_add_data')) {
-            wp_script_add_data('sosprescription-doctor-console', 'type', 'module');
-        }
+        AssetManager::ensure_module_script('sosprescription-doctor-console');
 
-        self::localize_app('sosprescription-doctor-console');
+        if (!is_string($adminHandle) || $adminHandle === '') {
+            self::localize_app('sosprescription-doctor-console');
+        }
     }
 
     public static function enqueue_bdpm_table(): void
