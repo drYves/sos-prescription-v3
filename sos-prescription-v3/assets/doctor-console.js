@@ -86,6 +86,120 @@
     document.head.appendChild(style);
   }
 
+  function getDoctorMessagingBridge() {
+    var bridge = window.SosDoctorMessagingBridge;
+    if (bridge && typeof bridge.mount === 'function' && typeof bridge.unmount === 'function') {
+      return bridge;
+    }
+    return null;
+  }
+
+  function hasDoctorMessagingBridge() {
+    return !!getDoctorMessagingBridge();
+  }
+
+  function findDoctorMessagingHosts(scope) {
+    if (!(scope instanceof Element)) {
+      return [];
+    }
+
+    return Array.prototype.slice.call(scope.querySelectorAll('[data-sp-doctor-chat-root="1"]'));
+  }
+
+  function destroyDoctorMessagingHosts(scope, exceptHost) {
+    var bridge = getDoctorMessagingBridge();
+    var hosts = findDoctorMessagingHosts(scope);
+
+    hosts.forEach(function (host) {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (exceptHost && host === exceptHost) {
+        return;
+      }
+
+      if (bridge) {
+        try {
+          bridge.unmount(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+      }
+
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-mounted-prescription-id');
+      host.removeAttribute('data-sp-pending-token');
+    });
+  }
+
+  function syncDoctorMessagingMount(detailEl, detail) {
+    var bridge = getDoctorMessagingBridge();
+    var messagesPanel = detailEl instanceof Element ? detailEl.querySelector('[data-dc-panel="messages"]') : null;
+
+    if (!(messagesPanel instanceof HTMLElement)) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      return;
+    }
+
+    var host = messagesPanel.querySelector('[data-sp-doctor-chat-root="1"]');
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var isActive = state.detailTab === 'messages' && messagesPanel.classList.contains('is-active');
+
+    if (!(host instanceof HTMLElement)) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      return;
+    }
+
+    if (!bridge || detailId < 1 || !isActive) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      return;
+    }
+
+    destroyDoctorMessagingHosts(detailEl, host);
+
+    var mountedId = normalizeText(host.getAttribute('data-sp-mounted-prescription-id'));
+    if (host.getAttribute('data-sp-mounted') === '1' && mountedId === String(detailId)) {
+      return;
+    }
+
+    var mountToken = String(detailId) + ':' + String(Date.now());
+    host.setAttribute('data-sp-pending-token', mountToken);
+
+    bridge.mount(host, detailId).then(function () {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (!document.body.contains(host)) {
+        try {
+          bridge.unmount(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+        return;
+      }
+
+      if (host.getAttribute('data-sp-pending-token') !== mountToken) {
+        try {
+          bridge.unmount(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+        return;
+      }
+
+      host.setAttribute('data-sp-mounted', '1');
+      host.setAttribute('data-sp-mounted-prescription-id', String(detailId));
+      host.removeAttribute('data-sp-pending-token');
+      messagesPanel.setAttribute('data-sp-chat-owned', '1');
+    }).catch(function () {
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-mounted-prescription-id');
+      host.removeAttribute('data-sp-pending-token');
+    });
+  }
+
 
   var LIST_FILTERS = [
     { key: 'pending', label: 'En attente', status: '', title: 'Demandes en attente', empty: 'Aucune demande en attente.' },
@@ -1103,7 +1217,11 @@
     var detailId = Number(state.selectedId || 0);
     if (detailId > 0) {
       if (normalized === 'messages') {
-        loadThread(detailId, { silent: true, markRead: true });
+        if (hasDoctorMessagingBridge()) {
+          renderDetail();
+        } else {
+          loadThread(detailId, { silent: true, markRead: true });
+        }
       } else if (normalized === 'proofs') {
         syncProofStoreFromDetail(detailId, state.details[detailId]);
         var proofStore = getProofStore(detailId);
@@ -2778,47 +2896,10 @@
 
   function renderMessagesPanel(detail) {
     var detailId = Number(detail && detail.id || state.selectedId || 0);
-    var thread = getThreadStore(detailId);
-    var threadState = hasObjectKeys(thread.threadState) ? thread.threadState : extractThreadShadowState(detail);
-    var unread = Number(threadState.unread_count_doctor || 0);
-    var messages = dedupeThreadMessages(thread.messages);
-    var messagesHtml = '';
-
-    if (thread.loading && messages.length < 1) {
-      messagesHtml = '<div class="dc-message-empty">Chargement du fil de discussion…</div>';
-    } else if (thread.error && messages.length < 1) {
-      messagesHtml = '<div class="dc-message-empty">' + escHtml(thread.error) + '</div>';
-    } else if (messages.length < 1) {
-      messagesHtml = '<div class="dc-message-empty">Aucun message pour le moment. Vous pouvez écrire au patient depuis cet espace.</div>';
-    } else {
-      messagesHtml = '<div class="dc-message-thread spu-thread-stack">' + messages.map(function (message) {
-        var role = normalizeText(message && message.author_role).toUpperCase();
-        var isDoctor = role === 'DOCTOR';
-        var roleText = isDoctor ? 'VOUS' : 'PATIENT';
-        var bubbleTone = isDoctor ? 'spu-bg-gray-900 spu-text-white' : 'spu-bg-gray-100 spu-text-gray-900';
-        var justify = isDoctor ? 'spu-justify-end' : 'spu-justify-start';
-        var items = isDoctor ? 'spu-items-end' : 'spu-items-start';
-        return [
-          '<div class="spu-flex ' + justify + '">',
-          '  <div class="spu-flex spu-flex-col ' + items + ' spu-gap-1 spu-max-w-85">',
-          '    <div class="spu-text-xs spu-font-semibold spu-uppercase spu-tracking-wide spu-text-gray-600">' + escHtml(roleText) + '</div>',
-          '    <div class="' + bubbleTone + ' spu-rounded-2xl spu-px-4 spu-py-3 spu-text-sm spu-whitespace-pre-wrap">' + preserveLineBreaksHtml(message && message.body || '') + '</div>',
-          '    <div class="spu-text-xs spu-text-gray-500">' + escHtml(formatMessageTimestamp(message && message.created_at)) + '</div>',
-          '  </div>',
-          '</div>'
-        ].join('');
-      }).join('') + '</div>';
-    }
-
     return [
-      thread.error && messages.length > 0 ? '<div class="dc-notice dc-notice-error">' + escHtml(thread.error) + '</div>' : '',
-      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus. <button type="button" class="sp-button sp-button--secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
-      messagesHtml,
-      '<div class="dc-message-compose spu-border spu-bg-white spu-rounded-xl spu-p-4">',
-      '  <div class="dc-card__title">Répondre au patient</div>',
-      '  <div class="dc-message-compose__row">',
-      '    <textarea class="sp-textarea" data-role="message-body" placeholder="Votre message au patient…">' + escHtml(thread.composerBody || '') + '</textarea>',
-      '    <button type="button" class="sp-button sp-button--secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
+      '<div class="dc-message-react-shell">',
+      '  <div class="dc-message-react-host" data-sp-doctor-chat-root="1" data-prescription-id="' + escHtml(detailId) + '">',
+      '    <div class="dc-message-empty">Chargement de la messagerie sécurisée…</div>',
       '  </div>',
       '</div>'
     ].join('');
@@ -2971,8 +3052,9 @@
     if (messagesPanel && messagesPanel.getAttribute('data-sp-chat-owned') !== '1') {
       messagesPanel.innerHTML = renderMessagesPanel(detail);
     }
+    syncDoctorMessagingMount(detailEl, detail);
 
-    if (state.detailTab === 'messages') {
+    if (!hasDoctorMessagingBridge() && state.detailTab === 'messages') {
       var thread = getThreadStore(detailId);
       if (!thread.initialized && !thread.loading) {
         loadThread(detailId, { silent: true, markRead: true });
@@ -3006,6 +3088,7 @@
     var detailEl = ui.detail;
 
     if (!state.selectedId) {
+      destroyDoctorMessagingHosts(detailEl, null);
       detailEl.innerHTML = '<div class="dc-empty dc-empty-large">Sélectionnez une demande pour ouvrir le dossier.</div>';
       return;
     }
@@ -3022,6 +3105,7 @@
     var renderedCaseId = pane ? Number(pane.getAttribute('data-case-id') || 0) : 0;
 
     if (!pane || renderedCaseId !== Number(state.selectedId)) {
+      destroyDoctorMessagingHosts(detailEl, null);
       detailEl.innerHTML = buildDetailSkeleton(state.selectedId);
     }
 
@@ -3360,7 +3444,7 @@
       var detail = asObject(state.details[numericId]);
       var shadowThreadState = extractThreadShadowState(detail);
       var unread = Number(asObject(thread.threadState).unread_count_doctor || shadowThreadState.unread_count_doctor || 0);
-      var shouldRefreshThread = state.detailTab === 'messages' || thread.initialized || unread > 0;
+      var shouldRefreshThread = !hasDoctorMessagingBridge() && (state.detailTab === 'messages' || thread.initialized || unread > 0);
       var nextThread = shouldRefreshThread
         ? loadThread(numericId, { silent: true, markRead: state.detailTab === 'messages' })
         : Promise.resolve(null);
