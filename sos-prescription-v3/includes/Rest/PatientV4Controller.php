@@ -3,9 +3,8 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\ReqId;
 use SOSPrescription\Core\WorkerApiClient;
+use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
@@ -48,7 +47,7 @@ final class PatientV4Controller extends \WP_REST_Controller
 
     public function get_profile(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
-        $reqId = ReqId::coalesce(null);
+        $reqId = $this->build_req_id();
         $actor = $this->build_patient_actor_payload();
 
         try {
@@ -78,7 +77,7 @@ final class PatientV4Controller extends \WP_REST_Controller
 
     public function update_profile(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
-        $reqId = ReqId::coalesce(null);
+        $reqId = $this->build_req_id();
         $params = $this->request_data($request);
         $payload = $this->build_profile_update_payload($params);
         $payload['actor'] = $this->build_patient_actor_payload();
@@ -199,8 +198,126 @@ final class PatientV4Controller extends \WP_REST_Controller
             return $this->workerApiClient;
         }
 
-        $this->workerApiClient = WorkerApiClient::fromEnv(new NdjsonLogger('web'));
+        $factory = new \ReflectionMethod(WorkerApiClient::class, 'fromEnv');
+        $args = [];
+
+        foreach ($factory->getParameters() as $parameter) {
+            if ($parameter->isOptional()) {
+                continue;
+            }
+            $args[] = $this->build_factory_argument($parameter);
+        }
+
+        $client = $factory->invokeArgs(null, $args);
+        if (!($client instanceof WorkerApiClient)) {
+            throw new \RuntimeException('WorkerApiClient::fromEnv() returned an invalid instance');
+        }
+
+        $this->workerApiClient = $client;
         return $this->workerApiClient;
+    }
+
+    private function build_factory_argument(\ReflectionParameter $parameter): mixed
+    {
+        $type = $parameter->getType();
+        if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
+            return $this->instantiate_dependency($type->getName());
+        }
+
+        if ($parameter->allowsNull()) {
+            return null;
+        }
+
+        return $this->default_scalar_dependency_value($parameter);
+    }
+
+    private function instantiate_dependency(string $className): object
+    {
+        $reflection = new \ReflectionClass($className);
+        if (!$reflection->isInstantiable()) {
+            throw new \RuntimeException('Unable to instantiate dependency: ' . $className);
+        }
+
+        $constructor = $reflection->getConstructor();
+        if (!($constructor instanceof \ReflectionMethod) || $constructor->getNumberOfRequiredParameters() === 0) {
+            return $reflection->newInstance();
+        }
+
+        $args = [];
+        foreach ($constructor->getParameters() as $parameter) {
+            if ($parameter->isOptional()) {
+                continue;
+            }
+
+            $type = $parameter->getType();
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
+                $args[] = $this->instantiate_dependency($type->getName());
+                continue;
+            }
+
+            if ($parameter->allowsNull()) {
+                $args[] = null;
+                continue;
+            }
+
+            $args[] = $this->default_scalar_dependency_value($parameter);
+        }
+
+        return $reflection->newInstanceArgs($args);
+    }
+
+    private function default_scalar_dependency_value(\ReflectionParameter $parameter): mixed
+    {
+        if ($parameter->isDefaultValueAvailable()) {
+            return $parameter->getDefaultValue();
+        }
+
+        $type = $parameter->getType();
+        $typeName = $type instanceof \ReflectionNamedType ? strtolower($type->getName()) : '';
+        $name = strtolower($parameter->getName());
+
+        if ($typeName === 'string') {
+            if ($name === 'component' || $name === 'channel' || $name === 'scope' || $name === 'name') {
+                return 'web';
+            }
+            return '';
+        }
+
+        if ($typeName === 'int') {
+            return 0;
+        }
+
+        if ($typeName === 'float') {
+            return 0.0;
+        }
+
+        if ($typeName === 'bool') {
+            return false;
+        }
+
+        if ($typeName === 'array') {
+            return [];
+        }
+
+        if ($parameter->allowsNull()) {
+            return null;
+        }
+
+        throw new \RuntimeException('Unable to resolve scalar dependency: $' . $parameter->getName());
+    }
+
+    private function build_req_id(): string
+    {
+        $reqId = trim((string) Logger::get_request_id());
+        if ($reqId !== '') {
+            return $reqId;
+        }
+
+        try {
+            return 'req_' . bin2hex(random_bytes(8));
+        } catch (\Throwable $e) {
+            return 'req_' . md5((string) wp_rand() . microtime(true));
+        }
     }
 
     /**
