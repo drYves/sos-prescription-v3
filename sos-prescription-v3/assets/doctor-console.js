@@ -86,16 +86,42 @@
     document.head.appendChild(style);
   }
 
+  function getDoctorMessagingApi() {
+    var api = window.SosDoctorMessaging;
+    if (api && typeof api.mount === 'function' && typeof api.unmount === 'function') {
+      return api;
+    }
+    return null;
+  }
+
   function getDoctorMessagingBridge() {
     var bridge = window.SosDoctorMessagingBridge;
+    var api = getDoctorMessagingApi();
+
+    if (!api) {
+      return null;
+    }
+
     if (bridge && typeof bridge.mount === 'function' && typeof bridge.unmount === 'function') {
       return bridge;
     }
+
     return null;
   }
 
   function hasDoctorMessagingBridge() {
     return !!getDoctorMessagingBridge();
+  }
+
+  function renderDoctorMessagingBridgeError(host, message) {
+    if (!(host instanceof HTMLElement)) {
+      return;
+    }
+
+    host.removeAttribute('data-sp-mounted');
+    host.removeAttribute('data-sp-mounted-prescription-id');
+    host.removeAttribute('data-sp-pending-token');
+    host.innerHTML = '<div class="dc-message-empty">' + escHtml(message || 'Bridge de messagerie introuvable.') + '</div>';
   }
 
   function findDoctorMessagingHosts(scope) {
@@ -151,8 +177,23 @@
       return;
     }
 
-    if (!bridge || detailId < 1 || !isActive) {
+    if (!isActive) {
+      messagesPanel.removeAttribute('data-sp-chat-owned');
       destroyDoctorMessagingHosts(detailEl, null);
+      return;
+    }
+
+    if (detailId < 1) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      messagesPanel.setAttribute('data-sp-chat-owned', '1');
+      renderDoctorMessagingBridgeError(host, 'Référence de dossier invalide pour la messagerie.');
+      return;
+    }
+
+    if (!bridge) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      messagesPanel.setAttribute('data-sp-chat-owned', '1');
+      renderDoctorMessagingBridgeError(host, 'Bridge de messagerie introuvable.');
       return;
     }
 
@@ -166,7 +207,7 @@
     var mountToken = String(detailId) + ':' + String(Date.now());
     host.setAttribute('data-sp-pending-token', mountToken);
 
-    bridge.mount(host, detailId).then(function () {
+    Promise.resolve(bridge.mount(host, detailId)).then(function () {
       if (!(host instanceof HTMLElement)) {
         return;
       }
@@ -193,10 +234,8 @@
       host.setAttribute('data-sp-mounted-prescription-id', String(detailId));
       host.removeAttribute('data-sp-pending-token');
       messagesPanel.setAttribute('data-sp-chat-owned', '1');
-    }).catch(function () {
-      host.removeAttribute('data-sp-mounted');
-      host.removeAttribute('data-sp-mounted-prescription-id');
-      host.removeAttribute('data-sp-pending-token');
+    }).catch(function (error) {
+      renderDoctorMessagingBridgeError(host, error && error.message ? String(error.message) : 'Bridge de messagerie introuvable.');
     });
   }
 
@@ -1217,11 +1256,7 @@
     var detailId = Number(state.selectedId || 0);
     if (detailId > 0) {
       if (normalized === 'messages') {
-        if (hasDoctorMessagingBridge()) {
-          renderDetail();
-        } else {
-          loadThread(detailId, { silent: true, markRead: true });
-        }
+        renderDetail();
       } else if (normalized === 'proofs') {
         syncProofStoreFromDetail(detailId, state.details[detailId]);
         var proofStore = getProofStore(detailId);
@@ -3054,22 +3089,6 @@
     }
     syncDoctorMessagingMount(detailEl, detail);
 
-    if (!hasDoctorMessagingBridge() && state.detailTab === 'messages') {
-      var thread = getThreadStore(detailId);
-      if (!thread.initialized && !thread.loading) {
-        loadThread(detailId, { silent: true, markRead: true });
-      } else if (Number(asObject(thread.threadState).unread_count_doctor || 0) > 0) {
-        apiMarkMessagesRead(detailId, Number(asObject(thread.threadState).last_message_seq || 0)).then(function (payload) {
-          var nextThreadState = asObject(payload && payload.thread_state);
-          if (hasObjectKeys(nextThreadState)) {
-            setThreadStore(detailId, { threadState: nextThreadState });
-            patchLocalThreadState(detailId, nextThreadState);
-            renderDetail();
-          }
-        }).catch(function () {});
-      }
-    }
-
     if (state.detailTab === 'proofs') {
       var proofStore = syncProofStoreFromDetail(detailId, detail);
       if (proofStore.selectedId && !getArtifactAccessUrl(asObject(asObject(proofStore.accessById)[proofStore.selectedId])) && !proofStore.accessLoading) {
@@ -3440,18 +3459,7 @@
         return null;
       }
 
-      var thread = getThreadStore(numericId);
-      var detail = asObject(state.details[numericId]);
-      var shadowThreadState = extractThreadShadowState(detail);
-      var unread = Number(asObject(thread.threadState).unread_count_doctor || shadowThreadState.unread_count_doctor || 0);
-      var shouldRefreshThread = !hasDoctorMessagingBridge() && (state.detailTab === 'messages' || thread.initialized || unread > 0);
-      var nextThread = shouldRefreshThread
-        ? loadThread(numericId, { silent: true, markRead: state.detailTab === 'messages' })
-        : Promise.resolve(null);
-
-      return nextThread.then(function () {
-        return fetchPdfStatus(numericId, { silent: true });
-      });
+      return fetchPdfStatus(numericId, { silent: true });
     });
   }
 
