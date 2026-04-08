@@ -79,7 +79,12 @@ const bridge: DoctorMessagingBridge = {
   },
 };
 
-window.SosDoctorMessaging = api;
-window.SosDoctorMessagingBridge = bridge;
+function installGlobals(): void {
+  window.SosDoctorMessaging = api;
+  window.SosDoctorMessagingBridge = bridge;
+}
 
-export { mount, unmount };
+installGlobals();
+
+export { api, bridge, mount, unmount };
+export default bridge;

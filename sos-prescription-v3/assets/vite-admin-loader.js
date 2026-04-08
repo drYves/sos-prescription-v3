@@ -177,13 +177,164 @@
     return window.__SosPrescriptionViteClientPromise;
   }
 
-  function resolveMessagingApi() {
+  function isDoctorMessagingApi(value) {
+    return !!value
+      && typeof value.mount === 'function'
+      && typeof value.unmount === 'function'
+      && typeof value.ensureReady !== 'function';
+  }
+
+  function isDoctorMessagingBridge(value) {
+    return !!value
+      && typeof value.ensureReady === 'function'
+      && typeof value.mount === 'function'
+      && typeof value.unmount === 'function';
+  }
+
+  function isLoaderBridge(value) {
+    return !!value && value.__spLoaderBridge === true;
+  }
+
+  function getImmediateMessagingApi() {
     var api = window.SosDoctorMessaging;
-    if (api && typeof api.mount === 'function' && typeof api.unmount === 'function') {
+    if (isDoctorMessagingApi(api)) {
       return api;
     }
 
-    throw new Error('Bridge React médecin indisponible après chargement du bundle admin.');
+    return null;
+  }
+
+  function getImportedMessagingBridge() {
+    var bridge = window.SosDoctorMessagingBridge;
+    if (isDoctorMessagingBridge(bridge) && !isLoaderBridge(bridge)) {
+      return bridge;
+    }
+
+    return null;
+  }
+
+  function pickModuleApi(moduleNs) {
+    if (!moduleNs || (typeof moduleNs !== 'object' && typeof moduleNs !== 'function')) {
+      return null;
+    }
+
+    var defaultExport = moduleNs && moduleNs.default ? moduleNs.default : null;
+    var candidates = [];
+
+    if (moduleNs) {
+      candidates.push(moduleNs.api);
+      candidates.push(moduleNs.messagingApi);
+      if (typeof moduleNs.mount === 'function' && typeof moduleNs.unmount === 'function') {
+        candidates.push(moduleNs);
+      }
+    }
+
+    if (defaultExport && (typeof defaultExport === 'object' || typeof defaultExport === 'function')) {
+      candidates.push(defaultExport.api);
+      candidates.push(defaultExport.messagingApi);
+      if (typeof defaultExport.mount === 'function' && typeof defaultExport.unmount === 'function') {
+        candidates.push(defaultExport);
+      }
+    }
+
+    for (var i = 0; i < candidates.length; i += 1) {
+      if (isDoctorMessagingApi(candidates[i])) {
+        return candidates[i];
+      }
+    }
+
+    return null;
+  }
+
+  function pickModuleBridge(moduleNs) {
+    if (!moduleNs || (typeof moduleNs !== 'object' && typeof moduleNs !== 'function')) {
+      return null;
+    }
+
+    var defaultExport = moduleNs && moduleNs.default ? moduleNs.default : null;
+    var candidates = [];
+
+    if (moduleNs) {
+      candidates.push(moduleNs.bridge);
+      candidates.push(moduleNs.messagingBridge);
+      if (typeof moduleNs.ensureReady === 'function' && typeof moduleNs.mount === 'function' && typeof moduleNs.unmount === 'function') {
+        candidates.push(moduleNs);
+      }
+    }
+
+    if (defaultExport && (typeof defaultExport === 'object' || typeof defaultExport === 'function')) {
+      candidates.push(defaultExport.bridge);
+      candidates.push(defaultExport.messagingBridge);
+      if (typeof defaultExport.ensureReady === 'function' && typeof defaultExport.mount === 'function' && typeof defaultExport.unmount === 'function') {
+        candidates.push(defaultExport);
+      }
+    }
+
+    for (var i = 0; i < candidates.length; i += 1) {
+      if (isDoctorMessagingBridge(candidates[i])) {
+        return candidates[i];
+      }
+    }
+
+    return null;
+  }
+
+  function resolveMessagingApi() {
+    var immediateApi = getImmediateMessagingApi();
+    if (immediateApi) {
+      return Promise.resolve(immediateApi);
+    }
+
+    var importedBridge = getImportedMessagingBridge();
+    if (!importedBridge) {
+      return Promise.reject(new Error('Bridge React médecin indisponible après chargement du bundle admin.'));
+    }
+
+    return Promise.resolve(importedBridge.ensureReady())
+      .then(function (resolvedApi) {
+        if (isDoctorMessagingApi(resolvedApi)) {
+          window.SosDoctorMessaging = resolvedApi;
+          return resolvedApi;
+        }
+
+        var globalApi = getImmediateMessagingApi();
+        if (globalApi) {
+          return globalApi;
+        }
+
+        throw new Error('Bridge React médecin indisponible après chargement du bundle admin.');
+      });
+  }
+
+  function installImportedModule(moduleNs) {
+    var exportedApi = pickModuleApi(moduleNs);
+    var exportedBridge = pickModuleBridge(moduleNs);
+
+    if (isDoctorMessagingApi(exportedApi)) {
+      window.SosDoctorMessaging = exportedApi;
+    }
+
+    if (isDoctorMessagingBridge(exportedBridge) && !isLoaderBridge(exportedBridge)) {
+      window.SosDoctorMessagingBridge = exportedBridge;
+    }
+
+    if (isDoctorMessagingApi(exportedApi)) {
+      return Promise.resolve(exportedApi);
+    }
+
+    if (isDoctorMessagingBridge(exportedBridge) && !isLoaderBridge(exportedBridge)) {
+      return Promise.resolve(exportedBridge.ensureReady())
+        .then(function (resolvedApi) {
+          if (isDoctorMessagingApi(resolvedApi)) {
+            window.SosDoctorMessaging = resolvedApi;
+            return resolvedApi;
+          }
+
+          return resolveMessagingApi();
+        });
+    }
+
+    return resolveMessagingApi();
   }
 
   function ensureBridge() {
@@ -194,7 +345,8 @@
         readyPromise: null,
         moduleUrl: '',
         viteClientUrl: '',
-        rootId: ''
+        rootId: '',
+        loaderBridge: null
       };
       window.__SosPrescriptionDoctorBridgeState = state;
     }
@@ -203,11 +355,17 @@
     state.viteClientUrl = bootCfg.viteClientUrl;
     state.rootId = bootCfg.rootId;
 
-    window.SosDoctorMessagingBridge = {
-      ensureReady: function () {
-        try {
-          var immediateApi = window.SosDoctorMessaging;
-          if (immediateApi && typeof immediateApi.mount === 'function' && typeof immediateApi.unmount === 'function') {
+    var existingBridge = getImportedMessagingBridge();
+    if (existingBridge) {
+      return existingBridge;
+    }
+
+    if (!state.loaderBridge) {
+      state.loaderBridge = {
+        __spLoaderBridge: true,
+        ensureReady: function () {
+          var immediateApi = getImmediateMessagingApi();
+          if (immediateApi) {
             return Promise.resolve(immediateApi);
           }
 
@@ -223,8 +381,8 @@
             .then(function () {
               return import(state.moduleUrl);
             })
-            .then(function () {
-              return resolveMessagingApi();
+            .then(function (moduleNs) {
+              return installImportedModule(moduleNs);
             })
             .catch(function (error) {
               state.readyPromise = null;
@@ -232,36 +390,43 @@
             });
 
           return state.readyPromise;
-        } catch (error) {
-          return Promise.reject(error);
-        }
-      },
-      mount: function (containerEl, prescriptionId) {
-        return this.ensureReady().then(function (api) {
-          try {
-            api.mount(containerEl, prescriptionId);
-            return undefined;
-          } catch (error) {
-            renderHostError(containerEl, error && error.message ? String(error.message) : 'Impossible de monter la messagerie.');
-            throw error;
-          }
-        });
-      },
-      unmount: function (containerEl) {
-        return Promise.resolve().then(function () {
-          try {
-            var api = window.SosDoctorMessaging;
-            if (api && typeof api.unmount === 'function') {
-              api.unmount(containerEl);
+        },
+        mount: function (containerEl, prescriptionId) {
+          return this.ensureReady().then(function (api) {
+            try {
+              api.mount(containerEl, prescriptionId);
+              return undefined;
+            } catch (error) {
+              renderHostError(containerEl, error && error.message ? String(error.message) : 'Impossible de monter la messagerie.');
+              throw error;
             }
-          } catch (_) {
-            // no-op
-          }
-        });
-      }
-    };
+          });
+        },
+        unmount: function (containerEl) {
+          return Promise.resolve().then(function () {
+            try {
+              var api = getImmediateMessagingApi();
+              if (api) {
+                api.unmount(containerEl);
+                return;
+              }
 
-    return window.SosDoctorMessagingBridge;
+              var bridge = getImportedMessagingBridge();
+              if (bridge) {
+                return Promise.resolve(bridge.unmount(containerEl));
+              }
+            } catch (_) {
+              // no-op
+            }
+
+            return undefined;
+          });
+        }
+      };
+    }
+
+    window.SosDoctorMessagingBridge = state.loaderBridge;
+    return state.loaderBridge;
   }
 
   function boot() {
