@@ -61,6 +61,10 @@ final class Assets
             true
         );
 
+        if (function_exists('wp_script_add_data')) {
+            wp_script_add_data('sosprescription-doctor-console', 'type', 'module');
+        }
+
         self::localize_app('sosprescription-doctor-console');
     }
 

@@ -168,27 +168,6 @@ final class Assets
         }
 
         if ($isDev) {
-            if ($handle === 'sosprescription-admin') {
-                $loaderHandle = $handle . '-loader';
-
-                wp_enqueue_script(
-                    $loaderHandle,
-                    SOSPRESCRIPTION_URL . 'assets/vite-admin-loader.js',
-                    $deps,
-                    SOSPRESCRIPTION_VERSION,
-                    true
-                );
-
-                self::localize_app($loaderHandle);
-                self::localize_boot($loaderHandle, 'SOSPrescriptionViteAdmin', [
-                    'moduleUrl' => rtrim($devServer, '/') . '/' . ltrim($entry, '/'),
-                    'viteClientUrl' => rtrim($devServer, '/') . '/@vite/client',
-                    'rootId' => $resolvedRootId,
-                ]);
-
-                return $loaderHandle;
-            }
-
             wp_enqueue_script(
                 'vite-client',
                 rtrim($devServer, '/') . '/@vite/client',
@@ -227,9 +206,6 @@ final class Assets
         if ($handle === 'sosprescription-form') {
             $loaderFile = 'assets/vite-form-loader.js';
             $bootVar = 'SOSPrescriptionViteForm';
-        } elseif ($handle === 'sosprescription-admin') {
-            $loaderFile = 'assets/vite-admin-loader.js';
-            $bootVar = 'SOSPrescriptionViteAdmin';
         }
 
         if ($loaderFile !== '' && $bootVar !== '' && $resolvedRootId !== '') {
@@ -331,6 +307,7 @@ final class Assets
                 'vite-client',
                 'sosprescription-form',
                 'sosprescription-admin',
+                'sosprescription-doctor-console',
             ];
 
             if (!in_array($h, $module_handles, true)) {
