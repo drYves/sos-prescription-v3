@@ -58,6 +58,7 @@ class PatientRepo {
                     phone: next.phone,
                     weightKg: next.weightKg,
                     heightCm: next.heightCm,
+                    note: next.note,
                 },
                 create: {
                     wpUserId: normalizedActor.wpUserId,
@@ -69,6 +70,7 @@ class PatientRepo {
                     phone: next.phone,
                     weightKg: next.weightKg,
                     heightCm: next.heightCm,
+                    note: next.note,
                 },
                 select: patientSelect(),
             });
@@ -105,6 +107,7 @@ function patientSelect() {
         phone: true,
         weightKg: true,
         heightCm: true,
+        note: true,
         createdAt: true,
         updatedAt: true,
     };
@@ -121,6 +124,7 @@ function mapPatient(row) {
         phone: row.phone,
         weightKg: row.weightKg,
         heightCm: row.heightCm,
+        note: row.note,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
     };
@@ -148,6 +152,7 @@ function buildMergedPatientProfile(existing, input) {
         phone: normalizePhoneUpdate(input.phone, existing?.phone ?? null),
         weightKg: normalizeMetricUpdate(input.weightKg, "weightKg", 1, 500, existing?.weightKg ?? null),
         heightCm: normalizeMetricUpdate(input.heightCm, "heightCm", 30, 300, existing?.heightCm ?? null),
+        note: normalizeOptionalPlainTextUpdate(input.note, 4000, existing?.note ?? null),
     };
 }
 function normalizePositiveInt(value, field) {

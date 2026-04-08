@@ -336,6 +336,25 @@ final class WorkerApiClient
             return false;
         }
 
+        if (str_starts_with(strtolower($token), 'sha256=')) {
+            $sigHex = strtolower(substr($token, 7));
+            if (!preg_match('/^[0-9a-f]{64}$/', $sigHex)) {
+                return false;
+            }
+
+            foreach ($this->buildSignedBodyCandidates($rawBody) as $candidateBody) {
+                if ($this->matchesSignedBodyHash($candidateBody, $sigHex, $this->hmacSecret)) {
+                    return true;
+                }
+
+                if ($this->hmacSecretPrevious !== null && $this->hmacSecretPrevious !== '' && $this->matchesSignedBodyHash($candidateBody, $sigHex, $this->hmacSecretPrevious)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         $parts = explode('.', $token);
         if (count($parts) !== 3 || strtolower((string) $parts[0]) !== 'mls1') {
             return false;

@@ -40,6 +40,8 @@ class MessagesRepo {
         const result = await this.prisma.$transaction(async (tx) => {
             const locked = await lockPrescription(tx, prescriptionId);
             assertActorCanAccessPrescription(locked, actor);
+            const lockedThreadState = buildThreadStateFromLockedPrescription(locked);
+            assertActorCanWriteThread(lockedThreadState, actor);
             const now = new Date();
             const nextSeq = locked.lastMessageSeq + 1;
             const authorDoctorId = resolveAuthorDoctorId(locked, actor);
@@ -96,6 +98,21 @@ class MessagesRepo {
             unread_count_patient: result.threadState.unreadCountPatient,
         }, undefined);
         return result;
+    }
+    async ensureThreadWritable(input) {
+        const prescriptionId = normalizeRequiredString(input.prescriptionId, "prescriptionId");
+        const actor = normalizeActorInput(input.actor);
+        const projection = await this.prisma.prescription.findUnique({
+            where: { id: prescriptionId },
+            select: prescriptionProjectionSelect(),
+        });
+        if (!projection) {
+            throw new MessagesRepoError("ML_PRESCRIPTION_NOT_FOUND", 404, "Prescription not found");
+        }
+        assertActorCanAccessPrescription(projection, actor);
+        const threadState = mapThreadState(projection);
+        assertActorCanWriteThread(threadState, actor);
+        return threadState;
     }
     async getThread(input) {
         const prescriptionId = normalizeRequiredString(input.prescriptionId, "prescriptionId");
@@ -169,6 +186,7 @@ async function lockPrescription(tx, prescriptionId) {
     const rows = await tx.$queryRaw `
     SELECT
       p."id",
+      p."status",
       p."doctorId",
       p."patientId",
       p."messageCount",
@@ -185,12 +203,49 @@ async function lockPrescription(tx, prescriptionId) {
     LEFT JOIN "Doctor" d ON d."id" = p."doctorId"
     LEFT JOIN "Patient" pt ON pt."id" = p."patientId"
     WHERE p."id" = ${prescriptionId}
-    FOR UPDATE
+    FOR UPDATE OF p
   `;
     if (rows.length !== 1) {
         throw new MessagesRepoError("ML_PRESCRIPTION_NOT_FOUND", 404, "Prescription not found");
     }
     return rows[0];
+}
+function resolveThreadMode(status, messageCount) {
+    const normalizedStatus = normalizePrescriptionStatus(status);
+    if (normalizedStatus === "APPROVED" || normalizedStatus === "REJECTED") {
+        return "READ_ONLY";
+    }
+    if (messageCount < 1) {
+        return "DOCTOR_ONLY";
+    }
+    return "PATIENT_REPLY";
+}
+function normalizePrescriptionStatus(value) {
+    return String(value ?? "").trim().toUpperCase();
+}
+function buildThreadStateFromLockedPrescription(locked) {
+    return {
+        mode: resolveThreadMode(locked.status, locked.messageCount),
+        messageCount: locked.messageCount,
+        lastMessageSeq: locked.lastMessageSeq,
+        lastMessageAt: locked.lastMessageAt,
+        lastMessageRole: locked.lastMessageRole,
+        doctorLastReadSeq: locked.doctorLastReadSeq,
+        patientLastReadSeq: locked.patientLastReadSeq,
+        unreadCountDoctor: locked.unreadCountDoctor,
+        unreadCountPatient: locked.unreadCountPatient,
+    };
+}
+function assertActorCanWriteThread(threadState, actor) {
+    if (actor.role === client_1.ActorRole.SYSTEM) {
+        return;
+    }
+    if (threadState.mode === "READ_ONLY") {
+        throw new MessagesRepoError("ML_MESSAGE_THREAD_READ_ONLY", 409, "Thread is read-only");
+    }
+    if (actor.role === client_1.ActorRole.PATIENT && threadState.mode === "DOCTOR_ONLY") {
+        throw new MessagesRepoError("ML_MESSAGE_DOCTOR_INIT_REQUIRED", 403, "Doctor must open the thread first");
+    }
 }
 function assertActorCanAccessPrescription(projection, actor) {
     const doctorWpUserId = "doctorWpUserId" in projection
@@ -201,7 +256,7 @@ function assertActorCanAccessPrescription(projection, actor) {
         : projection.patient?.wpUserId ?? null;
     switch (actor.role) {
         case client_1.ActorRole.DOCTOR:
-            if (actor.wpUserId == null || doctorWpUserId !== actor.wpUserId) {
+            if (actor.wpUserId == null || (doctorWpUserId != null && doctorWpUserId !== actor.wpUserId)) {
                 throw new MessagesRepoError("ML_MESSAGE_FORBIDDEN", 403, "Doctor cannot access this prescription thread");
             }
             return;
@@ -309,6 +364,7 @@ function buildThreadUpdateDataAfterMessage(role, nextSeq, now) {
 }
 function buildThreadStateAfterMessage(locked, role, nextSeq, now) {
     const thread = {
+        mode: resolveThreadMode(locked.status, locked.messageCount + 1),
         messageCount: locked.messageCount + 1,
         lastMessageSeq: nextSeq,
         lastMessageAt: now,
@@ -363,6 +419,7 @@ function buildThreadUpdateDataAfterRead(role, effectiveReadSeq) {
 }
 function buildThreadStateAfterRead(locked, role, effectiveReadSeq) {
     const thread = {
+        mode: resolveThreadMode(locked.status, locked.messageCount),
         messageCount: locked.messageCount,
         lastMessageSeq: locked.lastMessageSeq,
         lastMessageAt: locked.lastMessageAt,
@@ -395,6 +452,7 @@ function buildThreadStateAfterRead(locked, role, effectiveReadSeq) {
 function prescriptionProjectionSelect() {
     return {
         id: true,
+        status: true,
         messageCount: true,
         lastMessageSeq: true,
         lastMessageAt: true,
@@ -493,6 +551,7 @@ function mapMessage(row) {
 }
 function mapThreadState(row) {
     return {
+        mode: resolveThreadMode(row.status, row.messageCount),
         messageCount: row.messageCount,
         lastMessageSeq: row.lastMessageSeq,
         lastMessageAt: row.lastMessageAt,

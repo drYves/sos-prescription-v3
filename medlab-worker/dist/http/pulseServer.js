@@ -9,6 +9,10 @@ const node_crypto_1 = __importDefault(require("node:crypto"));
 const node_http_1 = __importDefault(require("node:http"));
 const node_url_1 = require("node:url");
 const client_1 = require("@prisma/client");
+const annuaireSanteService_1 = require("../admission/annuaireSanteService");
+const accountService_1 = require("../auth/accountService");
+const authService_1 = require("../auth/authService");
+const mailService_1 = require("../mail/mailService");
 const messagesRepo_1 = require("../messages/messagesRepo");
 const mls1_1 = require("../security/mls1");
 const submissionRepo_1 = require("../submissions/submissionRepo");
@@ -21,10 +25,16 @@ const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
 const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
 let pulsePrismaSingleton = null;
+let pulseMailServiceSingleton = null;
 function startPulseServer(deps) {
     const signingSecret = deps.secrets[0];
     const submissionRepo = new submissionRepo_1.SubmissionRepo({ logger: deps.logger });
     const patientRepo = new patientRepo_1.PatientRepo({ logger: deps.logger });
+    const authService = new authService_1.AuthService({ logger: deps.logger });
+    const accountService = new accountService_1.AccountService({ logger: deps.logger });
+    const mailService = new mailService_1.MailService({ logger: deps.logger });
+    pulseMailServiceSingleton = mailService;
+    const annuaireSanteService = new annuaireSanteService_1.AnnuaireSanteService({ logger: deps.logger });
     const doctorReadRepo = new doctorReadRepo_1.DoctorReadRepo({ logger: deps.logger });
     const patientReadRepo = new patientReadRepo_1.PatientReadRepo({ logger: deps.logger });
     const server = node_http_1.default.createServer(async (req, res) => {
@@ -35,6 +45,15 @@ function startPulseServer(deps) {
             const path = url.pathname;
             if (method === "GET" && path === "/pulse") {
                 return await handlePulse(req, res, deps, signingSecret);
+            }
+            if (method === "POST" && path === "/api/v2/auth/request-link") {
+                return await handleAuthRequestLink(req, res, deps, signingSecret, authService, mailService);
+            }
+            if (method === "POST" && path === "/api/v2/auth/verify-link") {
+                return await handleAuthVerifyLink(req, res, deps, signingSecret, authService);
+            }
+            if (method === "POST" && path === "/api/v2/account/delete") {
+                return await handleAccountDelete(req, res, deps, signingSecret, accountService);
             }
             if (method === "POST" && path === "/api/v2/submissions") {
                 return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
@@ -52,6 +71,9 @@ function startPulseServer(deps) {
             }
             if (method === "PUT" && path === "/api/v2/patient/profile") {
                 return await handlePatientProfilePut(req, res, deps, signingSecret, patientRepo);
+            }
+            if (method === "POST" && path === "/api/v2/doctor/verify-rpps") {
+                return await handleDoctorVerifyRpps(req, res, deps, signingSecret, annuaireSanteService);
             }
             if (method === "POST" && path === "/api/v2/doctor/inbox") {
                 return await handleDoctorInbox(req, res, deps, signingSecret, doctorReadRepo);
@@ -548,6 +570,7 @@ async function handlePatientProfilePut(req, res, deps, signingSecret, patientRep
             phone: normalized.phone,
             weightKg: normalized.weightKg,
             heightCm: normalized.heightCm,
+            note: normalized.note,
         });
         deps.logger.info("patient_profile.put.accepted", {
             wp_user_id: normalized.actor.wpUserId,
@@ -556,6 +579,7 @@ async function handlePatientProfilePut(req, res, deps, signingSecret, patientRep
             has_phone: Boolean(profile.phone),
             has_weight: Boolean(profile.weightKg),
             has_height: Boolean(profile.heightCm),
+            has_note: Boolean(profile.note),
         }, reqId);
         return sendJson(res, 200, buildPatientProfileApiPayload(normalized.actor.wpUserId, profile, "Profil enregistré."), signingSecret);
     }
@@ -567,6 +591,218 @@ async function handlePatientProfilePut(req, res, deps, signingSecret, patientRep
         const message = err instanceof Error ? err.message : "patient_profile_save_failed";
         deps.logger.error("patient_profile.put.failed", { reason: message }, reqId, err);
         return sendJson(res, 500, { ok: false, code: "ML_PATIENT_PROFILE_SAVE_FAILED", req_id: reqId }, signingSecret);
+    }
+}
+async function handleDoctorVerifyRpps(req, res, deps, signingSecret, annuaireSanteService) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/doctor/verify-rpps");
+    if (parsedBody.ok !== true) {
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const body = parsedBody.body;
+        const actor = body.actor != null ? normalizeActorInput(body.actor) : null;
+        if (actor && actor.role !== client_1.ActorRole.DOCTOR && actor.role !== client_1.ActorRole.SYSTEM) {
+            return sendJson(res, 403, { ok: false, code: "ML_INGEST_FORBIDDEN", req_id: reqId }, signingSecret);
+        }
+        const rpps = normalizeDoctorVerifyRppsInput(body);
+        const result = await annuaireSanteService.verifyRpps(rpps, reqId);
+        deps.logger.info(result.valid ? "doctor.verify_rpps.completed" : "doctor.verify_rpps.not_found", {
+            actor_role: actor?.role ?? null,
+            actor_wp_user_id: actor?.wpUserId ?? null,
+            valid: result.valid,
+            rpps_fp: fingerprintPublicId(result.rpps),
+            profession_present: result.profession !== "",
+        }, reqId);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            valid: result.valid,
+            rpps: result.rpps,
+            firstName: result.firstName,
+            first_name: result.firstName,
+            lastName: result.lastName,
+            last_name: result.lastName,
+            profession: result.profession,
+            req_id: reqId,
+        }, signingSecret);
+    }
+    catch (err) {
+        if (err instanceof annuaireSanteService_1.AnnuaireSanteServiceError) {
+            const context = {
+                code: err.code,
+                status_code: err.statusCode,
+            };
+            if (err.statusCode >= 500) {
+                deps.logger.error("doctor.verify_rpps.failed", context, reqId, err);
+            }
+            else {
+                deps.logger.warning("doctor.verify_rpps.failed", context, reqId, err);
+            }
+            return sendJson(res, err.statusCode, {
+                ok: false,
+                code: err.code,
+                message: err.statusCode >= 500 ? "La vérification RPPS est temporairement indisponible." : err.message,
+                req_id: reqId,
+            }, signingSecret);
+        }
+        const message = err instanceof Error ? err.message : "doctor_verify_rpps_failed";
+        deps.logger.error("doctor.verify_rpps.failed", { reason: message }, reqId, err);
+        return sendJson(res, 500, { ok: false, code: "ML_RPPS_LOOKUP_UNAVAILABLE", message: "doctor_verify_rpps_failed", req_id: reqId }, signingSecret);
+    }
+}
+async function handleAuthRequestLink(req, res, deps, signingSecret, authService, mailService) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/auth/request-link");
+    if (parsedBody.ok !== true) {
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const body = parsedBody.body;
+        const email = normalizeMagicLinkRequestEmail(body.email);
+        const lookup = await authService.lookupOwnerByEmail(email, reqId);
+        if (lookup.status !== "matched" || !lookup.candidate) {
+            deps.logger.info("auth.request_link.accepted", {
+                email_fp: fingerprintPublicId(email),
+                owner_match: lookup.status,
+                sent: false,
+            }, reqId);
+            return sendJson(res, 200, {
+                ok: true,
+                schema_version: CURRENT_SCHEMA_VERSION,
+                sent: true,
+                expires_in: 900,
+                req_id: reqId,
+            }, signingSecret);
+        }
+        const issued = await authService.issueMagicLink({
+            email: lookup.candidate.email,
+            ownerRole: lookup.candidate.ownerRole,
+            ownerWpUserId: lookup.candidate.ownerWpUserId,
+        }, reqId);
+        await mailService.sendMagicLink({
+            email: lookup.candidate.email,
+            token: issued.token,
+            expiresAt: issued.expiresAt,
+        }, reqId);
+        deps.logger.info("auth.request_link.accepted", {
+            email_fp: fingerprintPublicId(lookup.candidate.email),
+            owner_role: lookup.candidate.ownerRole,
+            owner_wp_user_id: lookup.candidate.ownerWpUserId,
+            sent: true,
+        }, reqId);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            sent: true,
+            expires_in: issued.expiresIn,
+            req_id: reqId,
+        }, signingSecret);
+    }
+    catch (err) {
+        if (err instanceof authService_1.AuthServiceError) {
+            if (err.statusCode >= 500) {
+                deps.logger.error("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            else {
+                deps.logger.warning("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+        }
+        if (err instanceof mailService_1.MailServiceError) {
+            deps.logger.error("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+        }
+        const message = err instanceof Error ? err.message : "auth_request_link_failed";
+        deps.logger.error("auth.request_link.failed", { reason: message }, reqId, err);
+        return sendJson(res, 500, { ok: false, code: "ML_MAGIC_LINK_REQUEST_FAILED", req_id: reqId }, signingSecret);
+    }
+}
+async function handleAuthVerifyLink(req, res, deps, signingSecret, authService) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/auth/verify-link");
+    if (parsedBody.ok !== true) {
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const body = parsedBody.body;
+        const token = normalizeMagicLinkToken(body.token);
+        const result = await authService.consumeMagicLink(token, reqId);
+        if (!result.valid || result.ownerWpUserId == null || result.ownerRole == null) {
+            deps.logger.info("auth.verify_link.completed", {
+                valid: false,
+                token_fp: token !== "" ? fingerprintPublicId(token) : null,
+            }, reqId);
+            return sendJson(res, 200, {
+                ok: true,
+                schema_version: CURRENT_SCHEMA_VERSION,
+                valid: false,
+                req_id: reqId,
+            }, signingSecret);
+        }
+        const publicRole = toPublicMagicLinkRole(result.ownerRole);
+        deps.logger.info("auth.verify_link.completed", {
+            valid: true,
+            owner_role: result.ownerRole,
+            owner_wp_user_id: result.ownerWpUserId,
+        }, reqId);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            valid: true,
+            wp_user_id: result.ownerWpUserId,
+            role: publicRole,
+            req_id: reqId,
+        }, signingSecret);
+    }
+    catch (err) {
+        if (err instanceof authService_1.AuthServiceError) {
+            deps.logger.error("auth.verify_link.failed", { code: err.code, reason: err.message }, reqId, err);
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+        }
+        const message = err instanceof Error ? err.message : "auth_verify_link_failed";
+        deps.logger.error("auth.verify_link.failed", { reason: message }, reqId, err);
+        return sendJson(res, 500, { ok: false, code: "ML_MAGIC_LINK_VERIFY_FAILED", req_id: reqId }, signingSecret);
+    }
+}
+async function handleAccountDelete(req, res, deps, signingSecret, accountService) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/account/delete");
+    if (parsedBody.ok !== true) {
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const body = parsedBody.body;
+        const actor = normalizeAccountDeleteActorInput(body.actor);
+        const result = await accountService.deleteAccount(actor.role, actor.wpUserId, reqId);
+        deps.logger.info("account.delete.accepted", {
+            actor_role: actor.role,
+            actor_wp_user_id: actor.wpUserId,
+            account_id: result.accountId,
+            auth_tokens_revoked: result.authTokensRevoked,
+            not_found: result.notFound,
+        }, reqId);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            deleted: true,
+            actor_role: actor.role === client_1.ActorRole.DOCTOR ? "doctor" : "patient",
+            req_id: reqId,
+        }, signingSecret);
+    }
+    catch (err) {
+        if (err instanceof accountService_1.AccountServiceError) {
+            if (err.statusCode >= 500) {
+                deps.logger.error("account.delete.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            else {
+                deps.logger.warning("account.delete.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+        }
+        const message = err instanceof Error ? err.message : "account_delete_failed";
+        deps.logger.error("account.delete.failed", { reason: message }, reqId, err);
+        return sendJson(res, 500, { ok: false, code: "ML_ACCOUNT_DELETE_FAILED", req_id: reqId }, signingSecret);
     }
 }
 async function handleDoctorInbox(req, res, deps, signingSecret, doctorReadRepo) {
@@ -758,6 +994,15 @@ async function handleArtifactUploadInit(req, res, deps, signingSecret) {
         const payload = parsedBody.body;
         const actor = normalizeActorInput(payload.actor);
         const artifactInput = normalizeArtifactInitInput(payload.artifact, deps.artifactUploadMaxBytes);
+        if (artifactInput.kind === client_1.ArtifactKind.MESSAGE_ATTACHMENT) {
+            if (!artifactInput.prescriptionId) {
+                throw new messagesRepo_1.MessagesRepoError("ML_MESSAGE_BAD_REQUEST", 400, "artifact.prescription_id is required");
+            }
+            await deps.messagesRepo.ensureThreadWritable({
+                prescriptionId: artifactInput.prescriptionId,
+                actor,
+            });
+        }
         const created = await deps.artifactRepo.initUpload({
             kind: artifactInput.kind,
             ownerRole: actor.role,
@@ -798,6 +1043,13 @@ async function handleArtifactUploadInit(req, res, deps, signingSecret) {
         }, signingSecret);
     }
     catch (err) {
+        if (err instanceof messagesRepo_1.MessagesRepoError) {
+            deps.logger.warning("artifact.upload_init.thread_forbidden", {
+                code: err.code,
+                reason: err.message,
+            }, reqId, err);
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, message: err.message }, signingSecret);
+        }
         const message = err instanceof Error ? err.message : "artifact_upload_init_failed";
         const statusCode = isClientArtifactError(message) ? 400 : 500;
         const code = isClientArtifactError(message) ? "ML_ARTIFACT_BAD_REQUEST" : "ML_ARTIFACT_INIT_FAILED";
@@ -1192,6 +1444,9 @@ async function handlePrescriptionMessagesCreate(req, res, deps, signingSecret, p
             body: typeof messageBlock.body === "string" ? messageBlock.body : null,
             attachmentArtifactIds: normalizeAttachmentArtifactIds(messageBlock.attachment_artifact_ids),
         });
+        if (actor.role === client_1.ActorRole.DOCTOR && result.threadState.unreadCountPatient === 1) {
+            await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
+        }
         return sendJson(res, 201, {
             ok: true,
             schema_version: CURRENT_SCHEMA_VERSION,
@@ -1380,6 +1635,16 @@ async function parseSignedActionBody(req, res, deps, pathSuffix) {
     catch {
         return { ok: false, statusCode: 400, code: "ML_INGEST_BAD_REQUEST" };
     }
+}
+function normalizeAccountDeleteActorInput(value) {
+    const actor = normalizeActorInput(value);
+    if ((actor.role !== client_1.ActorRole.DOCTOR && actor.role !== client_1.ActorRole.PATIENT) || actor.wpUserId == null) {
+        throw new accountService_1.AccountServiceError("ML_ACCOUNT_DELETE_BAD_REQUEST", 400, "account_actor_required");
+    }
+    return {
+        role: actor.role,
+        wpUserId: actor.wpUserId,
+    };
 }
 function normalizeDoctorReadActorInput(value) {
     const actor = normalizeActorInput(value);
@@ -1701,6 +1966,7 @@ function extractFileExtension(originalName) {
 }
 function serializeThreadState(threadState) {
     return {
+        mode: threadState.mode,
         message_count: threadState.messageCount,
         last_message_seq: threadState.lastMessageSeq,
         last_message_at: threadState.lastMessageAt ? threadState.lastMessageAt.toISOString() : null,
@@ -1820,6 +2086,39 @@ function getPulsePrismaClient() {
     }
     return pulsePrismaSingleton;
 }
+function getPulseMailService(logger) {
+    if (!pulseMailServiceSingleton) {
+        pulseMailServiceSingleton = new mailService_1.MailService({ logger });
+    }
+    return pulseMailServiceSingleton;
+}
+async function maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId) {
+    const prisma = getPulsePrismaClient();
+    const prescription = await prisma.prescription.findUnique({
+        where: { id: prescriptionId },
+        select: {
+            id: true,
+            uid: true,
+            patient: {
+                select: {
+                    email: true,
+                    deletedAt: true,
+                },
+            },
+        },
+    });
+    if (!prescription || !prescription.patient || prescription.patient.deletedAt !== null) {
+        return;
+    }
+    const email = normalizeOptionalString(prescription.patient.email);
+    if (!email) {
+        return;
+    }
+    await getPulseMailService(deps.logger).sendNewMessageNotification({
+        email,
+        prescriptionUid: prescription.uid,
+    }, reqId);
+}
 async function resolveSubmissionForArtifactInit(submissionRef, actor, logger, reqId) {
     const normalizedSubmissionRef = normalizeSubmissionRefParam(submissionRef);
     const prisma = getPulsePrismaClient();
@@ -1926,6 +2225,39 @@ function normalizePatientProfileActorFromQuery(url) {
         wp_user_id: url.searchParams.get("wp_user_id"),
     });
 }
+function normalizeMagicLinkRequestEmail(value) {
+    if (typeof value !== "string") {
+        throw new Error("email is required");
+    }
+    const normalized = value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+        throw new Error("email is invalid");
+    }
+    return normalized;
+}
+function normalizeMagicLinkToken(value) {
+    if (typeof value !== "string") {
+        throw new Error("token is required");
+    }
+    const normalized = value.trim();
+    if (normalized.length < 32 || normalized.length > 256) {
+        throw new Error("token is invalid");
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
+        throw new Error("token is invalid");
+    }
+    return normalized;
+}
+function toPublicMagicLinkRole(role) {
+    return role === client_1.ActorRole.DOCTOR ? "doctor" : "patient";
+}
+function normalizeDoctorVerifyRppsInput(body) {
+    const raw = normalizeRequiredString(body.rpps, "rpps").replace(/\D+/g, "");
+    if (raw.length !== 11) {
+        throw new annuaireSanteService_1.AnnuaireSanteServiceError("ML_RPPS_BAD_REQUEST", 400, "rpps must contain exactly 11 digits");
+    }
+    return raw;
+}
 function buildPatientProfileCanonicalGetPath(actor) {
     const search = new URLSearchParams();
     search.set("role", actor.role);
@@ -1943,6 +2275,7 @@ function normalizePatientProfileRequestInput(body) {
         phone: body.phone,
         weightKg: pickFirstDefined(body.weight_kg, body.weightKg),
         heightCm: pickFirstDefined(body.height_cm, body.heightCm),
+        note: pickFirstDefined(body.note, body.medical_notes, body.medicalNotes),
     };
 }
 function normalizeSubmissionFinalizeRequestInput(body) {
@@ -1955,8 +2288,9 @@ function normalizeSubmissionFinalizeRequestInput(body) {
     if (!Array.isArray(itemsValue)) {
         throw new submissionRepo_1.SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "items must be an array");
     }
-    const privateNotesRaw = pickFirstDefined(prescriptionBlock.private_notes, prescriptionBlock.privateNotes, body.private_notes, body.privateNotes);
+    const privateNotesRaw = pickFirstDefined(prescriptionBlock.private_notes, prescriptionBlock.privateNotes, body.private_notes, body.privateNotes, patientBlock.note, patientBlock.medical_notes, patientBlock.medicalNotes, body.note, body.medical_notes, body.medicalNotes);
     const actor = normalizeSubmissionActorInput(body.actor);
+    const patientNote = pickFirstDefined(patientBlock.note, patientBlock.medical_notes, patientBlock.medicalNotes, body.note, body.medical_notes, body.medicalNotes, privateNotesRaw);
     const patient = {
         firstName: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
         first_name: pickFirstDefined(patientBlock.first_name, patientBlock.firstName, body.first_name, body.firstName),
@@ -1971,6 +2305,9 @@ function normalizeSubmissionFinalizeRequestInput(body) {
         weight_kg: pickFirstDefined(patientBlock.weight_kg, patientBlock.weightKg, body.weight_kg, body.weightKg),
         heightCm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
         height_cm: pickFirstDefined(patientBlock.height_cm, patientBlock.heightCm, body.height_cm, body.heightCm),
+        note: patientNote,
+        medical_notes: patientNote,
+        medicalNotes: patientNote,
     };
     return {
         actor,
@@ -2027,6 +2364,9 @@ function buildPatientProfileApiPayload(wpUserId, profile, message) {
         weightKg: profilePayload.weightKg,
         height_cm: profilePayload.height_cm,
         heightCm: profilePayload.heightCm,
+        note: profilePayload.note,
+        medical_notes: profilePayload.medical_notes,
+        medicalNotes: profilePayload.medicalNotes,
         bmi_value: profilePayload.bmi_value,
         bmiValue: profilePayload.bmiValue,
         bmi_label: profilePayload.bmi_label,
@@ -2063,6 +2403,9 @@ function buildPatientProfileApiPayload(wpUserId, profile, message) {
             weightKg: profilePayload.weightKg,
             height_cm: profilePayload.height_cm,
             heightCm: profilePayload.heightCm,
+            note: profilePayload.note,
+            medical_notes: profilePayload.medical_notes,
+            medicalNotes: profilePayload.medicalNotes,
             bmi_value: profilePayload.bmi_value,
             bmiValue: profilePayload.bmiValue,
             bmi_label: profilePayload.bmi_label,
@@ -2080,6 +2423,7 @@ function buildPatientProfilePayload(profile) {
     const email = profile?.email ?? "";
     const weightKg = profile?.weightKg ?? "";
     const heightCm = profile?.heightCm ?? "";
+    const note = profile?.note ?? "";
     const bmiValue = computeProfileBmiValue(weightKg, heightCm);
     const bmiValueText = bmiValue !== null ? String(bmiValue) : "";
     const bmiLabel = computeProfileBmiLabel(weightKg, heightCm);
@@ -2101,6 +2445,9 @@ function buildPatientProfilePayload(profile) {
         weightKg: weightKg,
         height_cm: heightCm,
         heightCm: heightCm,
+        note,
+        medical_notes: note,
+        medicalNotes: note,
         bmi_value: bmiValueText,
         bmiValue: bmiValueText,
         bmi_label: bmiLabelText,
@@ -2362,6 +2709,11 @@ function sendMessagesRepoError(res, deps, signingSecret, err, reqId, event, cont
         sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
         return;
     }
+    if (err instanceof mailService_1.MailServiceError) {
+        deps.logger.error(event, { ...context, reason: err.message, code: err.code }, effectiveReqId, err);
+        sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: effectiveReqId }, signingSecret);
+        return;
+    }
     const message = err instanceof Error ? err.message : "messages_failed";
     deps.logger.error(event, { ...context, reason: message }, effectiveReqId, err);
     sendJson(res, 500, { ok: false, code: "ML_MESSAGES_FAILED", req_id: effectiveReqId }, signingSecret);
@@ -2383,6 +2735,13 @@ function serializeArtifact(artifact) {
         linked_at: artifact.linkedAt ? artifact.linkedAt.toISOString() : null,
     };
 }
+function fingerprintPublicId(value) {
+    const normalized = String(value || "").trim();
+    if (normalized === "") {
+        return "";
+    }
+    return Buffer.from(normalized, "utf8").toString("base64url").slice(0, 12);
+}
 function applyApiResponseHeaders(res, extraHeaders) {
     for (const [header, value] of Object.entries(extraHeaders ?? {})) {
         res.setHeader(header, value);
@@ -2395,13 +2754,16 @@ function applyApiResponseHeaders(res, extraHeaders) {
 function sendJson(res, status, body, signingSecret, extraHeaders) {
     const normalizedBody = normalizeErrorResponseBody(res, status, body);
     const data = Buffer.from(JSON.stringify(normalizedBody));
-    const token = (0, mls1_1.buildMls1Token)(data, signingSecret);
+    const token = buildResponseSignature(data, signingSecret);
     res.statusCode = status;
     applyApiResponseHeaders(res, extraHeaders);
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Content-Length", data.length);
     res.setHeader("X-MedLab-Signature", token);
     res.end(data);
+}
+function buildResponseSignature(payloadBytes, secret) {
+    return `sha256=${node_crypto_1.default.createHmac("sha256", secret).update(payloadBytes).digest("hex")}`;
 }
 function isClientIngestError(message) {
     const haystack = String(message || "").toLowerCase();

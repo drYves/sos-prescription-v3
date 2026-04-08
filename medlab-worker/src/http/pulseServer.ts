@@ -20,7 +20,7 @@ import type {
   RejectPrescriptionRequest,
 } from "../jobs/jobsRepo";
 import { NdjsonLogger } from "../logger";
-import { buildMls1Token, parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
+import { parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { NonceCache } from "../security/nonceCache";
 import { S3Service } from "../s3/s3Service";
 import { SubmissionRepo, SubmissionRepoError } from "../submissions/submissionRepo";
@@ -4183,7 +4183,7 @@ function sendJson(
 ): void {
   const normalizedBody = normalizeErrorResponseBody(res, status, body);
   const data = Buffer.from(JSON.stringify(normalizedBody));
-  const token = buildMls1Token(data, signingSecret);
+  const token = buildResponseSignature(data, signingSecret);
 
   res.statusCode = status;
   applyApiResponseHeaders(res, extraHeaders);
@@ -4191,6 +4191,10 @@ function sendJson(
   res.setHeader("Content-Length", data.length);
   res.setHeader("X-MedLab-Signature", token);
   res.end(data);
+}
+
+function buildResponseSignature(payloadBytes: Buffer, secret: string): string {
+  return `sha256=${crypto.createHmac("sha256", secret).update(payloadBytes).digest("hex")}`;
 }
 
 function isClientIngestError(message: string): boolean {

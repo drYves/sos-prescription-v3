@@ -43,8 +43,13 @@ class PatientReadRepo {
     async getPrescriptionDetail(input) {
         const normalized = normalizePatientPrescriptionDetailInput(input);
         try {
-            const record = await this.prisma.prescription.findUnique({
-                where: { id: normalized.prescriptionId },
+            const record = await this.prisma.prescription.findFirst({
+                where: {
+                    OR: [
+                        { id: normalized.prescriptionId },
+                        { uid: normalized.prescriptionId },
+                    ],
+                },
                 include: prescriptionReadMapper_1.prescriptionDetailInclude,
             });
             if (!record) {
