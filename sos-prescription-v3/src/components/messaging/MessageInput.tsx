@@ -29,8 +29,12 @@ type Props = {
   onSurfaceError?: (message: string | null) => void;
 };
 
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ');
+}
+
 function InlineSpinner() {
-  return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" aria-label="Chargement" />;
+  return <span className="sp-spinner" aria-label="Chargement" />;
 }
 
 function fieldCopy(viewerRole: ViewerRole): { title: string; placeholder: string } {
@@ -129,22 +133,22 @@ const MessageInput = React.memo(function MessageInputComponent({
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="text-sm font-semibold text-gray-900">{inputCopy.title}</div>
+    <div className="sp-card sp-thread-composer">
+      <div className="sp-thread-composer__title">{inputCopy.title}</div>
 
       {localError ? (
-        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-          {localError}
+        <div className="sp-alert sp-alert--error">
+          <div className="sp-alert__body">{localError}</div>
         </div>
       ) : null}
 
-      <div className="mt-3 flex items-end gap-2">
+      <div className="sp-thread-composer__row">
         <input
           ref={fileInputRef}
           type="file"
           multiple
           accept="image/*,application/pdf"
-          className="hidden"
+          className="sp-hidden"
           onChange={(event) => {
             void handleUploadFiles(event.target.files);
             event.currentTarget.value = '';
@@ -153,22 +157,22 @@ const MessageInput = React.memo(function MessageInputComponent({
 
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-300 bg-white text-gray-600 transition hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="sp-button sp-button--secondary sp-button--icon"
           onClick={() => fileInputRef.current?.click()}
           aria-label="Ajouter un document"
           title="Ajouter un document"
           disabled={uploading || sending}
         >
-          <span aria-hidden="true">📎</span>
+          <span className="sp-button__icon" aria-hidden="true">📎</span>
         </button>
 
-        <div className="flex-1">
+        <div className="sp-thread-composer__field">
           <textarea
             value={draftBody}
             onChange={(event) => setDraftBody(event.target.value)}
             rows={2}
             placeholder={inputCopy.placeholder}
-            className="w-full rounded-2xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="sp-textarea sp-thread-composer__textarea"
           />
         </div>
 
@@ -176,30 +180,27 @@ const MessageInput = React.memo(function MessageInputComponent({
           type="button"
           onClick={() => void handleSend()}
           disabled={sending || uploading || draftBody.trim().length < 1}
-          className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
         >
           {sending ? <InlineSpinner /> : 'Envoyer'}
         </button>
       </div>
 
       {uploading ? (
-        <div className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+        <div className="sp-thread-composer__status sp-loading-row">
           <InlineSpinner />
           <span>Upload en cours…</span>
         </div>
       ) : null}
 
       {queuedUploads.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="sp-thread-queued">
           {queuedUploads.map((file) => (
-            <span
-              key={file.id}
-              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
-            >
-              <span className="max-w-[220px] truncate">{file.original_name}</span>
+            <span key={file.id} className="sp-thread-queued__item">
+              <span className="sp-thread-queued__name">{file.original_name}</span>
               <button
                 type="button"
-                className="text-gray-500 transition hover:text-gray-700"
+                className="sp-thread-queued__remove"
                 onClick={() => setQueuedUploads((current) => current.filter((item) => item.id !== file.id))}
                 aria-label={`Retirer ${file.original_name}`}
               >

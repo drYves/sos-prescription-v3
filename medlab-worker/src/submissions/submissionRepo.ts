@@ -117,6 +117,12 @@ interface LockedSubmissionRow {
   updatedAt: Date;
 }
 
+interface FinalizeTransactionOutcome {
+  mode: "created" | "replayed";
+  submissionId: string;
+  prescriptionId: string;
+}
+
 export class SubmissionRepoError extends Error {
   public readonly code: string;
   public readonly statusCode: number;
@@ -224,7 +230,7 @@ export class SubmissionRepo {
 
     for (let attempt = 1; attempt <= MAX_FINALIZE_ATTEMPTS; attempt += 1) {
       try {
-        const result = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const outcome = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           const submission = await lockSubmissionByPublicRef(tx, normalized.submissionRef);
           if (!submission) {
             throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "submission not found");
@@ -233,7 +239,7 @@ export class SubmissionRepo {
           assertSubmissionOwnership(submission, normalized.actor);
 
           if (submission.status === SubmissionStatus.FINALIZED) {
-            return replayFinalizedSubmission(tx, submission);
+            return replayFinalizedSubmissionOutcome(submission);
           }
 
           if (submission.status === SubmissionStatus.EXPIRED || submission.expiresAt.getTime() <= Date.now()) {
@@ -319,54 +325,29 @@ export class SubmissionRepo {
               unreadCountDoctor: 0,
               unreadCountPatient: 0,
             },
-            select: finalizedPrescriptionSelect(),
+            select: { id: true },
           });
 
-          await tx.artifact.updateMany({
-            where: {
-              submissionId: submission.id,
-              deletedAt: null,
-            },
-            data: {
-              prescriptionId: createdPrescription.id,
-              linkedAt: new Date(),
-            },
-          });
-
-          const proofCount = await tx.artifact.count({
-            where: {
-              prescriptionId: createdPrescription.id,
-              kind: ArtifactKind.PROOF,
-              status: ArtifactStatus.READY,
-              deletedAt: null,
-            },
-          });
-
-          const updatedPrescription = await tx.prescription.update({
-            where: { id: createdPrescription.id },
-            data: {
-              hasProof: proofCount > 0,
-              proofCount,
-            },
-            select: finalizedPrescriptionSelect(),
-          });
-
-          const updatedSubmission = await tx.submission.update({
+          await tx.submission.update({
             where: { id: submission.id },
             data: {
               status: SubmissionStatus.FINALIZED,
-              finalizedPrescriptionId: updatedPrescription.id,
+              finalizedPrescriptionId: createdPrescription.id,
             },
-            select: submissionSelect(),
           });
 
-          return buildFinalizeResult("created", updatedSubmission, updatedPrescription);
+          return {
+            mode: "created" as const,
+            submissionId: submission.id,
+            prescriptionId: createdPrescription.id,
+          };
         }, {
           maxWait: TX_MAX_WAIT_MS,
           timeout: TX_TIMEOUT_MS,
         });
 
-        return result;
+        await syncSubmissionArtifactsToPrescription(this.prisma, outcome.submissionId, outcome.prescriptionId);
+        return await readFinalizeSubmissionResult(this.prisma, outcome.mode, outcome.submissionId, outcome.prescriptionId);
       } catch (err: unknown) {
         if (isFinalizeRetryableUniqueError(err)) {
           continue;
@@ -499,6 +480,71 @@ function buildFinalizeResult(
   };
 }
 
+async function syncSubmissionArtifactsToPrescription(
+  prisma: PrismaClient,
+  submissionId: string,
+  prescriptionId: string,
+): Promise<void> {
+  await prisma.artifact.updateMany({
+    where: {
+      submissionId,
+      deletedAt: null,
+    },
+    data: {
+      prescriptionId,
+      linkedAt: new Date(),
+    },
+  });
+
+  const proofCount = await prisma.artifact.count({
+    where: {
+      prescriptionId,
+      kind: ArtifactKind.PROOF,
+      status: ArtifactStatus.READY,
+      deletedAt: null,
+    },
+  });
+
+  await prisma.prescription.update({
+    where: { id: prescriptionId },
+    data: {
+      hasProof: proofCount > 0,
+      proofCount,
+    },
+  });
+}
+
+async function readFinalizeSubmissionResult(
+  prisma: PrismaClient,
+  mode: "created" | "replayed",
+  submissionId: string,
+  prescriptionId: string,
+): Promise<FinalizeSubmissionResult> {
+  const [submission, prescription] = await Promise.all([
+    prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: submissionSelect(),
+    }),
+    prisma.prescription.findUnique({
+      where: { id: prescriptionId },
+      select: finalizedPrescriptionSelect(),
+    }),
+  ]);
+
+  if (!submission) {
+    throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "submission not found");
+  }
+
+  if (!prescription) {
+    throw new SubmissionRepoError(
+      "ML_SUBMISSION_FINALIZE_FAILED",
+      500,
+      "finalized prescription is missing",
+    );
+  }
+
+  return buildFinalizeResult(mode, submission, prescription);
+}
 
 async function resolveExistingCreateSubmission(
   prisma: PrismaClient,
@@ -732,10 +778,7 @@ function mapLockedSubmissionRow(row: Record<string, unknown>): LockedSubmissionR
   };
 }
 
-async function replayFinalizedSubmission(
-  tx: Prisma.TransactionClient,
-  submission: LockedSubmissionRow,
-): Promise<FinalizeSubmissionResult> {
+function replayFinalizedSubmissionOutcome(submission: LockedSubmissionRow): FinalizeTransactionOutcome {
   const prescriptionId = normalizeNullableString(submission.finalizedPrescriptionId);
   if (!prescriptionId) {
     throw new SubmissionRepoError(
@@ -745,29 +788,11 @@ async function replayFinalizedSubmission(
     );
   }
 
-  const prescription = await tx.prescription.findUnique({
-    where: { id: prescriptionId },
-    select: finalizedPrescriptionSelect(),
-  });
-
-  if (!prescription) {
-    throw new SubmissionRepoError(
-      "ML_SUBMISSION_FINALIZE_FAILED",
-      500,
-      "finalized prescription is missing",
-    );
-  }
-
-  const replayedSubmission = await tx.submission.findUnique({
-    where: { id: submission.id },
-    select: submissionSelect(),
-  });
-
-  if (!replayedSubmission) {
-    throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "submission not found");
-  }
-
-  return buildFinalizeResult("replayed", replayedSubmission, prescription);
+  return {
+    mode: "replayed",
+    submissionId: submission.id,
+    prescriptionId,
+  };
 }
 
 function assertSubmissionOwnership(

@@ -2,12 +2,21 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import DoctorMessagingApp from '../components/DoctorMessagingApp';
 
+type DoctorMessagingApi = {
+  mount: (containerEl: HTMLElement, prescriptionId: number) => void;
+  unmount: (containerEl: HTMLElement) => void;
+};
+
+type DoctorMessagingBridge = {
+  ensureReady: () => Promise<DoctorMessagingApi>;
+  mount: (containerEl: HTMLElement, prescriptionId: number) => Promise<void>;
+  unmount: (containerEl: HTMLElement) => Promise<void>;
+};
+
 declare global {
   interface Window {
-    SosDoctorMessaging?: {
-      mount: (containerEl: HTMLElement, prescriptionId: number) => void;
-      unmount: (containerEl: HTMLElement) => void;
-    };
+    SosDoctorMessaging?: DoctorMessagingApi;
+    SosDoctorMessagingBridge?: DoctorMessagingBridge;
   }
 }
 
@@ -55,9 +64,22 @@ function unmount(containerEl: HTMLElement): void {
   roots.delete(containerEl);
 }
 
-window.SosDoctorMessaging = {
+const api: DoctorMessagingApi = {
   mount,
   unmount,
 };
+
+const bridge: DoctorMessagingBridge = {
+  ensureReady: async (): Promise<DoctorMessagingApi> => api,
+  mount: async (containerEl: HTMLElement, prescriptionId: number): Promise<void> => {
+    api.mount(containerEl, prescriptionId);
+  },
+  unmount: async (containerEl: HTMLElement): Promise<void> => {
+    api.unmount(containerEl);
+  },
+};
+
+window.SosDoctorMessaging = api;
+window.SosDoctorMessagingBridge = bridge;
 
 export { mount, unmount };

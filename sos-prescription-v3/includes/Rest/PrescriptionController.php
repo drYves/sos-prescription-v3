@@ -92,7 +92,6 @@ class PrescriptionController extends \WP_REST_Controller
         );
     }
 
-
     public function list(WP_REST_Request $request)
     {
         $status = trim((string) $request->get_param('status'));
@@ -120,18 +119,6 @@ class PrescriptionController extends \WP_REST_Controller
             ? 'prescriptions_v1_list_doctor_proxy'
             : 'prescriptions_v1_list_patient_proxy';
 
-        $this->debug_bridge_log('list.calling_worker', [
-            'req_id' => $req_id,
-            'route' => $path,
-            'scope' => $scope,
-            'actor_kind' => $actorContext['kind'],
-            'actor_role' => $actorContext['actor']['role'],
-            'wp_user_id' => $actorContext['actor']['wp_user_id'],
-            'status' => $status,
-            'limit' => $limit,
-            'offset' => $offset,
-        ]);
-
         try {
             $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 $path,
@@ -143,25 +130,8 @@ class PrescriptionController extends \WP_REST_Controller
                 $scope
             );
         } catch (\Throwable $e) {
-            $this->debug_bridge_log('list.worker_call_failed', [
-                'req_id' => $req_id,
-                'route' => $path,
-                'scope' => $scope,
-                'actor_role' => $actorContext['actor']['role'],
-                'wp_user_id' => $actorContext['actor']['wp_user_id'],
-                'exception_class' => get_class($e),
-                'exception_message' => $e->getMessage(),
-                'exception_file' => $e->getFile(),
-                'exception_line' => $e->getLine(),
-            ]);
 
             if ($this->is_soft_empty_worker_bridge_error($e)) {
-                $this->debug_bridge_log('list.worker_soft_empty_fallback', [
-                    'req_id' => $req_id,
-                    'route' => $path,
-                    'scope' => $scope,
-                    'exception_message' => $e->getMessage(),
-                ]);
 
                 return $this->to_proxy_response([], 200, $req_id);
             }
@@ -184,34 +154,13 @@ class PrescriptionController extends \WP_REST_Controller
             );
         }
 
-        $this->debug_bridge_log('list.worker_response_received', [
-            'req_id' => $req_id,
-            'summary' => $this->debug_payload_summary($workerPayload),
-        ]);
-
         try {
             $rows = $this->extract_worker_rows_from_payload($workerPayload);
-            $this->debug_bridge_log('list.starting_mapping', [
-                'req_id' => $req_id,
-                'row_count' => count($rows),
-            ]);
             $rows = $this->swap_worker_row_ids_with_local_ids($rows, $req_id);
             $rows = $this->sanitize_proxy_rows($rows, $req_id);
         } catch (\Throwable $e) {
-            $this->debug_bridge_log('list.mapping_failed', [
-                'req_id' => $req_id,
-                'exception_class' => get_class($e),
-                'exception_message' => $e->getMessage(),
-                'exception_file' => $e->getFile(),
-                'exception_line' => $e->getLine(),
-            ]);
             $rows = [];
         }
-
-        $this->debug_bridge_log('list.proxy_response_ready', [
-            'req_id' => $req_id,
-            'row_count' => count($rows),
-        ]);
 
         return $this->to_proxy_response($rows, 200, $req_id);
     }
@@ -439,7 +388,6 @@ class PrescriptionController extends \WP_REST_Controller
         ], 200);
     }
 
-
     public function assign(WP_REST_Request $request)
     {
         $id = (int) $request->get_param('id');
@@ -572,7 +520,6 @@ class PrescriptionController extends \WP_REST_Controller
             'pdf' => $pdf,
         ], 200);
     }
-
 
     public function worker_pdf_callback(WP_REST_Request $request)
     {
@@ -729,7 +676,6 @@ class PrescriptionController extends \WP_REST_Controller
         return new WP_REST_Response($response, ($pdf['status'] ?? 'pending') === 'done' ? 200 : 202);
     }
 
-
     /**
      * @return array<string, mixed>
      */
@@ -764,37 +710,6 @@ class PrescriptionController extends \WP_REST_Controller
         }
     }
 
-    protected function debug_bridge_log(string $stage, array $context = []): void
-    {
-        $parts = [];
-        foreach ($context as $key => $value) {
-            if (is_array($value)) {
-                $encoded = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                $parts[] = $key . '=' . (is_string($encoded) && $encoded !== '' ? $encoded : '[array]');
-                continue;
-            }
-
-            if (is_object($value)) {
-                $parts[] = $key . '=[object:' . get_class($value) . ']';
-                continue;
-            }
-
-            if (is_bool($value)) {
-                $parts[] = $key . '=' . ($value ? 'true' : 'false');
-                continue;
-            }
-
-            if ($value === null) {
-                $parts[] = $key . '=null';
-                continue;
-            }
-
-            $parts[] = $key . "=" . str_replace(["\r", "\n"], [" ", " "], (string) $value);
-        }
-
-        error_log('[sosprescription][v1][prescriptions] ' . $stage . ($parts !== [] ? ' | ' . implode(' | ', $parts) : ''));
-    }
-
     protected function is_soft_empty_worker_bridge_error(\Throwable $error): bool
     {
         $message = strtolower(trim($error->getMessage()));
@@ -817,37 +732,6 @@ class PrescriptionController extends \WP_REST_Controller
         return false;
     }
 
-    protected function debug_payload_summary($payload): array
-    {
-        $normalized = $this->normalize_worker_payload($payload);
-        if ($normalized === []) {
-            return [
-                'root_type' => gettype($payload),
-                'empty' => true,
-            ];
-        }
-
-        $summary = [
-            'root_type' => gettype($payload),
-            'keys' => array_slice(array_keys($normalized), 0, 20),
-        ];
-
-        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
-            if (isset($normalized[$key]) && is_array($normalized[$key])) {
-                $summary[$key . '_count'] = count($normalized[$key]);
-            }
-        }
-
-        $data = isset($normalized['data']) ? $this->normalize_worker_payload($normalized['data']) : [];
-        foreach (['rows', 'items', 'prescriptions', 'results'] as $key) {
-            if (isset($data[$key]) && is_array($data[$key])) {
-                $summary['data_' . $key . '_count'] = count($data[$key]);
-            }
-        }
-
-        return $summary;
-    }
-
     protected function sanitize_proxy_rows(array $rows, ?string $reqId = null): array
     {
         $sanitized = [];
@@ -858,14 +742,6 @@ class PrescriptionController extends \WP_REST_Controller
                 }
                 $sanitized[] = $this->sanitize_proxy_value($row);
             } catch (\Throwable $e) {
-                $this->debug_bridge_log('list.sanitize_row_failed', [
-                    'req_id' => $reqId,
-                    'index' => $index,
-                    'exception_class' => get_class($e),
-                    'exception_message' => $e->getMessage(),
-                    'exception_file' => $e->getFile(),
-                    'exception_line' => $e->getLine(),
-                ]);
             }
         }
 
@@ -1335,8 +1211,6 @@ class PrescriptionController extends \WP_REST_Controller
             'pdf' => $pdf,
         ];
     }
-
-
 
     /**
      * @param array<string, mixed> $params
@@ -2128,7 +2002,6 @@ class PrescriptionController extends \WP_REST_Controller
         return [$firstName, $lastName];
     }
 
-
     protected function sanitize_full_name_string(string $value): string
     {
         $clean = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags($value, true)) ?? '');
@@ -2225,21 +2098,11 @@ class PrescriptionController extends \WP_REST_Controller
         $uids = [];
         foreach ($rows as $index => $row) {
             if (!is_array($row)) {
-                $this->debug_bridge_log('list.mapping_item_skipped_non_array', [
-                    'req_id' => $reqId,
-                    'index' => $index,
-                    'value_type' => gettype($row),
-                ]);
                 continue;
             }
 
             $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
             if ($uid === '') {
-                $this->debug_bridge_log('list.mapping_item_skipped_missing_uid', [
-                    'req_id' => $reqId,
-                    'index' => $index,
-                    'keys' => implode(',', array_slice(array_keys($row), 0, 12)),
-                ]);
                 continue;
             }
 
@@ -2249,13 +2112,6 @@ class PrescriptionController extends \WP_REST_Controller
         try {
             $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
         } catch (\Throwable $e) {
-            $this->debug_bridge_log('list.mapping_local_lookup_failed', [
-                'req_id' => $reqId,
-                'exception_class' => get_class($e),
-                'exception_message' => $e->getMessage(),
-                'exception_file' => $e->getFile(),
-                'exception_line' => $e->getLine(),
-            ]);
             $localIdsByUid = [];
         }
 
@@ -2266,13 +2122,6 @@ class PrescriptionController extends \WP_REST_Controller
 
             $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
             $workerId = $this->extract_worker_prescription_id_from_worker_row($row);
-
-            $this->debug_bridge_log('list.mapping_item_start', [
-                'req_id' => $reqId,
-                'index' => $index,
-                'uid' => $uid,
-                'worker_prescription_id' => $workerId,
-            ]);
 
             if ($uid === '') {
                 continue;
@@ -2287,35 +2136,11 @@ class PrescriptionController extends \WP_REST_Controller
                 }
 
                 if (!isset($localIdsByUid[$uid])) {
-                    $this->debug_bridge_log('list.mapping_item_no_local_id', [
-                        'req_id' => $reqId,
-                        'index' => $index,
-                        'uid' => $uid,
-                        'worker_prescription_id' => $workerId,
-                    ]);
                     continue;
                 }
 
                 $rows[$index]['id'] = (int) $localIdsByUid[$uid];
-
-                $this->debug_bridge_log('list.mapping_item_done', [
-                    'req_id' => $reqId,
-                    'index' => $index,
-                    'uid' => $uid,
-                    'local_id' => (int) $localIdsByUid[$uid],
-                    'worker_prescription_id' => $workerId,
-                ]);
             } catch (\Throwable $e) {
-                $this->debug_bridge_log('list.mapping_item_failed', [
-                    'req_id' => $reqId,
-                    'index' => $index,
-                    'uid' => $uid,
-                    'worker_prescription_id' => $workerId,
-                    'exception_class' => get_class($e),
-                    'exception_message' => $e->getMessage(),
-                    'exception_file' => $e->getFile(),
-                    'exception_line' => $e->getLine(),
-                ]);
             }
         }
 
@@ -2415,22 +2240,8 @@ class PrescriptionController extends \WP_REST_Controller
         $inserted = $this->wpdb->insert($table, $data, $formats);
         if ($inserted !== false) {
             $insertId = (int) $this->wpdb->insert_id;
-            $this->debug_bridge_log('list.stub_inserted', [
-                'uid' => $uid,
-                'local_id' => $insertId,
-                'worker_prescription_id' => $workerPrescriptionId,
-                'status' => $status,
-            ]);
             return $insertId;
         }
-
-        $this->debug_bridge_log('list.stub_insert_failed', [
-            'uid' => $uid,
-            'worker_prescription_id' => $workerPrescriptionId,
-            'status' => $status,
-            'db_error' => (string) $this->wpdb->last_error,
-            'db_errno' => isset($this->wpdb->last_errno) ? (string) $this->wpdb->last_errno : '',
-        ]);
 
         $existingId = $this->find_local_prescription_id_by_uid($uid);
         if ($existingId > 0) {
@@ -2724,13 +2535,6 @@ class PrescriptionController extends \WP_REST_Controller
                         $rows[] = $row;
                     }
                 } catch (\Throwable $e) {
-                    $this->debug_bridge_log('list.extract_row_failed', [
-                        'index' => $index,
-                        'exception_class' => get_class($e),
-                        'exception_message' => $e->getMessage(),
-                        'exception_file' => $e->getFile(),
-                        'exception_line' => $e->getLine(),
-                    ]);
                 }
             }
 
@@ -2989,7 +2793,6 @@ class PrescriptionController extends \WP_REST_Controller
         ];
     }
 
-
     protected function format_shadow_phase_error(WP_Error $error): string
     {
         $code = trim((string) $error->get_error_code());
@@ -3009,7 +2812,6 @@ class PrescriptionController extends \WP_REST_Controller
 
         return 'Erreur lors de la synchronisation du shadow record.';
     }
-
 
     protected function raw_unprocessable_response(string $message, string $req_id): WP_REST_Response
     {

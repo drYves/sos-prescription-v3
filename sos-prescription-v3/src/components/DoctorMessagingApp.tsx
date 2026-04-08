@@ -56,6 +56,10 @@ declare global {
 const POLL_VISIBLE_MS = 15000;
 const POLL_HIDDEN_MS = 30000;
 
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ');
+}
+
 function getAppConfig(): AppConfig {
   const cfg = window.SOSPrescription || window.SosPrescription;
   if (!cfg || typeof cfg.restBase !== 'string' || typeof cfg.nonce !== 'string') {
@@ -235,7 +239,7 @@ async function requestArtifactAccess(artifactId: number, prescriptionId: number)
 }
 
 function InlineSpinner() {
-  return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" aria-label="Chargement" />;
+  return <span className="sp-spinner" aria-label="Chargement" />;
 }
 
 function Notice({
@@ -245,16 +249,7 @@ function Notice({
   variant?: 'info' | 'success' | 'warning' | 'error';
   children: React.ReactNode;
 }) {
-  const tone =
-    variant === 'success'
-      ? 'border-green-200 bg-green-50 text-green-900'
-      : variant === 'warning'
-      ? 'border-yellow-200 bg-yellow-50 text-yellow-900'
-      : variant === 'error'
-      ? 'border-red-200 bg-red-50 text-red-900'
-      : 'border-blue-200 bg-blue-50 text-blue-900';
-
-  return <div className={`rounded-2xl border px-4 py-3 text-sm ${tone}`}>{children}</div>;
+  return <div className={cx('sp-alert', `sp-alert--${variant}`)}>{children}</div>;
 }
 
 function threadModeNotice(mode: 'DOCTOR_ONLY' | 'PATIENT_REPLY' | 'READ_ONLY' | ''): string {
@@ -441,16 +436,16 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, [fileIndex, prescriptionId]);
 
   return (
-    <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="sp-thread-shell dc-message-react-panel">
+      <div className="sp-thread-shell__header">
         <div>
-          <div className="text-sm font-semibold text-gray-900">Messagerie patient</div>
-          <div className="text-sm text-gray-600">Échange sécurisé associé à ce dossier.</div>
+          <div className="sp-thread-shell__title">Messagerie patient</div>
+          <div className="sp-thread-shell__subtitle">Échange sécurisé associé à ce dossier.</div>
         </div>
 
         <button
           type="button"
-          className="inline-flex items-center justify-center rounded-2xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="sp-button sp-button--secondary"
           onClick={() => void loadThread(false)}
           disabled={loading}
         >
@@ -463,11 +458,12 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
 
       {loading && messages.length === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <InlineSpinner /> Chargement de la messagerie…
+        <div className="sp-loading-row">
+          <InlineSpinner />
+          <span>Chargement de la messagerie…</span>
         </div>
       ) : messages.length === 0 ? (
-        <Notice variant="info">Aucun message pour le moment.</Notice>
+        <div className="sp-empty-note">Aucun message pour le moment.</div>
       ) : (
         <MessageList
           messages={messages}

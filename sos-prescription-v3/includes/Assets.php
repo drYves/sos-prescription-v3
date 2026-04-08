@@ -39,24 +39,24 @@ final class Assets
 
     public static function enqueue_doctor_console(): void
     {
-        wp_enqueue_style(
-            'sosprescription-ui-kit',
-            SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
-            [],
-            SOSPRESCRIPTION_VERSION
-        );
+        $adminHandle = AssetManager::enqueue_admin_app('sosprescription-doctor-console-root');
 
         wp_enqueue_style(
             'sosprescription-doctor-console',
             SOSPRESCRIPTION_URL . 'assets/doctor-console.css',
-            [],
+            ['sosprescription-ui-kit'],
             SOSPRESCRIPTION_VERSION
         );
+
+        $dependencies = [];
+        if (is_string($adminHandle) && $adminHandle !== '') {
+            $dependencies[] = $adminHandle;
+        }
 
         wp_enqueue_script(
             'sosprescription-doctor-console',
             SOSPRESCRIPTION_URL . 'assets/doctor-console.js',
-            [],
+            $dependencies,
             SOSPRESCRIPTION_VERSION,
             true
         );

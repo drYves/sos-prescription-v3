@@ -350,8 +350,13 @@ function ensureStripeJs(): Promise<void> {
   return stripeScriptPromise;
 }
 
+
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ');
+}
+
 function Spinner({ className = '' }: { className?: string }) {
-  return <span className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent ${className}`} aria-label="Chargement" />;
+  return <span className={cx('sp-spinner', className)} aria-label="Chargement" />;
 }
 
 function Notice({
@@ -363,19 +368,10 @@ function Notice({
   title?: string;
   children: React.ReactNode;
 }) {
-  const tone =
-    variant === 'success'
-      ? 'border-green-200 bg-green-50 text-green-900'
-      : variant === 'warning'
-      ? 'border-yellow-200 bg-yellow-50 text-yellow-900'
-      : variant === 'error'
-      ? 'border-red-200 bg-red-50 text-red-900'
-      : 'border-blue-200 bg-blue-50 text-blue-900';
-
   return (
-    <div className={`rounded-2xl border px-4 py-3 text-sm ${tone}`}>
-      {title ? <div className="font-semibold">{title}</div> : null}
-      <div className={title ? 'mt-1' : undefined}>{children}</div>
+    <div className={cx('sp-alert', `sp-alert--${variant}`)}>
+      {title ? <div className="sp-alert__title">{title}</div> : null}
+      <div className={title ? 'sp-alert__body' : undefined}>{children}</div>
     </div>
   );
 }
@@ -388,16 +384,18 @@ function Button({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger';
 }) {
-  const base = 'inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-  const tone =
+  const classes = cx(
+    'sp-button',
     variant === 'primary'
-      ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
+      ? 'sp-button--primary'
       : variant === 'danger'
-      ? 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500'
-      : 'bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 focus:ring-gray-400';
+      ? 'sp-button--danger'
+      : 'sp-button--secondary',
+    className,
+  );
 
   return (
-    <button className={`${base} ${tone} ${className}`.trim()} {...rest}>
+    <button className={classes} {...rest}>
       {children}
     </button>
   );
@@ -416,14 +414,14 @@ function ButtonLink({
   children: React.ReactNode;
   target?: string;
 }) {
-  const base = 'inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2';
-  const tone =
-    variant === 'primary'
-      ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
-      : 'bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 focus:ring-gray-400';
+  const classes = cx(
+    'sp-button',
+    variant === 'primary' ? 'sp-button--primary' : 'sp-button--secondary',
+    className,
+  );
 
   return (
-    <a className={`${base} ${tone} ${className}`.trim()} href={href} target={target} rel="noopener noreferrer">
+    <a className={classes} href={href} target={target} rel="noopener noreferrer">
       {children}
     </a>
   );
@@ -438,25 +436,24 @@ function StatusTimeline({ status }: { status: string }) {
   ];
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+    <div className="sp-steps">
       {steps.map((step, index) => {
         const reached = index <= currentStep;
         const active = index === currentStep;
+
         return (
-          <div key={step.key} className="flex items-center gap-3">
+          <div key={step.key} className="sp-steps__item">
             <div
               aria-hidden="true"
-              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${
-                reached ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-gray-500'
-              }`}
+              className={cx('sp-steps__badge', reached && 'is-reached', active && 'is-active')}
             >
               {index + 1}
             </div>
-            <div className={`text-sm ${reached ? 'text-gray-900' : 'text-gray-400'}${active ? ' font-semibold' : ''}`}>
+            <div className={cx('sp-steps__label', reached && 'is-reached', active && 'is-active')}>
               {step.label}
             </div>
             {index < steps.length - 1 ? (
-              <div className={`hidden h-px w-10 sm:block ${index < currentStep ? 'bg-blue-600' : 'bg-gray-200'}`} aria-hidden="true" />
+              <div className={cx('sp-steps__divider', index < currentStep && 'is-reached')} aria-hidden="true" />
             ) : null}
           </div>
         );
@@ -600,30 +597,34 @@ function PaymentCard({
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="mb-2 text-sm font-semibold text-gray-900">Paiement sécurisé</div>
-      <div className="mb-3 text-sm text-gray-700">
-        Montant : <span className="font-semibold">{formatMoney(amountCents, currency)}</span>
+    <div className="sp-card sp-payment-card">
+      <div className="sp-section__title">Paiement sécurisé</div>
+      <div className="sp-payment-card__summary">
+        Montant : <span className="sp-text-strong">{formatMoney(amountCents, currency)}</span>
       </div>
+
       {error ? (
-        <div className="mb-3">
+        <div className="sp-inline-note">
           <Notice variant="error">{error}</Notice>
         </div>
       ) : null}
-      <div className="rounded-2xl border border-gray-300 bg-white p-3">
+
+      <div className="sp-payment-card__mount">
         {initializing ? (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Spinner /> Initialisation…
+          <div className="sp-loading-row">
+            <Spinner />
+            <span>Initialisation…</span>
           </div>
         ) : (
           <div ref={mountRef} />
         )}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+
+      <div className="sp-payment-card__footer">
         <Button type="button" onClick={handleSubmit} disabled={initializing || submitting}>
           {submitting ? <Spinner /> : 'Autoriser le paiement'}
         </Button>
-        {paymentIntentId ? <div className="text-xs text-gray-500">Intent : {paymentIntentId}</div> : null}
+        {paymentIntentId ? <div className="sp-payment-card__intent">Intent : {paymentIntentId}</div> : null}
       </div>
     </div>
   );
@@ -639,10 +640,12 @@ function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
 
   if (canDownload) {
     return (
-      <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-        <div className="text-sm font-semibold text-green-900">Ordonnance</div>
-        <div className="mt-1 text-sm text-green-800">Votre ordonnance est prête. Le lien est sécurisé et régénéré automatiquement.</div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="sp-alert sp-alert--success">
+        <div className="sp-alert__title">Ordonnance</div>
+        <div className="sp-alert__body">
+          Votre ordonnance est prête. Le lien est sécurisé et régénéré automatiquement.
+        </div>
+        <div className="sp-inline-actions">
           <Button type="button" onClick={() => openPresignedPdf(downloadUrl)}>
             Télécharger mon ordonnance
           </Button>
@@ -672,7 +675,7 @@ function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
 
   return (
     <Notice variant="info" title="Ordonnance">
-      <div className="flex items-center gap-2">
+      <div className="sp-loading-row">
         <Spinner />
         <span>{pdf?.message || 'Ordonnance validée — génération du PDF en cours.'}</span>
       </div>
@@ -894,186 +897,207 @@ export default function PatientConsole() {
 
   if (!isLoggedIn) {
     return (
-      <div className="mx-auto max-w-3xl p-4">
+      <div className="sp-page-shell sp-page-shell--narrow">
         <Notice variant="warning">Connexion requise. Merci de vous connecter pour accéder à votre espace patient.</Notice>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-4">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xl font-semibold text-gray-900">Espace patient</div>
-          <div className="text-sm text-gray-600">Suivi de vos demandes • messagerie asynchrone</div>
+    <div className="sp-page-shell">
+      <div className="sp-page-header">
+        <div className="sp-page-heading">
+          <div className="sp-page-title">Espace patient</div>
+          <div className="sp-page-subtitle">Suivi de vos demandes • messagerie asynchrone</div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="secondary" onClick={() => void refreshAll()} disabled={listLoading}>
-            {listLoading ? <Spinner /> : 'Rafraîchir'}
+
+        <div className="sp-page-actions">
+          <Button
+            type="button" 
+            variant="secondary"
+            onClick={() => void refreshAll()}
+            disabled={listLoading || detailLoading || messagesLoading}
+          >
+            {listLoading || detailLoading || messagesLoading ? <Spinner /> : 'Actualiser'}
           </Button>
         </div>
       </div>
 
       {error ? (
-        <div className="mb-4">
+        <div className="sp-inline-note">
           <Notice variant="error">{error}</Notice>
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <div className="rounded-2xl border border-gray-200 bg-white">
-            <div className="border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900">Mes demandes</div>
-            <div className="max-h-[560px] overflow-auto">
+      <div className="sp-console-grid">
+        <aside className="sp-console-grid__sidebar">
+          <div className="sp-panel">
+            <div className="sp-panel__header">
+              <div className="sp-panel__title">Mes demandes</div>
+            </div>
+            <div className="sp-panel__body">
               {prescriptions.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-gray-600">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
-              ) : null}
+                <div className="sp-panel__empty">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
+              ) : (
+                <div className="sp-list">
+                  {prescriptions.map((row) => {
+                    const info = statusInfo(row.status);
+                    const selected = Number(row.id) === Number(selectedId);
 
-              {prescriptions.map((row) => {
-                const info = statusInfo(row.status);
-                const selected = Number(selectedId) === Number(row.id);
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={`block w-full border-b border-gray-100 px-4 py-3 text-left hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}
-                    onClick={() => setSelectedId(row.id)}
-                  >
-                    <div className="text-sm font-semibold text-gray-900">{row.uid}</div>
-                    <div className="mt-1 text-xs text-gray-600">{info.label}</div>
-                    <div className="mt-1 text-xs text-gray-500">{row.created_at}</div>
-                  </button>
-                );
-              })}
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        className={cx('sp-list-item', 'sp-list-item--button', selected && 'is-selected')}
+                        onClick={() => setSelectedId(Number(row.id))}
+                      >
+                        <div className="sp-list-item__title">{row.uid}</div>
+                        <div className="sp-list-item__meta">{info.label}</div>
+                        <div className="sp-list-item__submeta">{row.created_at}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </aside>
 
-        <div className="lg:col-span-2">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            {!selectedId ? <div className="text-sm text-gray-600">Sélectionnez une demande à gauche.</div> : null}
+        <section className="sp-console-grid__content">
+          <div className="sp-panel">
+            <div className="sp-panel__body">
+              {!selectedId ? <div className="sp-panel__empty">Sélectionnez une demande à gauche.</div> : null}
 
-            {selectedId && detailLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Spinner /> Chargement…
-              </div>
-            ) : null}
-
-            {selectedId && detail ? (
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-lg font-semibold text-gray-900">Demande {detail.uid}</div>
-                  </div>
+              {selectedId && detailLoading ? (
+                <div className="sp-loading-row">
+                  <Spinner />
+                  <span>Chargement…</span>
                 </div>
+              ) : null}
 
-                <Notice variant={statusInfo(detail.status).variant}>
-                  <div className="flex flex-col gap-3">
-                    <StatusTimeline status={detail.status} />
-                    <div>
-                      <div className="font-semibold">{statusInfo(detail.status).label}</div>
-                      {statusInfo(detail.status).hint ? <div className="mt-1">{statusInfo(detail.status).hint}</div> : null}
-                    </div>
+              {selectedId && detail ? (
+                <div className="sp-detail-stack">
+                  <div className="sp-page-heading">
+                    <div className="sp-page-title sp-page-title--section">Demande {detail.uid}</div>
                   </div>
-                </Notice>
 
-                <PdfCard status={detail.status} pdf={selectedPdf} />
-
-                {detail.status === 'payment_pending' ? (
-                  <PaymentCard
-                    prescriptionId={detail.id}
-                    priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
-                    onPaid={() => {
-                      void loadDetail(detail.id);
-                      void refreshList();
-                    }}
-                  />
-                ) : null}
-
-                {detail.status === 'rejected' && detail.decision_reason ? (
-                  <Notice variant="error" title="Motif">
-                    <div className="whitespace-pre-wrap">{detail.decision_reason}</div>
+                  <Notice variant={statusInfo(detail.status).variant}>
+                    <div className="sp-stack">
+                      <StatusTimeline status={detail.status} />
+                      <div>
+                        <div className="sp-text-strong">{statusInfo(detail.status).label}</div>
+                        {statusInfo(detail.status).hint ? (
+                          <div className="sp-text-subtle sp-top-gap-xs">{statusInfo(detail.status).hint}</div>
+                        ) : null}
+                      </div>
+                    </div>
                   </Notice>
-                ) : null}
 
-                <div>
-                  <div className="mb-2 text-sm font-semibold text-gray-900">Documents</div>
-                  {(detail.files || []).length === 0 ? (
-                    <div className="text-sm text-gray-600">Aucun document pour le moment.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {(detail.files || []).map((file) => (
-                        <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-gray-900">{file.original_name}</div>
-                            <div className="text-xs text-gray-600">
-                              {filePurposeLabel(file.purpose)} • {file.mime || 'application/octet-stream'} • {Math.round((file.size_bytes || 0) / 1024)} Ko
+                  <PdfCard status={detail.status} pdf={selectedPdf} />
+
+                  {detail.status === 'payment_pending' ? (
+                    <PaymentCard
+                      prescriptionId={detail.id}
+                      priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
+                      onPaid={() => {
+                        void loadDetail(detail.id);
+                        void refreshList();
+                      }}
+                    />
+                  ) : null}
+
+                  {detail.status === 'rejected' && detail.decision_reason ? (
+                    <Notice variant="error" title="Motif">
+                      <div className="sp-prewrap">{detail.decision_reason}</div>
+                    </Notice>
+                  ) : null}
+
+                  <div className="sp-section">
+                    <div className="sp-section__title">Documents</div>
+                    {(detail.files || []).length === 0 ? (
+                      <div className="sp-empty-note">Aucun document pour le moment.</div>
+                    ) : (
+                      <div className="sp-stack sp-stack--compact">
+                        {(detail.files || []).map((file) => (
+                          <div key={file.id} className="sp-inline-card">
+                            <div className="sp-inline-card__row">
+                              <div className="sp-inline-card__content">
+                                <div className="sp-inline-card__title sp-truncate">{file.original_name}</div>
+                                <div className="sp-inline-card__meta">
+                                  {filePurposeLabel(file.purpose)} • {file.mime || 'application/octet-stream'} • {Math.round((file.size_bytes || 0) / 1024)} Ko
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}
+                              >
+                                Télécharger
+                              </Button>
                             </div>
                           </div>
-                          <Button type="button" variant="secondary" onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}>
-                            Télécharger
-                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="sp-section">
+                    <div className="sp-section__title">Médicaments</div>
+                    <div className="sp-stack sp-stack--compact">
+                      {detail.items.map((item, index) => (
+                        <div key={`${item.denomination}-${index}`} className="sp-inline-card">
+                          <div className="sp-inline-card__title">{item.denomination}</div>
+                          {item.posologie ? <div className="sp-inline-card__meta">Posologie : {item.posologie}</div> : null}
+                          {item.quantite ? <div className="sp-inline-card__meta">Quantité : {item.quantite}</div> : null}
                         </div>
                       ))}
+                      {detail.items.length === 0 ? <div className="sp-empty-note">—</div> : null}
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <div>
-                  <div className="mb-2 text-sm font-semibold text-gray-900">Médicaments</div>
-                  <div className="space-y-2">
-                    {detail.items.map((item, index) => (
-                      <div key={`${item.denomination}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
-                        <div className="text-sm font-semibold text-gray-900">{item.denomination}</div>
-                        {item.posologie ? <div className="mt-1 text-sm text-gray-700">Posologie : {item.posologie}</div> : null}
-                        {item.quantite ? <div className="mt-1 text-sm text-gray-700">Quantité : {item.quantite}</div> : null}
+                  <div className="sp-section">
+                    <div className="sp-section__title">Messagerie</div>
+                    {messagesLoading ? (
+                      <div className="sp-loading-row">
+                        <Spinner />
+                        <span>Chargement…</span>
                       </div>
-                    ))}
-                    {detail.items.length === 0 ? <div className="text-sm text-gray-600">—</div> : null}
+                    ) : messages.length === 0 ? (
+                      <div className="sp-empty-note">
+                        Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment.
+                      </div>
+                    ) : (
+                      <MessageList
+                        messages={messages}
+                        viewerRole="PATIENT"
+                        fileIndex={fileIndex}
+                        onDownloadFile={handleMessageAttachmentDownload}
+                      />
+                    )}
+
+                    {detail.status !== 'approved' && detail.status !== 'rejected' ? (
+                      <div className="sp-top-gap">
+                        <MessageInput
+                          prescriptionId={detail.id}
+                          viewerRole="PATIENT"
+                          uploadFile={uploadPatientFile}
+                          postMessage={postPatientMessage}
+                          onUploadsRegistered={registerUploadedFiles}
+                          onMessageCreated={handleMessageCreated}
+                          onSurfaceError={setError}
+                        />
+                      </div>
+                    ) : (
+                      <div className="sp-top-gap">
+                        <Notice variant="info">La messagerie est en lecture seule pour cette demande.</Notice>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div>
-                  <div className="mb-2 text-sm font-semibold text-gray-900">Messagerie</div>
-                  {messagesLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Spinner /> Chargement…
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-                      Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment.
-                    </div>
-                  ) : (
-                    <MessageList
-                      messages={messages}
-                      viewerRole="PATIENT"
-                      fileIndex={fileIndex}
-                      onDownloadFile={handleMessageAttachmentDownload}
-                    />
-                  )}
-
-                  {detail.status !== 'approved' && detail.status !== 'rejected' ? (
-                    <div className="mt-4">
-                      <MessageInput
-                        prescriptionId={detail.id}
-                        viewerRole="PATIENT"
-                        uploadFile={uploadPatientFile}
-                        postMessage={postPatientMessage}
-                        onUploadsRegistered={registerUploadedFiles}
-                        onMessageCreated={handleMessageCreated}
-                        onSurfaceError={setError}
-                      />
-                    </div>
-                  ) : (
-                    <div className="mt-4">
-                      <Notice variant="info">La messagerie est en lecture seule pour cette demande.</Notice>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
