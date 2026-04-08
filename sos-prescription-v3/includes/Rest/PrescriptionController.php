@@ -142,23 +142,16 @@ class PrescriptionController extends \WP_REST_Controller
                     'action' => 'list',
                     'actor_role' => $actorContext['actor']['role'],
                     'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                    'bridge_error' => $e->getMessage(),
+                    'bridge_exception_class' => get_class($e),
                 ],
                 'prescriptions_v1.list.proxy_failed'
             );
         }
 
-        $rows = [];
-        if (isset($workerPayload['rows']) && is_array($workerPayload['rows'])) {
-            foreach ($workerPayload['rows'] as $row) {
-                if (is_array($row)) {
-                    $rows[] = $row;
-                }
-            }
-        }
+        $rows = $this->swap_worker_row_ids_with_local_ids($this->extract_worker_rows_from_payload($workerPayload));
 
-        $rows = $this->swap_worker_row_ids_with_local_ids($rows);
-
-        return rest_ensure_response($rows);
+        return $this->to_proxy_response($rows, 200, $req_id);
     }
 
     public function get_one(WP_REST_Request $request)
@@ -194,6 +187,8 @@ class PrescriptionController extends \WP_REST_Controller
                     'local_id' => $id,
                     'actor_role' => $actorContext['actor']['role'],
                     'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                    'bridge_error' => $e->getMessage(),
+                    'bridge_exception_class' => get_class($e),
                 ],
                 'prescriptions_v1.get_one.resolve_failed'
             );
@@ -231,14 +226,14 @@ class PrescriptionController extends \WP_REST_Controller
                     'worker_prescription_id' => $workerPrescriptionId,
                     'actor_role' => $actorContext['actor']['role'],
                     'wp_user_id' => $actorContext['actor']['wp_user_id'],
+                    'bridge_error' => $e->getMessage(),
+                    'bridge_exception_class' => get_class($e),
                 ],
                 'prescriptions_v1.get_one.proxy_failed'
             );
         }
 
-        $row = isset($workerPayload['prescription']) && is_array($workerPayload['prescription'])
-            ? $workerPayload['prescription']
-            : null;
+        $row = $this->extract_worker_prescription_from_payload($workerPayload);
 
         if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
@@ -246,7 +241,7 @@ class PrescriptionController extends \WP_REST_Controller
 
         $row['id'] = $id;
 
-        return rest_ensure_response($row);
+        return $this->to_proxy_response($row, 200, $req_id);
     }
 
     public function update_item($request)
@@ -1477,7 +1472,8 @@ class PrescriptionController extends \WP_REST_Controller
             }
         }
 
-        $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        $payloadNode = $this->normalize_worker_payload($payload['payload'] ?? []);
+        $worker = $this->normalize_worker_payload($payloadNode['worker'] ?? ($payload['worker'] ?? []));
         return $worker;
     }
 
@@ -2111,8 +2107,9 @@ class PrescriptionController extends \WP_REST_Controller
             return $candidate;
         }
 
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-        $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        $payload = $this->normalize_worker_payload($row['payload'] ?? []);
+        $payloadNode = $this->normalize_worker_payload($payload['payload'] ?? []);
+        $worker = $this->normalize_worker_payload($payloadNode['worker'] ?? ($payload['worker'] ?? []));
         $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
             ? trim((string) $worker['prescription_id'])
             : '';
@@ -2319,7 +2316,7 @@ class PrescriptionController extends \WP_REST_Controller
                 $scope
             );
 
-            $rows = isset($workerPayload['rows']) && is_array($workerPayload['rows']) ? $workerPayload['rows'] : [];
+            $rows = $this->extract_worker_rows_from_payload($workerPayload);
             if ($rows === []) {
                 return '';
             }
@@ -2333,16 +2330,7 @@ class PrescriptionController extends \WP_REST_Controller
                     continue;
                 }
 
-                $candidate = isset($row['id']) && is_scalar($row['id']) ? trim((string) $row['id']) : '';
-                if ($this->is_valid_worker_prescription_id($candidate)) {
-                    return $candidate;
-                }
-
-                $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-                $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
-                $candidate = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
-                    ? trim((string) $worker['prescription_id'])
-                    : '';
+                $candidate = $this->extract_worker_prescription_id_from_worker_row($row);
                 if ($this->is_valid_worker_prescription_id($candidate)) {
                     return $candidate;
                 }
@@ -2356,6 +2344,152 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return '';
+    }
+
+    /**
+     * @param mixed $payload
+     * @return array<string, mixed>
+     */
+    protected function normalize_worker_payload($payload): array
+    {
+        if (is_array($payload)) {
+            $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            return $payload;
+        }
+
+        if (is_object($payload)) {
+            $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        if (is_string($payload)) {
+            $trimmed = trim($payload);
+            if ($trimmed !== '' && ($trimmed[0] === '{' || $trimmed[0] === '[')) {
+                $decoded = json_decode($trimmed, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param mixed $payload
+     * @return array<int, array<string, mixed>>
+     */
+    protected function extract_worker_rows_from_payload($payload): array
+    {
+        $normalized = $this->normalize_worker_payload($payload);
+        $candidates = [];
+
+        if (isset($normalized['rows'])) {
+            $candidates[] = $normalized['rows'];
+        }
+
+        $data = isset($normalized['data']) ? $this->normalize_worker_payload($normalized['data']) : [];
+        if (isset($data['rows'])) {
+            $candidates[] = $data['rows'];
+        }
+
+        if (array_is_list($normalized)) {
+            $candidates[] = $normalized;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $rows = [];
+            foreach ($candidate as $row) {
+                $normalizedRow = $this->normalize_worker_payload($row);
+                if ($normalizedRow !== []) {
+                    $rows[] = $normalizedRow;
+                }
+            }
+
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param mixed $payload
+     * @return array<string, mixed>|null
+     */
+    protected function extract_worker_prescription_from_payload($payload): ?array
+    {
+        $normalized = $this->normalize_worker_payload($payload);
+        $candidates = [];
+
+        if (isset($normalized['prescription'])) {
+            $candidates[] = $normalized['prescription'];
+        }
+
+        $data = isset($normalized['data']) ? $this->normalize_worker_payload($normalized['data']) : [];
+        if (isset($data['prescription'])) {
+            $candidates[] = $data['prescription'];
+        }
+
+        $payloadNode = isset($normalized['payload']) ? $this->normalize_worker_payload($normalized['payload']) : [];
+        if (isset($payloadNode['prescription'])) {
+            $candidates[] = $payloadNode['prescription'];
+        }
+
+        $candidates[] = $normalized;
+
+        foreach ($candidates as $candidate) {
+            $normalizedCandidate = $this->normalize_worker_payload($candidate);
+            if ($normalizedCandidate === []) {
+                continue;
+            }
+
+            if (isset($normalizedCandidate['uid']) || isset($normalizedCandidate['status']) || isset($normalizedCandidate['worker'])) {
+                return $normalizedCandidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $payload
+     */
+    protected function to_proxy_response($payload, int $status, string $reqId): WP_REST_Response
+    {
+        $normalized = is_array($payload) ? $payload : [];
+        $isList = array_is_list($normalized);
+
+        if (!$isList) {
+            if (!isset($normalized['req_id']) || !is_scalar($normalized['req_id']) || trim((string) $normalized['req_id']) === '') {
+                $normalized['req_id'] = $reqId;
+            }
+        }
+
+        $response = new WP_REST_Response($normalized, $status);
+        $response->header('X-SOSPrescription-Request-ID', $isList ? $reqId : (string) $normalized['req_id']);
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate');
+        $response->header('Pragma', 'no-cache');
+        $response->header('Expires', '0');
+
+        return $response;
     }
 
     protected function get_worker_api_client(): WorkerApiClient

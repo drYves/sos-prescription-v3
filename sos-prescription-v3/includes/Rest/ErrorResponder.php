@@ -121,6 +121,8 @@ final class ErrorResponder
             [
                 'public_code' => $mapped['code'],
                 'public_status' => $mapped['status'],
+                'exception_class' => get_class($error),
+                'exception_message' => trim($error->getMessage()),
             ],
             $context
         );
@@ -134,13 +136,24 @@ final class ErrorResponder
 
         self::logger()->error($event ?: 'rest.worker_bridge_error', $context, $reqId, $error);
 
+        $errorData = [
+            'status' => $mapped['status'],
+            'req_id' => $reqId,
+            'error_data' => [
+                'bridge_exception' => trim($error->getMessage()),
+            ],
+        ];
+        if ($mapped['worker_http_status'] !== null) {
+            $errorData['error_data']['worker_http_status'] = $mapped['worker_http_status'];
+        }
+        if ($mapped['worker_code'] !== null) {
+            $errorData['error_data']['worker_code'] = $mapped['worker_code'];
+        }
+
         return new WP_Error(
             $mapped['code'],
             $mapped['message'],
-            [
-                'status' => $mapped['status'],
-                'req_id' => $reqId,
-            ]
+            $errorData
         );
     }
 
@@ -187,6 +200,7 @@ final class ErrorResponder
                 'message' => $message,
                 'req_id' => self::extract_req_id($error->get_error_data()),
                 'retry_after' => self::extract_retry_after($error->get_error_data()),
+                'error_data' => self::extract_error_data($error->get_error_data()),
             ],
             $status
         );
@@ -221,6 +235,11 @@ final class ErrorResponder
         $retryAfter = isset($payload['retry_after']) ? self::extract_retry_after($payload) : null;
         if ($retryAfter !== null) {
             $body['retry_after'] = $retryAfter;
+        }
+
+        $errorData = isset($payload['error_data']) ? self::extract_error_data($payload) : [];
+        if ($errorData !== []) {
+            $body['error_data'] = $errorData;
         }
 
         return $body;
@@ -424,6 +443,28 @@ final class ErrorResponder
         }
 
         return 500;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function extract_error_data(mixed $data): array
+    {
+        if (!is_array($data) || !isset($data['error_data']) || !is_array($data['error_data'])) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($data['error_data'] as $key => $value) {
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+            if (is_scalar($value) || $value === null) {
+                $out[$key] = $value;
+            }
+        }
+
+        return $out;
     }
 
     private static function extract_req_id(mixed $data): string

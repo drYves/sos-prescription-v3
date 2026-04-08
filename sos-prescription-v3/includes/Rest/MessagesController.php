@@ -8,6 +8,7 @@ use SOSPrescription\Core\ReqId;
 use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\AccessPolicy;
 use SosPrescription\Services\Audit;
+use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
@@ -128,6 +129,7 @@ final class MessagesController extends \WP_REST_Controller
                 $reqId,
                 'messages_query'
             );
+            $result = $this->normalize_worker_payload($result);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -142,6 +144,7 @@ final class MessagesController extends \WP_REST_Controller
                     'worker_prescription_id' => $workerPrescriptionId,
                     'after_seq' => $afterSeq,
                     'limit' => $limit,
+                    'exception_message' => $e->getMessage(),
                 ],
                 'messages.query_failed'
             );
@@ -209,6 +212,7 @@ final class MessagesController extends \WP_REST_Controller
                 $reqId,
                 'messages_create'
             );
+            $result = $this->normalize_worker_payload($result);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -222,6 +226,7 @@ final class MessagesController extends \WP_REST_Controller
                     'local_prescription_id' => $localId,
                     'worker_prescription_id' => $workerPrescriptionId,
                     'attachments_count' => count($attachmentIds),
+                    'exception_message' => $e->getMessage(),
                 ],
                 'messages.create_failed'
             );
@@ -274,6 +279,7 @@ final class MessagesController extends \WP_REST_Controller
                 $reqId,
                 'messages_read'
             );
+            $result = $this->normalize_worker_payload($result);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -287,6 +293,7 @@ final class MessagesController extends \WP_REST_Controller
                     'local_prescription_id' => $localId,
                     'worker_prescription_id' => $workerPrescriptionId,
                     'read_upto_seq' => $readUptoSeq,
+                    'exception_message' => $e->getMessage(),
                 ],
                 'messages.read_failed'
             );
@@ -326,7 +333,12 @@ final class MessagesController extends \WP_REST_Controller
             }
         }
 
+        $payloadRoot = isset($payload['payload']) && is_array($payload['payload']) ? $payload['payload'] : [];
         $worker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
+        if ($worker === [] && isset($payloadRoot['worker']) && is_array($payloadRoot['worker'])) {
+            $worker = $payloadRoot['worker'];
+        }
+
         $prescriptionId = isset($worker['prescription_id']) && is_scalar($worker['prescription_id']) ? trim((string) $worker['prescription_id']) : '';
         if ($prescriptionId !== '') {
             return $prescriptionId;
@@ -348,7 +360,12 @@ final class MessagesController extends \WP_REST_Controller
             }
         }
 
+        $payloadRoot = isset($payload['payload']) && is_array($payload['payload']) ? $payload['payload'] : [];
         $shadow = isset($payload['shadow']) && is_array($payload['shadow']) ? $payload['shadow'] : [];
+        if ($shadow === [] && isset($payloadRoot['shadow']) && is_array($payloadRoot['shadow'])) {
+            $shadow = $payloadRoot['shadow'];
+        }
+
         $thread = isset($shadow['worker_thread']) && is_array($shadow['worker_thread']) ? $shadow['worker_thread'] : [];
         return isset($thread['last_message_seq']) && is_numeric($thread['last_message_seq']) ? max(0, (int) $thread['last_message_seq']) : 0;
     }
@@ -426,15 +443,80 @@ final class MessagesController extends \WP_REST_Controller
             return $this->workerApiClient;
         }
 
-        $this->workerApiClient = WorkerApiClient::fromEnv(new NdjsonLogger('web'));
+        $siteId = $this->get_env_or_constant('ML_SITE_ID', 'mls1');
+        $env = $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod');
+        $logger = new NdjsonLogger('web', $siteId !== '' ? $siteId : null, $env !== '' ? $env : null);
+        $this->workerApiClient = WorkerApiClient::fromEnv($logger, $siteId !== '' ? $siteId : null);
+
         return $this->workerApiClient;
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
      */
-    private function to_rest_response(array $payload, int $status, string $reqId): WP_REST_Response
+    private function normalize_worker_payload(mixed $payload): array
     {
+        if (is_array($payload)) {
+            $encoded = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            return $payload;
+        }
+
+        if (is_object($payload)) {
+            $encoded = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (is_string($encoded) && $encoded !== '') {
+                $decoded = json_decode($encoded, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        if (is_string($payload)) {
+            $trimmed = trim($payload);
+            if ($trimmed !== '') {
+                $decoded = json_decode($trimmed, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private function get_env_or_constant(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
+            if (is_scalar($value) && (string) $value !== '') {
+                return (string) $value;
+            }
+        }
+
+        $env = getenv($name);
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param mixed $payload
+     */
+    private function to_rest_response(mixed $payload, int $status, string $reqId): WP_REST_Response
+    {
+        $payload = $this->normalize_worker_payload($payload);
         if (!isset($payload['req_id']) || !is_scalar($payload['req_id']) || trim((string) $payload['req_id']) === '') {
             $payload['req_id'] = $reqId;
         }

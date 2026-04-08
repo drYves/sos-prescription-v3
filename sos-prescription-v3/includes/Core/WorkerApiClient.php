@@ -10,6 +10,7 @@ final class WorkerApiClient
 {
     private const CURRENT_SCHEMA_VERSION = '2026.6';
     private const DEFAULT_TIMEOUT_S = 30;
+    private const MIN_TIMEOUT_S = 20;
 
     private string $workerBaseUrl;
     private int $timeoutS;
@@ -26,7 +27,9 @@ final class WorkerApiClient
     ) {
         $resolvedBaseUrl = trim((string) ($workerBaseUrl !== null ? $workerBaseUrl : self::readConfigString('ML_WORKER_BASE_URL')));
         $this->workerBaseUrl = rtrim($resolvedBaseUrl, '/');
-        $this->timeoutS = max(2, (int) ($timeoutS ?? (int) self::readConfigString('ML_WORKER_INGEST_TIMEOUT_S', (string) self::DEFAULT_TIMEOUT_S)));
+
+        $resolvedTimeout = $timeoutS ?? self::readTimeoutConfig();
+        $this->timeoutS = max(self::MIN_TIMEOUT_S, $resolvedTimeout > 0 ? (int) $resolvedTimeout : self::DEFAULT_TIMEOUT_S);
 
         $previous = trim((string) ($hmacSecretPrevious !== null ? $hmacSecretPrevious : self::readConfigString('ML_HMAC_SECRET_PREVIOUS')));
         $this->hmacSecretPrevious = $previous !== '' ? $previous : null;
@@ -47,7 +50,7 @@ final class WorkerApiClient
 
         $kid = self::readConfigString('ML_HMAC_KID');
         $workerBaseUrl = self::readConfigString('ML_WORKER_BASE_URL');
-        $timeoutS = (int) self::readConfigString('ML_WORKER_INGEST_TIMEOUT_S', (string) self::DEFAULT_TIMEOUT_S);
+        $timeoutS = self::readTimeoutConfig();
         $previous = self::readConfigString('ML_HMAC_SECRET_PREVIOUS');
 
         return new self(
@@ -56,7 +59,7 @@ final class WorkerApiClient
             $secret,
             $kid !== '' ? $kid : null,
             $workerBaseUrl !== '' ? $workerBaseUrl : null,
-            $timeoutS > 0 ? $timeoutS : self::DEFAULT_TIMEOUT_S,
+            $timeoutS,
             $previous !== '' ? $previous : null
         );
     }
@@ -140,6 +143,16 @@ final class WorkerApiClient
         return $default;
     }
 
+    private static function readTimeoutConfig(): int
+    {
+        $timeout = (int) self::readConfigString('ML_WORKER_HTTP_TIMEOUT_S', '0');
+        if ($timeout <= 0) {
+            $timeout = (int) self::readConfigString('ML_WORKER_INGEST_TIMEOUT_S', (string) self::DEFAULT_TIMEOUT_S);
+        }
+
+        return max(self::MIN_TIMEOUT_S, $timeout > 0 ? $timeout : self::DEFAULT_TIMEOUT_S);
+    }
+
     /**
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
@@ -205,28 +218,52 @@ final class WorkerApiClient
     private function decodeWorkerResponse($response, string $normalizedPath, string $reqId, string $scope): array
     {
         if (is_wp_error($response)) {
-            $errMsg = $response->get_error_message();
+            $errCode = (string) $response->get_error_code();
+            $errMsg = trim((string) $response->get_error_message());
             $this->logger->error('worker.bridge.http_error', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
-                'error_code' => $response->get_error_code(),
+                'error_code' => $errCode,
                 'error_message' => $errMsg,
+                'timeout_s' => $this->timeoutS,
             ], $reqId);
-            throw new RuntimeException('Requête bloquée par WordPress : ' . $errMsg);
+            throw new RuntimeException(sprintf(
+                'Requête bloquée par WordPress : [%s] %s',
+                $errCode !== '' ? $errCode : 'wp_http_error',
+                $errMsg !== '' ? $errMsg : 'unknown error'
+            ));
         }
 
         $status = (int) wp_remote_retrieve_response_code($response);
-        $body = (string) wp_remote_retrieve_body($response);
+        $rawBody = (string) wp_remote_retrieve_body($response);
+        $body = $this->sanitizeJsonBody($rawBody);
         $responseHeaders = wp_remote_retrieve_headers($response);
+        $contentType = (string) ($this->getHeaderValue($responseHeaders, 'content-type') ?? '');
 
         $sigHeader = $this->getHeaderValue($responseHeaders, 'x-medlab-signature');
-        if (!$this->verifyMls1SignedBody($sigHeader, $body)) {
+        if (!$this->verifyMls1SignedBody($sigHeader, $rawBody)) {
             $this->logger->error('worker.bridge.bad_signature', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
                 'http_status' => $status,
+                'content_type' => $contentType,
+                'response_bytes' => strlen($rawBody),
+                'response_sha256' => hash('sha256', $rawBody),
+                'response_prefix_hex' => bin2hex(substr($rawBody, 0, 16)),
             ], $reqId);
             throw new RuntimeException('Invalid Worker response signature');
+        }
+
+        if ($body === '') {
+            $this->logger->error('worker.bridge.empty_body', [
+                'scope' => $scope,
+                'path' => $normalizedPath,
+                'http_status' => $status,
+                'content_type' => $contentType,
+                'response_bytes' => strlen($rawBody),
+                'response_sha256' => hash('sha256', $rawBody),
+            ], $reqId);
+            throw new RuntimeException(sprintf('Empty Worker response body (HTTP %d)', $status));
         }
 
         $decoded = json_decode($body, true);
@@ -235,8 +272,13 @@ final class WorkerApiClient
                 'scope' => $scope,
                 'path' => $normalizedPath,
                 'http_status' => $status,
+                'content_type' => $contentType,
+                'json_error' => json_last_error_msg(),
+                'response_bytes' => strlen($rawBody),
+                'response_sha256' => hash('sha256', $rawBody),
+                'response_prefix_hex' => bin2hex(substr($rawBody, 0, 32)),
             ], $reqId);
-            throw new RuntimeException('Invalid Worker JSON response');
+            throw new RuntimeException('Invalid Worker JSON response: ' . json_last_error_msg());
         }
 
         if (!isset($decoded['req_id']) || !is_scalar($decoded['req_id']) || trim((string) $decoded['req_id']) === '') {
@@ -244,21 +286,32 @@ final class WorkerApiClient
         }
 
         if ($status < 200 || $status >= 300 || (array_key_exists('ok', $decoded) && $decoded['ok'] !== true)) {
-            $code = isset($decoded['code']) && is_scalar($decoded['code']) ? (string) $decoded['code'] : 'ML_WORKER_REJECTED';
-            $msg = isset($decoded['message']) && is_scalar($decoded['message']) ? (string) $decoded['message'] : 'Rejeté';
+            $code = isset($decoded['code']) && is_scalar($decoded['code']) ? trim((string) $decoded['code']) : 'ML_WORKER_REJECTED';
+            $msg = isset($decoded['message']) && is_scalar($decoded['message']) ? trim((string) $decoded['message']) : '';
+            if ($msg === '') {
+                $msg = $status >= 500 ? 'Erreur Worker' : 'Rejeté';
+            }
+
             $this->logger->error('worker.bridge.rejected', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
                 'http_status' => $status,
                 'error_code' => $code,
+                'error_message' => $msg,
+                'content_type' => $contentType,
+                'response_bytes' => strlen($rawBody),
+                'response_sha256' => hash('sha256', $rawBody),
             ], $reqId);
-            throw new RuntimeException(sprintf('Worker HTTP %d : %s (%s)', $status, $msg, $code));
+            throw new RuntimeException(sprintf('Worker HTTP %d : %s (%s)', $status, $msg, $code !== '' ? $code : 'ML_WORKER_REJECTED'));
         }
 
         $this->logger->info('worker.bridge.accepted', [
             'scope' => $scope,
             'path' => $normalizedPath,
             'http_status' => $status,
+            'content_type' => $contentType,
+            'response_bytes' => strlen($rawBody),
+            'response_req_id' => isset($decoded['req_id']) && is_scalar($decoded['req_id']) ? (string) $decoded['req_id'] : $reqId,
         ], $reqId);
 
         return $decoded;
@@ -348,6 +401,15 @@ final class WorkerApiClient
         }
 
         return '/' . ltrim($trimmed, '/');
+    }
+
+    private function sanitizeJsonBody(string $body): string
+    {
+        if (str_starts_with($body, "\xEF\xBB\xBF")) {
+            $body = substr($body, 3);
+        }
+
+        return trim($body);
     }
 
     private function generateUrlSafeRandom(int $bytesLength): string
