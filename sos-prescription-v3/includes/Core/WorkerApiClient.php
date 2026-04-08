@@ -236,12 +236,14 @@ final class WorkerApiClient
 
         $status = (int) wp_remote_retrieve_response_code($response);
         $rawBody = (string) wp_remote_retrieve_body($response);
+        $signatureBody = $rawBody;
         $body = $this->sanitizeJsonBody($rawBody);
         $responseHeaders = wp_remote_retrieve_headers($response);
         $contentType = (string) ($this->getHeaderValue($responseHeaders, 'content-type') ?? '');
 
         $sigHeader = $this->getHeaderValue($responseHeaders, 'x-medlab-signature');
-        if (!$this->verifyMls1SignedBody($sigHeader, $rawBody)) {
+        if (!$this->verifyMls1SignedBody($sigHeader, $signatureBody)) {
+            $sanitizedSignatureBody = $this->sanitizeJsonBody($signatureBody);
             $this->logger->error('worker.bridge.bad_signature', [
                 'scope' => $scope,
                 'path' => $normalizedPath,
@@ -250,6 +252,9 @@ final class WorkerApiClient
                 'response_bytes' => strlen($rawBody),
                 'response_sha256' => hash('sha256', $rawBody),
                 'response_prefix_hex' => bin2hex(substr($rawBody, 0, 16)),
+                'response_sanitized_bytes' => strlen($sanitizedSignatureBody),
+                'response_sanitized_sha256' => hash('sha256', $sanitizedSignatureBody),
+                'response_sanitized_prefix_hex' => bin2hex(substr($sanitizedSignatureBody, 0, 16)),
             ], $reqId);
             throw new RuntimeException('Invalid Worker response signature');
         }
@@ -343,7 +348,7 @@ final class WorkerApiClient
         }
 
         $payload = base64_decode($b64, true);
-        if (!is_string($payload) || !hash_equals($payload, $rawBody)) {
+        if (!is_string($payload)) {
             return false;
         }
 
@@ -352,19 +357,67 @@ final class WorkerApiClient
             return false;
         }
 
-        $expected = hash_hmac('sha256', $rawBody, $this->hmacSecret, false);
-        if (hash_equals(strtolower($expected), $sigHex)) {
-            return true;
-        }
+        foreach ($this->buildSignedBodyCandidates($rawBody) as $candidateBody) {
+            if (!hash_equals($payload, $candidateBody)) {
+                continue;
+            }
 
-        if ($this->hmacSecretPrevious !== null && $this->hmacSecretPrevious !== '') {
-            $expectedPrevious = hash_hmac('sha256', $rawBody, $this->hmacSecretPrevious, false);
-            if (hash_equals(strtolower($expectedPrevious), $sigHex)) {
+            if ($this->matchesSignedBodyHash($candidateBody, $sigHex, $this->hmacSecret)) {
+                return true;
+            }
+
+            if ($this->hmacSecretPrevious !== null && $this->hmacSecretPrevious !== '' && $this->matchesSignedBodyHash($candidateBody, $sigHex, $this->hmacSecretPrevious)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildSignedBodyCandidates(string $rawBody): array
+    {
+        $candidates = [];
+
+        $this->appendSignedBodyCandidate($candidates, $rawBody);
+
+        $withoutBom = $this->stripUtf8Bom($rawBody);
+        $this->appendSignedBodyCandidate($candidates, $withoutBom);
+
+        $this->appendSignedBodyCandidate($candidates, rtrim($rawBody, "\r\n"));
+        $this->appendSignedBodyCandidate($candidates, rtrim($withoutBom, "\r\n"));
+
+        $this->appendSignedBodyCandidate($candidates, trim($rawBody));
+        $this->appendSignedBodyCandidate($candidates, trim($withoutBom));
+
+        return $candidates;
+    }
+
+    /**
+     * @param list<string> $candidates
+     */
+    private function appendSignedBodyCandidate(array &$candidates, string $candidate): void
+    {
+        foreach ($candidates as $existing) {
+            if ($existing === $candidate) {
+                return;
+            }
+        }
+
+        $candidates[] = $candidate;
+    }
+
+    private function stripUtf8Bom(string $body): string
+    {
+        return str_starts_with($body, "\xEF\xBB\xBF") ? substr($body, 3) : $body;
+    }
+
+    private function matchesSignedBodyHash(string $body, string $sigHex, string $secret): bool
+    {
+        $expected = hash_hmac('sha256', $body, $secret, false);
+        return hash_equals(strtolower($expected), strtolower($sigHex));
     }
 
     private function getHeaderValue(mixed $headers, string $name): ?string
@@ -405,9 +458,7 @@ final class WorkerApiClient
 
     private function sanitizeJsonBody(string $body): string
     {
-        if (str_starts_with($body, "\xEF\xBB\xBF")) {
-            $body = substr($body, 3);
-        }
+        $body = $this->stripUtf8Bom($body);
 
         return trim($body);
     }
