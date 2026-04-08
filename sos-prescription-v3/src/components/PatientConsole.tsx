@@ -1,5 +1,7 @@
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MessageInput from './messaging/MessageInput';
+import MessageList from './messaging/MessageList';
 
 type Scope = 'patient' | 'form' | 'admin';
 
@@ -371,7 +373,7 @@ function Notice({
       : 'border-blue-200 bg-blue-50 text-blue-900';
 
   return (
-    <div className={`rounded-lg border px-4 py-3 text-sm ${tone}`}>
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${tone}`}>
       {title ? <div className="font-semibold">{title}</div> : null}
       <div className={title ? 'mt-1' : undefined}>{children}</div>
     </div>
@@ -386,7 +388,7 @@ function Button({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger';
 }) {
-  const base = 'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  const base = 'inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
   const tone =
     variant === 'primary'
       ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
@@ -414,7 +416,7 @@ function ButtonLink({
   children: React.ReactNode;
   target?: string;
 }) {
-  const base = 'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2';
+  const base = 'inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2';
   const tone =
     variant === 'primary'
       ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
@@ -425,10 +427,6 @@ function ButtonLink({
       {children}
     </a>
   );
-}
-
-function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${props.className || ''}`.trim()} />;
 }
 
 function StatusTimeline({ status }: { status: string }) {
@@ -602,7 +600,7 @@ function PaymentCard({
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
       <div className="mb-2 text-sm font-semibold text-gray-900">Paiement sécurisé</div>
       <div className="mb-3 text-sm text-gray-700">
         Montant : <span className="font-semibold">{formatMoney(amountCents, currency)}</span>
@@ -612,7 +610,7 @@ function PaymentCard({
           <Notice variant="error">{error}</Notice>
         </div>
       ) : null}
-      <div className="rounded-lg border border-gray-300 bg-white p-3">
+      <div className="rounded-2xl border border-gray-300 bg-white p-3">
         {initializing ? (
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Spinner /> Initialisation…
@@ -641,7 +639,7 @@ function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
 
   if (canDownload) {
     return (
-      <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+      <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
         <div className="text-sm font-semibold text-green-900">Ordonnance</div>
         <div className="mt-1 text-sm text-green-800">Votre ordonnance est prête. Le lien est sécurisé et régénéré automatiquement.</div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -693,14 +691,9 @@ export default function PatientConsole() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [draftBody, setDraftBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const [queuedUploads, setQueuedUploads] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfStates, setPdfStates] = useState<Record<number, PdfState>>({});
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const requestedId = useMemo(() => {
     try {
@@ -725,11 +718,8 @@ export default function PatientConsole() {
     (detail?.files || []).forEach((file) => {
       index[file.id] = file;
     });
-    queuedUploads.forEach((file) => {
-      index[file.id] = file;
-    });
     return index;
-  }, [detail?.files, queuedUploads]);
+  }, [detail?.files]);
 
   const refreshList = useCallback(async () => {
     setError(null);
@@ -831,15 +821,11 @@ export default function PatientConsole() {
     if (!selectedId) {
       setDetail(null);
       setMessages([]);
-      setDraftBody('');
-      setQueuedUploads([]);
       return;
     }
 
     void loadDetail(selectedId);
     void loadMessages(selectedId);
-    setDraftBody('');
-    setQueuedUploads([]);
   }, [isLoggedIn, loadDetail, loadMessages, selectedId]);
 
   useEffect(() => {
@@ -867,52 +853,44 @@ export default function PatientConsole() {
     };
   }, [isLoggedIn, loadPdfStatus, selectedId, selectedPdf?.can_download, selectedPdf?.download_url, selectedPdf?.status, selectedStatus]);
 
-  const handleUploadFiles = async (fileList: FileList | null): Promise<void> => {
-    if (!fileList || fileList.length === 0 || !selectedId) return;
+  const registerUploadedFiles = useCallback((uploadedFiles: UploadedFile[]) => {
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
 
-    setError(null);
-    setUploading(true);
-    try {
-      const uploaded: UploadedFile[] = [];
-      for (const file of Array.from(fileList)) {
-        const payload = await uploadPatientFile(file, 'message', selectedId);
-        uploaded.push(payload);
-      }
-      setQueuedUploads((current) => [...current, ...uploaded]);
-      setDetail((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          files: [...(current.files || []), ...uploaded],
-        };
+    setDetail((current) => {
+      if (!current) return current;
+
+      const nextFiles = new Map<number, PrescriptionFile>();
+      (current.files || []).forEach((file) => {
+        nextFiles.set(file.id, file);
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur upload');
-    } finally {
-      setUploading(false);
-    }
-  };
+      uploadedFiles.forEach((file) => {
+        nextFiles.set(file.id, file);
+      });
 
-  const handleSendMessage = async (): Promise<void> => {
-    if (!selectedId) return;
-    const body = draftBody.trim();
-    if (!body) return;
+      return {
+        ...current,
+        files: Array.from(nextFiles.values()),
+      };
+    });
+  }, []);
 
-    setError(null);
-    setSending(true);
-    try {
-      const attachmentIds = queuedUploads.map((file) => file.id);
-      const payload = await postPatientMessage(selectedId, body, attachmentIds.length > 0 ? attachmentIds : undefined);
-      setMessages((current) => [...current, payload]);
-      setDraftBody('');
-      setQueuedUploads([]);
+  const handleMessageCreated = useCallback(
+    async (message: MessageItem): Promise<void> => {
+      setMessages((current) => [...current, message]);
       await refreshList();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur envoi');
-    } finally {
-      setSending(false);
-    }
-  };
+    },
+    [refreshList]
+  );
+
+  const handleMessageAttachmentDownload = useCallback(
+    async (attachmentId: number): Promise<void> => {
+      const file = fileIndex[attachmentId];
+      const filename = file ? file.original_name : `Fichier #${attachmentId}`;
+      const fileUrl = file ? file.download_url : `${cfg.restBase.replace(/\/$/, '')}/files/${attachmentId}/download`;
+      await downloadProtectedFile(fileUrl, filename);
+    },
+    [cfg.restBase, fileIndex]
+  );
 
   if (!isLoggedIn) {
     return (
@@ -944,7 +922,7 @@ export default function PatientConsole() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-1">
-          <div className="rounded-xl border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200 bg-white">
             <div className="border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900">Mes demandes</div>
             <div className="max-h-[560px] overflow-auto">
               {prescriptions.length === 0 ? (
@@ -972,7 +950,7 @@ export default function PatientConsole() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4">
             {!selectedId ? <div className="text-sm text-gray-600">Sélectionnez une demande à gauche.</div> : null}
 
             {selectedId && detailLoading ? (
@@ -1025,7 +1003,7 @@ export default function PatientConsole() {
                   ) : (
                     <div className="space-y-2">
                       {(detail.files || []).map((file) => (
-                        <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium text-gray-900">{file.original_name}</div>
                             <div className="text-xs text-gray-600">
@@ -1045,7 +1023,7 @@ export default function PatientConsole() {
                   <div className="mb-2 text-sm font-semibold text-gray-900">Médicaments</div>
                   <div className="space-y-2">
                     {detail.items.map((item, index) => (
-                      <div key={`${item.denomination}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                      <div key={`${item.denomination}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
                         <div className="text-sm font-semibold text-gray-900">{item.denomination}</div>
                         {item.posologie ? <div className="mt-1 text-sm text-gray-700">Posologie : {item.posologie}</div> : null}
                         {item.quantite ? <div className="mt-1 text-sm text-gray-700">Quantité : {item.quantite}</div> : null}
@@ -1062,104 +1040,34 @@ export default function PatientConsole() {
                       <Spinner /> Chargement…
                     </div>
                   ) : messages.length === 0 ? (
-                    <div className="text-sm text-gray-600">Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {messages.map((message) => {
-                        const mine = message.author_role === 'patient';
-                        const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
-                        return (
-                          <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[88%] rounded-2xl px-4 py-2 text-sm ${mine ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                              <div className="whitespace-pre-wrap">{message.body}</div>
-                              {attachmentIds.length > 0 ? (
-                                <div className="mt-2 space-y-1">
-                                  {attachmentIds.map((attachmentId) => {
-                                    const file = fileIndex[attachmentId];
-                                    const filename = file ? file.original_name : `Fichier #${attachmentId}`;
-                                    const fileUrl = file ? file.download_url : `${cfg.restBase.replace(/\/$/, '')}/files/${attachmentId}/download`;
-                                    return (
-                                      <button
-                                        key={attachmentId}
-                                        type="button"
-                                        className={`block w-full rounded-lg border px-3 py-1 text-left text-xs ${mine ? 'border-gray-700 bg-gray-800 text-white' : 'border-gray-200 bg-white text-gray-900'}`}
-                                        onClick={() => void downloadProtectedFile(fileUrl, filename)}
-                                      >
-                                        📎 {filename}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : null}
-                              <div className={`mt-2 text-[11px] ${mine ? 'text-gray-300' : 'text-gray-500'}`}>{message.created_at}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                      Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment.
                     </div>
+                  ) : (
+                    <MessageList
+                      messages={messages}
+                      viewerRole="PATIENT"
+                      fileIndex={fileIndex}
+                      onDownloadFile={handleMessageAttachmentDownload}
+                    />
                   )}
 
                   {detail.status !== 'approved' && detail.status !== 'rejected' ? (
-                    <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-                      <div className="text-sm font-semibold text-gray-900">Envoyer un message</div>
-                      <div className="mt-2">
-                        <div className="flex items-end gap-2">
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            multiple
-                            accept="image/*,application/pdf"
-                            className="hidden"
-                            onChange={(event) => {
-                              void handleUploadFiles(event.target.files);
-                              event.currentTarget.value = '';
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400"
-                            onClick={() => fileInputRef.current?.click()}
-                            aria-label="Ajouter un document"
-                            title="Ajouter un document"
-                            disabled={uploading || sending}
-                          >
-                            <span aria-hidden="true">📎</span>
-                          </button>
-                          <div className="flex-1">
-                            <TextArea value={draftBody} onChange={(event) => setDraftBody(event.target.value)} rows={2} placeholder="Votre message au médecin…" />
-                          </div>
-                          <Button type="button" onClick={() => void handleSendMessage()} disabled={sending || uploading || draftBody.trim().length < 1}>
-                            {sending ? <Spinner /> : 'Envoyer'}
-                          </Button>
-                        </div>
-
-                        {uploading ? (
-                          <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
-                            <Spinner /> Upload en cours…
-                          </div>
-                        ) : null}
-
-                        {queuedUploads.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {queuedUploads.map((file) => (
-                              <span key={file.id} className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700">
-                                <span className="max-w-[220px] truncate">{file.original_name}</span>
-                                <button
-                                  type="button"
-                                  className="text-gray-500 hover:text-gray-700"
-                                  onClick={() => setQueuedUploads((current) => current.filter((item) => item.id !== file.id))}
-                                  aria-label={`Retirer ${file.original_name}`}
-                                >
-                                  ×
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
+                    <div className="mt-4">
+                      <MessageInput
+                        prescriptionId={detail.id}
+                        viewerRole="PATIENT"
+                        uploadFile={uploadPatientFile}
+                        postMessage={postPatientMessage}
+                        onUploadsRegistered={registerUploadedFiles}
+                        onMessageCreated={handleMessageCreated}
+                        onSurfaceError={setError}
+                      />
                     </div>
                   ) : (
-                    <div className="mt-4 text-sm text-gray-600">La messagerie est en lecture seule pour cette demande.</div>
+                    <div className="mt-4">
+                      <Notice variant="info">La messagerie est en lecture seule pour cette demande.</Notice>
+                    </div>
                   )}
                 </div>
               </div>
