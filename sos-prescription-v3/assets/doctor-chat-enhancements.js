@@ -18,7 +18,7 @@
   var LOCAL_ID_ATTR = 'data-sp-local-id';
   var ACTIVE_ATTR = 'data-sp-chat-active';
   var OWNED_ATTR = 'data-sp-chat-owned';
-  var COMPONENT_CSS_URL = resolveComponentCssUrl();
+  var DOCTOR_CHAT_UTILITY_STYLE_ID = 'sp-doctor-chat-utility-styles';
   var LEGACY_UID_BY_ID = Object.create(null);
   var SHARED_STATE_BY_UID = Object.create(null);
   var observer = null;
@@ -29,6 +29,7 @@
     return;
   }
 
+  ensureDoctorChatUtilityStyles();
   installPassiveUidInterceptor();
   ensureObserver();
   scheduleEnhancement();
@@ -198,21 +199,85 @@
     });
   }
 
-  function resolveComponentCssUrl() {
-    var currentScript = document.currentScript;
-    var source = currentScript && currentScript.src ? String(currentScript.src) : '';
 
-    if (!source) {
-      var fallback = document.querySelector('script[src*="doctor-chat-enhancements.js"]');
-      source = fallback && fallback.src ? String(fallback.src) : '';
-    }
-
-    if (!source) {
-      return '';
-    }
-
-    return source.replace(/doctor-chat-enhancements\.js(?:\?.*)?$/i, 'doctor-chat-enhancements.css');
+  function buildDoctorChatUtilityCss() {
+    return [
+      '.spu-thread-stack > * + *{margin-top:.75rem;}',
+      '.spu-flex{display:flex;}',
+      '.spu-flex-col{flex-direction:column;}',
+      '.spu-items-start{align-items:flex-start;}',
+      '.spu-items-end{align-items:flex-end;}',
+      '.spu-justify-start{justify-content:flex-start;}',
+      '.spu-justify-end{justify-content:flex-end;}',
+      '.spu-justify-between{justify-content:space-between;}',
+      '.spu-gap-1{gap:.25rem;}',
+      '.spu-gap-2{gap:.5rem;}',
+      '.spu-gap-3{gap:.75rem;}',
+      '.spu-max-w-85{max-width:85%;}',
+      '.spu-max-h-chat{max-height:28rem;}',
+      '.spu-overflow-y-auto{overflow-y:auto;}',
+      '.spu-rounded-2xl{border-radius:16px;}',
+      '.spu-rounded-xl{border-radius:12px;}',
+      '.spu-border{border:1px solid #e5e7eb;}',
+      '.spu-border-gray-200{border-color:#e5e7eb;}',
+      '.spu-bg-white{background:#ffffff;}',
+      '.spu-bg-gray-50{background:#f9fafb;}',
+      '.spu-bg-gray-100{background:#f3f4f6;}',
+      '.spu-bg-gray-900{background:#111827;}',
+      '.spu-bg-red-50{background:#fef2f2;}',
+      '.spu-bg-blue-50{background:#eff6ff;}',
+      '.spu-text-white{color:#ffffff;}',
+      '.spu-text-gray-900{color:#111827;}',
+      '.spu-text-gray-700{color:#374151;}',
+      '.spu-text-gray-600{color:#4b5563;}',
+      '.spu-text-gray-500{color:#6b7280;}',
+      '.spu-text-red-700{color:#b91c1c;}',
+      '.spu-text-blue-900{color:#1e3a8a;}',
+      '.spu-text-sm{font-size:.875rem;line-height:1.4;}',
+      '.spu-text-xs{font-size:.75rem;line-height:1rem;}',
+      '.spu-font-semibold{font-weight:600;}',
+      '.spu-uppercase{text-transform:uppercase;}',
+      '.spu-tracking-wide{letter-spacing:.05em;}',
+      '.spu-p-4{padding:1rem;}',
+      '.spu-px-4{padding-left:1rem;padding-right:1rem;}',
+      '.spu-py-3{padding-top:.75rem;padding-bottom:.75rem;}',
+      '.spu-mt-3{margin-top:.75rem;}',
+      '.spu-whitespace-pre-wrap{white-space:pre-wrap;}',
+      '.spu-chat-shell{display:flex;flex-direction:column;gap:1rem;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;}',
+      '.spu-chat-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;}',
+      '.spu-chat-title{margin:0;font-size:1.125rem;line-height:1.3;font-weight:800;color:#111827;}',
+      '.spu-chat-subtitle{margin:.25rem 0 0;font-size:.875rem;line-height:1.4;color:#4b5563;}',
+      '.spu-chat-note{margin:0;font-size:.75rem;line-height:1rem;color:#6b7280;}',
+      '.spu-chat-panel{background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:1rem;}',
+      '.spu-chat-empty{display:flex;flex-direction:column;align-items:flex-start;gap:.5rem;padding:1rem;border:1px dashed #d1d5db;border-radius:16px;background:#f9fafb;}',
+      '.spu-chat-empty-title{margin:0;font-size:.875rem;font-weight:700;color:#111827;}',
+      '.spu-chat-empty-body{margin:0;font-size:.875rem;line-height:1.4;color:#4b5563;}',
+      '.spu-chat-textarea{width:100%;min-height:9rem;padding:.875rem 1rem;border-radius:16px;border:1px solid #d1d5db;background:#ffffff;color:#111827;font:inherit;resize:vertical;}',
+      '.spu-chat-textarea:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.18);}',
+      '.spu-chat-button{display:inline-flex;align-items:center;justify-content:center;min-height:3rem;padding:.75rem 1.25rem;border-radius:16px;border:1px solid transparent;background:#111827;color:#ffffff;font:inherit;font-weight:700;cursor:pointer;transition:background-color .15s ease,opacity .15s ease;}',
+      '.spu-chat-button:hover{background:#1f2937;}',
+      '.spu-chat-button:disabled{opacity:.6;cursor:not-allowed;}',
+      '.spu-chat-button--secondary{background:#ffffff;border-color:#d1d5db;color:#111827;}',
+      '.spu-chat-button--secondary:hover{background:#f3f4f6;}',
+      '.spu-chat-alert{border-radius:16px;border:1px solid #dbeafe;padding:.875rem 1rem;font-size:.875rem;line-height:1.4;background:#eff6ff;color:#1e3a8a;}',
+      '.spu-chat-alert--error{border-color:#fecaca;background:#fef2f2;color:#b91c1c;}',
+      '.spu-chat-actions{display:flex;justify-content:flex-end;gap:.75rem;}',
+      '.spu-chat-host{display:block;width:100%;}'
+    ].join('');
   }
+
+  function ensureDoctorChatUtilityStyles() {
+    if (!document || !document.head || document.getElementById(DOCTOR_CHAT_UTILITY_STYLE_ID)) {
+      return;
+    }
+
+    var style = document.createElement('style');
+    style.id = DOCTOR_CHAT_UTILITY_STYLE_ID;
+    style.type = 'text/css';
+    style.textContent = buildDoctorChatUtilityCss();
+    document.head.appendChild(style);
+  }
+
 
   function pad2(value) {
     var number = Number(value || 0);
@@ -288,6 +353,30 @@
     return payload && typeof payload === 'object' && payload.thread_state && typeof payload.thread_state === 'object'
       ? payload.thread_state
       : null;
+  }
+
+  function dedupeMessages(messages) {
+    var items = Array.isArray(messages) ? messages : [];
+    var seen = Object.create(null);
+    var out = [];
+
+    for (var index = 0; index < items.length; index += 1) {
+      var message = items[index] && typeof items[index] === 'object' ? items[index] : {};
+      var key = normalizeText(message.id || message.seq || '');
+      if (!key) {
+        key = [normalizeText(message.author_role || message.authorRole || ''), normalizeText(message.created_at || message.createdAt || ''), normalizeText(message.body || '')].join('|');
+      }
+      if (!key) {
+        key = 'idx:' + String(index);
+      }
+      if (seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      out.push(message);
+    }
+
+    return out;
   }
 
   function readSharedState(uid) {
@@ -562,7 +651,7 @@
   }
 
   function isShieldedPanel(node) {
-    return isOwnedPanel(node) && !!node.shadowRoot;
+    return isOwnedPanel(node);
   }
 
   function closestOwnedPanel(node) {
@@ -670,26 +759,13 @@
       return null;
     }
 
-    if (!(panel.shadowRoot instanceof ShadowRoot) && typeof panel.attachShadow === 'function') {
-      while (panel.firstChild) {
-        panel.removeChild(panel.firstChild);
-      }
-      panel.attachShadow({ mode: 'open' });
-    }
-
-    if (!(panel.shadowRoot instanceof ShadowRoot)) {
-      return null;
-    }
-
-    var host = panel.shadowRoot.querySelector('[data-sp-chat-host="1"]');
+    var host = panel.querySelector('[data-sp-chat-host="1"]');
     if (!(host instanceof HTMLElement)) {
-      while (panel.shadowRoot.firstChild) {
-        panel.shadowRoot.removeChild(panel.shadowRoot.firstChild);
-      }
+      panel.innerHTML = '';
       host = document.createElement('div');
       host.className = 'sp-doctor-chat-host';
       host.setAttribute('data-sp-chat-host', '1');
-      panel.shadowRoot.appendChild(host);
+      panel.appendChild(host);
     }
 
     panel.setAttribute(OWNED_ATTR, '1');
@@ -826,14 +902,10 @@
     }
 
     connectedCallback() {
-      if (!this.shadowRoot) {
-        this.attachShadow({ mode: 'open' });
-      }
-
       if (!this._connected) {
-        this.shadowRoot.addEventListener('click', this._onShadowClick);
-        this.shadowRoot.addEventListener('input', this._onShadowInput);
-        this.shadowRoot.addEventListener('submit', this._onShadowSubmit);
+        this.addEventListener('click', this._onShadowClick);
+        this.addEventListener('input', this._onShadowInput);
+        this.addEventListener('submit', this._onShadowSubmit);
         document.addEventListener('visibilitychange', this._onVisibilityChange);
         window.addEventListener(REFRESH_EVENT, this._onRefresh);
         this._connected = true;
@@ -848,9 +920,9 @@
       this.abortPending();
 
       if (this._connected) {
-        this.shadowRoot.removeEventListener('click', this._onShadowClick);
-        this.shadowRoot.removeEventListener('input', this._onShadowInput);
-        this.shadowRoot.removeEventListener('submit', this._onShadowSubmit);
+        this.removeEventListener('click', this._onShadowClick);
+        this.removeEventListener('input', this._onShadowInput);
+        this.removeEventListener('submit', this._onShadowSubmit);
         document.removeEventListener('visibilitychange', this._onVisibilityChange);
         window.removeEventListener(REFRESH_EVENT, this._onRefresh);
         this._connected = false;
@@ -936,20 +1008,15 @@
     }
 
     renderFrame() {
-      if (!this.shadowRoot || this._frame) {
+      ensureDoctorChatUtilityStyles();
+      if (this._frame) {
         return;
-      }
-
-      if (COMPONENT_CSS_URL) {
-        var link = document.createElement('link');
-        link.setAttribute('rel', 'stylesheet');
-        link.setAttribute('href', COMPONENT_CSS_URL);
-        this.shadowRoot.appendChild(link);
       }
 
       var mount = document.createElement('div');
       mount.className = 'sp-doctor-chat-host';
-      this.shadowRoot.appendChild(mount);
+      this.innerHTML = '';
+      this.appendChild(mount);
       this._frame = mount;
     }
 
@@ -1005,7 +1072,7 @@
     }
 
     currentMessages() {
-      return readMessages(this._state.payload);
+      return dedupeMessages(readMessages(this._state.payload));
     }
 
     currentThreadState() {
@@ -1208,7 +1275,7 @@
         }
 
         if (createdMessage) {
-          self._state.payload.messages = self._state.payload.messages.concat([createdMessage]);
+          self._state.payload.messages = dedupeMessages(self._state.payload.messages.concat([createdMessage]));
         }
         if (nextThreadState) {
           self._state.payload.thread_state = nextThreadState;
@@ -1249,40 +1316,40 @@
       var messages = this.currentMessages();
       var unreadCount = this.currentThreadState() ? Number(this.currentThreadState().unread_count_doctor || 0) : 0;
       var unreadNote = unreadCount > 0
-        ? '<p class="sp-doctor-chat__hint">' + escapeHtml(String(unreadCount)) + ' nouveau(x) message(s) du patient.</p>'
+        ? '<p class="spu-chat-note">' + escapeHtml(String(unreadCount)) + ' nouveau(x) message(s) du patient.</p>'
         : '';
       var flash = this._state.flash
-        ? '<div class="sp-alert sp-alert--success" role="status">' + escapeHtml(this._state.flash) + '</div>'
+        ? '<div class="spu-chat-alert" role="status">' + escapeHtml(this._state.flash) + '</div>'
         : '';
       var error = this._state.error
-        ? '<div class="sp-alert sp-alert--error" role="alert">' + escapeHtml(this._state.error) + '</div>'
+        ? '<div class="spu-chat-alert spu-chat-alert--error" role="alert">' + escapeHtml(this._state.error) + '</div>'
         : '';
       var modeMessage = threadModeMessage(mode);
       var modeAlert = modeMessage
-        ? '<div class="sp-alert sp-alert--info" role="status">' + escapeHtml(modeMessage) + '</div>'
+        ? '<div class="spu-chat-alert" role="status">' + escapeHtml(modeMessage) + '</div>'
         : '';
       var circuitAlert = circuitMessage(this._state.circuit)
-        ? '<div class="sp-alert sp-alert--info" role="status">' + escapeHtml(circuitMessage(this._state.circuit)) + '</div>'
+        ? '<div class="spu-chat-alert" role="status">' + escapeHtml(circuitMessage(this._state.circuit)) + '</div>'
         : '';
-      var noteAlert = '<div class="sp-alert sp-alert--info" role="status">' + escapeHtml(infoNote()) + '</div>';
+      var noteAlert = '<div class="spu-chat-alert" role="status">' + escapeHtml(infoNote()) + '</div>';
 
       var bodyHtml = '';
       if (!uid) {
-        bodyHtml = '<div class="sp-alert sp-alert--info" role="status">Référence du dossier sécurisée introuvable pour la messagerie.</div>';
+        bodyHtml = '<div class="spu-chat-alert" role="status">Référence du dossier sécurisée introuvable pour la messagerie.</div>';
       } else if (!active) {
-        bodyHtml = '<div class="sp-alert sp-alert--info" role="status">Ouvrez l\'onglet Messages pour charger l\'échange sécurisé.</div>';
+        bodyHtml = '<div class="spu-chat-alert" role="status">Ouvrez l\'onglet Messages pour charger l\'échange sécurisé.</div>';
       } else if (this._state.loading && messages.length === 0) {
-        bodyHtml = '<div class="sp-doctor-chat__loading" aria-live="polite">Chargement de la messagerie sécurisée…</div>';
+        bodyHtml = '<div class="spu-chat-panel spu-text-sm spu-text-gray-600" aria-live="polite">Chargement de la messagerie sécurisée…</div>';
       } else {
         bodyHtml = this.renderMessages(messages, mode) + this.renderComposer(mode);
       }
 
       this._frame.innerHTML = ''
-        + '<section class="sp-doctor-chat" aria-live="polite">'
-        + '  <div class="sp-doctor-chat__header">'
-        + '    <div class="sp-doctor-chat__header-copy">'
-        + '      <h2 class="sp-doctor-chat__title">Échanges avec le patient</h2>'
-        + '      <p class="sp-doctor-chat__subtitle">Espace de discussion sécurisé pour le suivi de votre dossier.</p>'
+        + '<section class="spu-chat-shell" aria-live="polite">'
+        + '  <div class="spu-chat-header">'
+        + '    <div>'
+        + '      <h2 class="spu-chat-title">Échanges avec le patient</h2>'
+        + '      <p class="spu-chat-subtitle">Espace de discussion sécurisé pour le suivi de votre dossier.</p>'
         + unreadNote
         + '    </div>'
         + '    <button type="button" class="sp-button sp-button--secondary" data-action="refresh"' + (uid && active ? '' : ' disabled') + '>' + (this._state.loading ? 'Actualisation…' : 'Actualiser') + '</button>'
@@ -1299,10 +1366,10 @@
     renderMessages(messages, mode) {
       if (!Array.isArray(messages) || messages.length === 0) {
         return ''
-          + '<div class="sp-doctor-chat__panel">'
-          + '  <div class="sp-doctor-chat__empty">'
-          + '    <p class="sp-doctor-chat__empty-title">Aucun message</p>'
-          + '    <p class="sp-doctor-chat__empty-body">' + escapeHtml(emptyStateMessage(mode)) + '</p>'
+          + '<div class="spu-chat-panel">'
+          + '  <div class="spu-chat-empty">'
+          + '    <p class="spu-chat-empty-title">Aucun message</p>'
+          + '    <p class="spu-chat-empty-body">' + escapeHtml(emptyStateMessage(mode)) + '</p>'
           + '  </div>'
           + '</div>';
       }
@@ -1310,23 +1377,27 @@
       var items = [];
       for (var i = 0; i < messages.length; i += 1) {
         var message = messages[i] && typeof messages[i] === 'object' ? messages[i] : {};
-        var role = normalizeText(message.author_role || message.authorRole || 'patient');
+        var role = normalizeText(message.author_role || message.authorRole || 'patient').toUpperCase();
+        var isDoctor = role === 'DOCTOR';
+        var bubbleTone = isDoctor ? 'spu-bg-gray-900 spu-text-white' : 'spu-bg-gray-100 spu-text-gray-900';
+        var justify = isDoctor ? 'spu-justify-end' : 'spu-justify-start';
+        var align = isDoctor ? 'spu-items-end' : 'spu-items-start';
         var body = String(message.body || '');
         var createdAt = message.created_at || message.createdAt || '';
 
         items.push(''
-          + '<article class="sp-doctor-chat__message ' + escapeHtml(roleClass(role)) + '">'
-          + '  <div class="sp-doctor-chat__bubble">'
-          + '    <p class="sp-doctor-chat__author">' + escapeHtml(roleLabel(role)) + '</p>'
-          + '    <div class="sp-doctor-chat__body">' + escapeHtml(body).replace(/\n/g, '<br>') + '</div>'
-          + '    <p class="sp-doctor-chat__meta">' + escapeHtml(formatTimestamp(createdAt)) + '</p>'
+          + '<article class="spu-flex ' + justify + '">'
+          + '  <div class="spu-flex spu-flex-col ' + align + ' spu-gap-1 spu-max-w-85">'
+          + '    <p class="spu-text-xs spu-font-semibold spu-uppercase spu-tracking-wide spu-text-gray-600">' + escapeHtml(roleLabel(role)) + '</p>'
+          + '    <div class="' + bubbleTone + ' spu-rounded-2xl spu-px-4 spu-py-3 spu-text-sm spu-whitespace-pre-wrap">' + escapeHtml(body).replace(/\n/g, '<br>') + '</div>'
+          + '    <p class="spu-text-xs spu-text-gray-500">' + escapeHtml(formatTimestamp(createdAt)) + '</p>'
           + '  </div>'
           + '</article>');
       }
 
       return ''
-        + '<div class="sp-doctor-chat__panel">'
-        + '  <div class="sp-doctor-chat__messages">'
+        + '<div class="spu-chat-panel">'
+        + '  <div class="spu-thread-stack spu-max-h-chat spu-overflow-y-auto">'
         + items.join('')
         + '  </div>'
         + '</div>';
@@ -1342,14 +1413,14 @@
       var submitDisabled = composerDisabled || normalizeText(this._state.draft).length < 1;
 
       return ''
-        + '<div class="sp-doctor-chat__panel sp-doctor-chat__composer-panel">'
-        + '  <form class="sp-form sp-doctor-chat__composer" data-role="composer-form">'
+        + '<div class="spu-chat-panel">'
+        + '  <form class="sp-form" data-role="composer-form">'
         + '    <div class="sp-field">'
         + '      <label class="sp-field__label" for="sp-doctor-chat-body">Votre message</label>'
-        + '      <textarea id="sp-doctor-chat-body" class="sp-textarea sp-doctor-chat__textarea" rows="4" placeholder="Répondez ici au patient..." data-role="composer-body"' + disabled + '>' + escapeHtml(this._state.draft) + '</textarea>'
+        + '      <textarea id="sp-doctor-chat-body" class="spu-chat-textarea" rows="4" placeholder="Répondez ici au patient..." data-role="composer-body"' + disabled + '>' + escapeHtml(this._state.draft) + '</textarea>'
         + '    </div>'
-        + '    <div class="sp-doctor-chat__composer-actions">'
-        + '      <button type="submit" class="sp-button sp-button--primary"' + (submitDisabled ? ' disabled' : '') + '>' + (this._state.sending ? 'Envoi en cours…' : 'Envoyer') + '</button>'
+        + '    <div class="spu-chat-actions spu-mt-3">'
+        + '      <button type="submit" class="spu-chat-button"' + (submitDisabled ? ' disabled' : '') + '>' + (this._state.sending ? 'Envoi…' : 'Envoyer') + '</button>'
         + '    </div>'
         + '  </form>'
         + '</div>';

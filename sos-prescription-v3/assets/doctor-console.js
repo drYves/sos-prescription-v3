@@ -42,6 +42,50 @@
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
 
+  var DOCTOR_CHAT_UTILITY_STYLE_ID = 'sp-doctor-chat-utility-styles';
+  var DOCTOR_CHAT_UTILITY_CSS = [
+    '.spu-thread-stack > * + *{margin-top:.75rem;}',
+    '.spu-flex{display:flex;}',
+    '.spu-flex-col{flex-direction:column;}',
+    '.spu-justify-start{justify-content:flex-start;}',
+    '.spu-justify-end{justify-content:flex-end;}',
+    '.spu-items-start{align-items:flex-start;}',
+    '.spu-items-end{align-items:flex-end;}',
+    '.spu-gap-1{gap:.25rem;}',
+    '.spu-max-w-85{max-width:85%;}',
+    '.spu-rounded-2xl{border-radius:16px;}',
+    '.spu-px-4{padding-left:1rem;padding-right:1rem;}',
+    '.spu-py-3{padding-top:.75rem;padding-bottom:.75rem;}',
+    '.spu-text-sm{font-size:.875rem;line-height:1.4;}',
+    '.spu-text-xs{font-size:.75rem;line-height:1rem;}',
+    '.spu-font-semibold{font-weight:600;}',
+    '.spu-uppercase{text-transform:uppercase;}',
+    '.spu-tracking-wide{letter-spacing:.05em;}',
+    '.spu-whitespace-pre-wrap{white-space:pre-wrap;}',
+    '.spu-bg-gray-900{background:#111827;}',
+    '.spu-bg-gray-100{background:#f3f4f6;}',
+    '.spu-text-white{color:#ffffff;}',
+    '.spu-text-gray-900{color:#111827;}',
+    '.spu-text-gray-600{color:#4b5563;}',
+    '.spu-text-gray-500{color:#6b7280;}',
+    '.spu-border{border:1px solid #e5e7eb;}',
+    '.spu-bg-white{background:#ffffff;}',
+    '.spu-rounded-xl{border-radius:12px;}',
+    '.spu-p-4{padding:1rem;}'
+  ].join('');
+
+  function ensureDoctorChatUtilityStyles() {
+    if (!document || !document.head || document.getElementById(DOCTOR_CHAT_UTILITY_STYLE_ID)) {
+      return;
+    }
+
+    var style = document.createElement('style');
+    style.id = DOCTOR_CHAT_UTILITY_STYLE_ID;
+    style.type = 'text/css';
+    style.textContent = DOCTOR_CHAT_UTILITY_CSS;
+    document.head.appendChild(style);
+  }
+
 
   var LIST_FILTERS = [
     { key: 'pending', label: 'En attente', status: '', title: 'Demandes en attente', empty: 'Aucune demande en attente.' },
@@ -51,6 +95,8 @@
   ];
 
   var PENDING_BUCKET_STATUSES = ['pending', 'payment_pending', 'in_review', 'needs_info'];
+
+  ensureDoctorChatUtilityStyles();
 
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
@@ -917,7 +963,7 @@
     }
 
     return apiGetMessages(numericId, 0, 100).then(function (payload) {
-      var messages = safeArray(payload && payload.messages);
+      var messages = dedupeThreadMessages(safeArray(payload && payload.messages));
       var threadState = asObject(payload && payload.thread_state);
       setThreadStore(numericId, {
         messages: messages,
@@ -1017,6 +1063,7 @@
       if (payload && payload.message) {
         nextMessages.push(payload.message);
       }
+      nextMessages = dedupeThreadMessages(nextMessages);
       var nextThreadState = asObject(payload && payload.thread_state);
       setThreadStore(numericId, {
         sending: false,
@@ -1099,6 +1146,48 @@
     var diffH = Math.round(diffMin / 60);
     if (diffH < 24) return 'il y a ' + diffH + ' h';
     return formatDateDisplay(raw);
+  }
+
+  function formatMessageTimestamp(value) {
+    var raw = normalizeText(value);
+    if (!raw) return 'Date inconnue';
+
+    var dt = new Date(raw);
+    if (!Number.isFinite(dt.getTime())) {
+      return formatDateDisplay(raw);
+    }
+
+    function pad2(number) {
+      return number < 10 ? '0' + String(number) : String(number);
+    }
+
+    return 'Le ' + pad2(dt.getDate()) + '/' + pad2(dt.getMonth() + 1) + '/' + String(dt.getFullYear()) + ' à ' + pad2(dt.getHours()) + ':' + pad2(dt.getMinutes());
+  }
+
+  function dedupeThreadMessages(messages) {
+    var items = safeArray(messages);
+    var seen = Object.create(null);
+    var out = [];
+
+    for (var index = 0; index < items.length; index += 1) {
+      var message = asObject(items[index]);
+      var seq = normalizeText(message.seq);
+      var id = normalizeText(message.id);
+      var key = id || seq;
+      if (!key) {
+        key = [normalizeText(message.author_role), normalizeText(message.created_at), normalizeText(message.body)].join('|');
+      }
+      if (!key) {
+        key = 'idx:' + String(index);
+      }
+      if (seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      out.push(message);
+    }
+
+    return out;
   }
 
   function formatPatientHeadline(value) {
@@ -2692,51 +2781,45 @@
     var thread = getThreadStore(detailId);
     var threadState = hasObjectKeys(thread.threadState) ? thread.threadState : extractThreadShadowState(detail);
     var unread = Number(threadState.unread_count_doctor || 0);
+    var messages = dedupeThreadMessages(thread.messages);
     var messagesHtml = '';
 
-    if (thread.loading && thread.messages.length < 1) {
+    if (thread.loading && messages.length < 1) {
       messagesHtml = '<div class="dc-message-empty">Chargement du fil de discussion…</div>';
-    } else if (thread.error && thread.messages.length < 1) {
+    } else if (thread.error && messages.length < 1) {
       messagesHtml = '<div class="dc-message-empty">' + escHtml(thread.error) + '</div>';
-    } else if (thread.messages.length < 1) {
+    } else if (messages.length < 1) {
       messagesHtml = '<div class="dc-message-empty">Aucun message pour le moment. Vous pouvez écrire au patient depuis cet espace.</div>';
     } else {
-      messagesHtml = '<div class="dc-message-thread">' + thread.messages.map(function (message) {
-        var role = normalizeText(message && message.author_role).toLowerCase();
-        var isDoctor = role === 'doctor';
-        var attachments = safeArray(message && message.attachments);
+      messagesHtml = '<div class="dc-message-thread spu-thread-stack">' + messages.map(function (message) {
+        var role = normalizeText(message && message.author_role).toUpperCase();
+        var isDoctor = role === 'DOCTOR';
+        var roleText = isDoctor ? 'VOUS' : 'PATIENT';
+        var bubbleTone = isDoctor ? 'spu-bg-gray-900 spu-text-white' : 'spu-bg-gray-100 spu-text-gray-900';
+        var justify = isDoctor ? 'spu-justify-end' : 'spu-justify-start';
+        var items = isDoctor ? 'spu-items-end' : 'spu-items-start';
         return [
-          '<div class="dc-message-row ' + (isDoctor ? 'is-doctor' : 'is-patient') + '">',
-          '  <div class="dc-message-bubble">',
-          '    <div>' + escHtml(message && message.body || '') + '</div>',
-          attachments.length > 0 ? '    <div class="dc-message-attachments">' + attachments.map(function (attachment) {
-            var artifactId = normalizeText(attachment && attachment.id);
-            return '<button type="button" class="dc-message-attachment" data-action="open-message-attachment" data-artifact-id="' + escHtml(artifactId) + '">' + escHtml(normalizeText(attachment && attachment.original_name) || 'Pièce jointe') + '</button>';
-          }).join('') + '</div>' : '',
-          '    <div class="dc-message-meta">' + escHtml(formatRelativeDate(message && message.created_at)) + '</div>',
+          '<div class="spu-flex ' + justify + '">',
+          '  <div class="spu-flex spu-flex-col ' + items + ' spu-gap-1 spu-max-w-85">',
+          '    <div class="spu-text-xs spu-font-semibold spu-uppercase spu-tracking-wide spu-text-gray-600">' + escHtml(roleText) + '</div>',
+          '    <div class="' + bubbleTone + ' spu-rounded-2xl spu-px-4 spu-py-3 spu-text-sm spu-whitespace-pre-wrap">' + preserveLineBreaksHtml(message && message.body || '') + '</div>',
+          '    <div class="spu-text-xs spu-text-gray-500">' + escHtml(formatMessageTimestamp(message && message.created_at)) + '</div>',
           '  </div>',
           '</div>'
         ].join('');
       }).join('') + '</div>';
     }
 
-    var uploads = safeArray(thread.uploads);
     return [
-      thread.error && thread.messages.length > 0 ? '<div class="dc-notice dc-notice-error">' + escHtml(thread.error) + '</div>' : '',
-      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus.' + ' <button type="button" class="sp-button sp-button--secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
+      thread.error && messages.length > 0 ? '<div class="dc-notice dc-notice-error">' + escHtml(thread.error) + '</div>' : '',
+      unread > 0 ? '<div class="dc-notice dc-notice-info">' + escHtml(String(unread)) + ' message(s) non lus. <button type="button" class="sp-button sp-button--secondary" data-action="mark-messages-read">Marquer comme lus</button></div>' : '',
       messagesHtml,
-      '<div class="dc-message-compose">',
+      '<div class="dc-message-compose spu-border spu-bg-white spu-rounded-xl spu-p-4">',
       '  <div class="dc-card__title">Répondre au patient</div>',
-      '  <input type="file" data-role="message-file-input" multiple accept="image/*,application/pdf" hidden />',
       '  <div class="dc-message-compose__row">',
-      '    <button type="button" class="sp-button sp-button--ghost dc-message-compose__attach" data-action="pick-message-files" title="Ajouter une pièce jointe" aria-label="Ajouter une pièce jointe">' + buildButtonIcon('paperclip') + '</button>',
       '    <textarea class="sp-textarea" data-role="message-body" placeholder="Votre message au patient…">' + escHtml(thread.composerBody || '') + '</textarea>',
-      '    <button type="button" class="sp-button sp-button--secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || thread.uploading || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
+      '    <button type="button" class="sp-button sp-button--secondary' + (thread.sending ? ' is-loading' : '') + '" data-action="send-message" ' + (thread.sending || normalizeText(thread.composerBody).length < 1 ? 'disabled' : '') + '>' + (thread.sending ? 'Envoi…' : 'Envoyer') + '</button>',
       '  </div>',
-      thread.uploading ? '  <div class="dc-message-empty">Upload en cours…</div>' : '',
-      uploads.length > 0 ? '  <div class="dc-message-upload-chips">' + uploads.map(function (file) {
-        return '<span class="dc-message-chip"><span>' + escHtml(normalizeText(file && file.original_name) || 'Pièce jointe') + '</span><button type="button" class="dc-message-chip__remove" data-action="remove-message-upload" data-artifact-id="' + escHtml(normalizeText(file && file.id)) + '">×</button></span>';
-      }).join('') + '</div>' : '',
       '</div>'
     ].join('');
   }
@@ -2885,7 +2968,7 @@
     }
 
     var messagesPanel = detailEl.querySelector('[data-dc-panel="messages"]');
-    if (messagesPanel) {
+    if (messagesPanel && messagesPanel.getAttribute('data-sp-chat-owned') !== '1') {
       messagesPanel.innerHTML = renderMessagesPanel(detail);
     }
 
