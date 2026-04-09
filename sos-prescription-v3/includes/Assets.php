@@ -61,8 +61,6 @@ final class Assets
             true
         );
 
-        AssetManager::ensure_module_script('sosprescription-doctor-console');
-
         if (!is_string($adminHandle) || $adminHandle === '') {
             self::localize_app('sosprescription-doctor-console');
         }

@@ -80,11 +80,15 @@ const bridge: DoctorMessagingBridge = {
 };
 
 function installGlobals(): void {
-  window.SosDoctorMessaging = api;
-  window.SosDoctorMessagingBridge = bridge;
+  const g = (typeof globalThis !== 'undefined' ? globalThis : window) as unknown as Window;
+  g.SosDoctorMessaging = api;
+  g.SosDoctorMessagingBridge = bridge;
 }
 
-installGlobals();
-
-export { api, bridge, mount, unmount };
-export default bridge;
+// IMPORTANT: en build IIFE, ce fichier est évalué comme un script classique.
+// On attache le bridge immédiatement à window/globalThis.
+try {
+  installGlobals();
+} catch {
+  // Fail-closed: si l'environnement ne permet pas d'écrire sur window, on n'explose pas.
+}
