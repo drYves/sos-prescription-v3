@@ -19,6 +19,9 @@ final class Assets
      * @var array<string, bool>
      */
     private static array $module_handles = [];
+    private static bool $runtime_config_requested = false;
+    private static bool $runtime_config_hooks_registered = false;
+    private static bool $runtime_config_printed = false;
 
     public static function enqueue_form_app(): void
     {
@@ -157,6 +160,8 @@ final class Assets
         array $deps = [],
         ?string $rootId = null
     ): string {
+        self::ensure_global_runtime_config();
+
         $devServer = defined('SOSPRESCRIPTION_DEV_SERVER') ? trim((string) SOSPRESCRIPTION_DEV_SERVER) : '';
         $isDev = defined('SOSPRESCRIPTION_DEV') && SOSPRESCRIPTION_DEV === true && $devServer !== '';
 
@@ -326,9 +331,7 @@ final class Assets
 
     private static function filter_module_script_loader_tag(string $tag, string $handle, string $src): string
     {
-        unset($src);
-
-        if (!self::should_force_module_tag($handle)) {
+        if (!self::should_force_module_tag($handle, $src)) {
             return $tag;
         }
 
@@ -338,25 +341,95 @@ final class Assets
         return $tag;
     }
 
-    private static function should_force_module_tag(string $handle): bool
+    private static function should_force_module_tag(string $handle, string $src): bool
     {
         $handle = trim($handle);
-        if ($handle === '') {
+        if ($handle !== '') {
+            if (isset(self::$module_handles[$handle])) {
+                return true;
+            }
+
+            $fallback_handles = [
+                'vite-client',
+                'sosprescription-form',
+                'sosprescription-admin',
+                'sosprescription-doctor-console',
+            ];
+
+            if (in_array($handle, $fallback_handles, true)) {
+                return true;
+            }
+        }
+
+        return self::is_known_module_src($src);
+    }
+
+    private static function is_known_module_src(string $src): bool
+    {
+        $srcPath = self::source_path_from_url($src);
+        if ($srcPath === '') {
             return false;
         }
 
-        if (isset(self::$module_handles[$handle])) {
-            return true;
+        $lowerPath = strtolower($srcPath);
+        $isJavaScript = (bool) preg_match('/\.js$/i', $srcPath);
+        $isViteClient = strpos($lowerPath, '/@vite/client') !== false;
+
+        if (!$isJavaScript && !$isViteClient) {
+            return false;
         }
 
-        $fallback_handles = [
-            'vite-client',
-            'sosprescription-form',
-            'sosprescription-admin',
-            'sosprescription-doctor-console',
-        ];
+        $pluginBasePath = self::source_path_from_url((string) SOSPRESCRIPTION_URL);
+        if ($pluginBasePath !== '' && strpos($srcPath, rtrim($pluginBasePath, '/') . '/') === 0) {
+            if (strpos($lowerPath, '/build/') !== false || strpos($lowerPath, '/dist/') !== false) {
+                return true;
+            }
 
-        return in_array($handle, $fallback_handles, true);
+            if ((bool) preg_match('/\/(?:admin|form)-[^\/]+\.js$/i', $srcPath)) {
+                return true;
+            }
+        }
+
+        $devServer = defined('SOSPRESCRIPTION_DEV_SERVER') ? trim((string) SOSPRESCRIPTION_DEV_SERVER) : '';
+        if ($devServer !== '') {
+            $devHost = wp_parse_url($devServer, PHP_URL_HOST);
+            $srcHost = wp_parse_url($src, PHP_URL_HOST);
+            $devPort = wp_parse_url($devServer, PHP_URL_PORT);
+            $srcPort = wp_parse_url($src, PHP_URL_PORT);
+
+            if (
+                is_string($devHost) && $devHost !== ''
+                && is_string($srcHost) && strtolower($srcHost) === strtolower($devHost)
+                && ((int) ($devPort ?? 0) === (int) ($srcPort ?? 0))
+            ) {
+                if (
+                    $isViteClient
+                    || strpos($lowerPath, '/src/entries/') !== false
+                    || strpos($lowerPath, '/build/') !== false
+                    || strpos($lowerPath, '/dist/') !== false
+                    || (bool) preg_match('/\/(?:admin|form)-[^\/]+\.js$/i', $srcPath)
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static function source_path_from_url(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        $path = wp_parse_url($url, PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            return '';
+        }
+
+        return rawurldecode($path);
     }
 
     private static function replace_script_attribute(string $tag, string $attribute, string $value): string
@@ -453,7 +526,52 @@ final class Assets
         ];
     }
 
-    private static function localize_app(string $handle): void
+    public static function ensure_global_runtime_config(): void
+    {
+        self::$runtime_config_requested = true;
+
+        if (self::$runtime_config_hooks_registered) {
+            return;
+        }
+
+        self::$runtime_config_hooks_registered = true;
+        $callback = [self::class, 'print_global_runtime_config'];
+
+        add_action('wp_print_scripts', $callback, 0);
+        add_action('admin_print_scripts', $callback, 0);
+        add_action('wp_print_footer_scripts', $callback, 0);
+        add_action('admin_print_footer_scripts', $callback, 0);
+    }
+
+    public static function print_global_runtime_config(): void
+    {
+        if (!self::$runtime_config_requested || self::$runtime_config_printed) {
+            return;
+        }
+
+        self::$runtime_config_printed = true;
+        echo '<script id="sosprescription-runtime-config">' . self::runtime_config_script() . "</script>\n";
+    }
+
+    private static function runtime_config_script(): string
+    {
+        return 'window.SOSPrescription = ' . self::runtime_config_json() . ';window.SosPrescription = window.SOSPrescription;';
+    }
+
+    private static function runtime_config_json(): string
+    {
+        $json = wp_json_encode(self::runtime_config_data(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (!is_string($json)) {
+            return '{}';
+        }
+
+        return str_replace('</', '<\/', $json);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function runtime_config_data(): array
     {
         $user = wp_get_current_user();
         $user_id = ($user instanceof \WP_User) ? (int) $user->ID : 0;
@@ -492,7 +610,7 @@ final class Assets
         $cap_manage_data = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
         $cap_validate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
 
-        $data = [
+        return [
             'restBase' => esc_url_raw(rest_url('sosprescription/v1')),
             'restV4Base' => esc_url_raw(rest_url('sosprescription/v4')),
             'nonce' => wp_create_nonce('wp_rest'),
@@ -545,14 +663,12 @@ final class Assets
             'ocr' => OcrConfig::public_data(),
             'i18n' => self::i18n_data(),
         ];
+    }
 
-        $json = wp_json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if (!is_string($json)) {
-            $json = '{}';
-        }
-
-        $script = 'window.SOSPrescription = ' . $json . ';window.SosPrescription = window.SOSPrescription;';
-        wp_add_inline_script($handle, $script, 'before');
+    private static function localize_app(string $handle): void
+    {
+        self::ensure_global_runtime_config();
+        wp_add_inline_script($handle, self::runtime_config_script(), 'before');
     }
 
     private static function read_user_meta_first(int $user_id, array $keys): string
