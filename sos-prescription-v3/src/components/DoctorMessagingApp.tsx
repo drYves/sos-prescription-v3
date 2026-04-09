@@ -482,6 +482,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
           onUploadsRegistered={registerUploadedFiles}
           onMessageCreated={handleMessageCreated}
           onSurfaceError={setError}
+          allowAttachments={false}
         />
       ) : null}
     </div>

@@ -27,6 +27,7 @@ type Props = {
   onUploadsRegistered: (files: UploadedFile[]) => void;
   onMessageCreated: (message: MessageItem) => void | Promise<void>;
   onSurfaceError?: (message: string | null) => void;
+  allowAttachments?: boolean;
 };
 
 function cx(...classes: Array<string | false | null | undefined>): string {
@@ -59,9 +60,11 @@ const MessageInput = React.memo(function MessageInputComponent({
   onUploadsRegistered,
   onMessageCreated,
   onSurfaceError,
+  allowAttachments = true,
 }: Props) {
   const inputCopy = useMemo(() => fieldCopy(viewerRole), [viewerRole]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentsEnabled = allowAttachments && viewerRole !== 'DOCTOR';
 
   const [draftBody, setDraftBody] = useState('');
   const [queuedUploads, setQueuedUploads] = useState<UploadedFile[]>([]);
@@ -77,8 +80,15 @@ const MessageInput = React.memo(function MessageInputComponent({
     setLocalError(null);
   }, [prescriptionId]);
 
+  useEffect(() => {
+    if (!attachmentsEnabled) {
+      setQueuedUploads([]);
+      setUploading(false);
+    }
+  }, [attachmentsEnabled]);
+
   const handleUploadFiles = async (fileList: FileList | null): Promise<void> => {
-    if (!fileList || fileList.length === 0 || !prescriptionId) return;
+    if (!attachmentsEnabled || !fileList || fileList.length === 0 || !prescriptionId) return;
 
     setLocalError(null);
     onSurfaceError?.(null);
@@ -113,7 +123,7 @@ const MessageInput = React.memo(function MessageInputComponent({
     setSending(true);
 
     try {
-      const attachmentIds = queuedUploads.map((file) => file.id);
+      const attachmentIds = attachmentsEnabled ? queuedUploads.map((file) => file.id) : [];
       const message = await postMessage(
         prescriptionId,
         body,
@@ -143,28 +153,32 @@ const MessageInput = React.memo(function MessageInputComponent({
       ) : null}
 
       <div className="sp-thread-composer__row">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,application/pdf"
-          className="sp-hidden"
-          onChange={(event) => {
-            void handleUploadFiles(event.target.files);
-            event.currentTarget.value = '';
-          }}
-        />
+        {attachmentsEnabled ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,application/pdf"
+              className="sp-hidden"
+              onChange={(event) => {
+                void handleUploadFiles(event.target.files);
+                event.currentTarget.value = '';
+              }}
+            />
 
-        <button
-          type="button"
-          className="sp-button sp-button--secondary sp-button--icon"
-          onClick={() => fileInputRef.current?.click()}
-          aria-label="Ajouter un document"
-          title="Ajouter un document"
-          disabled={uploading || sending}
-        >
-          <span className="sp-button__icon" aria-hidden="true">📎</span>
-        </button>
+            <button
+              type="button"
+              className="sp-button sp-button--secondary sp-button--icon"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Ajouter un document"
+              title="Ajouter un document"
+              disabled={uploading || sending}
+            >
+              <span className="sp-button__icon" aria-hidden="true">📎</span>
+            </button>
+          </>
+        ) : null}
 
         <div className="sp-thread-composer__field">
           <textarea
@@ -186,14 +200,14 @@ const MessageInput = React.memo(function MessageInputComponent({
         </button>
       </div>
 
-      {uploading ? (
+      {attachmentsEnabled && uploading ? (
         <div className="sp-thread-composer__status sp-loading-row">
           <InlineSpinner />
           <span>Upload en cours…</span>
         </div>
       ) : null}
 
-      {queuedUploads.length > 0 ? (
+      {attachmentsEnabled && queuedUploads.length > 0 ? (
         <div className="sp-thread-queued">
           {queuedUploads.map((file) => (
             <span key={file.id} className="sp-thread-queued__item">
