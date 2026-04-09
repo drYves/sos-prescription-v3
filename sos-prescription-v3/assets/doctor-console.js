@@ -290,6 +290,79 @@
     return Array.isArray(value) ? value : [];
   }
 
+  function stableSerialize(value) {
+    try {
+      return JSON.stringify(value == null ? null : value);
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function recordsEqual(left, right) {
+    return stableSerialize(left) === stableSerialize(right);
+  }
+
+  function mergeDetailSnapshot(previous, incoming) {
+    var prev = asObject(previous);
+    var next = asObject(incoming);
+    if (!hasObjectKeys(prev)) {
+      return next;
+    }
+    if (!hasObjectKeys(next)) {
+      return cloneValue(prev);
+    }
+
+    var merged = cloneValue(next);
+    var mergedPayload = asObject(merged.payload);
+    var prevPayload = asObject(prev.payload);
+
+    if (!hasObjectKeys(mergedPayload) && hasObjectKeys(prevPayload)) {
+      merged.payload = cloneValue(prevPayload);
+    } else if (hasObjectKeys(prevPayload)) {
+      if (!hasObjectKeys(asObject(mergedPayload.patient)) && hasObjectKeys(asObject(prevPayload.patient))) {
+        mergedPayload.patient = cloneValue(prevPayload.patient);
+      }
+      if (!hasObjectKeys(asObject(mergedPayload.worker)) && hasObjectKeys(asObject(prevPayload.worker))) {
+        mergedPayload.worker = cloneValue(prevPayload.worker);
+      }
+      if (!hasObjectKeys(asObject(mergedPayload.request)) && hasObjectKeys(asObject(prevPayload.request))) {
+        mergedPayload.request = cloneValue(prevPayload.request);
+      }
+      merged.payload = mergedPayload;
+    }
+
+    if (safeArray(merged.items).length < 1 && safeArray(prev.items).length > 0) {
+      merged.items = cloneValue(prev.items);
+    }
+    if (safeArray(merged.files).length < 1 && safeArray(prev.files).length > 0) {
+      merged.files = cloneValue(prev.files);
+    }
+    if (safeArray(merged.proofs).length < 1 && safeArray(prev.proofs).length > 0) {
+      merged.proofs = cloneValue(prev.proofs);
+    }
+
+    [
+      'uid',
+      'verify_code',
+      'priority',
+      'created_at',
+      'patient_name',
+      'patient_birthdate',
+      'patient_dob',
+      'patient_weight_kg',
+      'weight_kg',
+      'status',
+      'processing_status',
+      'doctor_user_id'
+    ].forEach(function (key) {
+      if (!normalizeText(merged[key]) && normalizeText(prev[key])) {
+        merged[key] = cloneValue(prev[key]);
+      }
+    });
+
+    return merged;
+  }
+
   function firstText(values) {
     for (var i = 0; i < values.length; i += 1) {
       var text = normalizeText(values[i]);
@@ -1118,6 +1191,9 @@
     return apiGetMessages(numericId, 0, 100).then(function (payload) {
       var messages = dedupeThreadMessages(safeArray(payload && payload.messages));
       var threadState = asObject(payload && payload.thread_state);
+      var previousThread = getThreadStore(numericId);
+      var threadChanged = !recordsEqual(previousThread.messages, messages) || !recordsEqual(previousThread.threadState, threadState) || previousThread.loading;
+
       setThreadStore(numericId, {
         messages: messages,
         threadState: threadState,
@@ -1129,29 +1205,33 @@
       if (opts.markRead !== false && Number(threadState.unread_count_doctor || 0) > 0) {
         return apiMarkMessagesRead(numericId, Number(threadState.last_message_seq || 0)).then(function (readPayload) {
           var nextThreadState = asObject(readPayload && readPayload.thread_state);
+          var readChanged = false;
           if (hasObjectKeys(nextThreadState)) {
+            readChanged = !recordsEqual(getThreadStore(numericId).threadState, nextThreadState);
             setThreadStore(numericId, { threadState: nextThreadState });
             patchLocalThreadState(numericId, nextThreadState);
           }
-          if (Number(state.selectedId) === numericId) {
+          if (Number(state.selectedId) === numericId && (threadChanged || readChanged || !opts.silent)) {
             renderDetail();
           }
           return payload;
         }).catch(function () {
-          if (Number(state.selectedId) === numericId) {
+          if (Number(state.selectedId) === numericId && (threadChanged || !opts.silent)) {
             renderDetail();
           }
           return payload;
         });
       }
 
-      if (Number(state.selectedId) === numericId) {
+      if (Number(state.selectedId) === numericId && (threadChanged || !opts.silent)) {
         renderDetail();
       }
       return payload;
     }).catch(function (error) {
-      setThreadStore(numericId, { loading: false, error: error && error.message ? String(error.message) : 'Impossible de charger la messagerie.' });
-      if (Number(state.selectedId) === numericId) {
+      var nextError = error && error.message ? String(error.message) : 'Impossible de charger la messagerie.';
+      var previousError = normalizeText(getThreadStore(numericId).error);
+      setThreadStore(numericId, { loading: false, error: nextError });
+      if (Number(state.selectedId) === numericId && (previousError !== nextError || !opts.silent)) {
         renderDetail();
       }
       return null;
@@ -1392,6 +1472,16 @@
       requestPayload.priority
     ]).toLowerCase();
     return priority === 'express' ? 'Express' : 'Standard';
+  }
+
+  function extractCaseUid(rx) {
+    var payload = asObject(rx && rx.payload);
+    var worker = asObject(payload.worker);
+    return firstText([
+      rx && rx.uid,
+      payload.uid,
+      worker.uid
+    ]);
   }
 
   function computeCaseStatus(source) {
@@ -3001,17 +3091,19 @@
     var metaEl = detailEl.querySelector('[data-dc-patient-meta]');
     if (metaEl) metaEl.textContent = patient.birthDate + ' • ' + patient.createdAt;
 
+    var caseUid = extractCaseUid(detail);
     var headerBadges = detailEl.querySelector('[data-dc-header-badges]');
     if (headerBadges) {
-      headerBadges.innerHTML = [
+      setHtmlIfChanged(headerBadges, [
+        caseUid ? statusBadge('Demande : ' + caseUid, 'soft') : '',
         code ? statusBadge('Code délivrance : ' + code, 'soft') : '',
         statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft')
-      ].join('');
+      ].join(''));
     }
 
     var detailTabs = detailEl.querySelector('[data-dc-detail-tabs]');
     if (detailTabs) {
-      detailTabs.innerHTML = renderDetailTabs(detail);
+      setHtmlIfChanged(detailTabs, renderDetailTabs(detail));
     }
 
     Array.prototype.slice.call(detailEl.querySelectorAll('[data-dc-panel]')).forEach(function (panel) {
@@ -3042,7 +3134,7 @@
     }
 
     var medsEl = detailEl.querySelector('[data-dc-meds]');
-    if (medsEl) medsEl.innerHTML = renderMedicationList(detail);
+    if (medsEl) setHtmlIfChanged(medsEl, renderMedicationList(detail));
 
     var approveBtn = detailEl.querySelector('[data-dc-approve]');
     if (approveBtn) {
@@ -3062,7 +3154,7 @@
 
     var refusalSlot = detailEl.querySelector('[data-dc-refusal-slot]');
     if (refusalSlot) {
-      refusalSlot.innerHTML = canDecide ? renderRefusalPanel() : '';
+      setHtmlIfChanged(refusalSlot, canDecide ? renderRefusalPanel() : '');
     }
 
     var pdfSlot = detailEl.querySelector('[data-dc-pdf-slot]');
@@ -3071,7 +3163,7 @@
     var inlineProofSlot = detailEl.querySelector('[data-dc-inline-proof-slot]');
     var inlineProofHtml = renderInlineProofPanel(detail);
     if (inlineProofSlot) {
-      inlineProofSlot.innerHTML = inlineProofHtml;
+      setHtmlIfChanged(inlineProofSlot, inlineProofHtml);
     }
     var prescriptionLayout = detailEl.querySelector('[data-dc-prescription-layout]');
     if (prescriptionLayout) {
@@ -3080,12 +3172,12 @@
 
     var proofsPanel = detailEl.querySelector('[data-dc-panel="proofs"]');
     if (proofsPanel) {
-      proofsPanel.innerHTML = renderProofPanel(detail);
+      setHtmlIfChanged(proofsPanel, renderProofPanel(detail));
     }
 
     var messagesPanel = detailEl.querySelector('[data-dc-panel="messages"]');
     if (messagesPanel && messagesPanel.getAttribute('data-sp-chat-owned') !== '1') {
-      messagesPanel.innerHTML = renderMessagesPanel(detail);
+      setHtmlIfChanged(messagesPanel, renderMessagesPanel(detail));
     }
     syncDoctorMessagingMount(detailEl, detail);
 
@@ -3323,15 +3415,17 @@
     }
 
     return requestJson('GET', '/prescriptions/' + numericId, undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (row) {
-      var nextRow = applyPendingOverlayToRecord(row);
+      var previousRow = asObject(state.details[numericId]);
+      var nextRow = mergeDetailSnapshot(previousRow, applyPendingOverlayToRecord(row));
       if (state.editedItems[numericId] && safeArray(state.editedItems[numericId]).length > 0) {
         nextRow.items = cloneValue(state.editedItems[numericId]);
       }
+      var detailChanged = !recordsEqual(previousRow, nextRow);
       state.details[numericId] = nextRow;
 
       if (Number(state.selectedId) === numericId) {
         state.detailLoading = false;
-        if (!opts.skipDetailRender) {
+        if (!opts.skipDetailRender && (detailChanged || !opts.silent)) {
           renderDetail();
         }
       }
@@ -3358,9 +3452,12 @@
     if (numericId < 1) return Promise.resolve(null);
 
     return requestJson('GET', '/prescriptions/' + numericId + '/pdf-status', undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (payload) {
+      var currentPdf = asObject(state.pdf[numericId]);
       var nextPdf = payload && payload.pdf ? payload.pdf : {};
-      state.pdf[numericId] = applyLocalDecisionToPdfState(numericId, nextPdf);
-      if (Number(state.selectedId) === numericId) {
+      var normalizedPdf = applyLocalDecisionToPdfState(numericId, nextPdf);
+      var pdfChanged = !recordsEqual(currentPdf, normalizedPdf);
+      state.pdf[numericId] = normalizedPdf;
+      if (Number(state.selectedId) === numericId && (pdfChanged || !opts.silent)) {
         renderDetail();
       }
       return state.pdf[numericId];
@@ -3368,7 +3465,7 @@
       if (!opts.silent) {
         showNotice('error', error.message || 'Impossible de lire le statut PDF.');
       }
-      if (Number(state.selectedId) === numericId) {
+      if (Number(state.selectedId) === numericId && !opts.silent) {
         renderDetail();
       }
       return null;
@@ -3391,10 +3488,12 @@
     }
 
     return requestJson('POST', '/prescriptions/' + id + '/assign', {}, { timeoutMs: REQUEST_TIMEOUT_MUTATION_MS }).then(function (updated) {
-      var nextRow = applyPendingOverlayToRecord(updated);
+      var previousRow = asObject(state.details[id]);
+      var nextRow = mergeDetailSnapshot(previousRow, applyPendingOverlayToRecord(updated));
+      var detailChanged = !recordsEqual(previousRow, nextRow);
       state.details[id] = nextRow;
       patchInboxItemById(id);
-      if (Number(state.selectedId) === id) {
+      if (Number(state.selectedId) === id && detailChanged) {
         renderDetail();
       }
       return nextRow;
@@ -3429,20 +3528,14 @@
     return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
       if (!row) return null;
       if (!shouldEnsureAssigned(row)) {
-        state.details[numericId] = row;
-        if (Number(state.selectedId) === numericId) {
-          renderDetail();
-        }
         patchInboxItemById(numericId);
         return fetchPdfStatus(numericId, { silent: !!opts.silent });
       }
       return ensureAssigned(row).then(function (assignedRow) {
-        state.details[numericId] = assignedRow || row;
-        if (Number(state.selectedId) === numericId) {
-          renderDetail();
-        }
         patchInboxItemById(numericId);
-        return fetchPdfStatus(numericId, { silent: !!opts.silent });
+        return fetchPdfStatus(numericId, { silent: !!opts.silent }).then(function () {
+          return assignedRow || row;
+        });
       });
     });
   }

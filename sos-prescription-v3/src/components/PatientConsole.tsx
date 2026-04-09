@@ -50,6 +50,7 @@ type PrescriptionDetail = {
 
 type MessageItem = {
   id: number;
+  seq?: number;
   author_role: string;
   body: string;
   created_at: string;
@@ -341,30 +342,71 @@ function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | nul
   };
 }
 
+function normalizeMessageId(idValue: unknown, seqValue: unknown): number {
+  const directId = toPositiveInteger(idValue);
+  if (directId > 0) {
+    return directId;
+  }
+
+  const seqId = toPositiveInteger(seqValue);
+  if (seqId > 0) {
+    return seqId;
+  }
+
+  return 0;
+}
+
+function normalizeMessageRecord(payload: unknown): MessageItem | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const seq = toPositiveInteger(payload.seq);
+  const id = normalizeMessageId(payload.id, payload.seq);
+  if (id < 1) {
+    return null;
+  }
+
+  return {
+    id,
+    seq: seq > 0 ? seq : undefined,
+    author_role: toRequiredString(payload.author_role, ''),
+    body: toRequiredString(payload.body, ''),
+    created_at: toRequiredString(payload.created_at, ''),
+    attachments: normalizeAttachmentIds(payload.attachments),
+  };
+}
+
+function mergeNormalizedMessages(current: MessageItem[], incoming: MessageItem[]): MessageItem[] {
+  const map = new Map<string, MessageItem>();
+
+  current.concat(incoming).forEach((message) => {
+    const normalized = normalizeMessageRecord(message);
+    if (!normalized) {
+      return;
+    }
+
+    const key = normalized.seq && normalized.seq > 0 ? `seq:${normalized.seq}` : `id:${normalized.id}`;
+    map.set(key, normalized);
+  });
+
+  return Array.from(map.values()).sort((left, right) => {
+    const leftOrder = left.seq && left.seq > 0 ? left.seq : left.id;
+    const rightOrder = right.seq && right.seq > 0 ? right.seq : right.id;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return String(left.created_at || '').localeCompare(String(right.created_at || ''));
+  });
+}
+
 function normalizeMessageArray(payload: unknown): MessageItem[] {
   if (!Array.isArray(payload)) {
     return [];
   }
 
   return payload
-    .map((entry): MessageItem | null => {
-      if (!isRecord(entry)) {
-        return null;
-      }
-
-      const id = toPositiveInteger(entry.id);
-      if (id < 1) {
-        return null;
-      }
-
-      return {
-        id,
-        author_role: toRequiredString(entry.author_role, ''),
-        body: toRequiredString(entry.body, ''),
-        created_at: toRequiredString(entry.created_at, ''),
-        attachments: normalizeAttachmentIds(entry.attachments),
-      };
-    })
+    .map((entry): MessageItem | null => normalizeMessageRecord(entry))
     .filter((entry): entry is MessageItem => entry !== null);
 }
 
@@ -481,7 +523,7 @@ async function uploadPatientFile(file: File, purpose: string, prescriptionId?: n
 }
 
 async function postPatientMessage(id: number, body: string, attachments?: number[]): Promise<MessageItem> {
-  return apiJson<MessageItem>(
+  const payload = await apiJson<unknown>(
     `/prescriptions/${id}/messages`,
     {
       method: 'POST',
@@ -490,6 +532,26 @@ async function postPatientMessage(id: number, body: string, attachments?: number
     },
     'patient'
   );
+
+  const messagePayload = isRecord(payload) && isRecord(payload.message) ? payload.message : payload;
+  const normalized = normalizeMessageRecord(messagePayload);
+  if (normalized) {
+    return normalized;
+  }
+
+  debugApiPayload(payload, {
+    endpoint: `/prescriptions/${id}/messages`,
+    expected: 'message object',
+    phase: 'create_message',
+  });
+
+  return {
+    id: Date.now(),
+    author_role: 'PATIENT',
+    body,
+    created_at: new Date().toISOString(),
+    attachments: Array.isArray(attachments) ? attachments.filter((value) => toPositiveInteger(value) > 0) : undefined,
+  };
 }
 
 async function createPaymentIntent(id: number, priority: 'express' | 'standard'): Promise<PaymentIntentResponse> {
@@ -1268,7 +1330,7 @@ export default function PatientConsole() {
 
   const handleMessageCreated = useCallback(
     async (message: MessageItem): Promise<void> => {
-      setMessages((current) => [...current, message]);
+      setMessages((current) => mergeNormalizedMessages(current, [message]));
       await refreshList();
     },
     [refreshList]
