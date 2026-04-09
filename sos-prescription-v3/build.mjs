@@ -115,6 +115,9 @@ function createViteConfig(entryName, entryPath) {
     clearScreen: false,
     logLevel: 'info',
     plugins: [react()],
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production')
+    },
 
     build: {
       outDir: OUT_DIR,
