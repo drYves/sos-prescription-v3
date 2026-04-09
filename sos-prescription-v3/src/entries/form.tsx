@@ -1,41 +1,171 @@
 import '../runtime/installFetchPatch';
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import PatientConsole from '../components/PatientConsole';
 
-function spJsxCompat(type, props, key) {
-  const nextProps = props && typeof props === 'object' ? { ...props } : {};
-  const children = Object.prototype.hasOwnProperty.call(nextProps, 'children') ? nextProps.children : undefined;
-  if (Object.prototype.hasOwnProperty.call(nextProps, 'children')) {
-    delete nextProps.children;
+type AppConfig = {
+  restBase: string;
+  restV4Base?: string;
+  nonce: string;
+  currentUser?: {
+    id?: number;
+    displayName?: string;
+    email?: string;
+  };
+  notices?: {
+    enabled_form?: boolean;
+    title?: string;
+    items_text?: string;
+  };
+  patientProfile?: {
+    fullname?: string;
+    birthdate_fr?: string;
+    note?: string;
+    medical_notes?: string;
+    medicalNotes?: string;
+  };
+  compliance?: {
+    consent_required?: boolean;
+    cgu_url?: string;
+    privacy_url?: string;
+    cgu_version?: string;
+    privacy_version?: string;
+  };
+  turnstile?: {
+    enabled?: boolean;
+    siteKey?: string;
+  };
+  urls?: {
+    patientPortal?: string;
+  };
+};
+
+type PricingConfig = {
+  standard_cents: number;
+  express_cents: number;
+  currency: string;
+};
+
+type PaymentsConfig = {
+  enabled: boolean;
+  publishable_key?: string;
+  provider?: string;
+  capture_method?: string;
+};
+
+type FlowType = 'ro_proof' | 'depannage_no_proof';
+type Stage = 'choose' | 'form' | 'done';
+type FrequencyUnit = 'jour' | 'semaine';
+type DurationUnit = 'jour' | 'mois' | 'semaine';
+
+type Schedule = {
+  nb: number;
+  freqUnit: FrequencyUnit;
+  durationVal: number;
+  durationUnit: DurationUnit;
+  times: string[];
+  doses: string[];
+  note: string;
+  autoTimesEnabled: boolean;
+  start: string;
+  end: string;
+  rounding: number;
+};
+
+type MedicationSearchResult = {
+  cis?: string;
+  cip13?: string;
+  label: string;
+  specialite?: string;
+  tauxRemb?: string;
+  prixTTC?: number;
+  is_selectable?: boolean;
+  scheduleText?: string;
+};
+
+type MedicationItem = {
+  cis?: string;
+  cip13?: string | null;
+  label: string;
+  schedule: Schedule;
+  quantite?: string;
+};
+
+type LocalUpload = {
+  id: string;
+  file: File;
+  original_name: string;
+  mime: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: 'PROOF';
+  status: 'QUEUED' | 'READY';
+};
+
+type UploadedArtifact = {
+  id: string;
+  original_name: string;
+  purpose?: string;
+  mime?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  kind?: string;
+  status?: string;
+};
+
+type SubmissionInitResponse = {
+  submission_ref?: string;
+};
+
+type SubmissionResult = {
+  id: number;
+  uid: string;
+  status: string;
+  created_at?: string;
+};
+
+type AnalyzeMedication = {
+  label?: string;
+  scheduleText?: string;
+};
+
+type ArtifactAnalysis = {
+  ok?: boolean;
+  message?: string;
+  code?: string;
+  is_prescription?: boolean;
+  medications?: AnalyzeMedication[];
+  analysis?: {
+    is_prescription?: boolean;
+    medications?: AnalyzeMedication[];
+  };
+};
+
+declare global {
+  interface Window {
+    SosPrescription?: AppConfig;
+    SOSPrescription?: AppConfig;
+    __SosPrescriptionPublicFormRoot?: ReturnType<typeof createRoot>;
+    __SosPrescriptionPatientRoot?: ReturnType<typeof createRoot>;
   }
-  if (key !== undefined) {
-    nextProps.key = key;
-  }
-  if (Array.isArray(children)) {
-    return React.createElement(type, nextProps, ...children);
-  }
-  if (children !== undefined) {
-    return React.createElement(type, nextProps, children);
-  }
-  return React.createElement(type, nextProps);
 }
 
-const e = {
-  Fragment: React.Fragment,
-  jsx: spJsxCompat,
-  jsxs: spJsxCompat,
-};
+function Spinner({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent ${className}`.trim()}
+      aria-label="Chargement"
+    />
+  );
+}
 
-const c = React;
-const V = function Spinner({ className = '' }) {
-  return e.jsx('span', {
-    className: `inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent ${className}`,
-    'aria-label': 'Chargement',
-  });
-};
-
-const F = function Notice({ variant = 'info', children }) {
+function Notice({
+  variant = 'info',
+  children,
+}: {
+  variant?: 'info' | 'success' | 'warning' | 'error';
+  children: React.ReactNode;
+}) {
   const variantClass = variant === 'success'
     ? 'border-green-200 bg-green-50 text-green-900'
     : variant === 'warning'
@@ -44,44 +174,83 @@ const F = function Notice({ variant = 'info', children }) {
         ? 'border-red-200 bg-red-50 text-red-900'
         : 'border-blue-200 bg-blue-50 text-blue-900';
 
-  return e.jsx('div', {
-    className: `rounded-lg border px-4 py-3 text-sm ${variantClass}`,
-    children,
-  });
-};
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-sm ${variantClass}`}>
+      {children}
+    </div>
+  );
+}
 
-const D = function Button({ variant = 'primary', className = '', ...props }) {
-  const baseClass = 'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+function Button({
+  variant = 'primary',
+  className = '',
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+}) {
+  const baseClass = 'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
   const variantClass = variant === 'primary'
     ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
     : variant === 'danger'
       ? 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500'
-      : 'bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 focus:ring-gray-400';
+      : variant === 'ghost'
+        ? 'bg-transparent text-gray-900 hover:bg-gray-100 focus:ring-gray-400'
+        : 'border border-gray-300 bg-white text-gray-900 hover:bg-gray-50 focus:ring-gray-400';
 
-  return e.jsx('button', {
-    className: `${baseClass} ${variantClass} ${className}`.trim(),
-    ...props,
-  });
-};
+  return (
+    <button className={`${baseClass} ${variantClass} ${className}`.trim()} {...props}>
+      {children}
+    </button>
+  );
+}
 
-const Ne = function Textarea({ className = '', ...props }) {
-  return e.jsx('textarea', {
-    className: `w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${className}`.trim(),
-    ...props,
-  });
-};
+function TextInput({
+  className = '',
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${className}`.trim()}
+      {...props}
+    />
+  );
+}
 
-function we() {
+function TextareaField({
+  className = '',
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${className}`.trim()}
+      {...props}
+    />
+  );
+}
+
+function getConfigOrThrow(): AppConfig {
   const cfg = (typeof window !== 'undefined' ? (window.SosPrescription || window.SOSPrescription) : null) || null;
-  if (!cfg) {
+  if (!cfg || typeof cfg.restBase !== 'string' || typeof cfg.nonce !== 'string') {
     throw new Error('Configuration SosPrescription introuvable (window.SosPrescription / window.SOSPrescription).');
   }
   return cfg;
 }
 
-async function spSharedApi(path, init = {}, scope) {
-  const cfg = we();
-  const method = String((init == null ? void 0 : init.method) || 'GET').toUpperCase();
+async function parseJsonResponse(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  let data: unknown = raw;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    // Keep raw text when JSON parsing fails.
+  }
+  return data;
+}
+
+async function sharedApi(path: string, init: RequestInit = {}, scope: 'form' | 'patient' | 'admin' = 'form'): Promise<unknown> {
+  const cfg = getConfigOrThrow();
+  const method = String(init.method || 'GET').toUpperCase();
   let url = String(cfg.restBase || '').replace(/\/$/, '') + path;
 
   if (method === 'GET') {
@@ -90,22 +259,17 @@ async function spSharedApi(path, init = {}, scope) {
       parsed.searchParams.set('_ts', String(Date.now()));
       url = parsed.toString();
     } catch {
-      url += (url.indexOf('?') === -1 ? '?' : '&') + '_ts=' + String(Date.now());
+      url += (url.includes('?') ? '&' : '?') + '_ts=' + String(Date.now());
     }
   }
 
-  const headers = {
-    ...((init == null ? void 0 : init.headers) || {}),
-    'X-WP-Nonce': cfg.nonce,
-  };
-
-  if (scope) {
-    headers['X-Sos-Scope'] = scope;
-  }
+  const headers = new Headers(init.headers || undefined);
+  headers.set('X-WP-Nonce', cfg.nonce);
+  headers.set('X-Sos-Scope', scope);
 
   if (method === 'GET') {
-    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-    headers.Pragma = 'no-cache';
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
   }
 
   const response = await fetch(url, {
@@ -113,2229 +277,2560 @@ async function spSharedApi(path, init = {}, scope) {
     method,
     headers,
     credentials: 'same-origin',
-    cache: method === 'GET' ? 'no-store' : ((init == null ? void 0 : init.cache) || undefined),
+    cache: method === 'GET' ? 'no-store' : init.cache,
   });
 
-  const raw = await response.text();
-  let data = raw;
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    // Keep raw text when JSON parsing fails.
-  }
+  const data = await parseJsonResponse(response);
 
   if (!response.ok) {
-    const message = data && typeof data.message === 'string' ? data.message : 'Erreur API';
+    const message = data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+      ? String((data as { message?: string }).message)
+      : data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+        ? String((data as { code?: string }).code)
+        : 'Erreur API';
     throw new Error(message);
   }
 
   return data;
 }
 
-async function Xe(query, limit = 20) {
+async function v4Api(path: string, init: RequestInit = {}, scope: 'form' | 'patient' | 'admin' = 'form'): Promise<unknown> {
+  const cfg = getConfigOrThrow();
+  const fallbackBase = String(cfg.restBase || '').replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4').trim();
+  const restV4Base = typeof cfg.restV4Base === 'string' && cfg.restV4Base.trim() ? cfg.restV4Base.trim() : fallbackBase;
+  if (!restV4Base) {
+    throw new Error('Configuration REST V4 absente.');
+  }
+
+  const method = String(init.method || 'GET').toUpperCase();
+  const url = restV4Base.replace(/\/$/, '') + path;
+  const headers = new Headers(init.headers || undefined);
+  headers.set('X-WP-Nonce', cfg.nonce);
+  headers.set('X-Sos-Scope', scope);
+
+  if (method === 'GET') {
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+  }
+
+  const response = await fetch(url, {
+    ...init,
+    method,
+    headers,
+    credentials: 'same-origin',
+    cache: method === 'GET' ? 'no-store' : init.cache,
+  });
+
+  const data = await parseJsonResponse(response);
+
+  if (!response.ok) {
+    const message = data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+      ? String((data as { message?: string }).message)
+      : data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+        ? String((data as { code?: string }).code)
+        : 'Erreur API';
+    throw new Error(message);
+  }
+
+  return data;
+}
+
+async function searchMedicationsApi(query: string, limit = 20): Promise<unknown> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  return spSharedApi(`/medications/search?${params.toString()}`, { method: 'GET' }, 'form');
+  return sharedApi(`/medications/search?${params.toString()}`, { method: 'GET' }, 'form');
 }
 
-async function tt() {
-  return spSharedApi('/pricing', { method: 'GET' }, 'form');
-}
-
-async function st() {
-  return spSharedApi('/payments/config', { method: 'GET' }, 'form');
-}
-
-async function Ze(prescriptionId, priority) {
-  return spSharedApi(`/prescriptions/${prescriptionId}/payment/intent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ priority }),
-  }, 'form');
-}
-
-async function et(prescriptionId, paymentIntentId) {
-  return spSharedApi(`/prescriptions/${prescriptionId}/payment/confirm`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ payment_intent_id: paymentIntentId }),
-  }, 'form');
-}
-
-async function mtReadApi(t, s) {
-    const n = we(), l = n.restBase.replace(/\/$/, "") + `/prescriptions/${t}/messages/read`;
-    const u = await fetch(l, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-WP-Nonce": n.nonce,
-            "X-Sos-Scope": "patient"
-        },
-        credentials: "same-origin",
-        body: JSON.stringify({
-            read_upto_seq: s
-        })
-    });
-    const g = await u.text();
-    let a = g;
-    try {
-        a = g ? JSON.parse(g) : null;
-    } catch {}
-    if (!u.ok) {
-        const x = a && typeof a.message == "string" ? a.message : "Erreur messagerie";
-        throw new Error(x);
-    }
-    return a;
-}
-
-async function artifactAccessApi(t, s, n = "attachment") {
-    const l = we(), u = l.restBase.replace(/\/$/, "") + `/artifacts/${encodeURIComponent(t)}/access`;
-    const g = await fetch(u, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-WP-Nonce": l.nonce,
-            "X-Sos-Scope": "patient"
-        },
-        credentials: "same-origin",
-        body: JSON.stringify({
-            prescription_id: s,
-            disposition: n
-        })
-    });
-    const a = await g.text();
-    let x = a;
-    try {
-        x = a ? JSON.parse(a) : null;
-    } catch {}
-    if (!g.ok) {
-        const o = x && typeof x.message == "string" ? x.message : "Accès au document impossible.";
-        throw new Error(o);
-    }
-    return x;
-}
-
-async function artifactAnalyzeApi(t) {
-    const s = String(t ?? "").trim();
-    if (!s) throw new Error("Identifiant d’artefact manquant.");
-    const n = we(), l = n.restBase.replace(/\/$/, "") + `/artifacts/${encodeURIComponent(s)}/analyze`, u = typeof AbortController != "undefined" ? new AbortController : null, g = u ? window.setTimeout((() => {
-        try {
-            u.abort();
-        } catch {}
-    }), 45e3) : 0;
-    try {
-        const a = await fetch(l, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-WP-Nonce": n.nonce,
-                "X-Sos-Scope": "form"
-            },
-            credentials: "same-origin",
-            signal: u ? u.signal : void 0
-        }), x = await a.text();
-        let o = x;
-        try {
-            o = x ? JSON.parse(x) : null;
-        } catch {}
-        if (!a.ok) {
-            const b = o && typeof o.message == "string" ? o.message : o && typeof o.code == "string" ? o.code : "Analyse IA impossible.";
-            throw new Error(b);
-        }
-        return o && o.analysis ? o.analysis : o;
-    } catch (a) {
-        if (a && typeof a == "object" && a.name === "AbortError") throw new Error("L'analyse automatique du document a expiré. Veuillez réessayer ou fournir un document plus net.");
-        throw a;
-    } finally {
-        g && window.clearTimeout(g);
-    }
-}
-
-async function spDirectArtifactUpload(t, s, n) {
-    const l = String(s || "").toLowerCase(), u = l === "message" || l === "message_attachment" || l === "attachment" || l === "compose" ? "MESSAGE_ATTACHMENT" : "PROOF", g = {
-        purpose: u === "PROOF" ? "evidence" : "message",
-        kind: u,
-        original_name: t && t.name ? String(t.name) : "upload.bin",
-        mime_type: t && t.type ? String(t.type) : "application/octet-stream",
-        size_bytes: t && typeof t.size == "number" ? t.size : 0
-    };
-    n && n > 0 && (g.prescription_id = Number(n));
-    const a = we(), x = a.restBase.replace(/\/$/, "") + "/artifacts/init", o = await fetch(x, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-WP-Nonce": a.nonce,
-            "X-Sos-Scope": "form"
-        },
-        credentials: "same-origin",
-        body: JSON.stringify(g)
-    }), b = await o.text();
-    let v = b;
-    try {
-        v = b ? JSON.parse(b) : null;
-    } catch {}
-    if (!o.ok) {
-        const M = v && typeof v.message == "string" ? v.message : v && typeof v.code == "string" ? v.code : "Préparation d’upload impossible.";
-        throw new Error(M);
-    }
-    const C = v && v.upload ? v.upload : null;
-    if (!C || !C.url) throw new Error("Ticket d’upload invalide");
-    const h = {};
-    C.headers && typeof C.headers == "object" && Object.keys(C.headers).forEach((M => {
-        h[M] = String(C.headers[M]);
-    })), h["Content-Type"] || (h["Content-Type"] = g.mime_type);
-    const _ = await fetch(String(C.url), {
-        method: String(C.method || "PUT").toUpperCase(),
-        headers: h,
-        body: t,
-        mode: "cors",
-        credentials: "omit"
-    }), N = await _.text();
-    let i = N;
-    try {
-        i = N ? JSON.parse(N) : null;
-    } catch {}
-    if (!_.ok) {
-        const M = i && typeof i.message == "string" ? i.message : i && typeof i.code == "string" ? i.code : "Erreur upload";
-        throw new Error(M);
-    }
-    const S = i && i.artifact ? i.artifact : null;
-    if (!S || !S.id) throw new Error("Réponse artefact incomplète");
-    return {
-        id: String(S.id),
-        original_name: S.original_name || g.original_name,
-        purpose: g.purpose,
-        mime: S.mime_type || g.mime_type,
-        mime_type: S.mime_type || g.mime_type,
-        size_bytes: typeof S.size_bytes == "number" ? S.size_bytes : g.size_bytes,
-        kind: S.kind || u,
-        status: S.status || "READY"
-    };
-}
-
-async function spV4Api(t, s = {}, n = "form") {
-  const l = we(), u = typeof (l == null ? void 0 : l.restV4Base) == "string" && l.restV4Base.trim() ? l.restV4Base.trim() : String((l == null ? void 0 : l.restBase) || "").replace(/\/sosprescription\/v1\/?$/, "/sosprescription/v4").trim();
-  if (!u) throw new Error("Configuration REST V4 absente.");
-  const g = u.replace(/\/$/, "") + t;
-  const a = String((s == null ? void 0 : s.method) || "GET").toUpperCase();
-  const x = {
-    ...(s == null ? void 0 : s.headers) || {},
-    "X-WP-Nonce": l.nonce
-  };
-  n && (x["X-Sos-Scope"] = n), a === "GET" && (x["Cache-Control"] = "no-cache, no-store, must-revalidate", 
-  x.Pragma = "no-cache");
-  const o = await fetch(g, {
-    ...s,
-    method: a,
-    headers: x,
-    credentials: "same-origin",
-    cache: a === "GET" ? "no-store" : s == null ? void 0 : s.cache
-  }), b = await o.text();
-  let v = b;
-  try {
-    v = b ? JSON.parse(b) : null;
-  } catch {}
-  if (!o.ok) {
-    const M = v && typeof v.message == "string" ? v.message : v && typeof v.code == "string" ? v.code : "Erreur API";
-    throw new Error(M);
+async function getPricingApi(): Promise<PricingConfig | null> {
+  const payload = await sharedApi('/pricing', { method: 'GET' }, 'form');
+  if (!payload || typeof payload !== 'object') {
+    return null;
   }
-  return v;
-}
 
-async function spCreateSubmissionApi(t) {
-  return spV4Api("/form/submissions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(t)
-  }, "form");
-}
-
-async function spSubmissionArtifactInitApi(t, s) {
-  const n = String(t || "").trim();
-  if (!n) throw new Error("Référence de soumission manquante.");
-  return spV4Api(`/form/submissions/${encodeURIComponent(n)}/artifacts`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(s)
-  }, "form");
-}
-
-async function spDirectSubmissionArtifactUpload(t, s, n = "PROOF") {
-  const l = {
-    kind: n,
-    original_name: t && t.name ? String(t.name) : "upload.bin",
-    mime_type: t && t.type ? String(t.type) : "application/octet-stream",
-    size_bytes: t && typeof t.size == "number" ? t.size : 0
-  }, u = await spSubmissionArtifactInitApi(s, l), g = u && u.upload ? u.upload : null;
-  if (!g || !g.url) throw new Error("Ticket d’upload invalide");
-  const a = {};
-  g.headers && typeof g.headers == "object" && Object.keys(g.headers).forEach((b => {
-    a[b] = String(g.headers[b]);
-  })), a["Content-Type"] || (a["Content-Type"] = l.mime_type);
-  const x = await fetch(String(g.url), {
-    method: String(g.method || "PUT").toUpperCase(),
-    headers: a,
-    body: t,
-    mode: "cors",
-    credentials: "omit"
-  }), o = await x.text();
-  let b = o;
-  try {
-    b = o ? JSON.parse(o) : null;
-  } catch {}
-  if (!x.ok) {
-    const v = b && typeof b.message == "string" ? b.message : b && typeof b.code == "string" ? b.code : "Erreur upload";
-    throw new Error(v);
-  }
-  const v = b && b.artifact ? b.artifact : null;
-  if (!v || !v.id) throw new Error("Réponse artefact incomplète");
+  const data = payload as Record<string, unknown>;
   return {
-    id: String(v.id),
-    original_name: v.original_name || l.original_name,
-    purpose: "evidence",
-    mime: v.mime_type || l.mime_type,
-    mime_type: v.mime_type || l.mime_type,
-    size_bytes: typeof v.size_bytes == "number" ? v.size_bytes : l.size_bytes,
-    kind: v.kind || n,
-    status: v.status || "READY"
+    standard_cents: typeof data.standard_cents === 'number' ? data.standard_cents : 0,
+    express_cents: typeof data.express_cents === 'number' ? data.express_cents : 0,
+    currency: typeof data.currency === 'string' ? data.currency : 'EUR',
   };
 }
 
-async function spFinalizeSubmissionApi(t, s) {
-  const n = String(t || "").trim();
-  if (!n) throw new Error("Référence de soumission manquante.");
-  return spV4Api(`/form/submissions/${encodeURIComponent(n)}/finalize`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(s)
-  }, "form");
+async function getPaymentsConfigApi(): Promise<PaymentsConfig | null> {
+  const payload = await sharedApi('/payments/config', { method: 'GET' }, 'form');
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const data = payload as Record<string, unknown>;
+  return {
+    enabled: Boolean(data.enabled),
+    publishable_key: typeof data.publishable_key === 'string' ? data.publishable_key : '',
+    provider: typeof data.provider === 'string' ? data.provider : 'stripe',
+    capture_method: typeof data.capture_method === 'string' ? data.capture_method : 'manual',
+  };
 }
 
-function spPatientChatUidFromLocation() {
-    if (typeof window == "undefined") return "";
-    try {
-        const t = new URL(window.location.href).searchParams.get("rx_uid");
-        return typeof t == "string" ? t.trim() : "";
-    } catch {
-        return "";
+async function createSubmissionApi(payload: Record<string, unknown>): Promise<SubmissionInitResponse> {
+  return v4Api('/form/submissions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 'form') as Promise<SubmissionInitResponse>;
+}
+
+async function submissionArtifactInitApi(submissionRef: string, payload: Record<string, unknown>): Promise<unknown> {
+  const ref = String(submissionRef || '').trim();
+  if (!ref) {
+    throw new Error('Référence de soumission manquante.');
+  }
+
+  return v4Api(`/form/submissions/${encodeURIComponent(ref)}/artifacts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 'form');
+}
+
+async function directSubmissionArtifactUpload(file: File, submissionRef: string, kind: 'PROOF' = 'PROOF'): Promise<UploadedArtifact> {
+  const initPayload = {
+    kind,
+    original_name: file && file.name ? String(file.name) : 'upload.bin',
+    mime_type: file && file.type ? String(file.type) : 'application/octet-stream',
+    size_bytes: file && typeof file.size === 'number' ? file.size : 0,
+  };
+
+  const initResponse = await submissionArtifactInitApi(submissionRef, initPayload) as { upload?: { url?: string; method?: string; headers?: Record<string, string> }; artifact?: Partial<UploadedArtifact> };
+  const upload = initResponse && typeof initResponse === 'object' ? initResponse.upload : null;
+  if (!upload || !upload.url) {
+    throw new Error('Ticket d’upload invalide');
+  }
+
+  const headers = new Headers(upload.headers || {});
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', initPayload.mime_type);
+  }
+
+  const response = await fetch(String(upload.url), {
+    method: String(upload.method || 'PUT').toUpperCase(),
+    headers,
+    body: file,
+    mode: 'cors',
+    credentials: 'omit',
+  });
+
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    const message = data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+      ? String((data as { message?: string }).message)
+      : data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+        ? String((data as { code?: string }).code)
+        : 'Erreur upload';
+    throw new Error(message);
+  }
+
+  const artifact = data && typeof data === 'object' && 'artifact' in data ? (data as { artifact?: Partial<UploadedArtifact> }).artifact : null;
+  if (!artifact || !artifact.id) {
+    throw new Error('Réponse artefact incomplète');
+  }
+
+  return {
+    id: String(artifact.id),
+    original_name: artifact.original_name || initPayload.original_name,
+    purpose: 'evidence',
+    mime: artifact.mime || artifact.mime_type || initPayload.mime_type,
+    mime_type: artifact.mime_type || artifact.mime || initPayload.mime_type,
+    size_bytes: typeof artifact.size_bytes === 'number' ? artifact.size_bytes : initPayload.size_bytes,
+    kind: artifact.kind || kind,
+    status: artifact.status || 'READY',
+  };
+}
+
+async function analyzeArtifactApi(artifactId: string): Promise<ArtifactAnalysis> {
+  const id = String(artifactId || '').trim();
+  if (!id) {
+    throw new Error('Identifiant d’artefact manquant.');
+  }
+
+  const cfg = getConfigOrThrow();
+  const url = String(cfg.restBase || '').replace(/\/$/, '') + `/artifacts/${encodeURIComponent(id)}/analyze`;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeout = controller
+    ? window.setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+        // noop
+      }
+    }, 45000)
+    : 0;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-WP-Nonce': cfg.nonce,
+        'X-Sos-Scope': 'form',
+      },
+      credentials: 'same-origin',
+      signal: controller ? controller.signal : undefined,
+    });
+
+    const data = await parseJsonResponse(response);
+    if (!response.ok) {
+      const message = data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+        ? String((data as { message?: string }).message)
+        : data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+          ? String((data as { code?: string }).code)
+          : 'Analyse IA impossible.';
+      throw new Error(message);
     }
+
+    if (data && typeof data === 'object' && 'analysis' in data && (data as { analysis?: unknown }).analysis && typeof (data as { analysis?: unknown }).analysis === 'object') {
+      return {
+        ...(data as Record<string, unknown>),
+        ...((data as { analysis?: Record<string, unknown> }).analysis || {}),
+      } as ArtifactAnalysis;
+    }
+
+    return (data || {}) as ArtifactAnalysis;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError') {
+      throw new Error('L’analyse automatique du document a expiré. Veuillez réessayer ou fournir un document plus net.');
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      window.clearTimeout(timeout);
+    }
+  }
 }
 
-function spSyncPatientChatLocation(t) {
-    if (typeof window == "undefined" || !window.history || typeof window.history.replaceState != "function") return;
-    try {
-        const s = new URL(window.location.href), n = String(t || "").trim();
-        n ? s.searchParams.set("rx_uid", n) : s.searchParams.delete("rx_uid"), s.searchParams.delete("rx");
-        const l = s.toString();
-        l !== window.location.href && window.history.replaceState(window.history.state, "", l);
-    } catch {}
+async function finalizeSubmissionApi(submissionRef: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const ref = String(submissionRef || '').trim();
+  if (!ref) {
+    throw new Error('Référence de soumission manquante.');
+  }
+
+  return v4Api(`/form/submissions/${encodeURIComponent(ref)}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 'form') as Promise<Record<string, unknown>>;
 }
 
-function spDispatchPatientChatRefresh(t = {}) {
-    if (typeof window == "undefined") return;
-    try {
-        window.dispatchEvent(new CustomEvent("sp:patient-chat-refresh", {
-            detail: t
-        }));
-    } catch {}
+function frontendLog(event: string, level: 'debug' | 'info' | 'warning' | 'error' = 'info', meta: Record<string, unknown> = {}): void {
+  try {
+    const cfg = getConfigOrThrow();
+    const restBase = String(cfg.restBase || '').replace(/\/$/, '');
+    if (!restBase || !cfg.nonce || !window.fetch) {
+      return;
+    }
+
+    void window.fetch(restBase + '/logs/frontend', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-WP-Nonce': cfg.nonce,
+      },
+      body: JSON.stringify({
+        shortcode: 'sosprescription_form',
+        event,
+        level,
+        meta,
+      }),
+      keepalive: true,
+    }).catch(() => {
+      // noop
+    });
+  } catch {
+    // noop
+  }
 }
 
-function spFrontendLog(t, s = "info", n = {}) {
-    try {
-        if (typeof window != "undefined" && typeof window.__SosPrescriptionSendLog == "function") {
-            window.__SosPrescriptionSendLog(t, s, n || {});
-            return;
-        }
-    } catch {}
-    try {
-        const l = we(), u = String((l == null ? void 0 : l.restBase) || "").replace(/\/$/, ""), g = String((l == null ? void 0 : l.nonce) || "");
-        if (!u || !g || !window.fetch) return;
-        window.fetch(u + "/logs/frontend", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: {
-                "Content-Type": "application/json",
-                "X-WP-Nonce": g
-            },
-            body: JSON.stringify({
-                shortcode: "sosprescription_form",
-                event: t,
-                level: s || "info",
-                meta: n || {}
-            }),
-            keepalive: !0
-        }).catch((() => {}));
-    } catch {}
+function resolveFlowFromUrl(): FlowType | null {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('type');
+    const normalized = String(raw || '').trim().toLowerCase();
+    if (normalized === 'renouvellement' || normalized === 'renewal' || normalized === 'ro_proof') {
+      return 'ro_proof';
+    }
+    if (normalized === 'depannage-sos' || normalized === 'depannage_no_proof' || normalized === 'depannage' || normalized === 'sos') {
+      return 'depannage_no_proof';
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
-function spResolveFlowFromUrl() {
-    try {
-        const t = new URLSearchParams(window.location.search).get("type"), s = String(t || "").trim().toLowerCase();
-        return s === "renouvellement" || s === "renewal" || s === "ro_proof" ? "ro_proof" : s === "depannage-sos" || s === "depannage_no_proof" || s === "depannage" || s === "sos" ? "depannage_no_proof" : null;
-    } catch {
+function isEmailLikeValue(value: unknown): boolean {
+  const normalized = String(value ?? '').trim();
+  return normalized !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+}
+
+function safePatientNameValue(value: unknown): string {
+  const normalized = String(value ?? '').trim();
+  return normalized !== '' && !isEmailLikeValue(normalized) ? normalized : '';
+}
+
+function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
+  const normalized = safePatientNameValue(value);
+  if (!normalized) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const parts = normalized
+    .split(/\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) {
+    return { firstName: parts[0] || '', lastName: '' };
+  }
+
+  const firstName = parts.shift() || '';
+  return {
+    firstName,
+    lastName: parts.join(' '),
+  };
+}
+
+function formatBirthdateInput(value: string): string {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function toIsoBirthdate(value: string): string | null {
+  const match = /^([0-3]\d)\/([01]\d)\/(\d{4})$/.exec(String(value || '').trim());
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function ageFromIsoBirthdate(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const birth = new Date(Date.UTC(year, month - 1, day));
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  if (birth.getTime() > today.getTime()) {
+    return null;
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const ageDays = Math.floor((today.getTime() - birth.getTime()) / dayMs);
+  if (ageDays < 28) {
+    return `${ageDays} jour${ageDays > 1 ? 's' : ''}`;
+  }
+
+  let years = today.getUTCFullYear() - birth.getUTCFullYear();
+  let months = today.getUTCMonth() - birth.getUTCMonth();
+  let days = today.getUTCDate() - birth.getUTCDate();
+
+  if (days < 0) {
+    const previousMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0));
+    days += previousMonth.getUTCDate();
+    months -= 1;
+  }
+
+  if (months < 0) {
+    months += 12;
+    years -= 1;
+  }
+
+  const totalMonths = years * 12 + months;
+  if (totalMonths < 24) {
+    return `${Math.max(1, totalMonths)} mois`;
+  }
+
+  if (years < 18) {
+    return `${years} an${years > 1 ? 's' : ''}${months > 0 ? ` ${months} mois` : ''}`;
+  }
+
+  return `${years} an${years > 1 ? 's' : ''}`;
+}
+
+function ageLabelFromBirthdate(value: string): string {
+  const iso = toIsoBirthdate(value);
+  return (iso && ageFromIsoBirthdate(iso)) || '';
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isNaN(numeric)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function pad2(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+function isTimeString(value: string): boolean {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function parseTimeToMinutes(value: string): number | null {
+  if (!isTimeString(value)) {
+    return null;
+  }
+
+  const [hours, minutes] = value.split(':');
+  return Number.parseInt(hours, 10) * 60 + Number.parseInt(minutes, 10);
+}
+
+function formatMinutesToTime(value: number): string {
+  let minutes = Math.round(value);
+  if (!Number.isFinite(minutes)) {
+    minutes = 0;
+  }
+  minutes = Math.max(0, Math.min(23 * 60 + 59, minutes));
+
+  const hours = Math.floor(minutes / 60);
+  const remain = minutes % 60;
+  return `${pad2(hours)}:${pad2(remain)}`;
+}
+
+function roundToStep(value: number, step: number): number {
+  const normalizedStep = Math.max(1, Math.floor(step));
+  return Math.round(value / normalizedStep) * normalizedStep;
+}
+
+function fillArray(values: string[] | undefined, size: number, fallback: string): string[] {
+  const next = Array.isArray(values) ? values.map((value) => String(value ?? '')) : [];
+  if (next.length > size) {
+    return next.slice(0, size);
+  }
+  while (next.length < size) {
+    next.push(fallback);
+  }
+  return next;
+}
+
+function distributeTimes(count: number, start: string, end: string, rounding: number): {
+  times: string[];
+  start: string;
+  end: string;
+  warnings: string[];
+  collisionResolved: boolean;
+} {
+  const warnings: string[] = [];
+  const step = clampInt(rounding, 1, 60, 5);
+  const startMinutes = parseTimeToMinutes(start) ?? 8 * 60;
+  let endMinutes = parseTimeToMinutes(end) ?? 20 * 60;
+
+  if (endMinutes <= startMinutes) {
+    endMinutes = Math.min(startMinutes + 60, 23 * 60 + 55);
+    warnings.push('Fenêtre de prise invalide : heure de fin ajustée.');
+  }
+
+  const windowDuration = endMinutes - startMinutes;
+  if (count <= 1) {
+    const only = formatMinutesToTime(roundToStep(startMinutes, step));
+    const finalEnd = formatMinutesToTime(roundToStep(endMinutes, step));
+    return {
+      times: [only],
+      start: only,
+      end: finalEnd,
+      warnings,
+      collisionResolved: false,
+    };
+  }
+
+  if (windowDuration < (count - 1) * step) {
+    warnings.push('Fenêtre trop courte pour répartir correctement.');
+  }
+  if (startMinutes > 18 * 60 && count > 1) {
+    warnings.push('Première prise tardive : prises rapprochées.');
+  }
+
+  let collisionResolved = false;
+  const gap = windowDuration / (count - 1);
+  const points: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    let point = startMinutes + index * gap;
+    if (index === 0) {
+      point = startMinutes;
+    }
+    if (index === count - 1) {
+      point = endMinutes;
+    }
+    let rounded = roundToStep(point, step);
+    rounded = Math.max(startMinutes, Math.min(endMinutes, rounded));
+    points.push(rounded);
+  }
+
+  for (let index = 1; index < count; index += 1) {
+    if (points[index] <= points[index - 1]) {
+      collisionResolved = true;
+      points[index] = points[index - 1] + step;
+    }
+  }
+
+  if (points[count - 1] > endMinutes) {
+    collisionResolved = true;
+    points[count - 1] = roundToStep(endMinutes, step);
+    for (let index = count - 2; index >= 0; index -= 1) {
+      if (points[index] >= points[index + 1]) {
+        points[index] = points[index + 1] - step;
+      }
+    }
+    if (points[0] < startMinutes) {
+      warnings.push('Horaires trop rapprochés : vérifier la posologie.');
+      points[0] = roundToStep(startMinutes, step);
+      for (let index = 1; index < count; index += 1) {
+        points[index] = Math.max(points[index], points[index - 1]);
+      }
+    }
+  }
+
+  let minGap = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < count; index += 1) {
+    minGap = Math.min(minGap, points[index] - points[index - 1]);
+  }
+  if (count >= 4 && Number.isFinite(minGap) && minGap < 60) {
+    warnings.push('Horaires rapprochés : vérifier la posologie.');
+  }
+
+  const times = points.map(formatMinutesToTime);
+  return {
+    times,
+    start: times[0],
+    end: times[times.length - 1],
+    warnings,
+    collisionResolved,
+  };
+}
+
+function normalizeSchedule(value: Partial<Schedule> | null | undefined): Schedule {
+  const freqUnit: FrequencyUnit = value?.freqUnit === 'semaine' ? 'semaine' : 'jour';
+  const maxCount = freqUnit === 'jour' ? 6 : 12;
+  const nb = clampInt(value?.nb, 1, maxCount, 1);
+  const durationVal = clampInt(value?.durationVal, 1, 3650, 5);
+  const durationUnit: DurationUnit = value?.durationUnit === 'mois'
+    ? 'mois'
+    : value?.durationUnit === 'semaine'
+      ? 'semaine'
+      : 'jour';
+  const rounding = clampInt(value?.rounding, 1, 60, 5);
+  const autoTimesEnabled = value?.autoTimesEnabled !== false;
+  const start = typeof value?.start === 'string' ? value.start : typeof value?.times?.[0] === 'string' ? value.times[0] : '08:00';
+  const end = typeof value?.end === 'string' ? value.end : typeof value?.times?.[value?.times?.length ? value.times.length - 1 : 0] === 'string' ? value.times[value.times.length - 1] : '20:00';
+  const safeStart = isTimeString(start) ? start : '08:00';
+  const safeEnd = isTimeString(end) ? end : '20:00';
+
+  let times = fillArray(value?.times, nb, '');
+  const doses = fillArray(value?.doses, nb, '1');
+
+  if (autoTimesEnabled && freqUnit === 'jour') {
+    const auto = distributeTimes(nb, safeStart, safeEnd, rounding);
+    times = auto.times;
+    return {
+      nb,
+      freqUnit,
+      durationVal,
+      durationUnit,
+      times,
+      doses,
+      note: typeof value?.note === 'string' ? value.note : '',
+      autoTimesEnabled: true,
+      start: auto.start,
+      end: auto.end,
+      rounding,
+    };
+  }
+
+  return {
+    nb,
+    freqUnit,
+    durationVal,
+    durationUnit,
+    times,
+    doses,
+    note: typeof value?.note === 'string' ? value.note : '',
+    autoTimesEnabled: autoTimesEnabled && freqUnit === 'jour',
+    start: safeStart,
+    end: safeEnd,
+    rounding,
+  };
+}
+
+function aiSafeText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function aiNormalizeTime(value: unknown): string | null {
+  const normalized = aiSafeText(value)
+    .replace(/h/i, ':')
+    .replace(/[^0-9:]/g, '');
+  if (!normalized) {
+    return null;
+  }
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Math.max(0, Math.min(23, Number.parseInt(match[1], 10) || 0));
+  const minutes = Math.max(0, Math.min(59, Number.parseInt(match[2], 10) || 0));
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function aiBuildScheduleFromText(value: unknown): Schedule {
+  const text = aiSafeText(value);
+  if (!text) {
+    return normalizeSchedule({});
+  }
+
+  let count = 1;
+  let freqUnit: FrequencyUnit = 'jour';
+  let durationVal = 5;
+  let durationUnit: DurationUnit = 'jour';
+
+  const countMatch = text.match(/(\d+)\s*(?:fois?|prises?)\s*(?:par\s*|\/\s*)(jour|jours|semaine|semaines)/i)
+    || text.match(/(\d+)\s*fois?\s*par\s*(jour|jours|semaine|semaines)/i);
+  if (countMatch) {
+    count = clampInt(countMatch[1], 1, /sem/i.test(countMatch[2]) ? 12 : 6, 1);
+    freqUnit = /sem/i.test(countMatch[2]) ? 'semaine' : 'jour';
+  }
+
+  const durationMatch = text.match(/(?:pendant|durant|sur)\s*(\d+)\s*(jour|jours|mois|semaine|semaines)/i);
+  if (durationMatch) {
+    durationVal = clampInt(durationMatch[1], 1, 3650, 5);
+    durationUnit = /mois/i.test(durationMatch[2])
+      ? 'mois'
+      : /sem/i.test(durationMatch[2])
+        ? 'semaine'
+        : 'jour';
+  }
+
+  const times: string[] = [];
+  const doses: string[] = [];
+  const explicitDoseTime = /([0-9]+(?:[.,][0-9]+)?)\s*@\s*([01]?\d[:h][0-5]\d)/gi;
+  let explicitMatch: RegExpExecArray | null = null;
+  while ((explicitMatch = explicitDoseTime.exec(text))) {
+    const normalized = aiNormalizeTime(explicitMatch[2]);
+    if (normalized) {
+      times.push(normalized);
+      doses.push(String(explicitMatch[1]).replace(',', '.'));
+    }
+  }
+
+  if (times.length === 0) {
+    const rawTimeRegex = /\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/g;
+    let rawMatch: RegExpExecArray | null = null;
+    while ((rawMatch = rawTimeRegex.exec(text))) {
+      const normalized = aiNormalizeTime(`${rawMatch[1]}:${rawMatch[2]}`);
+      if (normalized) {
+        times.push(normalized);
+      }
+    }
+    if (times.length > 0) {
+      count = Math.max(count, times.length);
+    }
+  } else {
+    count = Math.max(count, times.length);
+  }
+
+  const base = normalizeSchedule({
+    nb: count,
+    freqUnit,
+    durationVal,
+    durationUnit,
+    autoTimesEnabled: times.length < 1,
+    times: times.length > 0 ? times : undefined,
+    doses: doses.length > 0 ? doses : undefined,
+    start: times[0] || '08:00',
+    end: times[times.length - 1] || '20:00',
+    rounding: 5,
+    note: '',
+  });
+
+  if (times.length > 0) {
+    return {
+      ...base,
+      autoTimesEnabled: false,
+      start: times[0] || '08:00',
+      end: times[times.length - 1] || times[0] || '20:00',
+      times: fillArray(times, count, times[times.length - 1] || times[0] || '08:00'),
+      doses: doses.length > 0 ? fillArray(doses, count, doses[doses.length - 1] || '1') : fillArray([], count, '1'),
+    };
+  }
+
+  return base;
+}
+
+function aiMedicationsToItems(value: unknown): MedicationItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const label = aiSafeText(entry && typeof entry === 'object' ? (entry as AnalyzeMedication).label : '');
+      const scheduleText = aiSafeText(entry && typeof entry === 'object' ? (entry as AnalyzeMedication).scheduleText : '');
+      if (!label) {
         return null;
-    }
+      }
+
+      return {
+        label,
+        schedule: aiBuildScheduleFromText(scheduleText),
+      } as MedicationItem;
+    })
+    .filter((entry): entry is MedicationItem => Boolean(entry));
 }
 
-function spBuildSubmitBlockInfo(t) {
-    const s = [];
-    if (!t.loggedIn) s.push({
-        code: "auth_missing",
-        message: "Vous devez être connecté pour soumettre une demande."
-    });
-    const n = String(t.flow || "").trim(), l = spSafePatientNameValue(t.fullname), u = spSplitPatientNameValue(l), g = String(t.birthdate || "").trim(), a = Number(t.itemsCount || 0), x = Number(t.filesCount || 0);
-    !n && s.push({
-        code: "flow_missing",
-        message: "Merci de choisir un parcours avant de soumettre votre demande."
-    }), (l.length < 3 || u.firstName === "" || u.lastName === "") && s.push({
-        code: "patient_name_invalid",
-        message: "Merci de saisir le prénom et le nom du patient."
-    }), !g ? s.push({
-        code: "birthdate_missing",
-        message: "Merci de renseigner la date de naissance du patient."
-    }) : yt(g) || s.push({
-        code: "birthdate_invalid",
-        message: "Merci de renseigner une date de naissance valide au format JJ/MM/AAAA."
-    }), n === "ro_proof" && x < 1 && s.push({
-        code: "proof_missing",
-        message: "Merci d'ajouter au moins un document justificatif à analyser."
-    }), n === "depannage_no_proof" && a < 1 && s.push({
-        code: "medication_missing",
-        message: "Merci d'ajouter au moins un médicament."
-    }), n === "depannage_no_proof" && !t.attestationNoProof && s.push({
-        code: "attestation_missing",
-        message: "Merci de confirmer l'attestation de dépannage sans preuve."
-    });
-    if (t.consentRequired) {
-        const o = [];
-        t.consentTelemedicine || o.push("téléconsultation"), t.consentTruth || o.push("attestation sur l'honneur"), 
-        t.consentCgu || o.push("CGU"), t.consentPrivacy || o.push("politique de confidentialité"), 
-        o.length > 0 && s.push({
-            code: "consent_missing",
-            message: "Merci de valider les consentements requis : " + o.join(", ") + "."
-        });
+function mergeMedicationItems(current: MedicationItem[], incoming: MedicationItem[]): MedicationItem[] {
+  const next = Array.isArray(current) ? current.slice() : [];
+  const seen = new Set(next.map((item) => aiSafeText(item?.label).toLowerCase()).filter(Boolean));
+
+  for (const item of Array.isArray(incoming) ? incoming : []) {
+    const label = aiSafeText(item?.label);
+    if (!label) {
+      continue;
     }
-    return t.analysisInProgress && s.push({
-        code: "analysis_in_progress",
-        message: "Veuillez patienter pendant l'analyse du document."
-    }), {
-        ok: s.length === 0,
-        reasons: s,
-        code: s.length > 0 ? s[0].code : null,
-        message: s.length > 0 ? s[0].message : null
+    const key = label.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      next.push(item);
+    }
+  }
+
+  return next;
+}
+
+function formatMoney(amountCents: number | null | undefined, currency: string | undefined): string {
+  const cents = typeof amountCents === 'number' ? amountCents : 0;
+  return `${(cents / 100).toFixed(2)} ${(currency || 'EUR').toUpperCase()}`;
+}
+
+function buildSubmitBlockInfo(input: {
+  loggedIn: boolean;
+  flow: FlowType | null;
+  fullname: string;
+  birthdate: string;
+  itemsCount: number;
+  filesCount: number;
+  attestationNoProof: boolean;
+  consentRequired: boolean;
+  consentTelemedicine: boolean;
+  consentTruth: boolean;
+  consentCgu: boolean;
+  consentPrivacy: boolean;
+  analysisInProgress: boolean;
+}): { ok: boolean; reasons: Array<{ code: string; message: string }>; code: string | null; message: string | null } {
+  const reasons: Array<{ code: string; message: string }> = [];
+
+  if (!input.loggedIn) {
+    reasons.push({
+      code: 'auth_missing',
+      message: 'Vous devez être connecté pour soumettre une demande.',
+    });
+  }
+
+  const flow = String(input.flow || '').trim();
+  const fullName = safePatientNameValue(input.fullname);
+  const splitName = splitPatientNameValue(fullName);
+  const isoBirthdate = toIsoBirthdate(String(input.birthdate || '').trim());
+  const itemCount = Number(input.itemsCount || 0);
+  const fileCount = Number(input.filesCount || 0);
+
+  if (!flow) {
+    reasons.push({
+      code: 'flow_missing',
+      message: 'Merci de choisir un parcours avant de soumettre votre demande.',
+    });
+  }
+
+  if (fullName.length < 3 || splitName.firstName === '' || splitName.lastName === '') {
+    reasons.push({
+      code: 'patient_name_invalid',
+      message: 'Merci de saisir le prénom et le nom du patient.',
+    });
+  }
+
+  if (!input.birthdate) {
+    reasons.push({
+      code: 'birthdate_missing',
+      message: 'Merci de renseigner la date de naissance du patient.',
+    });
+  } else if (!isoBirthdate) {
+    reasons.push({
+      code: 'birthdate_invalid',
+      message: 'Merci de renseigner une date de naissance valide au format JJ/MM/AAAA.',
+    });
+  }
+
+  if (flow === 'ro_proof' && fileCount < 1) {
+    reasons.push({
+      code: 'proof_missing',
+      message: 'Merci d’ajouter au moins un document justificatif à analyser.',
+    });
+  }
+
+  if (flow === 'depannage_no_proof' && itemCount < 1) {
+    reasons.push({
+      code: 'medication_missing',
+      message: 'Merci d’ajouter au moins un médicament.',
+    });
+  }
+
+  if (flow === 'depannage_no_proof' && !input.attestationNoProof) {
+    reasons.push({
+      code: 'attestation_missing',
+      message: 'Merci de confirmer l’attestation de dépannage sans preuve.',
+    });
+  }
+
+  if (input.consentRequired) {
+    const missing: string[] = [];
+    if (!input.consentTelemedicine) missing.push('téléconsultation');
+    if (!input.consentTruth) missing.push('attestation sur l’honneur');
+    if (!input.consentCgu) missing.push('CGU');
+    if (!input.consentPrivacy) missing.push('politique de confidentialité');
+
+    if (missing.length > 0) {
+      reasons.push({
+        code: 'consent_missing',
+        message: `Merci de valider les consentements requis : ${missing.join(', ')}.`,
+      });
+    }
+  }
+
+  if (input.analysisInProgress) {
+    reasons.push({
+      code: 'analysis_in_progress',
+      message: 'Veuillez patienter pendant l’analyse du document.',
+    });
+  }
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    code: reasons.length > 0 ? reasons[0].code : null,
+    message: reasons.length > 0 ? reasons[0].message : null,
+  };
+}
+
+function createLocalUpload(file: File): LocalUpload {
+  return {
+    id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    file,
+    original_name: file?.name ? String(file.name) : 'upload.bin',
+    mime: file?.type ? String(file.type) : 'application/octet-stream',
+    mime_type: file?.type ? String(file.type) : 'application/octet-stream',
+    size_bytes: typeof file?.size === 'number' ? file.size : 0,
+    kind: 'PROOF',
+    status: 'QUEUED',
+  };
+}
+
+function MedicationSearch({
+  onSelect,
+  disabled = false,
+  disabledHint = 'Connectez-vous pour rechercher des médicaments.',
+}: {
+  onSelect: (item: MedicationSearchResult) => void;
+  disabled?: boolean;
+  disabledHint?: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<MedicationSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const canSearch = useMemo(() => query.trim().length >= 2, [query]);
+  const hasDisabledResults = useMemo(
+    () => results.some((result) => result?.is_selectable === false),
+    [results],
+  );
+
+  useEffect(() => {
+    if (disabled) {
+      setResults([]);
+      setOpen(false);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    if (!canSearch) {
+      setResults([]);
+      setOpen(false);
+      setError(null);
+      return;
+    }
+
+    const keyword = query.trim();
+    setLoading(true);
+    setOpen(true);
+    abortRef.current?.abort();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const timeout = window.setTimeout(() => {
+      searchMedicationsApi(keyword, 20)
+        .then((data) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          let nextResults = Array.isArray(data)
+            ? data
+            : (
+              data && typeof data === 'object'
+                ? ((data as Record<string, unknown>).data
+                  || (data as Record<string, unknown>).items
+                  || (data as Record<string, unknown>).results
+                  || (data as Record<string, unknown>).medications
+                  || Object.values(data as Record<string, unknown>))
+                : []
+            );
+
+          nextResults = Array.isArray(nextResults) ? nextResults : [];
+          setError(null);
+          setResults(nextResults as MedicationSearchResult[]);
+        })
+        .catch((reason: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setResults([]);
+          setError(reason instanceof Error ? reason.message : 'Erreur lors de la recherche');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
+        });
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
     };
-}
+  }, [canSearch, disabled, query]);
 
-function spAiSafeText(t) {
-    return String(t || "").replace(/ /g, " ").replace(/\s+/g, " ").trim();
-}
+  return (
+    <div className="relative">
+      <TextInput
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={disabled ? disabledHint : 'Rechercher un médicament (nom, CIS, CIP7/13)…'}
+        onFocus={() => {
+          if (!disabled && query.trim().length >= 2) {
+            setOpen(true);
+          }
+        }}
+        disabled={disabled}
+      />
 
-function spAiNormalizeTime(t) {
-    const s = spAiSafeText(t).replace(/h/i, ":").replace(/[^0-9:]/g, "");
-    if (!s) return null;
-    const n = s.match(/^(\d{1,2}):(\d{2})$/);
-    if (!n) return null;
-    const l = Math.max(0, Math.min(23, parseInt(n[1], 10) || 0)), u = Math.max(0, Math.min(59, parseInt(n[2], 10) || 0));
-    return `${String(l).padStart(2, "0")}:${String(u).padStart(2, "0")}`;
-}
+      {open && (
+        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-gray-600">
+            <span>Résultats</span>
+            {loading && <Spinner />}
+          </div>
 
-function spAiBuildScheduleFromText(t) {
-    const s = spAiSafeText(t);
-    if (!s) return ut({});
-    let n = 1, l = "jour", u = 5, g = "jour";
-    const a = s.match(/(\d+)\s*(?:fois?|prises?)\s*(?:par\s*|\/\s*)(jour|jours|semaine|semaines)/i) || s.match(/(\d+)\s*fois?\s*par\s*(jour|jours|semaine|semaines)/i);
-    a && (n = se(a[1], 1, /sem/i.test(a[2]) ? 12 : 6, 1), l = /sem/i.test(a[2]) ? "semaine" : "jour");
-    const x = s.match(/(?:pendant|durant|sur)\s*(\d+)\s*(jour|jours|mois|semaine|semaines)/i);
-    x && (u = se(x[1], 1, 3650, 5), g = /mois/i.test(x[2]) ? "mois" : /sem/i.test(x[2]) ? "semaine" : "jour");
-    const o = [], b = [], v = /([0-9]+(?:[.,][0-9]+)?)\s*@\s*([01]?\d[:h][0-5]\d)/gi;
-    let M = null;
-    for (;M = v.exec(s); ) {
-        const C = spAiNormalizeTime(M[2]);
-        C && (o.push(C), b.push(String(M[1]).replace(",", ".")));
-    }
-    if (o.length === 0) {
-        const C = /([01]?\d|2[0-3])[:h]([0-5]\d)/g;
-        let h = null;
-        for (;h = C.exec(s); ) {
-            const _ = spAiNormalizeTime(`${h[1]}:${h[2]}`);
-            _ && o.push(_);
-        }
-        o.length > 0 && (n = Math.max(n, o.length));
-    } else n = Math.max(n, o.length);
-    const C = ut({
-        nb: n,
-        freqUnit: l,
-        durationVal: u,
-        durationUnit: g,
-        autoTimesEnabled: o.length < 1,
-        times: o.length > 0 ? o : void 0,
-        doses: b.length > 0 ? b : void 0,
-        start: o[0] || "08:00",
-        end: o[o.length - 1] || "20:00",
-        rounding: 5,
-        note: ""
-    });
-    if (o.length > 0) {
-        const h = H(o, n, o[o.length - 1] || o[0] || "08:00"), _ = b.length > 0 ? H(b, n, b[b.length - 1] || "1") : H([], n, "1");
-        return {
-            ...C,
-            autoTimesEnabled: !1,
-            start: h[0] || "08:00",
-            end: h[h.length - 1] || h[0] || "20:00",
-            times: h,
-            doses: _
-        };
-    }
-    return C;
-}
+          <div className="max-h-64 overflow-auto">
+            {!loading && error && (
+              <div className="px-3 py-3 text-sm text-red-600">{error}</div>
+            )}
 
-function spAiMedicationsToItems(t) {
-    return Array.isArray(t) ? t.map((s => {
-        const n = spAiSafeText(s && s.label), l = spAiSafeText(s && s.scheduleText);
-        return n ? {
-            label: n,
-            schedule: spAiBuildScheduleFromText(l)
-        } : null;
-    })).filter(Boolean) : [];
-}
+            {!loading && !error && results.length === 0 && (
+              <div className="px-3 py-3">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <div className="text-sm font-medium text-gray-900">Aucun résultat</div>
+                  <div className="mt-1 text-xs text-gray-600">
+                    Si votre médicament n’apparaît pas, c’est souvent lié à :
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      <li>une BDPM non importée / non prête</li>
+                      <li>une whitelist qui restreint le périmètre</li>
+                      <li>une recherche trop courte (min. 2 caractères, ou CIS/CIP)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
 
-function spAiMergeMedicationItems(t, s) {
-    const n = Array.isArray(t) ? t.slice() : [], l = new Set(n.map((u => spAiSafeText(u && u.label).toLowerCase())).filter(Boolean));
-    for (const u of Array.isArray(s) ? s : []) {
-        const g = spAiSafeText(u && u.label);
-        if (!g) continue;
-        const a = g.toLowerCase();
-        l.has(a) || (l.add(a), n.push(u));
-    }
-    return n;
-}
-
-function Z({className: t = "", ...s}) {
-    return e.jsx("input", {
-        className: `w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${t}`,
-        ...s
-    });
-}
-
-function mt({onSelect: t, disabled: s = !1, disabledHint: n = "Connectez-vous pour rechercher des médicaments."}) {
-    const [l, u] = c.useState(""), [g, a] = c.useState([]), [x, o] = c.useState(!1), [b, v] = c.useState(null), [M, C] = c.useState(!1), h = c.useRef(null), _ = c.useMemo((() => l.trim().length >= 2), [ l ]), N = c.useMemo((() => g.some((i => (i == null ? void 0 : i.is_selectable) === !1))), [ g ]);
-    return c.useEffect((() => {
-        var q;
-        if (s) {
-            a([]), C(!1), o(!1), v(null);
-            return;
-        }
-        if (!_) {
-            a([]), C(!1), v(null);
-            return;
-        }
-        const i = l.trim();
-        o(!0), C(!0), (q = h.current) == null || q.abort();
-        const S = new AbortController;
-        h.current = S;
-        const A = window.setTimeout((() => {
-            Xe(i, 20).then((I => {
-                S.signal.aborted || (v(null), a(I || []));
-            })).catch((I => {
-                S.signal.aborted || (a([]), v((I == null ? void 0 : I.message) || "Erreur lors de la recherche"));
-            })).finally((() => {
-                S.signal.aborted || o(!1);
-            }));
-        }), 200);
-        return () => {
-            window.clearTimeout(A), S.abort();
-        };
-    }), [ l, _, s ]), e.jsxs("div", {
-        className: "relative",
-        children: [ e.jsx(Z, {
-            value: l,
-            onChange: i => u(i.target.value),
-            placeholder: s ? n : "Rechercher un médicament (nom, CIS, CIP7/13)…",
-            onFocus: () => !s && l.trim().length >= 2 && C(!0),
-            disabled: s
-        }), M && e.jsxs("div", {
-            className: "absolute z-20 mt-2 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg",
-            children: [ e.jsxs("div", {
-                className: "flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-gray-600",
-                children: [ e.jsx("span", {
-                    children: "Résultats"
-                }), x && e.jsx(V, {}) ]
-            }), e.jsxs("div", {
-                className: "max-h-64 overflow-auto",
-                children: [ !x && b && e.jsx("div", {
-                    className: "px-3 py-3 text-sm text-red-600",
-                    children: b
-                }), !x && !b && g.length === 0 && e.jsx("div", {
-                    className: "px-3 py-3",
-                    children: e.jsxs("div", {
-                        className: "rounded-lg border border-gray-200 bg-gray-50 p-3",
-                        children: [ e.jsx("div", {
-                            className: "text-sm font-medium text-gray-900",
-                            children: "Aucun résultat"
-                        }), e.jsxs("div", {
-                            className: "mt-1 text-xs text-gray-600",
-                            children: [ "Si votre médicament n’apparaît pas, c’est souvent lié à :", e.jsxs("ul", {
-                                className: "mt-2 list-disc space-y-1 pl-5",
-                                children: [ e.jsx("li", {
-                                    children: "une BDPM non importée / non prête"
-                                }), e.jsx("li", {
-                                    children: "une whitelist qui restreint le périmètre (médicaments grisés)"
-                                }), e.jsx("li", {
-                                    children: "une recherche trop courte (min. 2 caractères, ou CIS/CIP)"
-                                }) ]
-                            }) ]
-                        }) ]
-                    })
-                }), g.map((i => {
-                    const S = (i == null ? void 0 : i.is_selectable) !== !1, A = (i.cip13 || i.cis) + i.label;
-                    return e.jsxs("button", {
-                        type: "button",
-                        disabled: !S,
-                        className: S ? "block w-full px-3 py-2 text-left text-sm hover:bg-gray-50" : "block w-full cursor-not-allowed px-3 py-2 text-left text-sm opacity-60",
-                        onClick: () => {
-                            S && (t(i), u(""), a([]), C(!1));
-                        },
-                        children: [ e.jsxs("div", {
-                            className: "flex items-center justify-between gap-3",
-                            children: [ e.jsx("div", {
-                                className: S ? "font-medium text-gray-900" : "font-medium text-gray-700",
-                                children: i.label
-                            }), !S && e.jsx("span", {
-                                className: "shrink-0 text-xs text-gray-400",
-                                children: "Non disponible en ligne"
-                            }) ]
-                        }), e.jsxs("div", {
-                            className: S ? "mt-0.5 text-xs text-gray-600" : "mt-0.5 text-xs text-gray-500",
-                            children: [ i.specialite, " • ", "CIS ", i.cis, i.cip13 ? ` • CIP13 ${i.cip13}` : "", i.tauxRemb ? ` • Remb. ${i.tauxRemb}` : "", typeof i.prixTTC == "number" ? ` • ${i.prixTTC.toFixed(2)}€` : "" ]
-                        }) ]
-                    }, A);
-                })) ]
-            }), e.jsx("div", {
-                className: "border-t border-gray-100 px-3 py-2 text-xs text-gray-500",
-                children: N ? "Les résultats grisés ne sont pas disponibles en ligne." : "Cliquez sur un résultat pour l’ajouter."
-            }) ]
-        }) ]
-    });
-}
-
-function se(t, s, n, l) {
-    const u = Number.parseInt(String(t ?? ""), 10);
-    return Number.isNaN(u) ? l : Math.max(s, Math.min(n, u));
-}
-
-function qe(t) {
-    return t < 10 ? `0${t}` : String(t);
-}
-
-function ie(t) {
-    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(t);
-}
-
-function Le(t) {
-    if (!ie(t)) return null;
-    const [s, n] = t.split(":");
-    return Number.parseInt(s, 10) * 60 + Number.parseInt(n, 10);
-}
-
-function be(t) {
-    let s = Math.round(t);
-    Number.isFinite(s) || (s = 0), s = Math.max(0, Math.min(23 * 60 + 59, s));
-    const n = Math.floor(s / 60), l = s % 60;
-    return `${qe(n)}:${qe(l)}`;
-}
-
-function re(t, s) {
-    const n = Math.max(1, Math.floor(s));
-    return Math.round(t / n) * n;
-}
-
-function H(t, s, n) {
-    const l = Array.isArray(t) ? t.map((u => String(u ?? ""))) : [];
-    if (l.length > s) return l.slice(0, s);
-    for (;l.length < s; ) l.push(n);
-    return l;
-}
-
-function ve(t, s, n, l) {
-    const u = [], g = se(l, 1, 60, 5), a = Le(s) ?? 8 * 60;
-    let x = Le(n) ?? 20 * 60, o = a, b = x;
-    b <= o && (b = Math.min(o + 60, 23 * 60 + 55), u.push("Fenêtre de prise invalide : heure de fin ajustée."));
-    const v = b - o;
-    if (t <= 1) {
-        const i = be(re(o, g)), S = be(re(b, g));
-        return {
-            times: [ i ],
-            start: i,
-            end: S,
-            warnings: u,
-            collisionResolved: !1
-        };
-    }
-    v < (t - 1) * g && u.push("Fenêtre trop courte pour répartir correctement."), o > 18 * 60 && t > 1 && u.push("Première prise tardive : prises rapprochées.");
-    let M = !1;
-    const C = v / (t - 1), h = [];
-    for (let i = 0; i < t; i++) {
-        let S = o + i * C;
-        i === 0 && (S = o), i === t - 1 && (S = b);
-        let A = re(S, g);
-        A = Math.max(o, Math.min(b, A)), h.push(A);
-    }
-    for (let i = 1; i < t; i++) h[i] <= h[i - 1] && (M = !0, h[i] = h[i - 1] + g);
-    if (h[t - 1] > b) {
-        M = !0, h[t - 1] = re(b, g);
-        for (let i = t - 2; i >= 0; i--) h[i] >= h[i + 1] && (h[i] = h[i + 1] - g);
-        if (h[0] < o) {
-            u.push("Horaires trop rapprochés : vérifier la posologie."), h[0] = re(o, g);
-            for (let i = 1; i < t; i++) h[i] = Math.max(h[i], h[i - 1]);
-        }
-    }
-    let _ = 1 / 0;
-    for (let i = 1; i < t; i++) _ = Math.min(_, h[i] - h[i - 1]);
-    t >= 4 && Number.isFinite(_) && _ < 60 && u.push("Horaires rapprochés : vérifier la posologie.");
-    const N = h.map(be);
-    return {
-        times: N,
-        start: N[0],
-        end: N[N.length - 1],
-        warnings: u,
-        collisionResolved: M
-    };
-}
-
-function ut(t) {
-    const s = (t == null ? void 0 : t.freqUnit) === "semaine" ? "semaine" : "jour", n = s === "jour" ? 6 : 12, l = se(t == null ? void 0 : t.nb, 1, n, 1), u = se(t == null ? void 0 : t.durationVal, 1, 3650, 5), g = (t == null ? void 0 : t.durationUnit) === "mois" ? "mois" : "jour", a = se(t == null ? void 0 : t.rounding, 1, 60, 5), x = (t == null ? void 0 : t.autoTimesEnabled) !== !1, o = Array.isArray(t == null ? void 0 : t.times) ? t.times : [], b = Array.isArray(t == null ? void 0 : t.doses) ? t.doses : [], v = typeof (t == null ? void 0 : t.start) == "string" ? t.start : typeof o[0] == "string" ? o[0] : "08:00", M = typeof (t == null ? void 0 : t.end) == "string" ? t.end : typeof o[o.length - 1] == "string" ? o[o.length - 1] : "20:00", C = ie(v) ? v : "08:00", h = ie(M) ? M : "20:00";
-    let _ = H(o, l, ""), N = H(b, l, "1");
-    if (x && s === "jour") {
-        const i = ve(l, C, h, a);
-        return _ = i.times, {
-            nb: l,
-            freqUnit: s,
-            durationVal: u,
-            durationUnit: g,
-            times: _,
-            doses: N,
-            note: "",
-            autoTimesEnabled: !0,
-            start: i.start,
-            end: i.end,
-            rounding: a
-        };
-    }
-    return {
-        nb: l,
-        freqUnit: s,
-        durationVal: u,
-        durationUnit: g,
-        times: _,
-        doses: N,
-        note: "",
-        autoTimesEnabled: x && s === "jour",
-        start: C,
-        end: h,
-        rounding: a
-    };
-}
-
-function xt({value: t, onChange: s}) {
-    const n = c.useMemo((() => ut(t)), [ t ]);
-    c.useEffect((() => {
-        const m = t;
-        (m == null || typeof m != "object" || m.nb == null || m.freqUnit == null || m.durationVal == null || m.durationUnit == null || !Array.isArray(m.times) || !Array.isArray(m.doses) || m.start == null || m.end == null || m.rounding == null) && s(n);
-    }), []);
-    const l = n.nb, u = n.freqUnit, g = n.durationVal, a = n.durationUnit, x = n.rounding ?? 5, o = n.autoTimesEnabled !== !1 && u === "jour", b = n.start ?? "08:00", v = n.end ?? "20:00", M = c.useMemo((() => o ? ve(l, b, v, x) : null), [ o, l, b, v, x ]), C = o && M ? M.times : H(n.times, l, ""), h = H(n.doses, l, "1"), _ = o && M ? M.warnings : [], N = m => {
-        s({
-            ...n,
-            ...m
-        });
-    }, i = (m, j, f) => {
-        const P = ve(m.nb, j, f, m.rounding ?? 5);
-        s({
-            ...m,
-            autoTimesEnabled: !0,
-            start: P.start,
-            end: P.end,
-            times: P.times,
-            doses: H(m.doses, m.nb, "1")
-        });
-    }, S = m => {
-        const f = se(m, 1, u === "jour" ? 6 : 12, 1);
-        if (o) {
-            const E = {
-                ...n,
-                nb: f,
-                rounding: x
-            };
-            i(E, b, v);
-            return;
-        }
-        const P = H(n.times, f, ""), k = H(n.doses, f, "1");
-        N({
-            nb: f,
-            times: P,
-            doses: k
-        });
-    }, A = (m, j) => {
-        const f = j;
-        if (o) {
-            if (m === 0) {
-                const E = {
-                    ...n,
-                    start: f,
-                    rounding: x
-                };
-                i(E, f, v);
-                return;
-            }
-            if (m === l - 1 && l > 1) {
-                const E = {
-                    ...n,
-                    end: f,
-                    rounding: x
-                };
-                i(E, b, f);
-                return;
-            }
-            const k = [ ...C ];
-            k[m] = f, N({
-                autoTimesEnabled: !1,
-                times: k
-            });
-            return;
-        }
-        const P = H(n.times, l, "");
-        P[m] = f, N({
-            times: P
-        });
-    }, q = (m, j) => {
-        const f = H(n.doses, l, "1");
-        f[m] = j, N({
-            doses: f
-        });
-    }, I = () => {
-        if (!window.confirm("Réinitialiser les horaires recommandés ? Cela écrasera vos horaires personnalisés.")) return;
-        const j = {
-            ...n,
-            autoTimesEnabled: !0,
-            start: "08:00",
-            end: "20:00",
-            rounding: x
-        };
-        i(j, "08:00", "20:00");
-    }, O = () => {
-        const m = ie(b) ? b : "08:00", j = ie(v) ? v : "20:00", f = {
-            ...n,
-            autoTimesEnabled: !0,
-            start: m,
-            end: j,
-            rounding: x
-        };
-        i(f, m, j);
-    };
-    return e.jsxs("div", {
-        className: "rounded-xl border border-gray-200 p-4",
-        children: [ e.jsxs("div", {
-            className: "grid gap-3 md:grid-cols-3",
-            children: [ e.jsxs("div", {
-                children: [ e.jsx("div", {
-                    className: "text-sm font-medium text-gray-900",
-                    children: "Nombre de prises"
-                }), e.jsx(Z, {
-                    className: "mt-2",
-                    type: "number",
-                    min: 1,
-                    max: u === "jour" ? 6 : 12,
-                    value: l,
-                    onChange: m => S(m.target.value)
-                }) ]
-            }), e.jsxs("div", {
-                children: [ e.jsx("div", {
-                    className: "text-sm font-medium text-gray-900",
-                    children: "Fréquence"
-                }), e.jsxs("select", {
-                    className: "mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm",
-                    value: u,
-                    onChange: m => N({
-                        freqUnit: m.target.value
-                    }),
-                    children: [ e.jsx("option", {
-                        value: "jour",
-                        children: "Par jour"
-                    }), e.jsx("option", {
-                        value: "semaine",
-                        children: "Par semaine"
-                    }) ]
-                }) ]
-            }), e.jsxs("div", {
-                children: [ e.jsx("div", {
-                    className: "text-sm font-medium text-gray-900",
-                    children: "Durée"
-                }), e.jsxs("div", {
-                    className: "mt-2 flex gap-2",
-                    children: [ e.jsx(Z, {
-                        type: "number",
-                        min: 1,
-                        value: g,
-                        onChange: m => N({
-                            durationVal: se(m.target.value, 1, 3650, 5)
-                        })
-                    }), e.jsxs("select", {
-                        className: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm",
-                        value: a,
-                        onChange: m => N({
-                            durationUnit: m.target.value
-                        }),
-                        children: [ e.jsx("option", {
-                            value: "jour",
-                            children: "jours"
-                        }), e.jsx("option", {
-                            value: "mois",
-                            children: "mois"
-                        }) ]
-                    }) ]
-                }) ]
-            }) ]
-        }), u === "jour" && e.jsxs("div", {
-            className: "mt-4",
-            children: [ e.jsxs("div", {
-                className: "flex flex-wrap items-center justify-between gap-2",
-                children: [ e.jsx("div", {
-                    className: "text-xs text-gray-600",
-                    children: o ? e.jsx(e.Fragment, {
-                        children: "Horaires auto (répartis entre la 1ère et la dernière prise)"
-                    }) : e.jsx(e.Fragment, {
-                        children: "Horaires personnalisés"
-                    })
-                }), e.jsx("div", {
-                    className: "flex gap-2",
-                    children: o ? e.jsx(D, {
-                        type: "button",
-                        variant: "secondary",
-                        onClick: I,
-                        children: "Réinitialiser les horaires"
-                    }) : e.jsx(D, {
-                        type: "button",
-                        variant: "secondary",
-                        onClick: O,
-                        children: "Horaires auto"
-                    })
-                }) ]
-            }), _.length > 0 && e.jsx("div", {
-                className: "mt-3",
-                children: e.jsx(F, {
-                    variant: "warning",
-                    title: "Vérification recommandée",
-                    children: e.jsx("ul", {
-                        className: "list-disc pl-5",
-                        children: _.map(((m, j) => e.jsx("li", {
-                            children: m
-                        }, j)))
-                    })
-                })
-            }), e.jsx("div", {
-                className: "mt-3 space-y-2",
-                children: Array.from({
-                    length: l
-                }).map(((m, j) => {
-                    const f = j === 0, P = j === l - 1 && l > 1, k = f ? "1ère prise" : P ? "Dernière prise" : `Prise ${j + 1}`;
-                    return e.jsxs("div", {
-                        className: "grid grid-cols-1 gap-2 md:grid-cols-3",
-                        children: [ e.jsxs("div", {
-                            className: "text-sm text-gray-800 md:pt-2",
-                            children: [ e.jsx("span", {
-                                className: "font-medium",
-                                children: k
-                            }), o && (f || P) && e.jsx("span", {
-                                className: "ml-2 text-xs text-gray-500",
-                                children: "(ancre)"
-                            }) ]
-                        }), e.jsx(Z, {
-                            type: "time",
-                            step: 300,
-                            value: C[j] || "",
-                            onChange: E => A(j, E.target.value)
-                        }), e.jsx(Z, {
-                            type: "text",
-                            placeholder: "Dose",
-                            value: h[j] || "1",
-                            onChange: E => q(j, E.target.value)
-                        }) ]
-                    }, j);
-                }))
-            }) ]
-        }), null ]
-    });
-}
-
-function ht(t, s) {
-    const n = typeof t == "number" ? t : 0, l = (s || "EUR").toUpperCase();
-    return `${(n / 100).toFixed(2)} ${l}`;
-}
-
-let ue = null;
-
-function gt() {
-    return window.Stripe ? Promise.resolve() : ue || (ue = new Promise(((t, s) => {
-        const n = document.querySelector('script[data-stripe-js="1"]');
-        if (n) {
-            n.addEventListener("load", (() => t())), n.addEventListener("error", (() => s(new Error("Impossible de charger Stripe.js"))));
-            return;
-        }
-        const l = document.createElement("script");
-        l.src = "https://js.stripe.com/v3/", l.async = !0, l.dataset.stripeJs = "1", l.addEventListener("load", (() => t())), 
-        l.addEventListener("error", (() => s(new Error("Impossible de charger Stripe.js")))), 
-        document.body.appendChild(l);
-    })), ue);
-}
-
-function Ve({prescriptionId: t, priority: s, onPaid: n}) {
-    const l = we(), u = c.useRef(null), g = c.useRef(null), a = c.useRef(null), [x, o] = c.useState(!0), [b, v] = c.useState(!1), [M, C] = c.useState(null), [h, _] = c.useState(null), [N, i] = c.useState(null), [S, A] = c.useState(null), [q, I] = c.useState("EUR");
-    c.useEffect((() => {
-        let m = !1;
-        async function j() {
-            C(null), o(!0);
-            try {
-                const f = await Ze(t, s);
-                if (m) return;
-                if (_(f.client_secret), i(f.payment_intent_id), A(f.amount_cents), I(f.currency), 
-                !f.publishable_key) throw new Error("Stripe n'est pas configuré (clé publique manquante).");
-                if (await gt(), m) return;
-                if (!window.Stripe) throw new Error("Stripe.js indisponible.");
-                if (g.current = g.current || window.Stripe(f.publishable_key), !u.current) throw new Error("Zone de paiement introuvable.");
-                const P = g.current.elements();
-                if (a.current) {
-                    try {
-                        a.current.destroy();
-                    } catch {}
-                    a.current = null;
-                }
-                a.current = P.create("card"), a.current.mount(u.current);
-            } catch (f) {
-                m || C(f != null && f.message ? String(f.message) : "Erreur initialisation paiement");
-            } finally {
-                m || o(!1);
-            }
-        }
-        return j(), () => {
-            if (m = !0, a.current) {
-                try {
-                    a.current.destroy();
-                } catch {}
-                a.current = null;
-            }
-        };
-    }), [ t, s ]);
-    const O = async () => {
-        var m, j;
-        if (C(null), !h) {
-            C("Client secret manquant.");
-            return;
-        }
-        if (!g.current || !a.current) {
-            C("Stripe n'est pas prêt.");
-            return;
-        }
-        v(!0);
-        try {
-            const f = ((m = l.currentUser) == null ? void 0 : m.displayName) || void 0, P = ((j = l.currentUser) == null ? void 0 : j.email) || void 0, k = await g.current.confirmCardPayment(h, {
-                payment_method: {
-                    card: a.current,
-                    billing_details: {
-                        name: f,
-                        email: P
+            {results.map((result) => {
+              const selectable = result?.is_selectable !== false;
+              const key = `${result.cip13 || result.cis || result.label}`;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={!selectable}
+                  className={selectable
+                    ? 'block w-full px-3 py-2 text-left text-sm hover:bg-gray-50'
+                    : 'block w-full cursor-not-allowed px-3 py-2 text-left text-sm opacity-60'}
+                  onClick={() => {
+                    if (!selectable) {
+                      return;
                     }
-                }
-            });
-            if (k != null && k.error) throw new Error(k.error.message || "Paiement refusé.");
-            const E = k == null ? void 0 : k.paymentIntent;
-            if (!(E != null && E.id)) throw new Error("PaymentIntent invalide.");
-            await et(t, E.id), n();
-        } catch (f) {
-            C(f != null && f.message ? String(f.message) : "Erreur paiement");
-        } finally {
-            v(!1);
-        }
-    };
-    return e.jsxs("div", {
-        className: "rounded-xl border border-gray-200 bg-white p-4",
-        children: [ e.jsx("div", {
-            className: "mb-2 text-sm font-semibold text-gray-900",
-            children: "Paiement sécurisé"
-        }), e.jsxs("div", {
-            className: "mb-3 text-sm text-gray-700",
-            children: [ "Montant : ", e.jsx("span", {
-                className: "font-semibold",
-                children: ht(S, q)
-            }) ]
-        }), M && e.jsx("div", {
-            className: "mb-3",
-            children: e.jsx(F, {
-                variant: "error",
-                children: M
-            })
-        }), e.jsx("div", {
-            className: "rounded-lg border border-gray-300 bg-white p-3",
-            children: x ? e.jsxs("div", {
-                className: "flex items-center gap-2 text-sm text-gray-600",
-                children: [ e.jsx(V, {}), " Initialisation…" ]
-            }) : e.jsx("div", {
-                ref: u
-            })
-        }), e.jsxs("div", {
-            className: "mt-4 flex flex-wrap items-center gap-2",
-            children: [ e.jsx(D, {
-                type: "button",
-                onClick: O,
-                disabled: x || b,
-                children: b ? e.jsx(V, {}) : "Autoriser le paiement"
-            }), N && e.jsxs("div", {
-                className: "text-xs text-gray-500",
-                children: [ "Référence paiement : ", N ]
-            }) ]
-        }), e.jsx("div", {
-            className: "mt-3 text-xs text-gray-500",
-            children: "La carte n’est débitée qu’après validation médicale (capture manuelle)."
-        }) ]
-    });
-}
+                    onSelect(result);
+                    setQuery('');
+                    setResults([]);
+                    setOpen(false);
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className={selectable ? 'font-medium text-gray-900' : 'font-medium text-gray-700'}>
+                      {result.label}
+                    </div>
+                    {!selectable && (
+                      <span className="shrink-0 text-xs text-gray-400">Non disponible en ligne</span>
+                    )}
+                  </div>
+                  <div className={selectable ? 'mt-0.5 text-xs text-gray-600' : 'mt-0.5 text-xs text-gray-500'}>
+                    {result.specialite || result.label}
+                    {result.cis ? ` • CIS ${result.cis}` : ''}
+                    {result.cip13 ? ` • CIP13 ${result.cip13}` : ''}
+                    {result.tauxRemb ? ` • Remb. ${result.tauxRemb}` : ''}
+                    {typeof result.prixTTC === 'number' ? ` • ${result.prixTTC.toFixed(2)}€` : ''}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
 
-function ft({siteKey: t, enabled: s, onToken: n}) {
-    const l = c.useRef(null), u = c.useRef(null), [g, a] = c.useState(null);
-    return c.useEffect((() => {
-        if (!s) {
-            a(null), n("");
-            return;
-        }
-        if (!t) {
-            a(null), n("");
-            return;
-        }
-        let x = 0, o = null, b = !1;
-        const v = () => {
-            x++;
-            const M = window;
-            if (!l.current) return;
-            if (M.turnstile && typeof M.turnstile.render == "function") {
-                try {
-                    u.current = M.turnstile.render(l.current, {
-                        sitekey: t,
-                        callback: C => {
-                            a(null), n(C || "");
-                        },
-                        "expired-callback": () => {
-                            a(null), n("");
-                        },
-                        "error-callback": () => {
-                            a(null), n("");
-                        }
-                    }), a(null);
-                } catch {
-                    a(null), n("");
-                }
-                o && window.clearInterval(o), o = null, b = !0;
-                return;
-            }
-            x > 50 && !b && (a(null), n(""), 
-            o && window.clearInterval(o), o = null);
-        };
-        return a(null), o = window.setInterval(v, 100), v(), () => {
-            try {
-                const M = window;
-                M.turnstile && u.current != null && typeof M.turnstile.remove == "function" && M.turnstile.remove(u.current);
-            } catch {}
-            o && window.clearInterval(o), u.current = null;
-        };
-    }), [ s, t, n ]), g ? e.jsx(F, {
-        variant: "error",
-        children: g
-    }) : e.jsx("div", {
-        ref: l
-    });
-}
-
-function ne(t, s) {
-    const n = (s || "EUR").toUpperCase();
-    return `${(t / 100).toFixed(2)} ${n}`;
-}
-
-function pt(t) {
-    const s = (t || "").replace(/\D/g, "").slice(0, 8), n = [];
-    return s.length <= 2 ? s : (n.push(s.slice(0, 2)), s.length <= 4 ? `${n[0]}/${s.slice(2)}` : (n.push(s.slice(2, 4)), 
-    n.push(s.slice(4)), n.join("/")));
-}
-
-function yt(t) {
-    const s = (t || "").trim(), n = /^([0-3]\d)\/([01]\d)\/(\d{4})$/.exec(s);
-    if (!n) return null;
-    const l = Number(n[1]), u = Number(n[2]), g = Number(n[3]);
-    if (u < 1 || u > 12 || l < 1 || l > 31) return null;
-    const a = new Date(Date.UTC(g, u - 1, l));
-    if (a.getUTCFullYear() !== g || a.getUTCMonth() !== u - 1 || a.getUTCDate() !== l) return null;
-    const x = String(u).padStart(2, "0"), o = String(l).padStart(2, "0");
-    return `${g}-${x}-${o}`;
-}
-
-function bt(t) {
-    const s = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-    if (!s) return null;
-    const n = Number(s[1]), l = Number(s[2]), u = Number(s[3]), g = new Date(Date.UTC(n, l - 1, u)), a = new Date, x = new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth(), a.getUTCDate()));
-    if (g.getTime() > x.getTime()) return null;
-    const o = 24 * 60 * 60 * 1e3, b = Math.floor((x.getTime() - g.getTime()) / o);
-    if (b < 28) return `${b} jour${b > 1 ? "s" : ""}`;
-    let v = x.getUTCFullYear() - g.getUTCFullYear(), M = x.getUTCMonth() - g.getUTCMonth(), C = x.getUTCDate() - g.getUTCDate();
-    if (C < 0) {
-        const _ = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), 0));
-        C += _.getUTCDate(), M -= 1;
-    }
-    M < 0 && (M += 12, v -= 1);
-    const h = v * 12 + M;
-    return h < 24 ? `${Math.max(1, h)} mois` : v < 18 ? `${v} an${v > 1 ? "s" : ""}${M > 0 ? ` ${M} mois` : ""}` : `${v} an${v > 1 ? "s" : ""}`;
-}
-
-function jt(t) {
-    const s = yt(t);
-    return s && bt(s) || "";
-}
-
-function spIsEmailLikeValue(t) {
-    const s = String(t ?? "").trim();
-    return s !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
-function spSafePatientNameValue(t) {
-    const s = String(t ?? "").trim();
-    return s !== "" && !spIsEmailLikeValue(s) ? s : "";
-}
-
-function spSplitPatientNameValue(t) {
-    const s = spSafePatientNameValue(t);
-    if (s === "") return {
-        firstName: "",
-        lastName: ""
-    };
-    const n = s.split(/\s+/u).map((l => l.trim())).filter(Boolean);
-    if (n.length < 2) return {
-        firstName: n[0] || "",
-        lastName: ""
-    };
-    const l = n.shift() || "";
-    return {
-        firstName: l,
-        lastName: n.join(" ")
-    };
-}
-
-function vt() {
-    var Ae, Ie, Re, $e, De;
-    const t = we(), s = t.notices || {}, n = !!(s != null && s.enabled_form), l = (s != null && s.title ? String(s.title) : "").trim(), u = String((s == null ? void 0 : s.items_text) || "").split(/\r?\n/).map((r => r.trim())).filter(Boolean), [g, a] = c.useState((() => spResolveFlowFromUrl() ? "form" : "choose")), [x, o] = c.useState(null), [b, v] = c.useState(null), [M, C] = c.useState(!0), [h, _] = c.useState((() => spResolveFlowFromUrl())), [N, i] = c.useState("standard"), [S, A] = c.useState((() => {
-        var w;
-        return spSafePatientNameValue(((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.fullname) || "");
-    })), [q, I] = c.useState((() => {
-        var w;
-        const r = t, y = (w = r == null ? void 0 : r.patientProfile) == null ? void 0 : w.birthdate_fr;
-        return y ? String(y) : "";
-    })), [O, m] = c.useState((() => {
-        var w, z, $;
-        return String((((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.note) || ((z = t == null ? void 0 : t.patientProfile) == null ? void 0 : z.medical_notes) || (($ = t == null ? void 0 : t.patientProfile) == null ? void 0 : $.medicalNotes) || "")).trim();
-    })), [j, f] = c.useState([]), [P, k] = c.useState(""), [E, Y] = c.useState([]), [G, le] = c.useState(!1), [W, ee] = c.useState(!1), U = t.compliance || {}, K = !!(U != null && U.consent_required), [d, p] = c.useState(!1), [R, T] = c.useState(!1), [L, Q] = c.useState(!1), [te, Oe] = c.useState(!1), [Je, Se] = c.useState(!1), [xe, he] = c.useState([]), [Ce, oe] = c.useState(null), [ge, Me] = c.useState(!1), [ke, X] = c.useState(null), [J, ce] = c.useState(null), [Be, de] = c.useState(!1);
-    c.useEffect((() => {
-        let r = !1;
-        async function y() {
-            C(!0);
-            try {
-                const [w, z] = await Promise.all([ tt(), st() ]);
-                if (r) return;
-                o(w), v(z);
-            } catch {
-                r || v({
-                    enabled: !1,
-                    publishable_key: "",
-                    provider: "stripe",
-                    capture_method: "manual"
-                });
-            } finally {
-                r || C(!1);
-            }
-        }
-        return y(), () => {
-            r = !0;
-        };
-    }), []);
-    const B = ((Ie = t.currentUser) == null ? void 0 : Ie.id) && t.currentUser.id > 0, _e = c.useMemo((() => x ? N === "express" ? x.express_cents : x.standard_cents : null), [ x, N ]), spBlockInfo = c.useMemo((() => {
-        var r, y;
-        return spBuildSubmitBlockInfo({
-            loggedIn: !!B,
-            flow: h,
-            fullname: S,
-            birthdate: q,
-            itemsCount: j.length,
-            filesCount: E.length,
-            attestationNoProof: W,
-            consentRequired: K,
-            consentTelemedicine: d,
-            consentTruth: R,
-            consentCgu: L,
-            consentPrivacy: te,
-            turnstileEnabled: (r = t.turnstile) != null && r.enabled,
-            turnstileSiteKey: (y = t.turnstile) != null && y.siteKey,
-            turnstileToken: P,
-            analysisInProgress: G
-        });
-    }), [ B, h, S, q, j.length, E.length, W, K, d, R, L, te, (Re = t.turnstile) == null ? void 0 : Re.enabled, t.turnstile == null ? void 0 : t.turnstile.siteKey, P, G ]), Ee = spBlockInfo.ok, Pe = c.useMemo((() => jt(q)), [ q ]), pe = r => {
-        const y = {
-            cis: r.cis,
-            cip13: r.cip13 || null,
-            label: r.label,
-            schedule: {
-                nb: 1,
-                freqUnit: "jour",
-                durationVal: 5,
-                durationUnit: "jour",
-                times: [ "08:00" ],
-                doses: [ "1" ],
-                note: "",
-                autoTimesEnabled: !0,
-                start: "08:00",
-                end: "20:00",
-                rounding: 5
-            }
-        };
-        f((w => w.some(($ => $.cis && y.cis ? $.cis === y.cis : $.label.trim().toLowerCase() === y.label.trim().toLowerCase())) ? w : [ ...w, y ]));
-    }, He = (r, y) => {
-        f((w => w.map(((z, $) => $ === r ? {
-            ...z,
-            ...y
-        } : z))));
-    }, Ye = r => {
-        f((y => y.filter(((w, z) => z !== r))));
-    }, Ge = async r => {
-        Se(!0);
-        try {
-            return null;
-        } catch {
-            return null;
-        } finally {
-            Se(!1);
-        }
-    }, We = async r => {
-        if (!(!r || r.length === 0)) {
-            X(null), oe(null), he([]);
-            const y = Array.from(r).map((w => ({
-                id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-                file: w,
-                original_name: w && w.name ? String(w.name) : "upload.bin",
-                mime: w && w.type ? String(w.type) : "application/octet-stream",
-                mime_type: w && w.type ? String(w.type) : "application/octet-stream",
-                size_bytes: w && typeof w.size == "number" ? w.size : 0,
-                kind: "PROOF",
-                status: "QUEUED"
-            })));
-            Y((w => [ ...w, ...y ])), oe("Documents ajoutés. L'analyse automatique sera lancée lors de la soumission.");
-        }
-    }, Qe = async () => {
-        var r;
-        X(null);
-        const y = spBuildSubmitBlockInfo({
-            loggedIn: !!B,
-            flow: h,
-            fullname: S,
-            birthdate: q,
-            itemsCount: j.length,
-            filesCount: E.length,
-            attestationNoProof: W,
-            consentRequired: K,
-            consentTelemedicine: d,
-            consentTruth: R,
-            consentCgu: L,
-            consentPrivacy: te,
-            turnstileEnabled: !!((r = t.turnstile) != null && r.enabled),
-            turnstileSiteKey: !!(t.turnstile != null && t.turnstile.siteKey),
-            turnstileToken: P,
-            analysisInProgress: G
-        });
-        spFrontendLog("submit_clicked", "info", {
-            flow: h || null,
-            stage: g,
-            logged_in: !!B,
-            meds_count: Array.isArray(j) ? j.length : 0,
-            files_count: Array.isArray(E) ? E.length : 0,
-            turnstile_token_present: !!P
-        });
-        if (!y.ok || !h) {
-            const w = Array.isArray(y.reasons) ? y.reasons.map((z => z.code)) : [], z = !y.ok ? y.code : "flow_missing", $ = y.message || "Le formulaire est incomplet. Merci de vérifier les champs requis.";
-            spFrontendLog("submit_blocked", "warning", {
-                flow: h || null,
-                stage: g,
-                reason_code: z || "unknown",
-                reasons: w,
-                message: $,
-                logged_in: !!B,
-                meds_count: Array.isArray(j) ? j.length : 0,
-                files_count: Array.isArray(E) ? E.length : 0,
-                attestation_no_proof: !!W,
-                consent_required: !!K,
-                consent_telemedicine: !!d,
-                consent_truth: !!R,
-                consent_cgu: !!L,
-                consent_privacy: !!te,
-                turnstile_token_present: !!P
-            }), X($);
-            return;
-        }
-        Me(!0);
-        try {
-            const w = spSafePatientNameValue(S), z = spSplitPatientNameValue(w);
-            if (w.length < 3 || z.firstName === "" || z.lastName === "") {
-                spFrontendLog("submit_blocked", "warning", {
-                    flow: h,
-                    stage: g,
-                    reason_code: "patient_name_invalid",
-                    message: "Merci de saisir le prénom et le nom du patient, et non une adresse e-mail."
-                }), X("Merci de saisir le prénom et le nom du patient, et non une adresse e-mail."), Me(!1);
-                return;
-            }
-            spFrontendLog("submission_init_start", "info", {
-                flow: h,
-                priority: N,
-                meds_count: Array.isArray(j) ? j.length : 0,
-                files_count: Array.isArray(E) ? E.length : 0
-            });
-            const $ = {
-                flow: h,
-                priority: N,
-                turnstileToken: P || ""
-            };
-            delete $.turnstileToken;
-            const A = await spCreateSubmissionApi($), ee = String((A == null ? void 0 : A.submission_ref) || "").trim();
-            if (!ee) throw new Error("Référence de soumission manquante.");
-            spFrontendLog("submission_init_ok", "info", {
-                flow: h,
-                submission_ref_present: !!ee
-            });
-            let se = Array.isArray(j) ? j.slice() : [];
-            if (h === "ro_proof") {
-                const re = Array.isArray(E) ? E.filter((ue => ue && ue.file)) : [], ie = [], ye = [], Te = [], Ke = [];
-                le(!0), Se(!0), X(null), oe(null), he([]);
-                try {
-                    for (const ue of re) try {
-                        const Fe = ue.file;
-                        spFrontendLog("submission_artifact_start", "debug", {
-                            flow: h,
-                            original_name: Fe && Fe.name ? String(Fe.name) : "upload.bin"
-                        });
-                        const qe = await spDirectSubmissionArtifactUpload(Fe, ee, "PROOF");
-                        spFrontendLog("submission_artifact_uploaded", "info", {
-                            flow: h,
-                            artifact_id: String((qe == null ? void 0 : qe.id) || "")
-                        });
-                        const Le = await artifactAnalyzeApi(String((qe == null ? void 0 : qe.id) || "")), Oe = !!(Le && Le.ok === !1), qeItems = spAiMedicationsToItems(Le == null ? void 0 : Le.medications), Je = !!(Le && (Le.is_prescription === !0 || qeItems.length > 0));
-                        spFrontendLog("submission_artifact_analyzed", "info", {
-                            flow: h,
-                            artifact_id: String((qe == null ? void 0 : qe.id) || ""),
-                            is_prescription: !!(Le && Le.is_prescription === !0),
-                            medications_count: Array.isArray(Le == null ? void 0 : Le.medications) ? Le.medications.length : 0
-                        });
-                        if (Oe) {
-                            Te.push(ue), Ke.push(typeof (Le == null ? void 0 : Le.message) == "string" && Le.message.trim() ? Le.message.trim() : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.");
-                            continue;
-                        }
-                        ie.push(qe), Je && qeItems.length > 0 && ye.push(...qeItems), Je || Te.push(ue);
-                    } catch (Fe) {
-                        Te.push(ue), Ke.push(Fe != null && Fe.message ? String(Fe.message) : "L'analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net."), spFrontendLog("submission_artifact_error", "warning", {
-                            flow: h,
-                            message: Fe != null && Fe.message ? String(Fe.message) : "artifact_error"
-                        });
-                    }
-                    ie.length > 0 && oe(ye.length > 0 ? "✅ Document reconnu. Les médicaments ont été ajoutés automatiquement." : "✅ Document reconnu."), Te.length > 0 && he(Te.map((Fe => Fe.file || Fe))), Ke.length > 0 && X(Ke[0]), ye.length > 0 && (se = spAiMergeMedicationItems(se, ye), f(se));
-                } finally {
-                    Se(!1), le(!1);
-                }
-                if (ie.length < 1) {
-                    spFrontendLog("submit_blocked", "warning", {
-                        flow: h,
-                        stage: g,
-                        reason_code: "proof_upload_missing",
-                        message: Ke[0] || "Aucun document exploitable n'a été accepté.",
-                        files_count: Array.isArray(E) ? E.length : 0
-                    }), Me(!1);
-                    return;
-                }
-            }
-            const ne = {
-                patient: {
-                    fullname: w,
-                    firstName: z.firstName,
-                    lastName: z.lastName,
-                    birthdate: q.trim(),
-                    birthDate: q.trim(),
-                    note: O.trim() || void 0,
-                    medical_notes: O.trim() || void 0,
-                    medicalNotes: O.trim() || void 0
-                },
-                items: se.map((ue => {
-                    const Fe = {
-                        label: (ue.label || "").trim(),
-                        schedule: ue.schedule && typeof ue.schedule == "object" ? ue.schedule : {}
-                    };
-                    return ue.cis && (Fe.cis = String(ue.cis)), ue.cip13 && (Fe.cip13 = String(ue.cip13)), ue.quantite && (Fe.quantite = String(ue.quantite)), Fe;
-                })),
-                privateNotes: O.trim() || void 0,
-                consent: K ? {
-                    telemedicine: d,
-                    truth: R,
-                    cgu: L,
-                    privacy: te,
-                    timestamp: (new Date).toISOString(),
-                    cgu_version: U != null && U.cgu_version ? String(U.cgu_version) : "",
-                    privacy_version: U != null && U.privacy_version ? String(U.privacy_version) : ""
-                } : void 0,
-                attestation_no_proof: h === "depannage_no_proof" ? W : void 0
-            };
-            if (!Array.isArray(ne.items) || ne.items.length < 1) {
-                const ue = h === "ro_proof" ? "Aucun médicament n'a pu être identifié. Merci d'importer un document plus net ou d'utiliser la saisie manuelle." : "Merci d'ajouter au moins un médicament.";
-                spFrontendLog("submit_blocked", "warning", {
-                    flow: h,
-                    stage: g,
-                    reason_code: "medication_missing_after_analysis",
-                    message: ue,
-                    items_count: Array.isArray(ne.items) ? ne.items.length : 0
-                });
-                throw new Error(ue);
-            }
-            spFrontendLog("submission_finalize_start", "info", {
-                flow: h,
-                items_count: ne.items.length,
-                files_count: Array.isArray(E) ? E.length : 0
-            });
-            const ae = await spFinalizeSubmissionApi(ee, ne), oeResult = {
-                id: (ae == null ? void 0 : ae.prescription_id) || ae.id,
-                uid: ae.uid,
-                status: ae.status,
-                created_at: ae.created_at
-            };
-            spFrontendLog("submission_finalize_ok", "info", {
-                flow: h,
-                prescription_id: oeResult.id || null,
-                uid: oeResult.uid || null,
-                status: oeResult.status || null
-            }), ce(oeResult), a("done");
-        } catch (w) {
-            const z = w != null && w.message ? String(w.message) : "Erreur soumission";
-            spFrontendLog("submission_error", "error", {
-                flow: h || null,
-                stage: g,
-                message: z,
-                meds_count: Array.isArray(j) ? j.length : 0,
-                files_count: Array.isArray(E) ? E.length : 0
-            }), X(z);
-        } finally {
-            Me(!1);
-        }
-    }, ye = (($e = t == null ? void 0 : t.urls) == null ? void 0 : $e.patientPortal) || null, Te = J && ye ? `${ye}${ye.includes("?") ? "&" : "?"}rx_uid=${encodeURIComponent(String((J == null ? void 0 : J.uid) || (J == null ? void 0 : J.id) || ""))}` : null, Ke = async () => {
-        if (J != null && J.uid) try {
-            await navigator.clipboard.writeText(J.uid), de(!0), window.setTimeout((() => de(!1)), 1500);
-        } catch {
-            de(!1);
-        }
-    }, Ue = () => {
-        var r, y, w;
-        a("choose"), _(null), i("standard"), A(spSafePatientNameValue(((r = t == null ? void 0 : t.patientProfile) == null ? void 0 : r.fullname) || "")), 
-        I(((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.birthdate_fr) || ""), 
-        m(String((((y = t == null ? void 0 : t.patientProfile) == null ? void 0 : y.note) || ((r = t == null ? void 0 : t.patientProfile) == null ? void 0 : r.medical_notes) || ((w = t == null ? void 0 : t.patientProfile) == null ? void 0 : w.medicalNotes) || "")).trim()), f([]), Y([]), he([]), oe(null), ee(!1), p(!1), T(!1), Q(!1), Oe(!1), X(null), 
-        ce(null), de(!1);
-    };
-    return e.jsxs("div", {
-        className: "mx-auto max-w-3xl p-4",
-        children: [ e.jsxs("div", {
-            className: "mb-4 flex items-start justify-between gap-4",
-            children: [ e.jsxs("div", {
-                children: [ e.jsx("div", {
-                    className: "text-xl font-semibold text-gray-900",
-                    children: "SOS Prescription"
-                }), e.jsx("div", {
-                    className: "text-sm text-gray-600",
-                    children: "Évaluation médicale asynchrone • formulaire sécurisé"
-                }) ]
-            }), e.jsxs("div", {
-                className: "flex flex-col items-end gap-2",
-                children: [ e.jsxs("div", {
-                    className: "inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs " + (B ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"),
-                    children: [ e.jsx("span", {
-                        className: "font-semibold",
-                        children: B ? "Connecté" : "Non connecté"
-                    }), B && ((De = t.currentUser) == null ? void 0 : De.displayName) && e.jsx("span", {
-                        className: "text-emerald-900",
-                        children: t.currentUser.displayName
-                    }) ]
-                }), x && e.jsxs("div", {
-                    className: "rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700",
-                    children: [ e.jsx("div", {
-                        className: "font-semibold",
-                        children: "Tarif"
-                    }), e.jsxs("div", {
-                        children: [ "Standard : ", ne(x.standard_cents, x.currency), e.jsx("br", {}), "Express : ", ne(x.express_cents, x.currency) ]
-                    }) ]
-                }) ]
-            }) ]
-        }), n && u.length > 0 && e.jsx("div", {
-            className: "mb-4",
-            children: e.jsxs(F, {
-                variant: "info",
-                children: [ l && e.jsx("div", {
-                    className: "font-semibold",
-                    children: l
-                }), e.jsx("ul", {
-                    className: l ? "mt-2 list-disc space-y-1 pl-5" : "list-disc space-y-1 pl-5",
-                    children: u.map(((r, y) => e.jsx("li", {
-                        children: r
-                    }, y)))
-                }) ]
-            })
-        }), e.jsx("div", {
-            className: "mb-4",
-            children: e.jsxs(F, {
-                variant: "warning",
-                children: [ "Service réservé au ", e.jsx("strong", {
-                    children: "renouvellement / continuité d’un traitement déjà connu"
-                }), ".", e.jsx("br", {}), "Aucune urgence vitale, pas d’arrêt de travail, et aucun médicament classé comme stupéfiant." ]
-            })
-        }), !B && e.jsx("div", {
-            className: "mb-4",
-            children: e.jsxs(F, {
-                variant: "info",
-                children: [ "Vous êtes en ", e.jsx("strong", {
-                    children: "mode aperçu"
-                }), ". Connectez-vous (ou créez un compte) pour soumettre votre demande.", e.jsx("br", {}), "La recherche de médicaments et l’import de justificatifs sont désactivés tant que vous n’êtes pas connecté." ]
-            })
-        }), ke && e.jsx("div", {
-            className: "mb-4",
-            children: e.jsx(F, {
-                variant: "error",
-                children: ke
-            })
-        }), g === "choose" && e.jsxs("div", {
-            className: "rounded-xl border border-gray-200 bg-white p-4",
-            children: [ e.jsx("div", {
-                className: "mb-3 text-sm font-semibold text-gray-900",
-                children: "Choisissez votre demande"
-            }), e.jsxs("div", {
-                className: "grid grid-cols-1 gap-3 sm:grid-cols-2",
-                children: [ e.jsxs("button", {
-                    type: "button",
-                    className: `rounded-xl border p-4 text-left transition hover:bg-gray-50 ${h === "ro_proof" ? "border-gray-900" : "border-gray-200"}`,
-                    onClick: () => {
-                        _("ro_proof"), ee(!1), X(null), ce(null), a("form");
-                    },
-                    children: [ e.jsx("div", {
-                        className: "text-sm font-semibold text-gray-900",
-                        children: "Renouvellement avec preuve"
-                    }), e.jsx("div", {
-                        className: "mt-1 text-sm text-gray-600",
-                        children: "Vous avez une ancienne ordonnance ou une boîte de médicament."
-                    }), e.jsx("div", {
-                        className: "mt-2 text-xs text-gray-500",
-                        children: "Temps estimé : ~ 3 min"
-                    }) ]
-                }), e.jsxs("button", {
-                    type: "button",
-                    className: `rounded-xl border p-4 text-left transition hover:bg-gray-50 ${h === "depannage_no_proof" ? "border-gray-900" : "border-gray-200"}`,
-                    onClick: () => {
-                        _("depannage_no_proof"), Y([]), he([]), oe(null), ee(!1), X(null), ce(null), a("form");
-                    },
-                    children: [ e.jsx("div", {
-                        className: "text-sm font-semibold text-gray-900",
-                        children: "Dépannage sans preuve"
-                    }), e.jsx("div", {
-                        className: "mt-1 text-sm text-gray-600",
-                        children: "En cas de perte, d’oubli ou de voyage (traitement habituel)."
-                    }), e.jsx("div", {
-                        className: "mt-2 text-xs text-gray-500",
-                        children: "Temps estimé : ~ 5 min"
-                    }) ]
-                }) ]
-            }) ]
-        }), g === "form" && e.jsxs("div", {
-            className: "space-y-4",
-            children: [ e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsxs("div", {
-                    className: "mb-3 flex items-center justify-between gap-2",
-                    children: [ e.jsx("div", {
-                        className: "text-sm font-semibold text-gray-900",
-                        children: "Informations patient"
-                    }), e.jsx(D, {
-                        type: "button",
-                        variant: "secondary",
-                        onClick: () => a("choose"),
-                        children: "Modifier le type"
-                    }) ]
-                }), e.jsxs("div", {
-                    className: "grid grid-cols-1 gap-3 sm:grid-cols-2",
-                    children: [ e.jsxs("div", {
-                        className: "relative",
-                        children: [ e.jsx("input", {
-                            type: "text",
-                            tabIndex: -1,
-                            autoComplete: "username",
-                            name: "sp_trap_username",
-                            style: {
-                                position: "absolute",
-                                left: "-9999px",
-                                top: "auto",
-                                width: "1px",
-                                height: "1px",
-                                overflow: "hidden",
-                                opacity: 0,
-                                pointerEvents: "none"
-                            },
-                            "aria-hidden": "true"
-                        }), e.jsx("input", {
-                            type: "password",
-                            tabIndex: -1,
-                            autoComplete: "new-password",
-                            name: "sp_trap_password",
-                            style: {
-                                position: "absolute",
-                                left: "-9999px",
-                                top: "auto",
-                                width: "1px",
-                                height: "1px",
-                                overflow: "hidden",
-                                opacity: 0,
-                                pointerEvents: "none"
-                            },
-                            "aria-hidden": "true"
-                        }), e.jsx("label", {
-                            className: "mb-1 block text-xs font-medium text-gray-700",
-                            children: "Nom complet"
-                        }), e.jsx(Z, {
-                            value: S,
-                            onChange: r => A(r.target.value),
-                            placeholder: "Prénom NOM",
-                            name: "sp_patient_identity_fullname",
-                            id: "sp-patient-fullname",
-                            autoComplete: "new-password",
-                            "data-lpignore": "true",
-                            "data-form-type": "other",
-                            spellCheck: !1,
-                            autoCorrect: "off",
-                            autoCapitalize: "words"
-                        }) ]
-                    }), e.jsxs("div", {
-                        children: [ e.jsx("label", {
-                            className: "mb-1 block text-xs font-medium text-gray-700",
-                            children: "Date de naissance (JJ/MM/AAAA)"
-                        }), e.jsx(Z, {
-                            value: q,
-                            onChange: r => I(pt(r.target.value)),
-                            placeholder: "JJ/MM/AAAA",
-                            inputMode: "numeric",
-                            pattern: "[0-9]{2}/[0-9]{2}/[0-9]{4}",
-                            name: "sp_patient_identity_birthdate",
-                            id: "sp-patient-birthdate",
-                            autoComplete: "off",
-                            "data-lpignore": "true",
-                            "data-form-type": "other"
-                        }), Pe && e.jsxs("div", {
-                            className: "mt-1 text-xs text-gray-500",
-                            children: [ "Âge : ", Pe ]
-                        }) ]
-                    }) ]
-                }), e.jsxs("div", {
-                    className: "mt-3",
-                    children: [ e.jsx("label", {
-                        className: "mb-1 block text-xs font-medium text-gray-700",
-                        children: "Précisions médicales (optionnel)"
-                    }), e.jsx(Ne, {
-                        id: "sp-patient-medical-notes",
-                        name: "medical_notes",
-                        value: O,
-                        onChange: r => m(r.target.value),
-                        placeholder: "Allergies, antécédents, contre-indications ou toute information utile au médecin...."
-                    }) ]
-                }) ]
-            }), h === "ro_proof" && e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "mb-1 text-sm font-semibold text-gray-900",
-                    children: "Justificatifs médicaux (Obligatoire)"
-                }), e.jsx("div", {
-                    className: "text-sm text-gray-600",
-                    children: "Importez votre ordonnance ou une photo de la boîte. Cela nous permet de vérifier votre traitement et de pré-remplir le formulaire."
-                }), e.jsxs("div", {
-                    className: "mt-3",
-                    children: [ e.jsx("input", {
-                        id: "sp-evidence-input",
-                        type: "file",
-                        className: "hidden",
-                        accept: "image/jpeg,image/png,application/pdf",
-                        multiple: !0,
-                        disabled: !B || G,
-                        onChange: r => {
-                            We(r.target.files), r.currentTarget.value = "";
-                        }
-                    }), e.jsxs("div", {
-                        className: "flex flex-wrap items-center gap-3",
-                        children: [ e.jsx(D, {
-                            type: "button",
-                            variant: "secondary",
-                            className: "border-blue-600 text-blue-700 hover:bg-blue-50 hover:!text-blue-700",
-                            disabled: !B || G,
-                            onClick: () => {
-                                const r = document.getElementById("sp-evidence-input");
-                                r == null || r.click();
-                            },
-                            children: G ? "Import en cours…" : "Ajouter un document"
-                        }), Je && e.jsxs("div", {
-                            className: "flex items-center gap-2 text-sm text-gray-600",
-                            children: [ e.jsx(V, {}), " Analyse automatique…" ]
-                        }) ]
-                    }), e.jsx("div", {
-                        className: "mt-1 text-xs text-gray-400",
-                        children: "JPG, PNG ou PDF (Max 5 Mo)"
-                    }), !B && e.jsx("div", {
-                        className: "mt-2 text-xs text-amber-700",
-                        children: "Connectez-vous pour importer un justificatif."
-                    }) ]
-                }), E.length > 0 && e.jsx("div", {
-                    className: "mt-3 space-y-2",
-                    children: E.map((r => e.jsxs("div", {
-                        className: "flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2",
-                        children: [ e.jsxs("div", {
-                            className: "min-w-0",
-                            children: [ e.jsx("div", {
-                                className: "truncate text-sm font-medium text-gray-900",
-                                children: r.original_name
-                            }), e.jsxs("div", {
-                                className: "text-xs text-gray-600",
-                                children: [ r.mime, " • ", Math.round(r.size_bytes / 1024), " Ko" ]
-                            }) ]
-                        }), e.jsx("button", {
-                            type: "button",
-                            className: "inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-100",
-                            "aria-label": "Retirer ce document",
-                            title: "Retirer",
-                            onClick: () => Y((y => y.filter((w => w.id !== r.id)))),
-                            children: "×"
-                        }) ]
-                    }, r.id)))
-                }), Ce && e.jsx("div", {
-                    className: "mt-3",
-                    children: e.jsx(F, {
-                        variant: Ce.startsWith("✅") ? "success" : "warning",
-                        children: Ce
-                    })
-                }), xe.length > 0 && e.jsxs("div", {
-                    className: "mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3",
-                    children: [ e.jsxs("div", {
-                        className: "flex items-center justify-between gap-3",
-                        children: [ e.jsxs("div", {
-                            children: [ e.jsx("div", {
-                                className: "text-sm font-semibold text-amber-900",
-                                children: "Document refusé par l’analyse IA"
-                            }), e.jsx("div", {
-                                className: "text-xs text-amber-900/80",
-                                children: "L'intelligence artificielle n'a détecté aucune prescription médicale lisible sur ce document. Veuillez retirer ce fichier et importer une photo nette de votre ordonnance."
-                            }) ]
-                        }), e.jsxs(e.Fragment, {
-                            children: [ e.jsx(D, {
-                                type: "button",
-                                variant: "ghost",
-                                disabled: G,
-                                onClick: () => {
-                                    _("depannage_no_proof");
-                                    Y([]);
-                                    he([]);
-                                    oe(null);
-                                },
-                                children: "Saisie manuelle (Dépannage)"
-                            }), e.jsx(D, {
-                                type: "button",
-                                variant: "ghost",
-                                disabled: G,
-                                onClick: () => {
-                                    he([]), oe(null);
-                                },
-                                children: "Retirer"
-                            }) ]
-                        }) ]
-                    }), e.jsx("ul", {
-                        className: "mt-2 list-disc pl-5 text-xs text-amber-900/90",
-                        children: xe.map(((r, w) => e.jsx("li", {
-                            children: r && r.name ? r.name : "Document"
-                        }, w)))
-                    }) ]
-                }) ]
-            }), (h !== "ro_proof" || j.length > 0) && e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "mb-2 text-sm font-semibold text-gray-900",
-                    children: "Médicaments"
-                }), e.jsx("div", {
-                    className: "text-sm text-gray-600",
-                    children: h === "ro_proof" && j.length > 0 ? "Médicaments reconnus par l'IA" : "Recherchez et ajoutez les médicaments concernés."
-                }), h !== "ro_proof" && e.jsx("div", {
-                    className: "mt-3",
-                    children: e.jsx(mt, {
-                        onSelect: pe,
-                        disabled: !B
-                    })
-                }), j.length > 0 && e.jsx("div", {
-                    className: "mt-4 space-y-3",
-                    children: j.map(((r, y) => e.jsxs("div", {
-                        className: "rounded-xl border border-gray-100 bg-gray-50 p-3",
-                        children: [ e.jsxs("div", {
-                            className: "flex items-start justify-between gap-3",
-                            children: [ e.jsxs("div", {
-                                className: "min-w-0",
-                                children: [ e.jsx("div", {
-                                    className: "truncate text-sm font-semibold text-gray-900",
-                                    children: r.label
-                                }), e.jsxs("div", {
-                                    className: "mt-0.5 text-xs text-gray-600",
-                                    children: [ r.cis ? `CIS ${r.cis}` : "", r.cip13 ? ` • CIP13 ${r.cip13}` : "" ]
-                                }) ]
-                            }), e.jsx(D, {
-                                type: "button",
-                                variant: "secondary",
-                                onClick: () => Ye(y),
-                                children: "Retirer"
-                            }) ]
-                        }), e.jsxs("div", {
-                            className: "mt-4",
-                            children: [ e.jsx("div", {
-                                className: "mb-2 text-xs font-medium text-gray-700",
-                                children: "Posologie"
-                            }), e.jsx(xt, {
-                                value: r.schedule || {},
-                                onChange: w => He(y, {
-                                    schedule: w
-                                })
-                            }), e.jsx("div", {
-                                className: "mt-3 text-xs text-gray-500",
-                                children: "Les champs CIS/CIP sont enregistrés pour traçabilité."
-                            }) ]
-                        }) ]
-                    }, y)))
-                }) ]
-            }), e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "mb-2 text-sm font-semibold text-gray-900",
-                    children: "Délai & tarif"
-                }), M ? e.jsxs("div", {
-                    className: "flex items-center gap-2 text-sm text-gray-600",
-                    children: [ e.jsx(V, {}), " Chargement…" ]
-                }) : e.jsxs("div", {
-                    className: "space-y-3",
-                    children: [ e.jsxs("div", {
-                        className: "grid grid-cols-1 gap-3 sm:grid-cols-2",
-                        children: [ e.jsxs("button", {
-                            type: "button",
-                            className: `rounded-xl border p-4 text-left transition hover:bg-gray-50 ${N === "standard" ? "border-gray-900" : "border-gray-200"}`,
-                            onClick: () => i("standard"),
-                            children: [ e.jsx("div", {
-                                className: "text-sm font-semibold text-gray-900",
-                                children: "Standard"
-                            }), e.jsx("div", {
-                                className: "mt-1 text-sm text-gray-600",
-                                children: "Traitement en file normale"
-                            }), x && e.jsx("div", {
-                                className: "mt-2 text-xs text-gray-500",
-                                children: ne(x.standard_cents, x.currency)
-                            }) ]
-                        }), e.jsxs("button", {
-                            type: "button",
-                            className: `rounded-xl border p-4 text-left transition hover:bg-gray-50 ${N === "express" ? "border-gray-900" : "border-gray-200"}`,
-                            onClick: () => i("express"),
-                            children: [ e.jsx("div", {
-                                className: "text-sm font-semibold text-gray-900",
-                                children: "Express"
-                            }), e.jsx("div", {
-                                className: "mt-1 text-sm text-gray-600",
-                                children: "Prioritaire (selon disponibilité)"
-                            }), x && e.jsx("div", {
-                                className: "mt-2 text-xs text-gray-500",
-                                children: ne(x.express_cents, x.currency)
-                            }) ]
-                        }) ]
-                    }), b != null && b.enabled ? e.jsxs(F, {
-                        variant: "info",
-                        children: [ "Paiement : une ", e.jsx("strong", {
-                            children: "autorisation"
-                        }), " est demandée à la soumission. La carte n’est débitée qu’après validation médicale." ]
-                    }) : e.jsx(F, {
-                        variant: "info",
-                        children: "Paiement désactivé (mode test)."
-                    }) ]
-                }) ]
-            }), h === "depannage_no_proof" && e.jsxs("div", {
-                className: "rounded-xl border border-yellow-200 bg-yellow-50 p-4",
-                children: [ e.jsx("div", {
-                    className: "text-sm font-semibold text-gray-900",
-                    children: "Attestation sur l'honneur (Obligatoire)"
-                }), e.jsx("div", {
-                    className: "mt-1 text-sm text-gray-700",
-                    children: "En cas de perte, d'oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit."
-                }), e.jsxs("label", {
-                    className: "mt-3 flex items-start gap-2 text-sm text-gray-900",
-                    children: [ e.jsx("input", {
-                        type: "checkbox",
-                        checked: W,
-                        onChange: r => ee(r.target.checked),
-                        className: "mt-1 h-4 w-4"
-                    }), e.jsx("span", {
-                        children: "Je certifie sur l'honneur que les informations renseignées sont exactes et que ce traitement m'a déjà été prescrit par un médecin."
-                    }) ]
-                }) ]
-            }), K && e.jsxs("div", {
-                className: "rounded-xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "text-sm font-semibold text-gray-900",
-                    children: "Consentements requis"
-                }), e.jsx("div", {
-                    className: "mt-1 text-xs text-gray-600",
-                    children: "Avant de soumettre, vous devez accepter les points ci-dessous."
-                }), e.jsxs("div", {
-                    className: "mt-4 space-y-3",
-                    children: [ e.jsxs("label", {
-                        className: "flex items-start gap-2 text-sm text-gray-900",
-                        children: [ e.jsx("input", {
-                            id: "sp-consent-medical",
-                            type: "checkbox",
-                            className: "mt-1 h-4 w-4 rounded border-gray-300",
-                            checked: d,
-                            onChange: r => p(r.target.checked)
-                        }), e.jsx("span", {
-                            children: "J'accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation."
-                        }) ]
-                    }), e.jsxs("label", {
-                        className: "flex items-start gap-2 text-sm text-gray-900",
-                        children: [ e.jsx("input", {
-                            id: "sp-consent-truth",
-                            type: "checkbox",
-                            className: "mt-1 h-4 w-4 rounded border-gray-300",
-                            checked: R,
-                            onChange: r => T(r.target.checked)
-                        }), e.jsx("span", {
-                            children: "Je certifie que les informations renseignées sont exactes."
-                        }) ]
-                    }), e.jsxs("label", {
-                        className: "flex items-start gap-2 text-sm text-gray-900",
-                        children: [ e.jsx("input", {
-                            id: "sp-consent-cgu",
-                            type: "checkbox",
-                            className: "mt-1 h-4 w-4 rounded border-gray-300",
-                            checked: L,
-                            onChange: r => Q(r.target.checked)
-                        }), e.jsxs("span", {
-                            children: [ "J'ai lu et j'accepte", " ", e.jsx("a", {
-                                href: (U == null ? void 0 : U.cgu_url) || "#",
-                                target: "_blank",
-                                rel: "noreferrer",
-                                className: "underline",
-                                children: "les CGU"
-                            }), "." ]
-                        }) ]
-                    }), e.jsxs("label", {
-                        className: "flex items-start gap-2 text-sm text-gray-900",
-                        children: [ e.jsx("input", {
-                            id: "sp-consent-privacy",
-                            type: "checkbox",
-                            className: "mt-1 h-4 w-4 rounded border-gray-300",
-                            checked: te,
-                            onChange: r => Oe(r.target.checked)
-                        }), e.jsxs("span", {
-                            children: [ "J'ai lu", " ", e.jsx("a", {
-                                href: (U == null ? void 0 : U.privacy_url) || "#",
-                                target: "_blank",
-                                rel: "noreferrer",
-                                className: "underline",
-                                children: "la politique de confidentialité"
-                            }), "." ]
-                        }) ]
-                    }) ]
-                }) ]
-            }), e.jsxs("div", {
-                className: "flex items-center justify-between gap-3",
-                children: [ e.jsx(D, {
-                    type: "button",
-                    variant: "secondary",
-                    onClick: () => a("choose"),
-                    disabled: ge,
-                    children: "Retour"
-                }), e.jsx(D, {
-                    type: "button",
-                    onClick: Qe,
-                    disabled: ge,
-                    children: ge ? e.jsxs(e.Fragment, {
-                        children: [ e.jsx(V, {}), " Soumission…" ]
-                    }) : "Soumettre au médecin"
-                }) ]
-            }), _e != null && x && e.jsxs("div", {
-                className: "text-xs text-gray-500",
-                children: [ "Montant sélectionné : ", ne(_e, x.currency) ]
-            }) ]
-        }), g === "pay" && J && e.jsxs("div", {
-            className: "space-y-4",
-            children: [ e.jsxs(F, {
-                variant: "success",
-                children: [ "Demande créée (réf. ", e.jsx("strong", {
-                    children: J.uid
-                }), "). Merci d’autoriser le paiement pour l’envoyer en traitement." ]
-            }), e.jsx(Ve, {
-                prescriptionId: J.id,
-                priority: N,
-                onPaid: () => {
-                    a("done");
-                }
-            }), e.jsxs("div", {
-                className: "flex items-center justify-between",
-                children: [ e.jsx(D, {
-                    type: "button",
-                    variant: "secondary",
-                    onClick: () => {
-                        a("form");
-                    },
-                    children: "Modifier la demande"
-                }), e.jsx("div", {
-                    className: "text-xs text-gray-500",
-                    children: "Vous pourrez toujours compléter via la messagerie (prochaine étape)."
-                }) ]
-            }) ]
-        }), g === "done" && J && e.jsxs("div", {
-            className: "space-y-5",
-            children: [ e.jsxs("div", {
-                className: "rounded-2xl border border-green-200 bg-green-50 p-6 text-center text-green-950",
-                children: [ e.jsx("div", {
-                    className: "text-lg font-semibold",
-                    children: "Merci ! Votre demande est enregistrée."
-                }), e.jsx("div", {
-                    className: "mt-4 text-sm text-green-900/80",
-                    children: "Numéro de dossier"
-                }), e.jsxs("div", {
-                    className: "mt-1 flex items-center justify-center gap-2",
-                    children: [ e.jsx("div", {
-                        className: "font-mono text-3xl font-extrabold tracking-wider",
-                        children: J.uid
-                    }), e.jsx("button", {
-                        type: "button",
-                        className: "rounded-md border border-green-300 bg-white px-2 py-1 text-xs font-medium text-green-900 hover:bg-green-100",
-                        onClick: Ke,
-                        "aria-label": "Copier le numéro de dossier",
-                        title: "Copier",
-                        children: Be ? "Copié" : "Copier"
-                    }) ]
-                }), e.jsxs("div", {
-                    className: "mt-3 text-sm text-green-900/90",
-                    children: [ "Statut : ", e.jsx("span", {
-                        className: "font-semibold",
-                        children: "en attente d’analyse médicale"
-                    }), "." ]
-                }) ]
-            }), e.jsxs("div", {
-                className: "rounded-2xl border border-gray-200 bg-white p-4",
-                children: [ e.jsx("div", {
-                    className: "text-sm font-semibold text-gray-900",
-                    children: "Prochaines étapes"
-                }), e.jsxs("ol", {
-                    className: "mt-4 space-y-3",
-                    children: [ e.jsxs("li", {
-                        className: "flex gap-3",
-                        children: [ e.jsx("div", {
-                            className: "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white",
-                            children: "1"
-                        }), e.jsxs("div", {
-                            className: "text-sm text-gray-700",
-                            children: [ e.jsxs("div", {
-                                className: "font-medium text-gray-900",
-                                children: [ "Analyse médicale en cours", " ", e.jsxs("span", {
-                                    className: "font-normal text-gray-500",
-                                    children: [ "(délai estimé : ", N === "express" ? "~4h" : "~24h", ")" ]
-                                }) ]
-                            }), e.jsx("div", {
-                                className: "text-gray-600",
-                                children: "Un médecin examine votre demande."
-                            }) ]
-                        }) ]
-                    }), e.jsxs("li", {
-                        className: "flex gap-3",
-                        children: [ e.jsx("div", {
-                            className: "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white",
-                            children: "2"
-                        }), e.jsxs("div", {
-                            className: "text-sm text-gray-700",
-                            children: [ e.jsx("div", {
-                                className: "font-medium text-gray-900",
-                                children: "Question éventuelle"
-                            }), e.jsx("div", {
-                                className: "text-gray-600",
-                                children: "Surveillez vos emails : le médecin peut vous poser une question dans votre espace patient."
-                            }) ]
-                        }) ]
-                    }), e.jsxs("li", {
-                        className: "flex gap-3",
-                        children: [ e.jsx("div", {
-                            className: "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white",
-                            children: "3"
-                        }), e.jsxs("div", {
-                            className: "text-sm text-gray-700",
-                            children: [ e.jsx("div", {
-                                className: "font-medium text-gray-900",
-                                children: "Décision & ordonnance"
-                            }), e.jsx("div", {
-                                className: "text-gray-600",
-                                children: "Après décision, votre ordonnance (PDF) sera disponible."
-                            }) ]
-                        }) ]
-                    }) ]
-                }) ]
-            }), e.jsx("div", {
-                className: "flex flex-wrap items-center justify-center gap-3",
-                children: Te ? e.jsx("a", {
-                    href: Te,
-                    className: "inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2",
-                    children: "Suivre ma demande"
-                }) : e.jsx(D, {
-                    type: "button",
-                    onClick: Ue,
-                    children: "Retour à l'accueil"
-                })
-            }), e.jsxs(F, {
-                variant: "warning",
-                children: [ e.jsx("div", {
-                    className: "font-semibold",
-                    children: "Note importante"
-                }), e.jsx("div", {
-                    className: "mt-1",
-                    children: "Votre dossier est en cours de traitement. Merci de ne pas soumettre de demande en double."
-                }) ]
-            }) ]
-        }) ]
-    });
-}
-
-function mountPatientConsole(container) {
-  createRoot(container).render(
-    React.createElement(
-      React.StrictMode,
-      null,
-      React.createElement(PatientConsole),
-    ),
+          <div className="border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+            {hasDisabledResults
+              ? 'Les résultats grisés ne sont pas disponibles en ligne.'
+              : 'Cliquez sur un résultat pour l’ajouter.'}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function mountPublicForm(container) {
-  createRoot(container).render(
-    React.createElement(
-      React.StrictMode,
-      null,
-      React.createElement(vt),
-    ),
+function ScheduleEditor({
+  value,
+  onChange,
+}: {
+  value?: Partial<Schedule>;
+  onChange: (next: Schedule) => void;
+}) {
+  const normalized = useMemo(() => normalizeSchedule(value), [value]);
+
+  useEffect(() => {
+    const input = value as Partial<Schedule> | undefined;
+    if (
+      !input
+      || typeof input !== 'object'
+      || input.nb == null
+      || input.freqUnit == null
+      || input.durationVal == null
+      || input.durationUnit == null
+      || !Array.isArray(input.times)
+      || !Array.isArray(input.doses)
+      || input.start == null
+      || input.end == null
+      || input.rounding == null
+    ) {
+      onChange(normalized);
+    }
+  }, []);
+
+  const count = normalized.nb;
+  const freqUnit = normalized.freqUnit;
+  const autoTimesEnabled = normalized.autoTimesEnabled !== false && freqUnit === 'jour';
+  const start = normalized.start || '08:00';
+  const end = normalized.end || '20:00';
+  const rounding = normalized.rounding ?? 5;
+  const autoDistribution = useMemo(
+    () => (autoTimesEnabled ? distributeTimes(count, start, end, rounding) : null),
+    [autoTimesEnabled, count, start, end, rounding],
+  );
+  const times = autoDistribution ? autoDistribution.times : fillArray(normalized.times, count, '');
+  const doses = fillArray(normalized.doses, count, '1');
+  const warnings = autoDistribution ? autoDistribution.warnings : [];
+
+  const update = useCallback((patch: Partial<Schedule>) => {
+    onChange({
+      ...normalized,
+      ...patch,
+    });
+  }, [normalized, onChange]);
+
+  const updateCount = useCallback((raw: string) => {
+    const nextCount = clampInt(raw, 1, freqUnit === 'jour' ? 6 : 12, 1);
+    if (autoTimesEnabled) {
+      const auto = distributeTimes(nextCount, start, end, rounding);
+      onChange({
+        ...normalized,
+        nb: nextCount,
+        start: auto.start,
+        end: auto.end,
+        times: auto.times,
+        doses: fillArray(normalized.doses, nextCount, '1'),
+        autoTimesEnabled: true,
+      });
+      return;
+    }
+
+    onChange({
+      ...normalized,
+      nb: nextCount,
+      times: fillArray(normalized.times, nextCount, ''),
+      doses: fillArray(normalized.doses, nextCount, '1'),
+    });
+  }, [autoTimesEnabled, end, freqUnit, normalized, onChange, rounding, start]);
+
+  const updateFreqUnit = useCallback((nextFreqUnit: FrequencyUnit) => {
+    const safeCount = clampInt(normalized.nb, 1, nextFreqUnit === 'jour' ? 6 : 12, 1);
+    if (nextFreqUnit === 'jour') {
+      const auto = distributeTimes(safeCount, normalized.start, normalized.end, normalized.rounding);
+      onChange({
+        ...normalized,
+        nb: safeCount,
+        freqUnit: nextFreqUnit,
+        autoTimesEnabled: normalized.autoTimesEnabled !== false,
+        start: auto.start,
+        end: auto.end,
+        times: normalized.autoTimesEnabled !== false ? auto.times : fillArray(normalized.times, safeCount, ''),
+        doses: fillArray(normalized.doses, safeCount, '1'),
+      });
+      return;
+    }
+
+    onChange({
+      ...normalized,
+      nb: safeCount,
+      freqUnit: nextFreqUnit,
+      autoTimesEnabled: false,
+      times: fillArray(normalized.times, safeCount, ''),
+      doses: fillArray(normalized.doses, safeCount, '1'),
+    });
+  }, [normalized, onChange]);
+
+  const enableAutomaticTimes = useCallback(() => {
+    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, normalized.rounding);
+    onChange({
+      ...normalized,
+      autoTimesEnabled: true,
+      start: auto.start,
+      end: auto.end,
+      times: auto.times,
+      doses: fillArray(normalized.doses, normalized.nb, '1'),
+    });
+  }, [normalized, onChange]);
+
+  const disableAutomaticTimes = useCallback(() => {
+    onChange({
+      ...normalized,
+      autoTimesEnabled: false,
+      times: fillArray(times, normalized.nb, ''),
+      doses: fillArray(normalized.doses, normalized.nb, '1'),
+    });
+  }, [normalized, onChange, times]);
+
+  const resetAutomaticTimes = useCallback(() => {
+    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, normalized.rounding);
+    onChange({
+      ...normalized,
+      autoTimesEnabled: true,
+      start: auto.start,
+      end: auto.end,
+      times: auto.times,
+      doses: fillArray(normalized.doses, normalized.nb, '1'),
+    });
+  }, [normalized, onChange]);
+
+  const updateAnchors = useCallback((nextStart: string, nextEnd: string) => {
+    const auto = distributeTimes(normalized.nb, nextStart, nextEnd, normalized.rounding);
+    onChange({
+      ...normalized,
+      autoTimesEnabled: true,
+      start: auto.start,
+      end: auto.end,
+      times: auto.times,
+      doses: fillArray(normalized.doses, normalized.nb, '1'),
+    });
+  }, [normalized, onChange]);
+
+  const updateRounding = useCallback((raw: string) => {
+    const nextRounding = clampInt(raw, 1, 60, 5);
+    if (autoTimesEnabled) {
+      const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, nextRounding);
+      onChange({
+        ...normalized,
+        rounding: nextRounding,
+        start: auto.start,
+        end: auto.end,
+        times: auto.times,
+      });
+      return;
+    }
+
+    onChange({
+      ...normalized,
+      rounding: nextRounding,
+    });
+  }, [autoTimesEnabled, normalized, onChange]);
+
+  const updateTime = useCallback((index: number, nextTime: string) => {
+    const nextTimes = fillArray(times, normalized.nb, '');
+    nextTimes[index] = nextTime;
+    onChange({
+      ...normalized,
+      autoTimesEnabled: false,
+      times: nextTimes,
+      start: nextTimes[0] || normalized.start,
+      end: nextTimes[nextTimes.length - 1] || normalized.end,
+    });
+  }, [normalized, onChange, times]);
+
+  const updateDose = useCallback((index: number, nextDose: string) => {
+    const nextDoses = fillArray(doses, normalized.nb, '1');
+    nextDoses[index] = nextDose;
+    onChange({
+      ...normalized,
+      doses: nextDoses,
+    });
+  }, [doses, normalized, onChange]);
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700">Nombre de prises</label>
+          <TextInput
+            type="number"
+            min={1}
+            max={freqUnit === 'jour' ? 6 : 12}
+            value={count}
+            onChange={(event) => updateCount(event.target.value)}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700">Périodicité</label>
+          <select
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            value={freqUnit}
+            onChange={(event) => updateFreqUnit(event.target.value === 'semaine' ? 'semaine' : 'jour')}
+          >
+            <option value="jour">Par jour</option>
+            <option value="semaine">Par semaine</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700">Durée</label>
+          <TextInput
+            type="number"
+            min={1}
+            max={3650}
+            value={normalized.durationVal}
+            onChange={(event) => update({ durationVal: clampInt(event.target.value, 1, 3650, 5) })}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-700">Unité</label>
+          <select
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            value={normalized.durationUnit}
+            onChange={(event) => update({ durationUnit: event.target.value === 'mois' ? 'mois' : event.target.value === 'semaine' ? 'semaine' : 'jour' })}
+          >
+            <option value="jour">Jour(s)</option>
+            <option value="semaine">Semaine(s)</option>
+            <option value="mois">Mois</option>
+          </select>
+        </div>
+      </div>
+
+      {freqUnit === 'jour' && (
+        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-medium text-gray-900">
+              {autoTimesEnabled ? 'Horaires auto (répartis entre la 1ère et la dernière prise)' : 'Horaires personnalisés'}
+            </div>
+            <div className="flex gap-2">
+              {autoTimesEnabled ? (
+                <Button type="button" variant="secondary" onClick={resetAutomaticTimes}>
+                  Réinitialiser les horaires
+                </Button>
+              ) : (
+                <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
+                  Horaires auto
+                </Button>
+              )}
+              {autoTimesEnabled && (
+                <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
+                  Personnaliser
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">1ère prise</label>
+              <TextInput
+                type="time"
+                step={300}
+                value={normalized.start}
+                onChange={(event) => updateAnchors(event.target.value, normalized.end)}
+                disabled={!autoTimesEnabled}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">Dernière prise</label>
+              <TextInput
+                type="time"
+                step={300}
+                value={normalized.end}
+                onChange={(event) => updateAnchors(normalized.start, event.target.value)}
+                disabled={!autoTimesEnabled}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">Arrondi (min)</label>
+              <TextInput
+                type="number"
+                min={1}
+                max={60}
+                value={rounding}
+                onChange={(event) => updateRounding(event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="mt-3">
+          <Notice variant="warning">
+            <ul className="list-disc pl-5">
+              {warnings.map((warning, index) => (
+                <li key={`${warning}-${index}`}>{warning}</li>
+              ))}
+            </ul>
+          </Notice>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {Array.from({ length: count }).map((_, index) => {
+          const isFirst = index === 0;
+          const isLast = index === count - 1 && count > 1;
+          const label = isFirst ? '1ère prise' : isLast ? 'Dernière prise' : `Prise ${index + 1}`;
+          return (
+            <div key={index} className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div className="text-sm text-gray-800 md:pt-2">
+                <span className="font-medium">{label}</span>
+                {autoTimesEnabled && (isFirst || isLast) && (
+                  <span className="ml-2 text-xs text-gray-500">(ancre)</span>
+                )}
+              </div>
+              <TextInput
+                type="time"
+                step={300}
+                value={times[index] || ''}
+                onChange={(event) => updateTime(index, event.target.value)}
+              />
+              <TextInput
+                type="text"
+                placeholder="Dose"
+                value={doses[index] || '1'}
+                onChange={(event) => updateDose(index, event.target.value)}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PublicFormApp() {
+  const config = useMemo(() => getConfigOrThrow(), []);
+  const notices = config.notices || {};
+  const noticeEnabled = Boolean(notices?.enabled_form);
+  const noticeTitle = String(notices?.title || '').trim();
+  const noticeItems = String(notices?.items_text || '')
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const initialFlow = useMemo<FlowType | null>(() => resolveFlowFromUrl(), []);
+  const [stage, setStage] = useState<Stage>(initialFlow ? 'form' : 'choose');
+  const [pricing, setPricing] = useState<PricingConfig | null>(null);
+  const [paymentsConfig, setPaymentsConfig] = useState<PaymentsConfig | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
+
+  const [flow, setFlow] = useState<FlowType | null>(initialFlow);
+  const [priority, setPriority] = useState<'standard' | 'express'>('standard');
+
+  const [fullName, setFullName] = useState<string>(() => safePatientNameValue(config.patientProfile?.fullname || ''));
+  const [birthdate, setBirthdate] = useState<string>(() => {
+    const value = config.patientProfile?.birthdate_fr;
+    return value ? String(value) : '';
+  });
+  const [medicalNotes, setMedicalNotes] = useState<string>(() => {
+    return String(
+      config.patientProfile?.note
+      || config.patientProfile?.medical_notes
+      || config.patientProfile?.medicalNotes
+      || '',
+    ).trim();
+  });
+
+  const [items, setItems] = useState<MedicationItem[]>([]);
+  const [files, setFiles] = useState<LocalUpload[]>([]);
+  const [analysisInProgress, setAnalysisInProgress] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
+  const [rejectedFiles, setRejectedFiles] = useState<File[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
+  const [copiedUid, setCopiedUid] = useState(false);
+
+  const compliance = config.compliance || {};
+  const consentRequired = Boolean(compliance.consent_required);
+  const [attestationNoProof, setAttestationNoProof] = useState(false);
+  const [consentTelemedicine, setConsentTelemedicine] = useState(false);
+  const [consentTruth, setConsentTruth] = useState(false);
+  const [consentCgu, setConsentCgu] = useState(false);
+  const [consentPrivacy, setConsentPrivacy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMeta(): Promise<void> {
+      setPricingLoading(true);
+      try {
+        const [nextPricing, nextPayments] = await Promise.all([
+          getPricingApi(),
+          getPaymentsConfigApi(),
+        ]);
+        if (!cancelled) {
+          setPricing(nextPricing);
+          setPaymentsConfig(nextPayments);
+        }
+      } catch {
+        if (!cancelled) {
+          setPaymentsConfig({
+            enabled: false,
+            publishable_key: '',
+            provider: 'stripe',
+            capture_method: 'manual',
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setPricingLoading(false);
+        }
+      }
+    }
+
+    void loadMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
+  const selectedAmount = useMemo(() => {
+    if (!pricing) {
+      return null;
+    }
+    return priority === 'express' ? pricing.express_cents : pricing.standard_cents;
+  }, [pricing, priority]);
+  const ageLabel = useMemo(() => ageLabelFromBirthdate(birthdate), [birthdate]);
+
+  const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
+    loggedIn: isLoggedIn,
+    flow,
+    fullname: fullName,
+    birthdate,
+    itemsCount: items.length,
+    filesCount: files.length,
+    attestationNoProof,
+    consentRequired,
+    consentTelemedicine,
+    consentTruth,
+    consentCgu,
+    consentPrivacy,
+    analysisInProgress,
+  }), [
+    analysisInProgress,
+    attestationNoProof,
+    birthdate,
+    consentCgu,
+    consentPrivacy,
+    consentRequired,
+    consentTelemedicine,
+    consentTruth,
+    files.length,
+    flow,
+    fullName,
+    isLoggedIn,
+    items.length,
+  ]);
+
+  const addMedication = useCallback((medication: MedicationSearchResult) => {
+    const nextItem: MedicationItem = {
+      cis: medication.cis,
+      cip13: medication.cip13 || null,
+      label: medication.label,
+      schedule: normalizeSchedule({
+        nb: 1,
+        freqUnit: 'jour',
+        durationVal: 5,
+        durationUnit: 'jour',
+        times: ['08:00'],
+        doses: ['1'],
+        note: '',
+        autoTimesEnabled: true,
+        start: '08:00',
+        end: '20:00',
+        rounding: 5,
+      }),
+    };
+
+    setItems((current) => {
+      const exists = current.some((entry) => (
+        entry.cis && nextItem.cis
+          ? entry.cis === nextItem.cis
+          : entry.label.trim().toLowerCase() === nextItem.label.trim().toLowerCase()
+      ));
+      return exists ? current : [...current, nextItem];
+    });
+  }, []);
+
+  const updateMedication = useCallback((index: number, patch: Partial<MedicationItem>) => {
+    setItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index
+        ? {
+          ...item,
+          ...patch,
+        }
+        : item
+    )));
+  }, []);
+
+  const removeMedication = useCallback((index: number) => {
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }, []);
+
+  const handleFilesSelected = useCallback((list: FileList | null) => {
+    if (!list || list.length === 0) {
+      return;
+    }
+    setSubmitError(null);
+    setRejectedFiles([]);
+    setAnalysisMessage('Documents ajoutés. L’analyse automatique sera lancée lors de la soumission.');
+    const nextUploads = Array.from(list).map(createLocalUpload);
+    setFiles((current) => [...current, ...nextUploads]);
+  }, []);
+
+  const resetToChoose = useCallback(() => {
+    setStage('choose');
+    setFlow(null);
+    setPriority('standard');
+    setFullName(safePatientNameValue(config.patientProfile?.fullname || ''));
+    setBirthdate(String(config.patientProfile?.birthdate_fr || ''));
+    setMedicalNotes(String(
+      config.patientProfile?.note
+      || config.patientProfile?.medical_notes
+      || config.patientProfile?.medicalNotes
+      || '',
+    ).trim());
+    setItems([]);
+    setFiles([]);
+    setRejectedFiles([]);
+    setAnalysisMessage(null);
+    setSubmitError(null);
+    setSubmissionResult(null);
+    setCopiedUid(false);
+    setAttestationNoProof(false);
+    setConsentTelemedicine(false);
+    setConsentTruth(false);
+    setConsentCgu(false);
+    setConsentPrivacy(false);
+  }, [config.patientProfile]);
+
+  const copyUid = useCallback(async () => {
+    if (!submissionResult?.uid) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(submissionResult.uid);
+      setCopiedUid(true);
+      window.setTimeout(() => setCopiedUid(false), 1500);
+    } catch {
+      setCopiedUid(false);
+    }
+  }, [submissionResult?.uid]);
+
+  const handleSubmit = useCallback(async () => {
+    setSubmitError(null);
+
+    frontendLog('submit_clicked', 'info', {
+      flow: flow || null,
+      stage,
+      logged_in: isLoggedIn,
+      meds_count: items.length,
+      files_count: files.length,
+    });
+
+    if (!submitBlockInfo.ok || !flow) {
+      const message = submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.';
+      frontendLog('submit_blocked', 'warning', {
+        flow: flow || null,
+        stage,
+        reason_code: submitBlockInfo.code || 'unknown',
+        reasons: submitBlockInfo.reasons.map((reason) => reason.code),
+        message,
+      });
+      setSubmitError(message);
+      return;
+    }
+
+    const patientFullName = safePatientNameValue(fullName);
+    const patientName = splitPatientNameValue(patientFullName);
+    if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
+      setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
+      return;
+    }
+
+    setSubmitLoading(true);
+
+    try {
+      frontendLog('submission_init_start', 'info', {
+        flow,
+        priority,
+        meds_count: items.length,
+        files_count: files.length,
+      });
+
+      const initResponse = await createSubmissionApi({
+        flow,
+        priority,
+      });
+      const submissionRef = String(initResponse?.submission_ref || '').trim();
+      if (!submissionRef) {
+        throw new Error('Référence de soumission manquante.');
+      }
+
+      frontendLog('submission_init_ok', 'info', {
+        flow,
+        submission_ref_present: true,
+      });
+
+      let finalItems = Array.isArray(items) ? items.slice() : [];
+
+      if (flow === 'ro_proof') {
+        const proofs = Array.isArray(files) ? files.filter((entry) => entry && entry.file instanceof File) : [];
+        const rejected: File[] = [];
+        const analysisErrors: string[] = [];
+        let recognizedCount = 0;
+        let mergedInfo = false;
+
+        setAnalysisInProgress(true);
+        setAnalysisMessage(null);
+        setRejectedFiles([]);
+        setSubmitError(null);
+
+        try {
+          for (const entry of proofs) {
+            try {
+              frontendLog('submission_artifact_start', 'debug', {
+                flow,
+                original_name: entry.file?.name ? String(entry.file.name) : 'upload.bin',
+              });
+
+              const uploaded = await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
+
+              frontendLog('submission_artifact_uploaded', 'info', {
+                flow,
+                artifact_id: uploaded.id,
+              });
+
+              const analysis = await analyzeArtifactApi(uploaded.id);
+              const analysisFailed = Boolean(analysis && analysis.ok === false);
+              const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
+              const recognized = Boolean(analysis && (analysis.is_prescription === true || aiItems.length > 0));
+
+              frontendLog('submission_artifact_analyzed', 'info', {
+                flow,
+                artifact_id: uploaded.id,
+                is_prescription: Boolean(analysis?.is_prescription === true),
+                medications_count: Array.isArray(analysis?.medications) ? analysis.medications.length : 0,
+              });
+
+              if (analysisFailed) {
+                rejected.push(entry.file);
+                analysisErrors.push(typeof analysis?.message === 'string' && analysis.message.trim()
+                  ? analysis.message.trim()
+                  : 'L’analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.');
+                continue;
+              }
+
+              if (recognized) {
+                recognizedCount += 1;
+                if (aiItems.length > 0) {
+                  finalItems = mergeMedicationItems(finalItems, aiItems);
+                  mergedInfo = true;
+                }
+              } else {
+                rejected.push(entry.file);
+              }
+            } catch (error) {
+              rejected.push(entry.file);
+              analysisErrors.push(error instanceof Error ? error.message : 'L’analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.');
+              frontendLog('submission_artifact_error', 'warning', {
+                flow,
+                message: error instanceof Error ? error.message : 'artifact_error',
+              });
+            }
+          }
+        } finally {
+          setAnalysisInProgress(false);
+        }
+
+        setRejectedFiles(rejected);
+        if (mergedInfo) {
+          setAnalysisMessage('✅ Document reconnu. Les médicaments ont été ajoutés automatiquement.');
+        } else if (recognizedCount > 0) {
+          setAnalysisMessage('✅ Document reconnu.');
+        }
+
+        if (analysisErrors.length > 0 && !submitError) {
+          setSubmitError(analysisErrors[0]);
+        }
+
+        if (finalItems.length > 0) {
+          setItems(finalItems);
+        }
+
+        if (recognizedCount < 1) {
+          frontendLog('submit_blocked', 'warning', {
+            flow,
+            stage,
+            reason_code: 'proof_upload_missing',
+            message: analysisErrors[0] || 'Aucun document exploitable n’a été accepté.',
+            files_count: files.length,
+          });
+          throw new Error(analysisErrors[0] || 'Aucun document exploitable n’a été accepté.');
+        }
+      }
+
+      const finalizePayload = {
+        patient: {
+          fullname: patientFullName,
+          firstName: patientName.firstName,
+          lastName: patientName.lastName,
+          birthdate: birthdate.trim(),
+          birthDate: birthdate.trim(),
+          note: medicalNotes.trim() || undefined,
+          medical_notes: medicalNotes.trim() || undefined,
+          medicalNotes: medicalNotes.trim() || undefined,
+        },
+        items: finalItems.map((item) => {
+          const payload: Record<string, unknown> = {
+            label: (item.label || '').trim(),
+            schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : {},
+          };
+
+          if (item.cis) {
+            payload.cis = String(item.cis);
+          }
+          if (item.cip13) {
+            payload.cip13 = String(item.cip13);
+          }
+          if (item.quantite) {
+            payload.quantite = String(item.quantite);
+          }
+
+          return payload;
+        }),
+        privateNotes: medicalNotes.trim() || undefined,
+        consent: consentRequired ? {
+          telemedicine: consentTelemedicine,
+          truth: consentTruth,
+          cgu: consentCgu,
+          privacy: consentPrivacy,
+          timestamp: new Date().toISOString(),
+          cgu_version: compliance?.cgu_version ? String(compliance.cgu_version) : '',
+          privacy_version: compliance?.privacy_version ? String(compliance.privacy_version) : '',
+        } : undefined,
+        attestation_no_proof: flow === 'depannage_no_proof' ? attestationNoProof : undefined,
+      };
+
+      if (!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) {
+        throw new Error(
+          flow === 'ro_proof'
+            ? 'Aucun médicament n’a pu être identifié. Merci d’importer un document plus net ou d’utiliser la saisie manuelle.'
+            : 'Merci d’ajouter au moins un médicament.',
+        );
+      }
+
+      frontendLog('submission_finalize_start', 'info', {
+        flow,
+        items_count: finalizePayload.items.length,
+        files_count: files.length,
+      });
+
+      const finalized = await finalizeSubmissionApi(submissionRef, finalizePayload);
+      const result: SubmissionResult = {
+        id: Number((finalized.prescription_id as number) || finalized.id || 0),
+        uid: String(finalized.uid || ''),
+        status: String(finalized.status || ''),
+        created_at: typeof finalized.created_at === 'string' ? finalized.created_at : undefined,
+      };
+
+      frontendLog('submission_finalize_ok', 'info', {
+        flow,
+        prescription_id: result.id || null,
+        uid: result.uid || null,
+        status: result.status || null,
+      });
+
+      setSubmissionResult(result);
+      setStage('done');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur soumission';
+      frontendLog('submission_error', 'error', {
+        flow: flow || null,
+        stage,
+        message,
+        meds_count: items.length,
+        files_count: files.length,
+      });
+      setSubmitError(message);
+    } finally {
+      setSubmitLoading(false);
+    }
+  }, [
+    attestationNoProof,
+    birthdate,
+    compliance?.cgu_version,
+    compliance?.privacy_version,
+    consentCgu,
+    consentPrivacy,
+    consentRequired,
+    consentTelemedicine,
+    consentTruth,
+    files,
+    flow,
+    fullName,
+    isLoggedIn,
+    items,
+    medicalNotes,
+    priority,
+    stage,
+    submitBlockInfo,
+    submitError,
+  ]);
+
+  const patientPortalUrl = useMemo(() => {
+    const base = config.urls?.patientPortal || null;
+    if (!submissionResult?.uid || !base) {
+      return null;
+    }
+    return `${base}${base.includes('?') ? '&' : '?'}rx_uid=${encodeURIComponent(String(submissionResult.uid))}`;
+  }, [config.urls?.patientPortal, submissionResult?.uid]);
+
+  return (
+    <div className="mx-auto max-w-3xl p-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xl font-semibold text-gray-900">SOS Prescription</div>
+          <div className="text-sm text-gray-600">Évaluation médicale asynchrone • formulaire sécurisé</div>
+        </div>
+
+        <div className="flex flex-col items-end gap-2">
+          <div className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs ${isLoggedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+            <span className="font-semibold">{isLoggedIn ? 'Connecté' : 'Non connecté'}</span>
+            {isLoggedIn && config.currentUser?.displayName && (
+              <span className="text-emerald-900">{config.currentUser.displayName}</span>
+            )}
+          </div>
+
+          {pricing && (
+            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700">
+              <div className="font-semibold">Tarif</div>
+              <div>
+                Standard : {formatMoney(pricing.standard_cents, pricing.currency)}
+                <br />
+                Express : {formatMoney(pricing.express_cents, pricing.currency)}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {noticeEnabled && noticeItems.length > 0 && (
+        <div className="mb-4">
+          <Notice variant="info">
+            {noticeTitle && <div className="font-semibold">{noticeTitle}</div>}
+            <ul className={noticeTitle ? 'mt-2 list-disc space-y-1 pl-5' : 'list-disc space-y-1 pl-5'}>
+              {noticeItems.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </Notice>
+        </div>
+      )}
+
+      <div className="mb-4">
+        <Notice variant="warning">
+          Service réservé au <strong>renouvellement / continuité d’un traitement déjà connu</strong>.
+          <br />
+          Aucune urgence vitale, pas d’arrêt de travail, et aucun médicament classé comme stupéfiant.
+        </Notice>
+      </div>
+
+      {!isLoggedIn && (
+        <div className="mb-4">
+          <Notice variant="info">
+            Vous êtes en <strong>mode aperçu</strong>. Connectez-vous (ou créez un compte) pour soumettre votre demande.
+            <br />
+            La recherche de médicaments et l’import de justificatifs sont désactivés tant que vous n’êtes pas connecté.
+          </Notice>
+        </div>
+      )}
+
+      {submitError && (
+        <div className="mb-4">
+          <Notice variant="error">{submitError}</Notice>
+        </div>
+      )}
+
+      {stage === 'choose' && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-3 text-sm font-semibold text-gray-900">Choisissez votre demande</div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${flow === 'ro_proof' ? 'border-gray-900' : 'border-gray-200'}`}
+              onClick={() => {
+                setFlow('ro_proof');
+                setFiles([]);
+                setRejectedFiles([]);
+                setAnalysisMessage(null);
+                setSubmitError(null);
+                setSubmissionResult(null);
+                setStage('form');
+              }}
+            >
+              <div className="text-sm font-semibold text-gray-900">Renouvellement avec preuve</div>
+              <div className="mt-1 text-sm text-gray-600">Vous avez une ancienne ordonnance ou une photo de la boîte.</div>
+              <div className="mt-2 text-xs text-gray-500">Temps estimé : ~ 3 min</div>
+            </button>
+
+            <button
+              type="button"
+              className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${flow === 'depannage_no_proof' ? 'border-gray-900' : 'border-gray-200'}`}
+              onClick={() => {
+                setFlow('depannage_no_proof');
+                setFiles([]);
+                setRejectedFiles([]);
+                setAnalysisMessage(null);
+                setSubmitError(null);
+                setSubmissionResult(null);
+                setStage('form');
+              }}
+            >
+              <div className="text-sm font-semibold text-gray-900">Dépannage sans preuve</div>
+              <div className="mt-1 text-sm text-gray-600">En cas de perte, d’oubli ou de voyage (traitement habituel).</div>
+              <div className="mt-2 text-xs text-gray-500">Temps estimé : ~ 5 min</div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'form' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-gray-900">Informations patient</div>
+              <Button type="button" variant="secondary" onClick={() => setStage('choose')}>
+                Modifier le type
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="username"
+                  name="sp_trap_username"
+                  style={{
+                    position: 'absolute',
+                    left: '-9999px',
+                    top: 'auto',
+                    width: '1px',
+                    height: '1px',
+                    overflow: 'hidden',
+                    opacity: 0,
+                    pointerEvents: 'none',
+                  }}
+                  aria-hidden="true"
+                />
+                <input
+                  type="password"
+                  tabIndex={-1}
+                  autoComplete="new-password"
+                  name="sp_trap_password"
+                  style={{
+                    position: 'absolute',
+                    left: '-9999px',
+                    top: 'auto',
+                    width: '1px',
+                    height: '1px',
+                    overflow: 'hidden',
+                    opacity: 0,
+                    pointerEvents: 'none',
+                  }}
+                  aria-hidden="true"
+                />
+                <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-fullname">
+                  Nom complet
+                </label>
+                <TextInput
+                  id="sp-patient-fullname"
+                  name="sp_patient_identity_fullname"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="words"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  placeholder="Prénom NOM"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-birthdate">
+                  Date de naissance (JJ/MM/AAAA)
+                </label>
+                <TextInput
+                  id="sp-patient-birthdate"
+                  name="sp_patient_identity_birthdate"
+                  inputMode="numeric"
+                  pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
+                  value={birthdate}
+                  onChange={(event) => setBirthdate(formatBirthdateInput(event.target.value))}
+                  placeholder="JJ/MM/AAAA"
+                />
+                {ageLabel && (
+                  <div className="mt-1 text-xs text-gray-500">Âge estimé : {ageLabel}</div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-medical-notes">
+                Précisions médicales (optionnel)
+              </label>
+              <TextareaField
+                id="sp-patient-medical-notes"
+                name="medical_notes"
+                value={medicalNotes}
+                onChange={(event) => setMedicalNotes(event.target.value)}
+                placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
+              />
+            </div>
+          </div>
+
+          {flow === 'ro_proof' && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-1 text-sm font-semibold text-gray-900">Justificatifs médicaux (Obligatoire)</div>
+              <div className="text-sm text-gray-600">
+                Importez votre ordonnance ou une photo de la boîte. Cela nous permet de vérifier votre traitement et de pré-remplir le formulaire.
+              </div>
+
+              <div className="mt-3">
+                <input
+                  id="sp-evidence-input"
+                  type="file"
+                  className="hidden"
+                  accept="image/jpeg,image/png,application/pdf"
+                  multiple
+                  disabled={!isLoggedIn || analysisInProgress}
+                  onChange={(event) => {
+                    handleFilesSelected(event.target.files);
+                    event.currentTarget.value = '';
+                  }}
+                />
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="border-blue-600 text-blue-700 hover:!text-blue-700 hover:bg-blue-50"
+                    disabled={!isLoggedIn || analysisInProgress}
+                    onClick={() => {
+                      document.getElementById('sp-evidence-input')?.click();
+                    }}
+                  >
+                    {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
+                  </Button>
+
+                  {analysisInProgress && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Spinner />
+                      Analyse automatique…
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-1 text-xs text-gray-400">JPG, PNG ou PDF (Max 5 Mo)</div>
+                {!isLoggedIn && (
+                  <div className="mt-2 text-xs text-amber-700">
+                    Connectez-vous pour importer un justificatif.
+                  </div>
+                )}
+              </div>
+
+              {files.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {files.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-gray-900">{file.original_name}</div>
+                        <div className="text-xs text-gray-600">
+                          {file.mime} • {Math.round((file.size_bytes || 0) / 1024)} Ko
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
+                        aria-label="Retirer ce document"
+                        title="Retirer"
+                        onClick={() => {
+                          setFiles((current) => current.filter((entry) => entry.id !== file.id));
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {analysisMessage && (
+                <div className="mt-3">
+                  <Notice variant={analysisMessage.startsWith('✅') ? 'success' : 'warning'}>
+                    {analysisMessage}
+                  </Notice>
+                </div>
+              )}
+
+              {rejectedFiles.length > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-amber-900">Document refusé par l’analyse IA</div>
+                      <div className="text-xs text-amber-900/80">
+                        L’intelligence artificielle n’a détecté aucune prescription médicale lisible sur ce document. Veuillez retirer ce fichier et importer une photo nette de votre ordonnance.
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={analysisInProgress}
+                        onClick={() => {
+                          setFlow('depannage_no_proof');
+                          setFiles([]);
+                          setRejectedFiles([]);
+                          setAnalysisMessage(null);
+                        }}
+                      >
+                        Saisie manuelle (Dépannage)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={analysisInProgress}
+                        onClick={() => {
+                          setRejectedFiles([]);
+                          setAnalysisMessage(null);
+                        }}
+                      >
+                        Retirer
+                      </Button>
+                    </div>
+                  </div>
+
+                  <ul className="mt-2 list-disc pl-5 text-xs text-amber-900/90">
+                    {rejectedFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`}>{file?.name || 'Document'}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(flow !== 'ro_proof' || items.length > 0) && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 text-sm font-semibold text-gray-900">Médicaments</div>
+              <div className="text-sm text-gray-600">
+                {flow === 'ro_proof' && items.length > 0
+                  ? 'Médicaments reconnus par l’IA'
+                  : 'Recherchez et ajoutez les médicaments concernés.'}
+              </div>
+
+              {flow !== 'ro_proof' && (
+                <div className="mt-3">
+                  <MedicationSearch onSelect={addMedication} disabled={!isLoggedIn} />
+                </div>
+              )}
+
+              {items.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {items.map((item, index) => (
+                    <div key={`${item.cis || item.cip13 || item.label}-${index}`} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-gray-900">{item.label}</div>
+                          <div className="mt-0.5 text-xs text-gray-600">
+                            {item.cis ? `CIS ${item.cis}` : ''}
+                            {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
+                          </div>
+                        </div>
+
+                        <Button type="button" variant="secondary" onClick={() => removeMedication(index)}>
+                          Retirer
+                        </Button>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="mb-2 text-xs font-medium text-gray-700">Posologie</div>
+                        <ScheduleEditor
+                          value={item.schedule || {}}
+                          onChange={(nextSchedule) => {
+                            updateMedication(index, { schedule: nextSchedule });
+                          }}
+                        />
+                        <div className="mt-3 text-xs text-gray-500">
+                          Les champs CIS/CIP sont enregistrés pour traçabilité.
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="mb-2 text-sm font-semibold text-gray-900">Délai & tarif</div>
+
+            {pricingLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Spinner />
+                Chargement…
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${priority === 'standard' ? 'border-gray-900' : 'border-gray-200'}`}
+                    onClick={() => setPriority('standard')}
+                  >
+                    <div className="text-sm font-semibold text-gray-900">Standard</div>
+                    <div className="mt-1 text-sm text-gray-600">Traitement en file normale</div>
+                    {pricing && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {formatMoney(pricing.standard_cents, pricing.currency)}
+                      </div>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${priority === 'express' ? 'border-gray-900' : 'border-gray-200'}`}
+                    onClick={() => setPriority('express')}
+                  >
+                    <div className="text-sm font-semibold text-gray-900">Express</div>
+                    <div className="mt-1 text-sm text-gray-600">Prioritaire (selon disponibilité)</div>
+                    {pricing && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {formatMoney(pricing.express_cents, pricing.currency)}
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {paymentsConfig?.enabled ? (
+                  <Notice variant="info">
+                    Paiement : une <strong>autorisation</strong> peut être demandée à la soumission. La carte n’est débitée qu’après validation médicale.
+                  </Notice>
+                ) : (
+                  <Notice variant="info">
+                    Paiement désactivé (mode test).
+                  </Notice>
+                )}
+              </div>
+            )}
+          </div>
+
+          {flow === 'depannage_no_proof' && (
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+              <div className="text-sm font-semibold text-gray-900">Attestation sur l’honneur (Obligatoire)</div>
+              <div className="mt-1 text-sm text-gray-700">
+                En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
+              </div>
+
+              <label className="mt-3 flex items-start gap-2 text-sm text-gray-900">
+                <input
+                  type="checkbox"
+                  checked={attestationNoProof}
+                  onChange={(event) => setAttestationNoProof(event.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <span>
+                  Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
+                </span>
+              </label>
+            </div>
+          )}
+
+          {consentRequired && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="text-sm font-semibold text-gray-900">Consentements requis</div>
+              <div className="mt-1 text-xs text-gray-600">
+                Avant de soumettre, vous devez accepter les points ci-dessous.
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <label className="flex items-start gap-2 text-sm text-gray-900">
+                  <input
+                    id="sp-consent-medical"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                    checked={consentTelemedicine}
+                    onChange={(event) => setConsentTelemedicine(event.target.checked)}
+                  />
+                  <span>
+                    J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2 text-sm text-gray-900">
+                  <input
+                    id="sp-consent-truth"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                    checked={consentTruth}
+                    onChange={(event) => setConsentTruth(event.target.checked)}
+                  />
+                  <span>Je certifie que les informations renseignées sont exactes.</span>
+                </label>
+
+                <label className="flex items-start gap-2 text-sm text-gray-900">
+                  <input
+                    id="sp-consent-cgu"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                    checked={consentCgu}
+                    onChange={(event) => setConsentCgu(event.target.checked)}
+                  />
+                  <span>
+                    J’ai lu et j’accepte{' '}
+                    <a
+                      href={compliance?.cgu_url || '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      les CGU
+                    </a>
+                    .
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2 text-sm text-gray-900">
+                  <input
+                    id="sp-consent-privacy"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                    checked={consentPrivacy}
+                    onChange={(event) => setConsentPrivacy(event.target.checked)}
+                  />
+                  <span>
+                    J’ai lu{' '}
+                    <a
+                      href={compliance?.privacy_url || '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      la politique de confidentialité
+                    </a>
+                    .
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <Button type="button" variant="secondary" onClick={() => setStage('choose')} disabled={submitLoading}>
+              Retour
+            </Button>
+
+            <Button type="button" onClick={handleSubmit} disabled={submitLoading}>
+              {submitLoading ? (
+                <>
+                  <Spinner />
+                  {' '}Soumission…
+                </>
+              ) : (
+                'Soumettre au médecin'
+              )}
+            </Button>
+          </div>
+
+          {selectedAmount != null && pricing && (
+            <div className="text-xs text-gray-500">
+              Montant sélectionné : {formatMoney(selectedAmount, pricing.currency)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {stage === 'done' && submissionResult && (
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-6 text-center text-green-950">
+            <div className="text-lg font-semibold">Merci ! Votre demande est enregistrée.</div>
+            <div className="mt-4 text-sm text-green-900/80">Numéro de dossier</div>
+            <div className="mt-1 flex items-center justify-center gap-2">
+              <div className="font-mono text-3xl font-extrabold tracking-wider">{submissionResult.uid}</div>
+              <button
+                type="button"
+                className="rounded-md border border-green-300 bg-white px-2 py-1 text-xs font-medium text-green-900 hover:bg-green-100"
+                onClick={() => {
+                  void copyUid();
+                }}
+                aria-label="Copier le numéro de dossier"
+                title="Copier"
+              >
+                {copiedUid ? 'Copié' : 'Copier'}
+              </button>
+            </div>
+            <div className="mt-4 text-sm text-green-900/80">
+              Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
+            </div>
+          </div>
+
+          {patientPortalUrl && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="text-sm font-semibold text-gray-900">Suite de la demande</div>
+              <div className="mt-1 text-sm text-gray-600">
+                Vous pouvez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
+              </div>
+              <div className="mt-3">
+                <a
+                  href={patientPortalUrl}
+                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  Ouvrir l’espace patient
+                </a>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <Button type="button" variant="secondary" onClick={resetToChoose}>
+              Nouvelle demande
+            </Button>
+            <div className="text-xs text-gray-500">
+              Vous pourrez toujours compléter via la messagerie patient.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderFatal(container: HTMLElement, message: string): void {
+  container.innerHTML = '';
+  const notice = document.createElement('div');
+  notice.style.padding = '12px';
+  notice.style.border = '1px solid #e5e7eb';
+  notice.style.borderRadius = '8px';
+  notice.style.background = '#fff';
+  notice.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  notice.style.fontSize = '14px';
+  notice.style.color = '#111827';
+  notice.textContent = message;
+  container.appendChild(notice);
+}
+
+function mountPatientConsole(container: HTMLElement): void {
+  window.__SosPrescriptionPatientRoot?.unmount?.();
+  const root = createRoot(container);
+  window.__SosPrescriptionPatientRoot = root;
+  root.render(
+    <React.StrictMode>
+      <PatientConsole />
+    </React.StrictMode>,
+  );
+}
+
+function mountPublicForm(container: HTMLElement): void {
+  window.__SosPrescriptionPublicFormRoot?.unmount?.();
+  const root = createRoot(container);
+  window.__SosPrescriptionPublicFormRoot = root;
+  root.render(
+    <React.StrictMode>
+      <PublicFormApp />
+    </React.StrictMode>,
   );
 }
 
@@ -2348,6 +2843,18 @@ function mountPublicForm(container) {
 
   const sharedRoot = document.getElementById('sosprescription-root-form');
   if (!sharedRoot) {
+    return;
+  }
+
+  try {
+    getConfigOrThrow();
+  } catch (error) {
+    renderFatal(
+      sharedRoot,
+      error instanceof Error
+        ? error.message
+        : 'Configuration SosPrescription manquante (restBase/nonce).',
+    );
     return;
   }
 

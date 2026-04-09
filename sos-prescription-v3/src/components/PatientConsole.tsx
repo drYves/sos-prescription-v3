@@ -1111,10 +1111,14 @@ export default function PatientConsole() {
     }
     try {
       const payload = await getPatientMessages(id);
-      if (!Array.isArray(payload)) {
+      const messagesArray = Array.isArray(payload)
+        ? payload
+        : (payload && typeof payload === 'object' && 'messages' in payload ? (payload as { messages?: unknown }).messages : payload);
+
+      if (!Array.isArray(messagesArray)) {
         debugApiPayload(payload, {
           endpoint: `/prescriptions/${id}/messages`,
-          expected: 'array',
+          expected: 'array | { messages: array }',
           received_type: typeof payload,
         });
         const banner = resolveBannerFromPayload(payload);
@@ -1130,7 +1134,7 @@ export default function PatientConsole() {
         return;
       }
 
-      setMessages(normalizeMessageArray(payload));
+      setMessages(normalizeMessageArray(messagesArray));
     } catch (err) {
       const banner = resolveBannerFromError(err);
       if (banner) {
