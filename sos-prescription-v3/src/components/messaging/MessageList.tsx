@@ -56,9 +56,18 @@ const MessageList = React.memo(
           const mine = isOwnMessage(message.author_role, viewerRole);
           const roleLabel = getRoleLabel(message.author_role, viewerRole);
           const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
+          const normalizedRole = String(message.author_role || '').trim().toUpperCase();
+          const highlightDoctor = viewerRole === 'PATIENT' && normalizedRole === 'DOCTOR';
 
           return (
-            <div key={message.id} className={cx('sp-thread-item', mine && 'is-own')}>
+            <div
+              key={message.id}
+              className={cx(
+                'sp-thread-item',
+                mine && 'is-own',
+                highlightDoctor && 'sp-thread-item--doctor-highlight',
+              )}
+            >
               <article className="sp-thread-item__bubble">
                 <div className="sp-thread-item__author">{roleLabel}</div>
 

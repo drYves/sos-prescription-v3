@@ -891,6 +891,9 @@ function PaymentCard({
       <div className="sp-payment-card__summary">
         Montant : <span className="sp-text-strong">{formatMoney(amountCents, currency)}</span>
       </div>
+      <div className="sp-payment-card__notice">
+        Zéro frais si refus médical. (Autorisation uniquement)
+      </div>
 
       {error ? (
         <div className="sp-inline-note">
@@ -1283,18 +1286,18 @@ export default function PatientConsole() {
 
   if (!isLoggedIn) {
     return (
-      <div className="sp-page-shell sp-page-shell--narrow">
+      <div className="sp-page-shell sp-page-shell--narrow sp-app-theme">
         <Notice variant="warning">Connexion requise. Merci de vous connecter pour accéder à votre espace patient.</Notice>
       </div>
     );
   }
 
   return (
-    <div className="sp-page-shell">
-      <div className="sp-page-header">
+    <div className="sp-page-shell sp-app-theme sp-app-container">
+      <div className="sp-page-header sp-app-header sp-app-header--compact">
         <div className="sp-page-heading">
           <div className="sp-page-title">Espace patient</div>
-          <div className="sp-page-subtitle">Suivi de vos demandes • messagerie asynchrone</div>
+          <div className="sp-page-subtitle">Suivi de vos demandes et échanges médicaux sécurisés.</div>
         </div>
 
         <div className="sp-page-actions">
@@ -1472,11 +1475,10 @@ export default function PatientConsole() {
                         <MessageInput
                           prescriptionId={detail.id}
                           viewerRole="PATIENT"
-                          uploadFile={uploadPatientFile}
                           postMessage={postPatientMessage}
-                          onUploadsRegistered={registerUploadedFiles}
                           onMessageCreated={handleMessageCreated}
                           onSurfaceError={setError}
+                          allowAttachments={false}
                         />
                       </div>
                     ) : (

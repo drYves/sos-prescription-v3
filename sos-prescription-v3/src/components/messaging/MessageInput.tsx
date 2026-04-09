@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 type ViewerRole = 'PATIENT' | 'DOCTOR';
 
@@ -8,7 +8,7 @@ type UploadedFile = {
   purpose?: string;
   mime?: string;
   size_bytes?: number;
-  download_url: string;
+  download_url?: string;
 };
 
 type MessageItem = {
@@ -20,11 +20,11 @@ type MessageItem = {
 };
 
 type Props = {
-  prescriptionId: number;
+  prescriptionId: number | null;
   viewerRole: ViewerRole;
-  uploadFile: (file: File, purpose: string, prescriptionId?: number) => Promise<UploadedFile>;
+  uploadFile?: (file: File, purpose: string, prescriptionId?: number) => Promise<UploadedFile>;
   postMessage: (prescriptionId: number, body: string, attachments?: number[]) => Promise<MessageItem>;
-  onUploadsRegistered: (files: UploadedFile[]) => void;
+  onUploadsRegistered?: (files: UploadedFile[]) => void;
   onMessageCreated: (message: MessageItem) => void | Promise<void>;
   onSurfaceError?: (message: string | null) => void;
   allowAttachments?: boolean;
@@ -55,84 +55,34 @@ function fieldCopy(viewerRole: ViewerRole): { title: string; placeholder: string
 const MessageInput = React.memo(function MessageInputComponent({
   prescriptionId,
   viewerRole,
-  uploadFile,
   postMessage,
-  onUploadsRegistered,
   onMessageCreated,
   onSurfaceError,
-  allowAttachments = true,
 }: Props) {
   const inputCopy = useMemo(() => fieldCopy(viewerRole), [viewerRole]);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const attachmentsEnabled = allowAttachments && viewerRole !== 'DOCTOR';
 
   const [draftBody, setDraftBody] = useState('');
-  const [queuedUploads, setQueuedUploads] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraftBody('');
-    setQueuedUploads([]);
-    setUploading(false);
     setSending(false);
     setLocalError(null);
   }, [prescriptionId]);
 
-  useEffect(() => {
-    if (!attachmentsEnabled) {
-      setQueuedUploads([]);
-      setUploading(false);
-    }
-  }, [attachmentsEnabled]);
-
-  const handleUploadFiles = async (fileList: FileList | null): Promise<void> => {
-    if (!attachmentsEnabled || !fileList || fileList.length === 0 || !prescriptionId) return;
-
-    setLocalError(null);
-    onSurfaceError?.(null);
-    setUploading(true);
-
-    try {
-      const uploaded: UploadedFile[] = [];
-      for (const file of Array.from(fileList)) {
-        const payload = await uploadFile(file, 'message', prescriptionId);
-        uploaded.push(payload);
-      }
-
-      if (uploaded.length > 0) {
-        onUploadsRegistered(uploaded);
-        setQueuedUploads((current) => [...current, ...uploaded]);
-      }
-    } catch (error) {
-      const nextError = error instanceof Error ? error.message : 'Erreur upload';
-      setLocalError(nextError);
-      onSurfaceError?.(nextError);
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
-    if (!prescriptionId || !body || sending || uploading) return;
+    if (!prescriptionId || !body || sending) return;
 
     setLocalError(null);
     onSurfaceError?.(null);
     setSending(true);
 
     try {
-      const attachmentIds = attachmentsEnabled ? queuedUploads.map((file) => file.id) : [];
-      const message = await postMessage(
-        prescriptionId,
-        body,
-        attachmentIds.length > 0 ? attachmentIds : undefined,
-      );
-
+      const message = await postMessage(prescriptionId, body);
       await Promise.resolve(onMessageCreated(message));
       setDraftBody('');
-      setQueuedUploads([]);
     } catch (error) {
       const nextError = error instanceof Error ? error.message : 'Erreur envoi';
       setLocalError(nextError);
@@ -143,7 +93,7 @@ const MessageInput = React.memo(function MessageInputComponent({
   };
 
   return (
-    <div className="sp-card sp-thread-composer">
+    <div className="sp-card sp-thread-composer sp-thread-composer--text-only">
       <div className="sp-thread-composer__title">{inputCopy.title}</div>
 
       {localError ? (
@@ -153,33 +103,6 @@ const MessageInput = React.memo(function MessageInputComponent({
       ) : null}
 
       <div className="sp-thread-composer__row">
-        {attachmentsEnabled ? (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,application/pdf"
-              className="sp-hidden"
-              onChange={(event) => {
-                void handleUploadFiles(event.target.files);
-                event.currentTarget.value = '';
-              }}
-            />
-
-            <button
-              type="button"
-              className="sp-button sp-button--secondary sp-button--icon"
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Ajouter un document"
-              title="Ajouter un document"
-              disabled={uploading || sending}
-            >
-              <span className="sp-button__icon" aria-hidden="true">📎</span>
-            </button>
-          </>
-        ) : null}
-
         <div className="sp-thread-composer__field">
           <textarea
             value={draftBody}
@@ -190,40 +113,21 @@ const MessageInput = React.memo(function MessageInputComponent({
           />
         </div>
 
-        <button
-          type="button"
-          onClick={() => void handleSend()}
-          disabled={sending || uploading || draftBody.trim().length < 1}
-          className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-        >
-          {sending ? <InlineSpinner /> : 'Envoyer'}
-        </button>
+        <div className="sp-thread-composer__actions">
+          <button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={sending || draftBody.trim().length < 1}
+            className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+          >
+            {sending ? <InlineSpinner /> : 'Envoyer'}
+          </button>
+        </div>
       </div>
 
-      {attachmentsEnabled && uploading ? (
-        <div className="sp-thread-composer__status sp-loading-row">
-          <InlineSpinner />
-          <span>Upload en cours…</span>
-        </div>
-      ) : null}
-
-      {attachmentsEnabled && queuedUploads.length > 0 ? (
-        <div className="sp-thread-queued">
-          {queuedUploads.map((file) => (
-            <span key={file.id} className="sp-thread-queued__item">
-              <span className="sp-thread-queued__name">{file.original_name}</span>
-              <button
-                type="button"
-                className="sp-thread-queued__remove"
-                onClick={() => setQueuedUploads((current) => current.filter((item) => item.id !== file.id))}
-                aria-label={`Retirer ${file.original_name}`}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <div className="sp-thread-composer__hint">
+        Les échanges sont textuels uniquement pour cette demande.
+      </div>
     </div>
   );
 });

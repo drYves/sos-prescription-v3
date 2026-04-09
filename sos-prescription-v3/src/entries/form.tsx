@@ -1,4 +1,5 @@
 import '../runtime/installFetchPatch';
+import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import PatientConsole from '../components/PatientConsole';
@@ -44,6 +45,8 @@ type PricingConfig = {
   standard_cents: number;
   express_cents: number;
   currency: string;
+  standard_eta_minutes?: number | null;
+  express_eta_minutes?: number | null;
 };
 
 type PaymentsConfig = {
@@ -54,7 +57,7 @@ type PaymentsConfig = {
 };
 
 type FlowType = 'ro_proof' | 'depannage_no_proof';
-type Stage = 'choose' | 'form' | 'done';
+type Stage = 'choose' | 'form' | 'priority_selection' | 'done';
 type FrequencyUnit = 'jour' | 'semaine';
 type DurationUnit = 'jour' | 'mois' | 'semaine';
 
@@ -150,10 +153,15 @@ declare global {
   }
 }
 
+
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ');
+}
+
 function Spinner({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent ${className}`.trim()}
+      className={cx('sp-app-spinner', className)}
       aria-label="Chargement"
     />
   );
@@ -166,16 +174,8 @@ function Notice({
   variant?: 'info' | 'success' | 'warning' | 'error';
   children: React.ReactNode;
 }) {
-  const variantClass = variant === 'success'
-    ? 'border-green-200 bg-green-50 text-green-900'
-    : variant === 'warning'
-      ? 'border-yellow-200 bg-yellow-50 text-yellow-900'
-      : variant === 'error'
-        ? 'border-red-200 bg-red-50 text-red-900'
-        : 'border-blue-200 bg-blue-50 text-blue-900';
-
   return (
-    <div className={`rounded-lg border px-4 py-3 text-sm ${variantClass}`}>
+    <div className={cx('sp-app-notice', `sp-app-notice--${variant}`)}>
       {children}
     </div>
   );
@@ -189,17 +189,16 @@ function Button({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
 }) {
-  const baseClass = 'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
   const variantClass = variant === 'primary'
-    ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
+    ? 'sp-app-button--primary'
     : variant === 'danger'
-      ? 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500'
+      ? 'sp-app-button--danger'
       : variant === 'ghost'
-        ? 'bg-transparent text-gray-900 hover:bg-gray-100 focus:ring-gray-400'
-        : 'border border-gray-300 bg-white text-gray-900 hover:bg-gray-50 focus:ring-gray-400';
+        ? 'sp-app-button--ghost'
+        : 'sp-app-button--secondary';
 
   return (
-    <button className={`${baseClass} ${variantClass} ${className}`.trim()} {...props}>
+    <button className={cx('sp-app-button', variantClass, className)} {...props}>
       {children}
     </button>
   );
@@ -211,7 +210,7 @@ function TextInput({
 }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${className}`.trim()}
+      className={cx('sp-app-input', className)}
       {...props}
     />
   );
@@ -223,7 +222,7 @@ function TextareaField({
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${className}`.trim()}
+      className={cx('sp-app-textarea', className)}
       {...props}
     />
   );
@@ -347,10 +346,17 @@ async function getPricingApi(): Promise<PricingConfig | null> {
   }
 
   const data = payload as Record<string, unknown>;
+  const toIntegerOrNull = (value: unknown): number | null => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.trunc(numeric) : null;
+  };
+
   return {
-    standard_cents: typeof data.standard_cents === 'number' ? data.standard_cents : 0,
-    express_cents: typeof data.express_cents === 'number' ? data.express_cents : 0,
+    standard_cents: typeof data.standard_cents === 'number' ? data.standard_cents : Number(data.standard_cents || 0),
+    express_cents: typeof data.express_cents === 'number' ? data.express_cents : Number(data.express_cents || 0),
     currency: typeof data.currency === 'string' ? data.currency : 'EUR',
+    standard_eta_minutes: toIntegerOrNull(data.standard_eta_minutes),
+    express_eta_minutes: toIntegerOrNull(data.express_eta_minutes),
   };
 }
 
@@ -1038,6 +1044,41 @@ function formatMoney(amountCents: number | null | undefined, currency: string | 
   return `${(cents / 100).toFixed(2)} ${(currency || 'EUR').toUpperCase()}`;
 }
 
+function formatEtaMinutes(minutes: number | null | undefined): string | null {
+  const value = typeof minutes === 'number' ? Math.trunc(minutes) : 0;
+  if (!Number.isFinite(value) || value < 1) {
+    return null;
+  }
+  if (value < 60) {
+    return `${value} min`;
+  }
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  if (rest < 1) {
+    return `${hours} h`;
+  }
+  return `${hours} h ${rest} min`;
+}
+
+function describePriorityTurnaround(
+  priority: 'standard' | 'express',
+  pricing: PricingConfig | null,
+): string {
+  const eta = priority === 'express'
+    ? formatEtaMinutes(pricing?.express_eta_minutes ?? null)
+    : formatEtaMinutes(pricing?.standard_eta_minutes ?? null);
+
+  if (eta) {
+    return priority === 'express'
+      ? `Priorité absolue : ${eta}`
+      : `Traitement sous ${eta}`;
+  }
+
+  return priority === 'express'
+    ? 'Priorité absolue selon disponibilité médicale.'
+    : 'Traitement selon la file médicale en cours.';
+}
+
 function buildSubmitBlockInfo(input: {
   loggedIn: boolean;
   flow: FlowType | null;
@@ -1159,6 +1200,7 @@ function createLocalUpload(file: File): LocalUpload {
   };
 }
 
+
 function MedicationSearch({
   onSelect,
   disabled = false,
@@ -1249,7 +1291,7 @@ function MedicationSearch({
   }, [canSearch, disabled, query]);
 
   return (
-    <div className="relative">
+    <div className="sp-app-search">
       <TextInput
         value={query}
         onChange={(event) => setQuery(event.target.value)}
@@ -1262,25 +1304,25 @@ function MedicationSearch({
         disabled={disabled}
       />
 
-      {open && (
-        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
-          <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-gray-600">
+      {open ? (
+        <div className="sp-app-search__results">
+          <div className="sp-app-search__head">
             <span>Résultats</span>
-            {loading && <Spinner />}
+            {loading ? <Spinner /> : null}
           </div>
 
-          <div className="max-h-64 overflow-auto">
-            {!loading && error && (
-              <div className="px-3 py-3 text-sm text-red-600">{error}</div>
-            )}
+          <div className="sp-app-search__body">
+            {!loading && error ? (
+              <div className="sp-app-search__feedback sp-app-search__feedback--error">{error}</div>
+            ) : null}
 
-            {!loading && !error && results.length === 0 && (
-              <div className="px-3 py-3">
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-sm font-medium text-gray-900">Aucun résultat</div>
-                  <div className="mt-1 text-xs text-gray-600">
+            {!loading && !error && results.length === 0 ? (
+              <div className="sp-app-search__feedback">
+                <div className="sp-app-note-card">
+                  <div className="sp-app-note-card__title">Aucun résultat</div>
+                  <div className="sp-app-note-card__text">
                     Si votre médicament n’apparaît pas, c’est souvent lié à :
-                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                    <ul className="sp-app-list">
                       <li>une BDPM non importée / non prête</li>
                       <li>une whitelist qui restreint le périmètre</li>
                       <li>une recherche trop courte (min. 2 caractères, ou CIS/CIP)</li>
@@ -1288,7 +1330,7 @@ function MedicationSearch({
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {results.map((result) => {
               const selectable = result?.is_selectable !== false;
@@ -1298,9 +1340,10 @@ function MedicationSearch({
                   key={key}
                   type="button"
                   disabled={!selectable}
-                  className={selectable
-                    ? 'block w-full px-3 py-2 text-left text-sm hover:bg-gray-50'
-                    : 'block w-full cursor-not-allowed px-3 py-2 text-left text-sm opacity-60'}
+                  className={cx(
+                    'sp-app-search__item',
+                    selectable ? 'is-selectable' : 'is-disabled',
+                  )}
                   onClick={() => {
                     if (!selectable) {
                       return;
@@ -1311,15 +1354,13 @@ function MedicationSearch({
                     setOpen(false);
                   }}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className={selectable ? 'font-medium text-gray-900' : 'font-medium text-gray-700'}>
-                      {result.label}
-                    </div>
-                    {!selectable && (
-                      <span className="shrink-0 text-xs text-gray-400">Non disponible en ligne</span>
-                    )}
+                  <div className="sp-app-search__item-row">
+                    <div className="sp-app-search__item-title">{result.label}</div>
+                    {!selectable ? (
+                      <span className="sp-app-search__badge">Non disponible en ligne</span>
+                    ) : null}
                   </div>
-                  <div className={selectable ? 'mt-0.5 text-xs text-gray-600' : 'mt-0.5 text-xs text-gray-500'}>
+                  <div className="sp-app-search__item-meta">
                     {result.specialite || result.label}
                     {result.cis ? ` • CIS ${result.cis}` : ''}
                     {result.cip13 ? ` • CIP13 ${result.cip13}` : ''}
@@ -1331,16 +1372,17 @@ function MedicationSearch({
             })}
           </div>
 
-          <div className="border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+          <div className="sp-app-search__foot">
             {hasDisabledResults
               ? 'Les résultats grisés ne sont pas disponibles en ligne.'
               : 'Cliquez sur un résultat pour l’ajouter.'}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
+
 
 function ScheduleEditor({
   value,
@@ -1373,12 +1415,12 @@ function ScheduleEditor({
   const count = normalized.nb;
   const freqUnit = normalized.freqUnit;
   const autoTimesEnabled = normalized.autoTimesEnabled !== false && freqUnit === 'jour';
-  const start = normalized.start || '08:00';
-  const end = normalized.end || '20:00';
+  const startTime = normalized.start || '08:00';
+  const endTime = normalized.end || '20:00';
   const rounding = normalized.rounding ?? 5;
   const autoDistribution = useMemo(
-    () => (autoTimesEnabled ? distributeTimes(count, start, end, rounding) : null),
-    [autoTimesEnabled, count, start, end, rounding],
+    () => (autoTimesEnabled ? distributeTimes(count, startTime, endTime, rounding) : null),
+    [autoTimesEnabled, count, startTime, endTime, rounding],
   );
   const times = autoDistribution ? autoDistribution.times : fillArray(normalized.times, count, '');
   const doses = fillArray(normalized.doses, count, '1');
@@ -1394,7 +1436,7 @@ function ScheduleEditor({
   const updateCount = useCallback((raw: string) => {
     const nextCount = clampInt(raw, 1, freqUnit === 'jour' ? 6 : 12, 1);
     if (autoTimesEnabled) {
-      const auto = distributeTimes(nextCount, start, end, rounding);
+      const auto = distributeTimes(nextCount, startTime, endTime, rounding);
       onChange({
         ...normalized,
         nb: nextCount,
@@ -1413,7 +1455,7 @@ function ScheduleEditor({
       times: fillArray(normalized.times, nextCount, ''),
       doses: fillArray(normalized.doses, nextCount, '1'),
     });
-  }, [autoTimesEnabled, end, freqUnit, normalized, onChange, rounding, start]);
+  }, [autoTimesEnabled, endTime, freqUnit, normalized, onChange, rounding, startTime]);
 
   const updateFreqUnit = useCallback((nextFreqUnit: FrequencyUnit) => {
     const safeCount = clampInt(normalized.nb, 1, nextFreqUnit === 'jour' ? 6 : 12, 1);
@@ -1458,10 +1500,10 @@ function ScheduleEditor({
     onChange({
       ...normalized,
       autoTimesEnabled: false,
-      times: fillArray(times, normalized.nb, ''),
+      times: fillArray(normalized.times, normalized.nb, ''),
       doses: fillArray(normalized.doses, normalized.nb, '1'),
     });
-  }, [normalized, onChange, times]);
+  }, [normalized, onChange]);
 
   const resetAutomaticTimes = useCallback(() => {
     const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, normalized.rounding);
@@ -1476,14 +1518,15 @@ function ScheduleEditor({
   }, [normalized, onChange]);
 
   const updateAnchors = useCallback((nextStart: string, nextEnd: string) => {
-    const auto = distributeTimes(normalized.nb, nextStart, nextEnd, normalized.rounding);
+    const safeStart = isTimeString(nextStart) ? nextStart : normalized.start;
+    const safeEnd = isTimeString(nextEnd) ? nextEnd : normalized.end;
+    const auto = distributeTimes(normalized.nb, safeStart, safeEnd, normalized.rounding);
     onChange({
       ...normalized,
       autoTimesEnabled: true,
       start: auto.start,
       end: auto.end,
       times: auto.times,
-      doses: fillArray(normalized.doses, normalized.nb, '1'),
     });
   }, [normalized, onChange]);
 
@@ -1529,10 +1572,10 @@ function ScheduleEditor({
   }, [doses, normalized, onChange]);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">Nombre de prises</label>
+    <div className="sp-app-card sp-app-card--nested">
+      <div className="sp-app-grid sp-app-grid--two">
+        <div className="sp-app-field">
+          <label className="sp-app-field__label">Nombre de prises</label>
           <TextInput
             type="number"
             min={1}
@@ -1541,10 +1584,10 @@ function ScheduleEditor({
             onChange={(event) => updateCount(event.target.value)}
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">Périodicité</label>
+        <div className="sp-app-field">
+          <label className="sp-app-field__label">Périodicité</label>
           <select
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="sp-app-select"
             value={freqUnit}
             onChange={(event) => updateFreqUnit(event.target.value === 'semaine' ? 'semaine' : 'jour')}
           >
@@ -1552,8 +1595,8 @@ function ScheduleEditor({
             <option value="semaine">Par semaine</option>
           </select>
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">Durée</label>
+        <div className="sp-app-field">
+          <label className="sp-app-field__label">Durée</label>
           <TextInput
             type="number"
             min={1}
@@ -1562,10 +1605,10 @@ function ScheduleEditor({
             onChange={(event) => update({ durationVal: clampInt(event.target.value, 1, 3650, 5) })}
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">Unité</label>
+        <div className="sp-app-field">
+          <label className="sp-app-field__label">Unité</label>
           <select
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="sp-app-select"
             value={normalized.durationUnit}
             onChange={(event) => update({ durationUnit: event.target.value === 'mois' ? 'mois' : event.target.value === 'semaine' ? 'semaine' : 'jour' })}
           >
@@ -1576,13 +1619,13 @@ function ScheduleEditor({
         </div>
       </div>
 
-      {freqUnit === 'jour' && (
-        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm font-medium text-gray-900">
+      {freqUnit === 'jour' ? (
+        <div className="sp-app-schedule">
+          <div className="sp-app-schedule__header">
+            <div className="sp-app-schedule__title">
               {autoTimesEnabled ? 'Horaires auto (répartis entre la 1ère et la dernière prise)' : 'Horaires personnalisés'}
             </div>
-            <div className="flex gap-2">
+            <div className="sp-app-schedule__actions">
               {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={resetAutomaticTimes}>
                   Réinitialiser les horaires
@@ -1592,17 +1635,17 @@ function ScheduleEditor({
                   Horaires auto
                 </Button>
               )}
-              {autoTimesEnabled && (
+              {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
                   Personnaliser
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">1ère prise</label>
+          <div className="sp-app-grid sp-app-grid--three">
+            <div className="sp-app-field">
+              <label className="sp-app-field__label">1ère prise</label>
               <TextInput
                 type="time"
                 step={300}
@@ -1611,8 +1654,8 @@ function ScheduleEditor({
                 disabled={!autoTimesEnabled}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">Dernière prise</label>
+            <div className="sp-app-field">
+              <label className="sp-app-field__label">Dernière prise</label>
               <TextInput
                 type="time"
                 step={300}
@@ -1621,8 +1664,8 @@ function ScheduleEditor({
                 disabled={!autoTimesEnabled}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">Arrondi (min)</label>
+            <div className="sp-app-field">
+              <label className="sp-app-field__label">Arrondi (min)</label>
               <TextInput
                 type="number"
                 min={1}
@@ -1633,32 +1676,32 @@ function ScheduleEditor({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {warnings.length > 0 && (
-        <div className="mt-3">
+      {warnings.length > 0 ? (
+        <div className="sp-app-block">
           <Notice variant="warning">
-            <ul className="list-disc pl-5">
+            <ul className="sp-app-list">
               {warnings.map((warning, index) => (
                 <li key={`${warning}-${index}`}>{warning}</li>
               ))}
             </ul>
           </Notice>
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-3 space-y-2">
+      <div className="sp-app-dose-list">
         {Array.from({ length: count }).map((_, index) => {
           const isFirst = index === 0;
           const isLast = index === count - 1 && count > 1;
           const label = isFirst ? '1ère prise' : isLast ? 'Dernière prise' : `Prise ${index + 1}`;
           return (
-            <div key={index} className="grid grid-cols-1 gap-2 md:grid-cols-3">
-              <div className="text-sm text-gray-800 md:pt-2">
-                <span className="font-medium">{label}</span>
-                {autoTimesEnabled && (isFirst || isLast) && (
-                  <span className="ml-2 text-xs text-gray-500">(ancre)</span>
-                )}
+            <div key={index} className="sp-app-dose-row">
+              <div className="sp-app-dose-row__label">
+                <span>{label}</span>
+                {autoTimesEnabled && (isFirst || isLast) ? (
+                  <span className="sp-app-dose-row__hint">(ancre)</span>
+                ) : null}
               </div>
               <TextInput
                 type="time"
@@ -1775,6 +1818,10 @@ function PublicFormApp() {
     }
     return priority === 'express' ? pricing.express_cents : pricing.standard_cents;
   }, [pricing, priority]);
+  const selectedPriorityEta = useMemo(
+    () => describePriorityTurnaround(priority, pricing),
+    [priority, pricing],
+  );
   const ageLabel = useMemo(() => ageLabelFromBirthdate(birthdate), [birthdate]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
@@ -1901,6 +1948,26 @@ function PublicFormApp() {
       setCopiedUid(false);
     }
   }, [submissionResult?.uid]);
+
+  const handleContinueToPriority = useCallback(() => {
+    setSubmitError(null);
+
+    if (!submitBlockInfo.ok || !flow) {
+      setSubmitError(
+        submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.',
+      );
+      return;
+    }
+
+    const patientFullName = safePatientNameValue(fullName);
+    const patientName = splitPatientNameValue(patientFullName);
+    if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
+      setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
+      return;
+    }
+
+    setStage('priority_selection');
+  }, [flow, fullName, submitBlockInfo]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitError(null);
@@ -2172,370 +2239,362 @@ function PublicFormApp() {
   }, [config.urls?.patientPortal, submissionResult?.uid]);
 
   return (
-    <div className="mx-auto max-w-3xl p-4">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <div className="text-xl font-semibold text-gray-900">SOS Prescription</div>
-          <div className="text-sm text-gray-600">Évaluation médicale asynchrone • formulaire sécurisé</div>
-        </div>
+    <div className="sp-app-root sp-app-theme">
+      <div className="sp-app-container">
+        <header className="sp-app-header">
+          <div className="sp-app-header__eyebrow">Medical-Grade Aura</div>
+          <h1 className="sp-app-header__title">SOS Prescription</h1>
+          <p className="sp-app-header__subtitle">
+            Évaluation médicale asynchrone sécurisée pour le renouvellement ou la continuité d’un traitement déjà connu.
+          </p>
+        </header>
 
-        <div className="flex flex-col items-end gap-2">
-          <div className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs ${isLoggedIn ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-            <span className="font-semibold">{isLoggedIn ? 'Connecté' : 'Non connecté'}</span>
-            {isLoggedIn && config.currentUser?.displayName && (
-              <span className="text-emerald-900">{config.currentUser.displayName}</span>
-            )}
-          </div>
-
-          {pricing && (
-            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700">
-              <div className="font-semibold">Tarif</div>
-              <div>
-                Standard : {formatMoney(pricing.standard_cents, pricing.currency)}
-                <br />
-                Express : {formatMoney(pricing.express_cents, pricing.currency)}
+        <div className="sp-app-stagebar" aria-label="Progression de la demande">
+          {[
+            { key: 'choose', label: 'Type de demande' },
+            { key: 'form', label: 'Saisie médicale' },
+            { key: 'priority_selection', label: 'Priorité' },
+            { key: 'done', label: 'Confirmation' },
+          ].map((entry, index) => {
+            const order: Stage[] = ['choose', 'form', 'priority_selection', 'done'];
+            const activeIndex = order.indexOf(stage);
+            const currentIndex = order.indexOf(entry.key as Stage);
+            return (
+              <div
+                key={entry.key}
+                className={cx(
+                  'sp-app-stagebar__item',
+                  currentIndex <= activeIndex && 'is-complete',
+                  currentIndex === activeIndex && 'is-active',
+                )}
+              >
+                <div className="sp-app-stagebar__badge">{index + 1}</div>
+                <div className="sp-app-stagebar__label">{entry.label}</div>
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
-      </div>
 
-      {noticeEnabled && noticeItems.length > 0 && (
-        <div className="mb-4">
-          <Notice variant="info">
-            {noticeTitle && <div className="font-semibold">{noticeTitle}</div>}
-            <ul className={noticeTitle ? 'mt-2 list-disc space-y-1 pl-5' : 'list-disc space-y-1 pl-5'}>
-              {noticeItems.map((item, index) => (
-                <li key={`${item}-${index}`}>{item}</li>
-              ))}
-            </ul>
-          </Notice>
-        </div>
-      )}
+        {noticeEnabled && noticeItems.length > 0 ? (
+          <div className="sp-app-block">
+            <Notice variant="info">
+              {noticeTitle ? <div className="sp-app-notice__title">{noticeTitle}</div> : null}
+              <ul className="sp-app-list">
+                {noticeItems.map((item, index) => (
+                  <li key={`${item}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </Notice>
+          </div>
+        ) : null}
 
-      <div className="mb-4">
-        <Notice variant="warning">
-          Service réservé au <strong>renouvellement / continuité d’un traitement déjà connu</strong>.
-          <br />
-          Aucune urgence vitale, pas d’arrêt de travail, et aucun médicament classé comme stupéfiant.
-        </Notice>
-      </div>
-
-      {!isLoggedIn && (
-        <div className="mb-4">
-          <Notice variant="info">
-            Vous êtes en <strong>mode aperçu</strong>. Connectez-vous (ou créez un compte) pour soumettre votre demande.
+        <div className="sp-app-block">
+          <Notice variant="warning">
+            Service réservé au <strong>renouvellement / continuité d’un traitement déjà connu</strong>.
             <br />
-            La recherche de médicaments et l’import de justificatifs sont désactivés tant que vous n’êtes pas connecté.
+            Aucune urgence vitale, pas d’arrêt de travail, et aucun médicament classé comme stupéfiant.
           </Notice>
         </div>
-      )}
 
-      {submitError && (
-        <div className="mb-4">
-          <Notice variant="error">{submitError}</Notice>
-        </div>
-      )}
-
-      {stage === 'choose' && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="mb-3 text-sm font-semibold text-gray-900">Choisissez votre demande</div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${flow === 'ro_proof' ? 'border-gray-900' : 'border-gray-200'}`}
-              onClick={() => {
-                setFlow('ro_proof');
-                setFiles([]);
-                setRejectedFiles([]);
-                setAnalysisMessage(null);
-                setSubmitError(null);
-                setSubmissionResult(null);
-                setStage('form');
-              }}
-            >
-              <div className="text-sm font-semibold text-gray-900">Renouvellement avec preuve</div>
-              <div className="mt-1 text-sm text-gray-600">Vous avez une ancienne ordonnance ou une photo de la boîte.</div>
-              <div className="mt-2 text-xs text-gray-500">Temps estimé : ~ 3 min</div>
-            </button>
-
-            <button
-              type="button"
-              className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${flow === 'depannage_no_proof' ? 'border-gray-900' : 'border-gray-200'}`}
-              onClick={() => {
-                setFlow('depannage_no_proof');
-                setFiles([]);
-                setRejectedFiles([]);
-                setAnalysisMessage(null);
-                setSubmitError(null);
-                setSubmissionResult(null);
-                setStage('form');
-              }}
-            >
-              <div className="text-sm font-semibold text-gray-900">Dépannage sans preuve</div>
-              <div className="mt-1 text-sm text-gray-600">En cas de perte, d’oubli ou de voyage (traitement habituel).</div>
-              <div className="mt-2 text-xs text-gray-500">Temps estimé : ~ 5 min</div>
-            </button>
+        {!isLoggedIn ? (
+          <div className="sp-app-block">
+            <Notice variant="info">
+              Vous êtes en <strong>mode aperçu</strong>. Connectez-vous (ou créez un compte) pour soumettre votre demande.
+              <br />
+              La recherche de médicaments et l’import de justificatifs sont désactivés tant que vous n’êtes pas connecté.
+            </Notice>
           </div>
-        </div>
-      )}
+        ) : null}
 
-      {stage === 'form' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-gray-900">Informations patient</div>
-              <Button type="button" variant="secondary" onClick={() => setStage('choose')}>
-                Modifier le type
-              </Button>
-            </div>
+        {submitError ? (
+          <div className="sp-app-block">
+            <Notice variant="error">{submitError}</Notice>
+          </div>
+        ) : null}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  tabIndex={-1}
-                  autoComplete="username"
-                  name="sp_trap_username"
-                  style={{
-                    position: 'absolute',
-                    left: '-9999px',
-                    top: 'auto',
-                    width: '1px',
-                    height: '1px',
-                    overflow: 'hidden',
-                    opacity: 0,
-                    pointerEvents: 'none',
-                  }}
-                  aria-hidden="true"
-                />
-                <input
-                  type="password"
-                  tabIndex={-1}
-                  autoComplete="new-password"
-                  name="sp_trap_password"
-                  style={{
-                    position: 'absolute',
-                    left: '-9999px',
-                    top: 'auto',
-                    width: '1px',
-                    height: '1px',
-                    overflow: 'hidden',
-                    opacity: 0,
-                    pointerEvents: 'none',
-                  }}
-                  aria-hidden="true"
-                />
-                <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-fullname">
-                  Nom complet
-                </label>
-                <TextInput
-                  id="sp-patient-fullname"
-                  name="sp_patient_identity_fullname"
-                  autoComplete="new-password"
-                  data-lpignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="words"
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                  placeholder="Prénom NOM"
-                />
-              </div>
-
+        {stage === 'choose' ? (
+          <section className="sp-app-card">
+            <div className="sp-app-section__header">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-birthdate">
-                  Date de naissance (JJ/MM/AAAA)
-                </label>
-                <TextInput
-                  id="sp-patient-birthdate"
-                  name="sp_patient_identity_birthdate"
-                  inputMode="numeric"
-                  pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
-                  value={birthdate}
-                  onChange={(event) => setBirthdate(formatBirthdateInput(event.target.value))}
-                  placeholder="JJ/MM/AAAA"
-                />
-                {ageLabel && (
-                  <div className="mt-1 text-xs text-gray-500">Âge estimé : {ageLabel}</div>
-                )}
+                <h2 className="sp-app-section__title">Choisissez le scénario médical</h2>
+                <p className="sp-app-section__hint">
+                  Nous vous guiderons ensuite vers la saisie adaptée.
+                </p>
               </div>
             </div>
 
-            <div className="mt-3">
-              <label className="mb-1 block text-xs font-medium text-gray-700" htmlFor="sp-patient-medical-notes">
-                Précisions médicales (optionnel)
-              </label>
-              <TextareaField
-                id="sp-patient-medical-notes"
-                name="medical_notes"
-                value={medicalNotes}
-                onChange={(event) => setMedicalNotes(event.target.value)}
-                placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
-              />
+            <div className="sp-app-choice-grid">
+              <button
+                type="button"
+                className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
+                onClick={() => {
+                  setFlow('ro_proof');
+                  setFiles([]);
+                  setRejectedFiles([]);
+                  setAnalysisMessage(null);
+                  setSubmitError(null);
+                  setSubmissionResult(null);
+                  setStage('form');
+                }}
+              >
+                <div className="sp-app-choice-card__title">Renouvellement avec preuve</div>
+                <div className="sp-app-choice-card__text">
+                  Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
+                </div>
+                <div className="sp-app-choice-card__meta">Pré-remplissage assisté possible.</div>
+              </button>
+
+              <button
+                type="button"
+                className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
+                onClick={() => {
+                  setFlow('depannage_no_proof');
+                  setFiles([]);
+                  setRejectedFiles([]);
+                  setAnalysisMessage(null);
+                  setSubmitError(null);
+                  setSubmissionResult(null);
+                  setStage('form');
+                }}
+              >
+                <div className="sp-app-choice-card__title">Dépannage sans preuve</div>
+                <div className="sp-app-choice-card__text">
+                  En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
+                </div>
+                <div className="sp-app-choice-card__meta">Attestation sur l’honneur requise.</div>
+              </button>
             </div>
-          </div>
+          </section>
+        ) : null}
 
-          {flow === 'ro_proof' && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="mb-1 text-sm font-semibold text-gray-900">Justificatifs médicaux (Obligatoire)</div>
-              <div className="text-sm text-gray-600">
-                Importez votre ordonnance ou une photo de la boîte. Cela nous permet de vérifier votre traitement et de pré-remplir le formulaire.
-              </div>
-
-              <div className="mt-3">
-                <input
-                  id="sp-evidence-input"
-                  type="file"
-                  className="hidden"
-                  accept="image/jpeg,image/png,application/pdf"
-                  multiple
-                  disabled={!isLoggedIn || analysisInProgress}
-                  onChange={(event) => {
-                    handleFilesSelected(event.target.files);
-                    event.currentTarget.value = '';
-                  }}
-                />
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="border-blue-600 text-blue-700 hover:!text-blue-700 hover:bg-blue-50"
-                    disabled={!isLoggedIn || analysisInProgress}
-                    onClick={() => {
-                      document.getElementById('sp-evidence-input')?.click();
-                    }}
-                  >
-                    {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
+        {stage === 'form' ? (
+          <div className="sp-app-stack">
+            <section className="sp-app-card">
+              <div className="sp-app-section__header">
+                <div>
+                  <h2 className="sp-app-section__title">Informations patient</h2>
+                  <p className="sp-app-section__hint">
+                    Renseignez les éléments indispensables au contrôle médical.
+                  </p>
+                </div>
+                <div className="sp-app-section__actions">
+                  <Button type="button" variant="secondary" onClick={() => setStage('choose')}>
+                    Modifier le type
                   </Button>
-
-                  {analysisInProgress && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Spinner />
-                      Analyse automatique…
-                    </div>
-                  )}
                 </div>
-
-                <div className="mt-1 text-xs text-gray-400">JPG, PNG ou PDF (Max 5 Mo)</div>
-                {!isLoggedIn && (
-                  <div className="mt-2 text-xs text-amber-700">
-                    Connectez-vous pour importer un justificatif.
-                  </div>
-                )}
               </div>
 
-              {files.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  {files.map((file) => (
-                    <div
-                      key={file.id}
-                      className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+              <div className="sp-app-grid sp-app-grid--two">
+                <div className="sp-app-field">
+                  <input
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="username"
+                    name="sp_trap_username"
+                    style={{
+                      position: 'absolute',
+                      left: '-9999px',
+                      top: 'auto',
+                      width: '1px',
+                      height: '1px',
+                      overflow: 'hidden',
+                      opacity: 0,
+                      pointerEvents: 'none',
+                    }}
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="password"
+                    tabIndex={-1}
+                    autoComplete="new-password"
+                    name="sp_trap_password"
+                    style={{
+                      position: 'absolute',
+                      left: '-9999px',
+                      top: 'auto',
+                      width: '1px',
+                      height: '1px',
+                      overflow: 'hidden',
+                      opacity: 0,
+                      pointerEvents: 'none',
+                    }}
+                    aria-hidden="true"
+                  />
+                  <label className="sp-app-field__label" htmlFor="sp-patient-fullname">
+                    Nom complet
+                  </label>
+                  <TextInput
+                    id="sp-patient-fullname"
+                    name="sp_patient_identity_fullname"
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="words"
+                    value={fullName}
+                    onChange={(event) => setFullName(event.target.value)}
+                    placeholder="Prénom NOM"
+                  />
+                </div>
+
+                <div className="sp-app-field">
+                  <label className="sp-app-field__label" htmlFor="sp-patient-birthdate">
+                    Date de naissance (JJ/MM/AAAA)
+                  </label>
+                  <TextInput
+                    id="sp-patient-birthdate"
+                    name="sp_patient_identity_birthdate"
+                    inputMode="numeric"
+                    pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
+                    value={birthdate}
+                    onChange={(event) => setBirthdate(formatBirthdateInput(event.target.value))}
+                    placeholder="JJ/MM/AAAA"
+                  />
+                  {ageLabel ? <div className="sp-app-field__hint">Âge estimé : {ageLabel}</div> : null}
+                </div>
+              </div>
+
+              <div className="sp-app-field">
+                <label className="sp-app-field__label" htmlFor="sp-patient-medical-notes">
+                  Précisions médicales (optionnel)
+                </label>
+                <TextareaField
+                  id="sp-patient-medical-notes"
+                  name="medical_notes"
+                  value={medicalNotes}
+                  onChange={(event) => setMedicalNotes(event.target.value)}
+                  placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
+                />
+              </div>
+            </section>
+
+            {flow === 'ro_proof' ? (
+              <section className="sp-app-card">
+                <div className="sp-app-section__header">
+                  <div>
+                    <h2 className="sp-app-section__title">Justificatifs médicaux</h2>
+                    <p className="sp-app-section__hint">
+                      Importez votre ordonnance ou une photo de la boîte. Cela nous aide à vérifier le traitement et à pré-remplir la demande.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="sp-app-upload">
+                  <input
+                    id="sp-evidence-input"
+                    type="file"
+                    className="sp-app-hidden"
+                    accept="image/jpeg,image/png,application/pdf"
+                    multiple
+                    disabled={!isLoggedIn || analysisInProgress}
+                    onChange={(event) => {
+                      handleFilesSelected(event.target.files);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+
+                  <div className="sp-app-upload__actions">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!isLoggedIn || analysisInProgress}
+                      onClick={() => {
+                        document.getElementById('sp-evidence-input')?.click();
+                      }}
                     >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-gray-900">{file.original_name}</div>
-                        <div className="text-xs text-gray-600">
-                          {file.mime} • {Math.round((file.size_bytes || 0) / 1024)} Ko
-                        </div>
+                      {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
+                    </Button>
+
+                    {analysisInProgress ? (
+                      <div className="sp-app-inline-status">
+                        <Spinner />
+                        <span>Analyse automatique…</span>
                       </div>
-
-                      <button
-                        type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
-                        aria-label="Retirer ce document"
-                        title="Retirer"
-                        onClick={() => {
-                          setFiles((current) => current.filter((entry) => entry.id !== file.id));
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {analysisMessage && (
-                <div className="mt-3">
-                  <Notice variant={analysisMessage.startsWith('✅') ? 'success' : 'warning'}>
-                    {analysisMessage}
-                  </Notice>
-                </div>
-              )}
-
-              {rejectedFiles.length > 0 && (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-amber-900">Document refusé par l’analyse IA</div>
-                      <div className="text-xs text-amber-900/80">
-                        L’intelligence artificielle n’a détecté aucune prescription médicale lisible sur ce document. Veuillez retirer ce fichier et importer une photo nette de votre ordonnance.
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={analysisInProgress}
-                        onClick={() => {
-                          setFlow('depannage_no_proof');
-                          setFiles([]);
-                          setRejectedFiles([]);
-                          setAnalysisMessage(null);
-                        }}
-                      >
-                        Saisie manuelle (Dépannage)
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={analysisInProgress}
-                        onClick={() => {
-                          setRejectedFiles([]);
-                          setAnalysisMessage(null);
-                        }}
-                      >
-                        Retirer
-                      </Button>
-                    </div>
+                    ) : null}
                   </div>
 
-                  <ul className="mt-2 list-disc pl-5 text-xs text-amber-900/90">
-                    {rejectedFiles.map((file, index) => (
-                      <li key={`${file.name}-${index}`}>{file?.name || 'Document'}</li>
-                    ))}
-                  </ul>
+                  <div className="sp-app-field__hint">JPG, PNG ou PDF (Max 5 Mo)</div>
+                  {!isLoggedIn ? (
+                    <div className="sp-app-field__hint sp-app-field__hint--warning">
+                      Connectez-vous pour importer un justificatif.
+                    </div>
+                  ) : null}
                 </div>
-              )}
-            </div>
-          )}
 
-          {(flow !== 'ro_proof' || items.length > 0) && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="mb-2 text-sm font-semibold text-gray-900">Médicaments</div>
-              <div className="text-sm text-gray-600">
-                {flow === 'ro_proof' && items.length > 0
-                  ? 'Médicaments reconnus par l’IA'
-                  : 'Recherchez et ajoutez les médicaments concernés.'}
+                {files.length > 0 ? (
+                  <div className="sp-app-upload-list">
+                    {files.map((file) => (
+                      <div key={file.id} className="sp-app-upload-item">
+                        <div className="sp-app-upload-item__content">
+                          <div className="sp-app-upload-item__title">{file.original_name}</div>
+                          <div className="sp-app-upload-item__meta">
+                            {Math.round((file.size_bytes || 0) / 1024)} Ko • {file.mime || 'application/octet-stream'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="sp-app-icon-button"
+                          onClick={() => {
+                            setFiles((current) => current.filter((entry) => entry.id !== file.id));
+                          }}
+                          aria-label={`Retirer ${file.original_name}`}
+                          title="Retirer"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {analysisMessage ? (
+                  <div className="sp-app-block">
+                    <Notice variant="success">{analysisMessage}</Notice>
+                  </div>
+                ) : null}
+
+                {rejectedFiles.length > 0 ? (
+                  <div className="sp-app-block">
+                    <Notice variant="warning">
+                      <div className="sp-app-notice__title">Documents à vérifier</div>
+                      <div className="sp-app-notice__text">
+                        Certains fichiers n’ont pas pu être exploités automatiquement.
+                      </div>
+                      <div className="sp-app-tag-list">
+                        {rejectedFiles.map((file, index) => (
+                          <span key={`${file.name}-${index}`} className="sp-app-tag">{file.name}</span>
+                        ))}
+                      </div>
+                    </Notice>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            <section className="sp-app-card">
+              <div className="sp-app-section__header">
+                <div>
+                  <h2 className="sp-app-section__title">Traitement demandé</h2>
+                  <p className="sp-app-section__hint">
+                    Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
+                  </p>
+                </div>
               </div>
 
-              {flow !== 'ro_proof' && (
-                <div className="mt-3">
-                  <MedicationSearch onSelect={addMedication} disabled={!isLoggedIn} />
-                </div>
-              )}
+              <div className="sp-app-field">
+                <label className="sp-app-field__label">Recherche médicament</label>
+                <MedicationSearch onSelect={addMedication} disabled={!isLoggedIn} />
+              </div>
 
-              {items.length > 0 && (
-                <div className="mt-4 space-y-3">
+              {items.length > 0 ? (
+                <div className="sp-app-medication-list">
                   {items.map((item, index) => (
-                    <div key={`${item.cis || item.cip13 || item.label}-${index}`} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-gray-900">{item.label}</div>
-                          <div className="mt-0.5 text-xs text-gray-600">
+                    <div key={`${item.label}-${index}`} className="sp-app-medication-card">
+                      <div className="sp-app-medication-card__head">
+                        <div className="sp-app-medication-card__content">
+                          <div className="sp-app-medication-card__title">{item.label}</div>
+                          <div className="sp-app-medication-card__meta">
                             {item.cis ? `CIS ${item.cis}` : ''}
                             {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
                           </div>
@@ -2546,254 +2605,302 @@ function PublicFormApp() {
                         </Button>
                       </div>
 
-                      <div className="mt-4">
-                        <div className="mb-2 text-xs font-medium text-gray-700">Posologie</div>
+                      <div className="sp-app-block">
+                        <div className="sp-app-field__label">Posologie</div>
                         <ScheduleEditor
                           value={item.schedule || {}}
                           onChange={(nextSchedule) => {
                             updateMedication(index, { schedule: nextSchedule });
                           }}
                         />
-                        <div className="mt-3 text-xs text-gray-500">
+                        <div className="sp-app-field__hint">
                           Les champs CIS/CIP sont enregistrés pour traçabilité.
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="sp-app-empty">Aucun médicament ajouté pour le moment.</div>
               )}
-            </div>
-          )}
+            </section>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="mb-2 text-sm font-semibold text-gray-900">Délai & tarif</div>
-
-            {pricingLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Spinner />
-                Chargement…
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${priority === 'standard' ? 'border-gray-900' : 'border-gray-200'}`}
-                    onClick={() => setPriority('standard')}
-                  >
-                    <div className="text-sm font-semibold text-gray-900">Standard</div>
-                    <div className="mt-1 text-sm text-gray-600">Traitement en file normale</div>
-                    {pricing && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        {formatMoney(pricing.standard_cents, pricing.currency)}
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`rounded-xl border p-4 text-left transition hover:bg-gray-50 ${priority === 'express' ? 'border-gray-900' : 'border-gray-200'}`}
-                    onClick={() => setPriority('express')}
-                  >
-                    <div className="text-sm font-semibold text-gray-900">Express</div>
-                    <div className="mt-1 text-sm text-gray-600">Prioritaire (selon disponibilité)</div>
-                    {pricing && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        {formatMoney(pricing.express_cents, pricing.currency)}
-                      </div>
-                    )}
-                  </button>
+            {flow === 'depannage_no_proof' ? (
+              <section className="sp-app-card sp-app-card--warning">
+                <div className="sp-app-section__header">
+                  <div>
+                    <h2 className="sp-app-section__title">Attestation sur l’honneur</h2>
+                    <p className="sp-app-section__hint">
+                      En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
+                    </p>
+                  </div>
                 </div>
 
-                {paymentsConfig?.enabled ? (
-                  <Notice variant="info">
-                    Paiement : une <strong>autorisation</strong> peut être demandée à la soumission. La carte n’est débitée qu’après validation médicale.
-                  </Notice>
-                ) : (
-                  <Notice variant="info">
-                    Paiement désactivé (mode test).
-                  </Notice>
-                )}
-              </div>
-            )}
+                <label className="sp-app-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={attestationNoProof}
+                    onChange={(event) => setAttestationNoProof(event.target.checked)}
+                  />
+                  <span>
+                    Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
+                  </span>
+                </label>
+              </section>
+            ) : null}
+
+            {consentRequired ? (
+              <section className="sp-app-card">
+                <div className="sp-app-section__header">
+                  <div>
+                    <h2 className="sp-app-section__title">Consentements requis</h2>
+                    <p className="sp-app-section__hint">
+                      Avant de poursuivre, vous devez valider les points ci-dessous.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="sp-app-stack sp-app-stack--compact">
+                  <label className="sp-app-checkbox">
+                    <input
+                      id="sp-consent-medical"
+                      type="checkbox"
+                      checked={consentTelemedicine}
+                      onChange={(event) => setConsentTelemedicine(event.target.checked)}
+                    />
+                    <span>
+                      J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
+                    </span>
+                  </label>
+
+                  <label className="sp-app-checkbox">
+                    <input
+                      id="sp-consent-truth"
+                      type="checkbox"
+                      checked={consentTruth}
+                      onChange={(event) => setConsentTruth(event.target.checked)}
+                    />
+                    <span>Je certifie que les informations renseignées sont exactes.</span>
+                  </label>
+
+                  <label className="sp-app-checkbox">
+                    <input
+                      id="sp-consent-cgu"
+                      type="checkbox"
+                      checked={consentCgu}
+                      onChange={(event) => setConsentCgu(event.target.checked)}
+                    />
+                    <span>
+                      J’ai lu et j’accepte{' '}
+                      <a
+                        href={compliance?.cgu_url || '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="sp-app-link"
+                      >
+                        les CGU
+                      </a>
+                      .
+                    </span>
+                  </label>
+
+                  <label className="sp-app-checkbox">
+                    <input
+                      id="sp-consent-privacy"
+                      type="checkbox"
+                      checked={consentPrivacy}
+                      onChange={(event) => setConsentPrivacy(event.target.checked)}
+                    />
+                    <span>
+                      J’ai lu{' '}
+                      <a
+                        href={compliance?.privacy_url || '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="sp-app-link"
+                      >
+                        la politique de confidentialité
+                      </a>
+                      .
+                    </span>
+                  </label>
+                </div>
+              </section>
+            ) : null}
+
+            <div className="sp-app-actions">
+              <Button type="button" variant="secondary" onClick={() => setStage('choose')} disabled={submitLoading}>
+                Retour
+              </Button>
+
+              <Button type="button" onClick={handleContinueToPriority} disabled={submitLoading}>
+                Continuer vers la priorité
+              </Button>
+            </div>
           </div>
+        ) : null}
 
-          {flow === 'depannage_no_proof' && (
-            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
-              <div className="text-sm font-semibold text-gray-900">Attestation sur l’honneur (Obligatoire)</div>
-              <div className="mt-1 text-sm text-gray-700">
-                En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
+        {stage === 'priority_selection' ? (
+          <div className="sp-app-stack">
+            <section className="sp-app-card">
+              <div className="sp-app-section__header">
+                <div>
+                  <h2 className="sp-app-section__title">Choisissez la priorité de traitement</h2>
+                  <p className="sp-app-section__hint">
+                    Cette étape intervient après la saisie médicale et avant l’autorisation de paiement.
+                  </p>
+                </div>
               </div>
 
-              <label className="mt-3 flex items-start gap-2 text-sm text-gray-900">
-                <input
-                  type="checkbox"
-                  checked={attestationNoProof}
-                  onChange={(event) => setAttestationNoProof(event.target.checked)}
-                  className="mt-1 h-4 w-4"
-                />
-                <span>
-                  Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
-                </span>
-              </label>
-            </div>
-          )}
-
-          {consentRequired && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="text-sm font-semibold text-gray-900">Consentements requis</div>
-              <div className="mt-1 text-xs text-gray-600">
-                Avant de soumettre, vous devez accepter les points ci-dessous.
+              <div className="sp-app-summary-grid">
+                <div className="sp-app-summary-card">
+                  <div className="sp-app-summary-card__label">Scénario</div>
+                  <div className="sp-app-summary-card__value">
+                    {flow === 'ro_proof' ? 'Renouvellement avec preuve' : 'Dépannage sans preuve'}
+                  </div>
+                </div>
+                <div className="sp-app-summary-card">
+                  <div className="sp-app-summary-card__label">Médicaments</div>
+                  <div className="sp-app-summary-card__value">{items.length}</div>
+                </div>
+                <div className="sp-app-summary-card">
+                  <div className="sp-app-summary-card__label">Justificatifs</div>
+                  <div className="sp-app-summary-card__value">{files.length}</div>
+                </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                <label className="flex items-start gap-2 text-sm text-gray-900">
-                  <input
-                    id="sp-consent-medical"
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-gray-300"
-                    checked={consentTelemedicine}
-                    onChange={(event) => setConsentTelemedicine(event.target.checked)}
-                  />
-                  <span>
-                    J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
-                  </span>
-                </label>
-
-                <label className="flex items-start gap-2 text-sm text-gray-900">
-                  <input
-                    id="sp-consent-truth"
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-gray-300"
-                    checked={consentTruth}
-                    onChange={(event) => setConsentTruth(event.target.checked)}
-                  />
-                  <span>Je certifie que les informations renseignées sont exactes.</span>
-                </label>
-
-                <label className="flex items-start gap-2 text-sm text-gray-900">
-                  <input
-                    id="sp-consent-cgu"
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-gray-300"
-                    checked={consentCgu}
-                    onChange={(event) => setConsentCgu(event.target.checked)}
-                  />
-                  <span>
-                    J’ai lu et j’accepte{' '}
-                    <a
-                      href={compliance?.cgu_url || '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline"
-                    >
-                      les CGU
-                    </a>
-                    .
-                  </span>
-                </label>
-
-                <label className="flex items-start gap-2 text-sm text-gray-900">
-                  <input
-                    id="sp-consent-privacy"
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-gray-300"
-                    checked={consentPrivacy}
-                    onChange={(event) => setConsentPrivacy(event.target.checked)}
-                  />
-                  <span>
-                    J’ai lu{' '}
-                    <a
-                      href={compliance?.privacy_url || '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline"
-                    >
-                      la politique de confidentialité
-                    </a>
-                    .
-                  </span>
-                </label>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-3">
-            <Button type="button" variant="secondary" onClick={() => setStage('choose')} disabled={submitLoading}>
-              Retour
-            </Button>
-
-            <Button type="button" onClick={handleSubmit} disabled={submitLoading}>
-              {submitLoading ? (
-                <>
+              {pricingLoading ? (
+                <div className="sp-app-inline-status">
                   <Spinner />
-                  {' '}Soumission…
-                </>
+                  <span>Chargement de la tarification…</span>
+                </div>
+              ) : pricing ? (
+                <div className="sp-app-choice-grid">
+                  <button
+                    type="button"
+                    className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
+                    onClick={() => setPriority('standard')}
+                  >
+                    <div className="sp-app-choice-card__title">Standard</div>
+                    <div className="sp-app-choice-card__text">{describePriorityTurnaround('standard', pricing)}</div>
+                    <div className="sp-app-choice-card__meta">
+                      {formatMoney(pricing.standard_cents, pricing.currency)}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
+                    onClick={() => setPriority('express')}
+                  >
+                    <div className="sp-app-choice-card__title">Express</div>
+                    <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
+                    <div className="sp-app-choice-card__meta">
+                      {formatMoney(pricing.express_cents, pricing.currency)}
+                    </div>
+                  </button>
+                </div>
               ) : (
-                'Soumettre au médecin'
+                <Notice variant="error">
+                  Impossible de charger la tarification dynamique depuis l’API. Merci de réessayer avant de poursuivre.
+                </Notice>
               )}
-            </Button>
+
+              {paymentsConfig?.enabled ? (
+                <div className="sp-app-block">
+                  <Notice variant="info">
+                    La priorité sélectionnée sera reprise dans le tunnel de paiement sécurisé.
+                  </Notice>
+                </div>
+              ) : (
+                <div className="sp-app-block">
+                  <Notice variant="info">Paiement désactivé (mode test).</Notice>
+                </div>
+              )}
+
+              {selectedAmount != null && pricing ? (
+                <div className="sp-app-priority-selection__summary">
+                  <strong>Montant sélectionné :</strong> {formatMoney(selectedAmount, pricing.currency)}
+                  <br />
+                  <span>{selectedPriorityEta}</span>
+                </div>
+              ) : null}
+            </section>
+
+            <div className="sp-app-actions">
+              <Button type="button" variant="secondary" onClick={() => setStage('form')} disabled={submitLoading}>
+                Retour à la saisie
+              </Button>
+
+              <Button type="button" onClick={handleSubmit} disabled={submitLoading || !pricing}>
+                {submitLoading ? (
+                  <>
+                    <Spinner />
+                    {' '}Soumission…
+                  </>
+                ) : (
+                  'Soumettre au médecin'
+                )}
+              </Button>
+            </div>
           </div>
+        ) : null}
 
-          {selectedAmount != null && pricing && (
-            <div className="text-xs text-gray-500">
-              Montant sélectionné : {formatMoney(selectedAmount, pricing.currency)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {stage === 'done' && submissionResult && (
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-green-200 bg-green-50 p-6 text-center text-green-950">
-            <div className="text-lg font-semibold">Merci ! Votre demande est enregistrée.</div>
-            <div className="mt-4 text-sm text-green-900/80">Numéro de dossier</div>
-            <div className="mt-1 flex items-center justify-center gap-2">
-              <div className="font-mono text-3xl font-extrabold tracking-wider">{submissionResult.uid}</div>
-              <button
-                type="button"
-                className="rounded-md border border-green-300 bg-white px-2 py-1 text-xs font-medium text-green-900 hover:bg-green-100"
-                onClick={() => {
-                  void copyUid();
-                }}
-                aria-label="Copier le numéro de dossier"
-                title="Copier"
-              >
-                {copiedUid ? 'Copié' : 'Copier'}
-              </button>
-            </div>
-            <div className="mt-4 text-sm text-green-900/80">
-              Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
-            </div>
-          </div>
-
-          {patientPortalUrl && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="text-sm font-semibold text-gray-900">Suite de la demande</div>
-              <div className="mt-1 text-sm text-gray-600">
-                Vous pouvez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
+        {stage === 'done' && submissionResult ? (
+          <div className="sp-app-stack">
+            <section className="sp-app-card sp-app-card--success">
+              <div className="sp-app-confirmation">
+                <div className="sp-app-confirmation__title">Merci ! Votre demande est enregistrée.</div>
+                <div className="sp-app-confirmation__label">Numéro de dossier</div>
+                <div className="sp-app-confirmation__uid-row">
+                  <div className="sp-app-confirmation__uid">{submissionResult.uid}</div>
+                  <button
+                    type="button"
+                    className="sp-app-icon-button"
+                    onClick={() => {
+                      void copyUid();
+                    }}
+                    aria-label="Copier le numéro de dossier"
+                    title="Copier"
+                  >
+                    {copiedUid ? 'Copié' : 'Copier'}
+                  </button>
+                </div>
+                <div className="sp-app-confirmation__text">
+                  Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
+                </div>
               </div>
-              <div className="mt-3">
-                <a
-                  href={patientPortalUrl}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                >
-                  Ouvrir l’espace patient
-                </a>
+            </section>
+
+            {patientPortalUrl ? (
+              <section className="sp-app-card">
+                <div className="sp-app-section__header">
+                  <div>
+                    <h2 className="sp-app-section__title">Suite de la demande</h2>
+                    <p className="sp-app-section__hint">
+                      Vous pourrez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
+                    </p>
+                  </div>
+                </div>
+                <div className="sp-app-actions sp-app-actions--start">
+                  <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
+                    Ouvrir l’espace patient
+                  </a>
+                </div>
+              </section>
+            ) : null}
+
+            <div className="sp-app-actions">
+              <Button type="button" variant="secondary" onClick={resetToChoose}>
+                Nouvelle demande
+              </Button>
+              <div className="sp-app-inline-note">
+                Vous pourrez toujours compléter via la messagerie patient.
               </div>
             </div>
-          )}
-
-          <div className="flex items-center justify-between gap-3">
-            <Button type="button" variant="secondary" onClick={resetToChoose}>
-              Nouvelle demande
-            </Button>
-            <div className="text-xs text-gray-500">
-              Vous pourrez toujours compléter via la messagerie patient.
-            </div>
           </div>
-        </div>
-      )}
+        ) : null}
+      </div>
     </div>
   );
 }
