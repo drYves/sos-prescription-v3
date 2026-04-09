@@ -76,6 +76,20 @@ type PaymentIntentResponse = {
   publishable_key: string;
 };
 
+type ApiPayloadRecord = Record<string, unknown>;
+
+class ApiPayloadError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = 'ApiPayloadError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 declare global {
   interface Window {
     SosPrescription?: AppConfig;
@@ -123,6 +137,275 @@ function withCacheBuster(path: string, method: string): string {
   }
 }
 
+function isRecord(value: unknown): value is ApiPayloadRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toPositiveInteger(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : 0;
+}
+
+function toRequiredString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+function toOptionalNullableString(value: unknown): string | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizeAttachmentIds(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const ids = value
+    .map((entry) => toPositiveInteger(entry))
+    .filter((entry) => entry > 0);
+
+  return ids.length > 0 ? ids : undefined;
+}
+
+function debugApiPayload(payload: unknown, context?: Record<string, unknown>): void {
+  try {
+    console.error('SOS_DEBUG_API_PAYLOAD:', payload);
+    if (context) {
+      console.error('SOS_DEBUG_API_CONTEXT:', context);
+    }
+  } catch {
+    // Ignore console failures in hostile browser environments.
+  }
+}
+
+function extractApiCode(payload: unknown): string {
+  return isRecord(payload) && typeof payload.code === 'string' ? payload.code : '';
+}
+
+function extractApiMessage(payload: unknown): string {
+  return isRecord(payload) && typeof payload.message === 'string' ? payload.message : '';
+}
+
+function buildPatientApiBanner(payload: unknown, status?: number): string | null {
+  const code = extractApiCode(payload).toLowerCase();
+  const message = extractApiMessage(payload).trim();
+
+  if (code.includes('bad_nonce')) {
+    return 'Session invalide côté API. Rechargez la page pour régénérer le jeton de sécurité.';
+  }
+
+  if (code.includes('auth_required') || status === 401) {
+    return 'Connexion requise pour accéder à l’espace patient.';
+  }
+
+  if (code.includes('forbidden') || status === 403) {
+    return 'Accès refusé à l’espace patient. Rechargez la page ou reconnectez-vous pour restaurer la session.';
+  }
+
+  if (code !== '' && message !== '') {
+    return message;
+  }
+
+  return null;
+}
+
+function normalizePrescriptionSummaryArray(payload: unknown): PrescriptionSummary[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((entry): PrescriptionSummary | null => {
+      if (!isRecord(entry)) {
+        return null;
+      }
+
+      const id = toPositiveInteger(entry.id);
+      if (id < 1) {
+        return null;
+      }
+
+      return {
+        id,
+        uid: toRequiredString(entry.uid, `#${id}`),
+        status: toRequiredString(entry.status, ''),
+        created_at: toRequiredString(entry.created_at, ''),
+        priority: toOptionalString(entry.priority),
+      };
+    })
+    .filter((entry): entry is PrescriptionSummary => entry !== null);
+}
+
+function normalizePrescriptionFileArray(payload: unknown): PrescriptionFile[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((entry): PrescriptionFile | null => {
+      if (!isRecord(entry)) {
+        return null;
+      }
+
+      const id = toPositiveInteger(entry.id);
+      if (id < 1) {
+        return null;
+      }
+
+      return {
+        id,
+        original_name: toRequiredString(entry.original_name, `Document #${id}`),
+        purpose: toOptionalString(entry.purpose),
+        mime: toOptionalString(entry.mime),
+        size_bytes: toOptionalNumber(entry.size_bytes),
+        download_url: toRequiredString(entry.download_url, ''),
+      };
+    })
+    .filter((entry): entry is PrescriptionFile => entry !== null);
+}
+
+function normalizePrescriptionItemArray(payload: unknown): PrescriptionItem[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((entry): PrescriptionItem | null => {
+      if (!isRecord(entry)) {
+        return null;
+      }
+
+      const denomination = toRequiredString(entry.denomination, '').trim();
+      if (denomination === '') {
+        return null;
+      }
+
+      return {
+        denomination,
+        posologie: toOptionalString(entry.posologie),
+        quantite: toOptionalString(entry.quantite),
+      };
+    })
+    .filter((entry): entry is PrescriptionItem => entry !== null);
+}
+
+function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (extractApiCode(payload) !== '' && extractApiMessage(payload) !== '') {
+    return null;
+  }
+
+  const id = toPositiveInteger(payload.id);
+  if (id < 1) {
+    return null;
+  }
+
+  if (typeof payload.files !== 'undefined' && !Array.isArray(payload.files)) {
+    debugApiPayload(payload, {
+      endpoint: `/prescriptions/${id}`,
+      expected: 'files[]',
+      received_type: typeof payload.files,
+    });
+  }
+
+  if (typeof payload.items !== 'undefined' && !Array.isArray(payload.items)) {
+    debugApiPayload(payload, {
+      endpoint: `/prescriptions/${id}`,
+      expected: 'items[]',
+      received_type: typeof payload.items,
+    });
+  }
+
+  return {
+    id,
+    uid: toRequiredString(payload.uid, `#${id}`),
+    status: toRequiredString(payload.status, ''),
+    priority: toOptionalString(payload.priority),
+    decision_reason: toOptionalString(payload.decision_reason),
+    files: normalizePrescriptionFileArray(payload.files),
+    items: normalizePrescriptionItemArray(payload.items),
+  };
+}
+
+function normalizeMessageArray(payload: unknown): MessageItem[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((entry): MessageItem | null => {
+      if (!isRecord(entry)) {
+        return null;
+      }
+
+      const id = toPositiveInteger(entry.id);
+      if (id < 1) {
+        return null;
+      }
+
+      return {
+        id,
+        author_role: toRequiredString(entry.author_role, ''),
+        body: toRequiredString(entry.body, ''),
+        created_at: toRequiredString(entry.created_at, ''),
+        attachments: normalizeAttachmentIds(entry.attachments),
+      };
+    })
+    .filter((entry): entry is MessageItem => entry !== null);
+}
+
+function normalizePdfState(payload: unknown): PdfState {
+  if (!isRecord(payload)) {
+    return {};
+  }
+
+  const source = isRecord(payload.pdf) ? payload.pdf : payload;
+
+  return {
+    status: toOptionalString(source.status),
+    can_download: typeof source.can_download === 'boolean' ? source.can_download : undefined,
+    download_url: toOptionalString(source.download_url),
+    expires_in: toOptionalNumber(source.expires_in),
+    message: toOptionalString(source.message),
+    last_error_code: toOptionalNullableString(source.last_error_code),
+    last_error_message: toOptionalNullableString(source.last_error_message),
+  };
+}
+
+function resolveUnknownErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  const apiMessage = extractApiMessage(error);
+  return apiMessage !== '' ? apiMessage : fallback;
+}
+
+function resolveBannerFromPayload(payload: unknown): string | null {
+  return buildPatientApiBanner(payload, 200);
+}
+
+function resolveBannerFromError(error: unknown): string | null {
+  if (error instanceof ApiPayloadError) {
+    return buildPatientApiBanner(error.payload, error.status);
+  }
+  return null;
+}
+
 async function apiJson<T>(path: string, init: RequestInit, scope: Scope = 'patient'): Promise<T> {
   const cfg = getAppConfig();
   const method = String(init.method || 'GET').toUpperCase();
@@ -153,31 +436,37 @@ async function apiJson<T>(path: string, init: RequestInit, scope: Scope = 'patie
   }
 
   if (!response.ok) {
+    debugApiPayload(payload, {
+      endpoint: path,
+      method,
+      status: response.status,
+      scope,
+    });
+
     const message =
       payload && typeof payload === 'object' && 'message' in payload && typeof (payload as { message?: unknown }).message === 'string'
         ? String((payload as { message: string }).message)
         : `Erreur API (${response.status})`;
-    throw new Error(message);
+    throw new ApiPayloadError(message, response.status, payload);
   }
 
   return payload as T;
 }
 
-async function listPatientPrescriptions(): Promise<PrescriptionSummary[]> {
-  return apiJson<PrescriptionSummary[]>('/prescriptions', { method: 'GET' }, 'patient');
+async function listPatientPrescriptions(): Promise<unknown> {
+  return apiJson<unknown>('/prescriptions', { method: 'GET' }, 'patient');
 }
 
-async function getPatientPrescription(id: number): Promise<PrescriptionDetail> {
-  return apiJson<PrescriptionDetail>(`/prescriptions/${id}`, { method: 'GET' }, 'patient');
+async function getPatientPrescription(id: number): Promise<unknown> {
+  return apiJson<unknown>(`/prescriptions/${id}`, { method: 'GET' }, 'patient');
 }
 
-async function getPatientMessages(id: number): Promise<MessageItem[]> {
-  return apiJson<MessageItem[]>(`/prescriptions/${id}/messages`, { method: 'GET' }, 'patient');
+async function getPatientMessages(id: number): Promise<unknown> {
+  return apiJson<unknown>(`/prescriptions/${id}/messages`, { method: 'GET' }, 'patient');
 }
 
-async function getPatientPdfStatus(id: number): Promise<PdfState> {
-  const payload = await apiJson<{ pdf?: PdfState }>(`/prescriptions/${id}/pdf-status`, { method: 'GET' }, 'patient');
-  return payload && payload.pdf ? payload.pdf : {};
+async function getPatientPdfStatus(id: number): Promise<unknown> {
+  return apiJson<unknown>(`/prescriptions/${id}/pdf-status`, { method: 'GET' }, 'patient');
 }
 
 async function uploadPatientFile(file: File, purpose: string, prescriptionId?: number): Promise<UploadedFile> {
@@ -695,6 +984,7 @@ export default function PatientConsole() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiBanner, setApiBanner] = useState<string | null>(null);
   const [pdfStates, setPdfStates] = useState<Record<number, PdfState>>({});
 
 
@@ -726,22 +1016,48 @@ export default function PatientConsole() {
 
   const refreshList = useCallback(async () => {
     setError(null);
+    setApiBanner(null);
     setListLoading(true);
     try {
-      const rows = await listPatientPrescriptions();
-      setPrescriptions(rows || []);
+      const payload = await listPatientPrescriptions();
+      if (!Array.isArray(payload)) {
+        debugApiPayload(payload, {
+          endpoint: '/prescriptions',
+          expected: 'array',
+          received_type: typeof payload,
+        });
+        const banner = resolveBannerFromPayload(payload);
+        if (banner) {
+          setApiBanner(banner);
+        } else {
+          setError('Réponse API inattendue pour la liste des demandes. Consultez la console pour le payload brut.');
+        }
+        setPrescriptions([]);
+        setSelectedId(null);
+        return;
+      }
+
+      const rows = normalizePrescriptionSummaryArray(payload);
+      setPrescriptions(rows);
       setSelectedId((current) => {
-        if (current && (rows || []).some((row) => Number(row.id) === Number(current))) {
+        if (current && rows.some((row) => Number(row.id) === Number(current))) {
           return current;
         }
-        if (requestedId && (rows || []).some((row) => Number(row.id) === Number(requestedId))) {
+        if (requestedId && rows.some((row) => Number(row.id) === Number(requestedId))) {
           return requestedId;
         }
-        return (rows || []).length > 0 ? Number((rows || [])[0].id) : null;
+        return rows.length > 0 ? Number(rows[0].id) : null;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur chargement');
+      const banner = resolveBannerFromError(err);
+      if (banner) {
+        setApiBanner(banner);
+        setError(null);
+      } else {
+        setError(resolveUnknownErrorMessage(err, 'Erreur chargement'));
+      }
       setPrescriptions([]);
+      setSelectedId(null);
     } finally {
       setListLoading(false);
     }
@@ -749,12 +1065,38 @@ export default function PatientConsole() {
 
   const loadDetail = useCallback(async (id: number) => {
     setError(null);
+    setApiBanner(null);
     setDetailLoading(true);
     try {
       const payload = await getPatientPrescription(id);
-      setDetail(payload);
+      const normalized = normalizePrescriptionDetail(payload);
+
+      if (!normalized) {
+        debugApiPayload(payload, {
+          endpoint: `/prescriptions/${id}`,
+          expected: 'object',
+          received_type: typeof payload,
+        });
+        const banner = resolveBannerFromPayload(payload);
+        if (banner) {
+          setApiBanner(banner);
+          setError(null);
+        } else {
+          setError('Réponse API inattendue sur le détail patient. Consultez la console pour le payload brut.');
+        }
+        setDetail(null);
+        return;
+      }
+
+      setDetail(normalized);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur chargement');
+      const banner = resolveBannerFromError(err);
+      if (banner) {
+        setApiBanner(banner);
+        setError(null);
+      } else {
+        setError(resolveUnknownErrorMessage(err, 'Erreur chargement'));
+      }
       setDetail(null);
     } finally {
       setDetailLoading(false);
@@ -764,14 +1106,40 @@ export default function PatientConsole() {
   const loadMessages = useCallback(async (id: number, silent = false) => {
     if (!silent) {
       setError(null);
+      setApiBanner(null);
       setMessagesLoading(true);
     }
     try {
       const payload = await getPatientMessages(id);
-      setMessages(payload || []);
+      if (!Array.isArray(payload)) {
+        debugApiPayload(payload, {
+          endpoint: `/prescriptions/${id}/messages`,
+          expected: 'array',
+          received_type: typeof payload,
+        });
+        const banner = resolveBannerFromPayload(payload);
+        if (banner) {
+          setApiBanner(banner);
+          if (!silent) {
+            setError(null);
+          }
+        } else if (!silent) {
+          setError('Réponse API inattendue sur la messagerie. Consultez la console pour le payload brut.');
+        }
+        setMessages([]);
+        return;
+      }
+
+      setMessages(normalizeMessageArray(payload));
     } catch (err) {
-      if (!silent) {
-        setError(err instanceof Error ? err.message : 'Erreur messagerie');
+      const banner = resolveBannerFromError(err);
+      if (banner) {
+        setApiBanner(banner);
+        if (!silent) {
+          setError(null);
+        }
+      } else if (!silent) {
+        setError(resolveUnknownErrorMessage(err, 'Erreur messagerie'));
       }
       setMessages([]);
     } finally {
@@ -783,21 +1151,35 @@ export default function PatientConsole() {
 
   const loadPdfStatus = useCallback(async (id: number, silent = false) => {
     try {
-      const pdf = await getPatientPdfStatus(id);
+      const payload = await getPatientPdfStatus(id);
+      const banner = resolveBannerFromPayload(payload);
+      if (banner) {
+        setApiBanner(banner);
+        if (!silent) {
+          setError(null);
+        }
+      }
       setPdfStates((current) => ({
         ...current,
-        [id]: pdf || {},
+        [id]: normalizePdfState(payload),
       }));
     } catch (err) {
-      if (!silent) {
-        setError(err instanceof Error ? err.message : 'Erreur document');
+      const banner = resolveBannerFromError(err);
+      if (banner) {
+        setApiBanner(banner);
+        if (!silent) {
+          setError(null);
+        }
+      } else if (!silent) {
+        setError(resolveUnknownErrorMessage(err, 'Erreur document'));
       }
       setPdfStates((current) => ({
         ...current,
         [id]: {
           status: 'failed',
           message: 'Impossible de récupérer le statut PDF.',
-          last_error_message: err instanceof Error ? err.message : 'Erreur document',
+          last_error_message: resolveUnknownErrorMessage(err, 'Erreur document'),
+          last_error_code: err instanceof ApiPayloadError ? extractApiCode(err.payload) || null : null,
         },
       }));
     }
@@ -922,6 +1304,12 @@ export default function PatientConsole() {
           </Button>
         </div>
       </div>
+
+      {apiBanner ? (
+        <div className="sp-inline-note">
+          <Notice variant="error" title="Incident API patient">{apiBanner}</Notice>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="sp-inline-note">

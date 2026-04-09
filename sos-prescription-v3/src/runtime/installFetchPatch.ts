@@ -114,6 +114,56 @@ function detectScope(): string {
   return 'sosprescription_admin';
 }
 
+function parsePayloadFromText(text: string): unknown {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function safeConsoleError(...args: unknown[]): void {
+  try {
+    if (typeof console !== 'undefined' && typeof console.error === 'function') {
+      console.error(...args);
+    }
+  } catch {
+    // Ignore console failures in hostile browser environments.
+  }
+}
+
+async function logRejectedResponse(url: string, response: Response): Promise<void> {
+  const targetUrl = response.url || url || '(inconnue)';
+
+  try {
+    const rawText = await response.clone().text();
+    const payload = parsePayloadFromText(rawText);
+
+    if (payload !== null && payload !== '') {
+      safeConsoleError(`[FetchPatch] Rejet réseau sur l'URL ${targetUrl} avec le statut ${response.status}`, {
+        status: response.status,
+        url: targetUrl,
+        payload,
+      });
+      return;
+    }
+
+    safeConsoleError(`[FetchPatch] Rejet réseau sur l'URL ${targetUrl} avec le statut ${response.status}`, {
+      status: response.status,
+      url: targetUrl,
+    });
+  } catch (error) {
+    safeConsoleError(
+      `[FetchPatch] Rejet réseau sur l'URL ${targetUrl} avec le statut ${response.status} (lecture du payload impossible)`,
+      error,
+    );
+  }
+}
+
 function installFetchPatch(): void {
   const g = getGlobalWindow();
   if (typeof g.fetch !== 'function') {
@@ -141,8 +191,9 @@ function installFetchPatch(): void {
       const activeRestBase = normalizeRestBase(activeConfig?.restBase);
       const activeNonce = typeof activeConfig?.nonce === 'string' ? activeConfig.nonce : '';
       const requestUrl = resolveFetchUrl(input);
+      const isTargetRequest = Boolean(requestUrl && activeRestBase && isTargetRestUrl(requestUrl, activeRestBase));
 
-      if (!requestUrl || !activeRestBase || !isTargetRestUrl(requestUrl, activeRestBase)) {
+      if (!isTargetRequest) {
         return activeState.originalFetch(input, init);
       }
 
@@ -161,13 +212,22 @@ function installFetchPatch(): void {
         headers,
       };
 
-      if (typeof Request !== 'undefined' && input instanceof Request) {
-        return activeState.originalFetch(new Request(input, nextInit));
+      const response = typeof Request !== 'undefined' && input instanceof Request
+        ? await activeState.originalFetch(new Request(input, nextInit))
+        : await activeState.originalFetch(input, nextInit);
+
+      if (response.status >= 400) {
+        await logRejectedResponse(requestUrl, response);
       }
 
-      return activeState.originalFetch(input, nextInit);
-    } catch {
-      return activeState.originalFetch(input, init);
+      return response;
+    } catch (error) {
+      const requestUrl = resolveFetchUrl(input);
+      safeConsoleError(`[FetchPatch] Erreur réseau sur l'URL ${requestUrl || '(inconnue)'}`, {
+        url: requestUrl || '(inconnue)',
+        error,
+      });
+      throw error;
     }
   };
 
