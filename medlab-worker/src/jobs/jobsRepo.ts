@@ -147,6 +147,19 @@ export interface IngestPrescriptionResult {
   source_req_id: string;
 }
 
+export interface PaymentActionPayload {
+  action: "capture" | "cancel";
+  provider?: string | null;
+  wp_prescription_id?: number | null;
+  payment_intent_id: string;
+  payment_status?: string | null;
+  amount_cents?: number | string | null;
+  currency?: string | null;
+  uid?: string | null;
+  priority?: string | null;
+  flow?: string | null;
+}
+
 export interface ApprovePrescriptionRequest {
   schema_version: string;
   site_id: string;
@@ -155,6 +168,7 @@ export interface ApprovePrescriptionRequest {
   req_id: string;
   doctor: IngestDoctorInput;
   items?: unknown[] | null;
+  payment?: PaymentActionPayload | null;
 }
 
 export interface ApprovePrescriptionResult {
@@ -176,6 +190,7 @@ export interface RejectPrescriptionRequest {
   nonce: string;
   req_id: string;
   reason?: string | null;
+  payment?: PaymentActionPayload | null;
 }
 
 export interface RejectPrescriptionResult {

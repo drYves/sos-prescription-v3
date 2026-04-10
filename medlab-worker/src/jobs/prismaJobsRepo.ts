@@ -1,5 +1,5 @@
 // src/jobs/prismaJobsRepo.ts
-import { randomBytes, randomInt } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
@@ -16,6 +16,7 @@ import type {
   JobsRepo,
   MarkDoneOptions,
   MarkFailedOptions,
+  PaymentActionPayload,
   QueueMetrics,
   RequeueWithBackoffOptions,
   RejectPrescriptionRequest,
@@ -35,6 +36,9 @@ const VERIFY_TOKEN_BYTES = 24;
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 const DEFAULT_CALLBACK_TIMEOUT_MS = 15_000;
 const DEFAULT_CALLBACK_RETRIES = 3;
+const PAYMENT_QUEUE_TABLE = "PaymentActionJob";
+const PAYMENT_JOB_DEFAULT_MAX_ATTEMPTS = 8;
+const PAYMENT_JOB_RETRY_BASE_SECONDS = 30;
 
 interface PrismaJobsRepoConfig {
   siteId: string;
@@ -101,6 +105,92 @@ interface CallbackEnvelope {
   job: CallbackJobPayload;
 }
 
+interface NormalizedPaymentActionPayload {
+  kind: "payment.capture" | "payment.cancel";
+  provider: string;
+  wpPrescriptionId: number | null;
+  paymentIntentId: string;
+  paymentStatus: string | null;
+  amountCents: number | null;
+  currency: string | null;
+  uid: string | null;
+  priority: string | null;
+  flow: string | null;
+}
+
+export interface PaymentActionJobRecord {
+  id: string;
+  kind: "payment.capture" | "payment.cancel";
+  siteId: string;
+  prescriptionId: string;
+  wpPrescriptionId: number | null;
+  paymentIntentId: string;
+  provider: string;
+  status: "PENDING" | "CLAIMED" | "DONE" | "FAILED";
+  attempts: number;
+  maxAttempts: number;
+  availableAt: string | null;
+  claimedAt: string | null;
+  lockExpiresAt: string | null;
+  workerRef: string | null;
+  reqId: string | null;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  lastErrorCode: string | null;
+  lastErrorMessageSafe: string | null;
+}
+
+interface PaymentActionJobDbRow {
+  id: string;
+  kind: string;
+  siteId: string;
+  prescriptionId: string;
+  wpPrescriptionId: number | null;
+  paymentIntentId: string;
+  provider: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  availableAt: Date | null;
+  claimedAt: Date | null;
+  lockExpiresAt: Date | null;
+  workerRef: string | null;
+  reqId: string | null;
+  payload: Prisma.JsonValue | null;
+  result: Prisma.JsonValue | null;
+  lastErrorCode: string | null;
+  lastErrorMessageSafe: string | null;
+}
+
+export interface ClaimPaymentActionJobOptions {
+  workerId: string;
+  leaseMinutes: number;
+}
+
+export interface MarkPaymentActionDoneOptions {
+  jobId: string;
+  workerRef?: string;
+  reqId?: string;
+  result?: unknown;
+}
+
+export interface MarkPaymentActionFailedOptions {
+  jobId: string;
+  workerRef?: string;
+  reqId?: string;
+  errorCode: string;
+  messageSafe: string;
+}
+
+export interface RequeuePaymentActionJobOptions {
+  jobId: string;
+  workerRef?: string;
+  reqId?: string;
+  delaySeconds: number;
+  errorCode: string;
+  messageSafe: string;
+}
+
 export class PrismaJobsRepo implements JobsRepo {
   readonly mode = "postgres" as const;
 
@@ -113,6 +203,7 @@ export class PrismaJobsRepo implements JobsRepo {
   private readonly wpCallbackPathTemplate: string;
   private readonly requestTimeoutMs: number;
   private lastSweepAtMs = 0;
+  private paymentQueueReadyPromise: Promise<void> | null = null;
 
   constructor(cfg: PrismaJobsRepoConfig) {
     this.prisma = new PrismaClient();
@@ -134,6 +225,155 @@ export class PrismaJobsRepo implements JobsRepo {
 
   async close(): Promise<void> {
     await this.prisma.$disconnect();
+  }
+
+  async ensurePaymentActionQueueSchema(): Promise<void> {
+    if (this.paymentQueueReadyPromise) {
+      await this.paymentQueueReadyPromise;
+      return;
+    }
+
+    this.paymentQueueReadyPromise = this.createPaymentActionQueueSchema().catch((err: unknown) => {
+      this.paymentQueueReadyPromise = null;
+      throw err;
+    });
+    await this.paymentQueueReadyPromise;
+  }
+
+  async claimNextPendingPaymentActionJob(opts: ClaimPaymentActionJobOptions): Promise<PaymentActionJobRecord | null> {
+    await this.ensurePaymentActionQueueSchema();
+
+    const leaseSeconds = Math.max(30, Math.floor(opts.leaseMinutes * 60));
+    const rows = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      return tx.$queryRaw<Array<PaymentActionJobDbRow>>`
+        WITH next_job AS (
+          SELECT "id"
+          FROM "PaymentActionJob"
+          WHERE "siteId" = ${this.siteId}
+            AND "status" = 'PENDING'
+            AND COALESCE("availableAt", NOW()) <= NOW()
+            AND ("lockExpiresAt" IS NULL OR "lockExpiresAt" <= NOW())
+          ORDER BY COALESCE("availableAt", NOW()) ASC, "createdAt" ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT 1
+        )
+        UPDATE "PaymentActionJob" j
+        SET
+          "status" = 'CLAIMED',
+          "workerRef" = ${opts.workerId},
+          "claimedAt" = NOW(),
+          "lockExpiresAt" = NOW() + (${leaseSeconds}::int * INTERVAL '1 second'),
+          "attempts" = j."attempts" + 1,
+          "updatedAt" = NOW()
+        FROM next_job
+        WHERE j."id" = next_job."id"
+        RETURNING
+          j."id",
+          j."kind",
+          j."siteId",
+          j."prescriptionId",
+          j."wpPrescriptionId",
+          j."paymentIntentId",
+          j."provider",
+          j."status",
+          j."attempts",
+          j."maxAttempts",
+          j."availableAt",
+          j."claimedAt",
+          j."lockExpiresAt",
+          j."workerRef",
+          j."reqId",
+          j."payload",
+          j."result",
+          j."lastErrorCode",
+          j."lastErrorMessageSafe";
+      `;
+    }, {
+      maxWait: TX_MAX_WAIT_MS,
+      timeout: TX_TIMEOUT_MS,
+    });
+
+    if (rows.length < 1) {
+      return null;
+    }
+
+    return mapPaymentActionJob(rows[0]);
+  }
+
+  async markPaymentActionDone(opts: MarkPaymentActionDoneOptions): Promise<void> {
+    await this.ensurePaymentActionQueueSchema();
+    const workerRef = opts.workerRef ?? this.workerId;
+    const resultJson = opts.result === undefined ? null : JSON.stringify(opts.result);
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "PaymentActionJob"
+      SET
+        "status" = 'DONE',
+        "claimedAt" = NULL,
+        "lockExpiresAt" = NULL,
+        "workerRef" = NULL,
+        "lastErrorCode" = NULL,
+        "lastErrorMessageSafe" = NULL,
+        "result" = CASE
+          WHEN ${resultJson} IS NULL THEN "result"
+          ELSE CAST(${resultJson} AS jsonb)
+        END,
+        "updatedAt" = NOW()
+      WHERE "id" = ${opts.jobId}
+        AND "status" = 'CLAIMED'
+        AND COALESCE("workerRef", '') = ${workerRef}
+    `;
+
+    if (updated !== 1) {
+      throw new Error(`markPaymentActionDone lost job ownership for ${opts.jobId}`);
+    }
+  }
+
+  async markPaymentActionFailed(opts: MarkPaymentActionFailedOptions): Promise<void> {
+    await this.ensurePaymentActionQueueSchema();
+    const workerRef = opts.workerRef ?? this.workerId;
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "PaymentActionJob"
+      SET
+        "status" = 'FAILED',
+        "claimedAt" = NULL,
+        "lockExpiresAt" = NULL,
+        "workerRef" = NULL,
+        "lastErrorCode" = ${opts.errorCode},
+        "lastErrorMessageSafe" = ${opts.messageSafe},
+        "updatedAt" = NOW()
+      WHERE "id" = ${opts.jobId}
+        AND "status" = 'CLAIMED'
+        AND COALESCE("workerRef", '') = ${workerRef}
+    `;
+
+    if (updated !== 1) {
+      throw new Error(`markPaymentActionFailed lost job ownership for ${opts.jobId}`);
+    }
+  }
+
+  async requeuePaymentActionJob(opts: RequeuePaymentActionJobOptions): Promise<void> {
+    await this.ensurePaymentActionQueueSchema();
+    const workerRef = opts.workerRef ?? this.workerId;
+    const delaySeconds = Math.max(5, Math.floor(opts.delaySeconds));
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "PaymentActionJob"
+      SET
+        "status" = 'PENDING',
+        "claimedAt" = NULL,
+        "lockExpiresAt" = NULL,
+        "workerRef" = NULL,
+        "availableAt" = NOW() + (${delaySeconds}::int * INTERVAL '1 second'),
+        "lastErrorCode" = ${opts.errorCode},
+        "lastErrorMessageSafe" = ${opts.messageSafe},
+        "updatedAt" = NOW()
+      WHERE "id" = ${opts.jobId}
+        AND "status" = 'CLAIMED'
+        AND COALESCE("workerRef", '') = ${workerRef}
+    `;
+
+    if (updated !== 1) {
+      throw new Error(`requeuePaymentActionJob lost job ownership for ${opts.jobId}`);
+    }
   }
 
   async ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
@@ -271,6 +511,10 @@ export class PrismaJobsRepo implements JobsRepo {
     const canonicalItems = Array.isArray(input.items) && input.items.length > 0
       ? canonicalizePrescriptionItems(input.items)
       : null;
+    const payment = normalizePaymentActionPayload(input.payment);
+    if (payment) {
+      await this.ensurePaymentActionQueueSchema();
+    }
 
     const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const existing = await tx.prescription.findUnique({
@@ -310,7 +554,7 @@ export class PrismaJobsRepo implements JobsRepo {
         });
       }
 
-      return tx.prescription.update({
+      const updatedPrescription = await tx.prescription.update({
         where: { id: safePrescriptionId },
         data: {
           status: "APPROVED",
@@ -326,6 +570,12 @@ export class PrismaJobsRepo implements JobsRepo {
         },
         select: ingestSelect(),
       });
+
+      if (payment) {
+        await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+      }
+
+      return updatedPrescription;
     }, {
       maxWait: TX_MAX_WAIT_MS,
       timeout: TX_TIMEOUT_MS,
@@ -355,19 +605,34 @@ export class PrismaJobsRepo implements JobsRepo {
     const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
     const reason = input.reason;
     const reqId = input.req_id;
+    const payment = normalizePaymentActionPayload(input.payment);
+    if (payment) {
+      await this.ensurePaymentActionQueueSchema();
+    }
 
-    const updated = await this.prisma.prescription.update({
-      where: { id: safePrescriptionId },
-      data: {
-        status: "REJECTED",
-        processingStatus: "FAILED",
-        lastErrorCode: "ML_REJECTED_BY_DOCTOR",
-        lastErrorMessageSafe: normalizeNullableString(reason) ?? "Prescription rejected by doctor",
-        claimedAt: null,
-        lockExpiresAt: null,
-        workerRef: null,
-      },
-      select: ingestSelect(),
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const updatedPrescription = await tx.prescription.update({
+        where: { id: safePrescriptionId },
+        data: {
+          status: "REJECTED",
+          processingStatus: "FAILED",
+          lastErrorCode: "ML_REJECTED_BY_DOCTOR",
+          lastErrorMessageSafe: normalizeNullableString(reason) ?? "Prescription rejected by doctor",
+          claimedAt: null,
+          lockExpiresAt: null,
+          workerRef: null,
+        },
+        select: ingestSelect(),
+      });
+
+      if (payment) {
+        await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+      }
+
+      return updatedPrescription;
+    }, {
+      maxWait: TX_MAX_WAIT_MS,
+      timeout: TX_TIMEOUT_MS,
     });
 
     const result = mapRejectResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
@@ -383,6 +648,138 @@ export class PrismaJobsRepo implements JobsRepo {
     );
 
     return result;
+  }
+
+  private async createPaymentActionQueueSchema(): Promise<void> {
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "PaymentActionJob" (
+        "id" TEXT PRIMARY KEY,
+        "siteId" TEXT NOT NULL,
+        "kind" TEXT NOT NULL,
+        "prescriptionId" TEXT NOT NULL,
+        "wpPrescriptionId" INTEGER NULL,
+        "paymentIntentId" TEXT NOT NULL,
+        "provider" TEXT NOT NULL DEFAULT 'stripe',
+        "status" TEXT NOT NULL DEFAULT 'PENDING',
+        "attempts" INTEGER NOT NULL DEFAULT 0,
+        "maxAttempts" INTEGER NOT NULL DEFAULT ${PAYMENT_JOB_DEFAULT_MAX_ATTEMPTS},
+        "availableAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "claimedAt" TIMESTAMPTZ NULL,
+        "lockExpiresAt" TIMESTAMPTZ NULL,
+        "workerRef" TEXT NULL,
+        "reqId" TEXT NULL,
+        "payload" JSONB NULL,
+        "result" JSONB NULL,
+        "lastErrorCode" TEXT NULL,
+        "lastErrorMessageSafe" TEXT NULL,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "PaymentActionJob_unique_action" ON "PaymentActionJob" ("siteId", "kind", "prescriptionId", "paymentIntentId")`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaymentActionJob_claim_idx" ON "PaymentActionJob" ("siteId", "status", "availableAt", "lockExpiresAt")`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaymentActionJob_intent_idx" ON "PaymentActionJob" ("paymentIntentId")`);
+  }
+
+  private async enqueuePaymentActionTx(
+    tx: Prisma.TransactionClient,
+    prescriptionId: string,
+    payment: NormalizedPaymentActionPayload,
+    reqId: string,
+  ): Promise<void> {
+    const payloadJson = JSON.stringify({
+      kind: payment.kind,
+      provider: payment.provider,
+      wp_prescription_id: payment.wpPrescriptionId,
+      payment_intent_id: payment.paymentIntentId,
+      payment_status: payment.paymentStatus,
+      amount_cents: payment.amountCents,
+      currency: payment.currency,
+      uid: payment.uid,
+      priority: payment.priority,
+      flow: payment.flow,
+    });
+
+    await tx.$executeRaw`
+      INSERT INTO "PaymentActionJob" (
+        "id",
+        "siteId",
+        "kind",
+        "prescriptionId",
+        "wpPrescriptionId",
+        "paymentIntentId",
+        "provider",
+        "status",
+        "attempts",
+        "maxAttempts",
+        "availableAt",
+        "claimedAt",
+        "lockExpiresAt",
+        "workerRef",
+        "reqId",
+        "payload",
+        "result",
+        "lastErrorCode",
+        "lastErrorMessageSafe",
+        "createdAt",
+        "updatedAt"
+      ) VALUES (
+        ${randomUUID()},
+        ${this.siteId},
+        ${payment.kind},
+        ${prescriptionId},
+        ${payment.wpPrescriptionId},
+        ${payment.paymentIntentId},
+        ${payment.provider},
+        'PENDING',
+        0,
+        ${PAYMENT_JOB_DEFAULT_MAX_ATTEMPTS},
+        NOW(),
+        NULL,
+        NULL,
+        NULL,
+        ${reqId},
+        CAST(${payloadJson} AS jsonb),
+        NULL,
+        NULL,
+        NULL,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT ("siteId", "kind", "prescriptionId", "paymentIntentId")
+      DO UPDATE SET
+        "reqId" = EXCLUDED."reqId",
+        "payload" = EXCLUDED."payload",
+        "status" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN 'PENDING'
+          ELSE "PaymentActionJob"."status"
+        END,
+        "availableAt" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NOW()
+          ELSE "PaymentActionJob"."availableAt"
+        END,
+        "claimedAt" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NULL
+          ELSE "PaymentActionJob"."claimedAt"
+        END,
+        "lockExpiresAt" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NULL
+          ELSE "PaymentActionJob"."lockExpiresAt"
+        END,
+        "workerRef" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NULL
+          ELSE "PaymentActionJob"."workerRef"
+        END,
+        "lastErrorCode" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NULL
+          ELSE "PaymentActionJob"."lastErrorCode"
+        END,
+        "lastErrorMessageSafe" = CASE
+          WHEN "PaymentActionJob"."status" = 'FAILED' THEN NULL
+          ELSE "PaymentActionJob"."lastErrorMessageSafe"
+        END,
+        "updatedAt" = NOW()
+    `;
   }
 
   async claimNextPendingJob(opts: ClaimJobOptions): Promise<JobRow | null> {
@@ -1340,6 +1737,74 @@ function parsePositiveIntOrNull(value: unknown): number | null {
   }
 
   return Math.trunc(raw);
+}
+
+function mapPaymentActionJob(row: PaymentActionJobDbRow): PaymentActionJobRecord {
+  return {
+    id: row.id,
+    kind: row.kind === "payment.cancel" ? "payment.cancel" : "payment.capture",
+    siteId: row.siteId,
+    prescriptionId: row.prescriptionId,
+    wpPrescriptionId: typeof row.wpPrescriptionId === "number" && Number.isFinite(row.wpPrescriptionId) ? Math.trunc(row.wpPrescriptionId) : null,
+    paymentIntentId: row.paymentIntentId,
+    provider: row.provider,
+    status: row.status === "CLAIMED" || row.status === "DONE" || row.status === "FAILED" ? row.status : "PENDING",
+    attempts: Math.max(0, Math.trunc(row.attempts)),
+    maxAttempts: Math.max(1, Math.trunc(row.maxAttempts)),
+    availableAt: toIsoOrNull(row.availableAt),
+    claimedAt: toIsoOrNull(row.claimedAt),
+    lockExpiresAt: toIsoOrNull(row.lockExpiresAt),
+    workerRef: normalizeNullableString(row.workerRef),
+    reqId: normalizeNullableString(row.reqId),
+    payload: asRecordOrNull(row.payload),
+    result: asRecordOrNull(row.result),
+    lastErrorCode: normalizeNullableString(row.lastErrorCode),
+    lastErrorMessageSafe: normalizeNullableString(row.lastErrorMessageSafe),
+  };
+}
+
+function normalizePaymentActionPayload(value: PaymentActionPayload | null | undefined): NormalizedPaymentActionPayload | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const action = String(value.action ?? "").trim().toLowerCase();
+  if (action !== "capture" && action !== "cancel") {
+    return null;
+  }
+
+  const paymentIntentId = normalizeNullableString(value.payment_intent_id);
+  if (!paymentIntentId) {
+    return null;
+  }
+
+  const provider = normalizeNullableString(value.provider)?.toLowerCase() ?? "stripe";
+  const wpPrescriptionId = parsePositiveIntOrNull(value.wp_prescription_id);
+  const amountCents = typeof value.amount_cents === "number" && Number.isFinite(value.amount_cents)
+    ? Math.trunc(value.amount_cents)
+    : (typeof value.amount_cents === "string" && value.amount_cents.trim() !== "" && Number.isFinite(Number(value.amount_cents))
+      ? Math.trunc(Number(value.amount_cents))
+      : null);
+
+  return {
+    kind: action === "capture" ? "payment.capture" : "payment.cancel",
+    provider,
+    wpPrescriptionId,
+    paymentIntentId,
+    paymentStatus: normalizeNullableString(value.payment_status)?.toLowerCase() ?? null,
+    amountCents,
+    currency: normalizeNullableString(value.currency)?.toUpperCase() ?? null,
+    uid: normalizeNullableString(value.uid),
+    priority: normalizeNullableString(value.priority)?.toLowerCase() ?? null,
+    flow: normalizeNullableString(value.flow)?.toLowerCase() ?? null,
+  };
+}
+
+function asRecordOrNull(value: Prisma.JsonValue | null): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeNullableString(value: unknown): string | null {

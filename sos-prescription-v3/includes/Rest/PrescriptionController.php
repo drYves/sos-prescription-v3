@@ -317,9 +317,20 @@ class PrescriptionController extends \WP_REST_Controller
             $dispatcher = $this->get_job_dispatcher();
             if ($decision === 'approved') {
                 $doctorPayload = $dispatcher->buildDoctorPayloadFromUserId($doctor_id);
-                $workerResult = $dispatcher->approvePrescription($workerPrescriptionId, $doctorPayload, $req_id, $items);
+                $workerResult = $dispatcher->approvePrescription(
+                    $workerPrescriptionId,
+                    $doctorPayload,
+                    $req_id,
+                    $items,
+                    $this->build_payment_action_payload($id, 'approved')
+                );
             } else {
-                $workerResult = $dispatcher->rejectPrescription($workerPrescriptionId, $reason, $req_id);
+                $workerResult = $dispatcher->rejectPrescription(
+                    $workerPrescriptionId,
+                    $reason,
+                    $req_id,
+                    $this->build_payment_action_payload($id, 'rejected')
+                );
             }
             $workerResult = $this->force_decision_worker_shadow_state(
                 is_array($workerResult) ? $workerResult : [],
@@ -1109,6 +1120,51 @@ class PrescriptionController extends \WP_REST_Controller
     /**
      * @return array<string, mixed>|WP_Error
      */
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function build_payment_action_payload(int $prescription_id, string $decision): ?array
+    {
+        $payment = $this->prescriptions->get_payment_fields($prescription_id);
+        if (!is_array($payment)) {
+            return null;
+        }
+
+        $provider = strtolower(trim((string) ($payment['payment_provider'] ?? '')));
+        $paymentIntentId = trim((string) ($payment['payment_intent_id'] ?? ''));
+        if ($provider !== 'stripe' || $paymentIntentId === '') {
+            return null;
+        }
+
+        $paymentStatus = strtolower(trim((string) ($payment['payment_status'] ?? '')));
+        if ($decision === 'approved' && in_array($paymentStatus, ['succeeded', 'canceled'], true)) {
+            return null;
+        }
+        if ($decision === 'rejected' && in_array($paymentStatus, ['canceled', 'succeeded'], true)) {
+            return null;
+        }
+
+        $action = $decision === 'approved' ? 'capture' : 'cancel';
+        $amountCents = isset($payment['amount_cents']) && $payment['amount_cents'] !== null ? (int) $payment['amount_cents'] : null;
+        $currency = isset($payment['currency']) && is_scalar($payment['currency']) ? strtoupper(trim((string) $payment['currency'])) : 'EUR';
+        if ($currency === '') {
+            $currency = 'EUR';
+        }
+
+        return [
+            'action' => $action,
+            'provider' => 'stripe',
+            'wp_prescription_id' => $prescription_id,
+            'payment_intent_id' => $paymentIntentId,
+            'payment_status' => $paymentStatus !== '' ? $paymentStatus : null,
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'uid' => isset($payment['uid']) && is_scalar($payment['uid']) ? (string) $payment['uid'] : null,
+            'priority' => isset($payment['priority']) && is_scalar($payment['priority']) ? (string) $payment['priority'] : null,
+            'flow' => isset($payment['flow']) && is_scalar($payment['flow']) ? (string) $payment['flow'] : null,
+        ];
+    }
+
     protected function dispatch_pdf_generation(int $prescription_id, string $source, ?string $req_id = null): array|WP_Error
     {
         $prescription_id = (int) $prescription_id;

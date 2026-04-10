@@ -244,7 +244,7 @@ final class JobDispatcher
      * @param array<int, mixed>|null $items
      * @return array<string, mixed>
      */
-    public function approvePrescription(string $workerPrescriptionId, array $doctorPayload, ?string $reqId = null, ?array $items = null): array
+    public function approvePrescription(string $workerPrescriptionId, array $doctorPayload, ?string $reqId = null, ?array $items = null, ?array $payment = null): array
     {
         $reqId = ReqId::coalesce($reqId);
         $prescriptionId = trim($workerPrescriptionId);
@@ -259,6 +259,11 @@ final class JobDispatcher
             $payload['items'] = array_values($items);
         }
 
+        $normalizedPayment = $this->normalizePaymentActionPayload($payment);
+        if ($normalizedPayment !== null) {
+            $payload['payment'] = $normalizedPayment;
+        }
+
         $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/approve';
         return $this->workerApiClient->postSignedJson($path, $payload, $reqId, 'approve');
     }
@@ -266,7 +271,7 @@ final class JobDispatcher
     /**
      * @return array<string, mixed>
      */
-    public function rejectPrescription(string $workerPrescriptionId, ?string $reason = null, ?string $reqId = null): array
+    public function rejectPrescription(string $workerPrescriptionId, ?string $reason = null, ?string $reqId = null, ?array $payment = null): array
     {
         $reqId = ReqId::coalesce($reqId);
         $prescriptionId = trim($workerPrescriptionId);
@@ -275,11 +280,18 @@ final class JobDispatcher
         }
 
         $path = '/api/v1/prescriptions/' . rawurlencode($prescriptionId) . '/reject';
+        $payload = [
+            'reason' => $reason !== null && trim($reason) !== '' ? trim($reason) : null,
+        ];
+
+        $normalizedPayment = $this->normalizePaymentActionPayload($payment);
+        if ($normalizedPayment !== null) {
+            $payload['payment'] = $normalizedPayment;
+        }
+
         return $this->workerApiClient->postSignedJson(
             $path,
-            [
-                'reason' => $reason !== null && trim($reason) !== '' ? trim($reason) : null,
-            ],
+            $payload,
             $reqId,
             'reject'
         );
@@ -509,6 +521,76 @@ final class JobDispatcher
             'role' => $role,
             'wp_user_id' => $wpUserId,
         ];
+    }
+
+
+    /**
+     * @param array<string, mixed>|null $paymentPayload
+     * @return array<string, mixed>|null
+     */
+    private function normalizePaymentActionPayload(?array $paymentPayload): ?array
+    {
+        if (!is_array($paymentPayload) || $paymentPayload === []) {
+            return null;
+        }
+
+        $action = strtolower(trim((string) ($paymentPayload['action'] ?? '')));
+        if (!in_array($action, ['capture', 'cancel'], true)) {
+            return null;
+        }
+
+        $provider = strtolower(trim((string) ($paymentPayload['provider'] ?? 'stripe')));
+        if ($provider === '') {
+            $provider = 'stripe';
+        }
+
+        $paymentIntentId = trim((string) ($paymentPayload['payment_intent_id'] ?? ''));
+        if ($paymentIntentId === '') {
+            return null;
+        }
+
+        $wpPrescriptionId = $paymentPayload['wp_prescription_id'] ?? null;
+        $normalizedWpPrescriptionId = null;
+        if ($wpPrescriptionId !== null && $wpPrescriptionId !== '' && is_numeric($wpPrescriptionId)) {
+            $normalizedWpPrescriptionId = (int) $wpPrescriptionId;
+            if ($normalizedWpPrescriptionId < 1) {
+                $normalizedWpPrescriptionId = null;
+            }
+        }
+
+        $amountCents = $paymentPayload['amount_cents'] ?? null;
+        $normalizedAmountCents = null;
+        if ($amountCents !== null && $amountCents !== '' && is_numeric($amountCents)) {
+            $normalizedAmountCents = (int) $amountCents;
+            if ($normalizedAmountCents < 0) {
+                $normalizedAmountCents = null;
+            }
+        }
+
+        $payload = [
+            'action' => $action,
+            'provider' => $provider,
+            'payment_intent_id' => $paymentIntentId,
+            'wp_prescription_id' => $normalizedWpPrescriptionId,
+            'payment_status' => isset($paymentPayload['payment_status']) && is_scalar($paymentPayload['payment_status'])
+                ? strtolower(trim((string) $paymentPayload['payment_status']))
+                : null,
+            'amount_cents' => $normalizedAmountCents,
+            'currency' => isset($paymentPayload['currency']) && is_scalar($paymentPayload['currency'])
+                ? strtoupper(trim((string) $paymentPayload['currency']))
+                : null,
+            'uid' => isset($paymentPayload['uid']) && is_scalar($paymentPayload['uid'])
+                ? trim((string) $paymentPayload['uid'])
+                : null,
+            'priority' => isset($paymentPayload['priority']) && is_scalar($paymentPayload['priority'])
+                ? strtolower(trim((string) $paymentPayload['priority']))
+                : null,
+            'flow' => isset($paymentPayload['flow']) && is_scalar($paymentPayload['flow'])
+                ? strtolower(trim((string) $paymentPayload['flow']))
+                : null,
+        ];
+
+        return $payload;
     }
 
     /**

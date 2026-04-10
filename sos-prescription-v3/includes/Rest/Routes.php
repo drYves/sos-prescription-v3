@@ -266,7 +266,7 @@ final class Routes
         register_rest_route('sosprescription/v1', '/payments/config', [
             'methods' => 'GET',
             'callback' => [$payments, 'get_config'],
-            'permission_callback' => [$payments, 'permissions_check_logged_in_nonce'],
+            'permission_callback' => [$payments, 'permissions_check_public'],
         ]);
 
         register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/payment/intent', [
@@ -282,6 +282,15 @@ final class Routes
             'methods' => 'POST',
             'callback' => [$payments, 'confirm_intent'],
             'permission_callback' => [$payments, 'permissions_check_logged_in_nonce'],
+            'args' => [
+                'id' => EndpointArgs::id(),
+            ],
+        ]);
+
+        register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/payment/worker-sync', [
+            'methods' => 'POST',
+            'callback' => [$payments, 'worker_sync_intent'],
+            'permission_callback' => [$payments, 'permissions_check_public'],
             'args' => [
                 'id' => EndpointArgs::id(),
             ],

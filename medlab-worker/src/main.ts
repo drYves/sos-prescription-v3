@@ -17,6 +17,9 @@ import { PrismaPrescriptionStore } from "./prescriptions/prismaPrescriptionStore
 import { NonceCache } from "./security/nonceCache";
 import { S3Service } from "./s3/s3Service";
 import { sleep } from "./utils/sleep";
+import { processPaymentActionJob } from "./payments/paymentProcessor";
+import { StripeGateway } from "./payments/stripeClient";
+import { WordPressPaymentBridge } from "./payments/wordpressPaymentBridge";
 
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 
@@ -40,6 +43,18 @@ async function main(): Promise<void> {
   const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
   const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
 
+  const stripeGateway = new StripeGateway({
+    secretKey: process.env.STRIPE_SECRET_KEY,
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  });
+
+  const wpPaymentBridge = new WordPressPaymentBridge({
+    wpBaseUrl: cfg.wpBaseUrl,
+    siteId: cfg.siteId,
+    hmacSecret: cfg.security.hmacSecretActive,
+    timeoutMs: cfg.restRequestTimeoutMs,
+  });
+
   const jobsRepo: JobsRepo = new PrismaJobsRepo({
     siteId: cfg.siteId,
     workerId: cfg.workerId,
@@ -52,6 +67,7 @@ async function main(): Promise<void> {
 
   const artifactRepo = new ArtifactRepo({ logger });
   const messagesRepo = new MessagesRepo({ logger });
+  const prismaJobsRepo = jobsRepo instanceof PrismaJobsRepo ? jobsRepo : null;
 
   process.stderr.write("Initialisation du Bucket S3...\n");
   const s3 = new S3Service(cfg.s3);
@@ -92,6 +108,10 @@ async function main(): Promise<void> {
     logger,
   });
 
+  if (prismaJobsRepo) {
+    await prismaJobsRepo.ensurePaymentActionQueueSchema();
+  }
+
   const secrets = [
     cfg.security.hmacSecretActive,
     ...(cfg.security.hmacSecretPrevious ? [cfg.security.hmacSecretPrevious] : []),
@@ -117,6 +137,8 @@ async function main(): Promise<void> {
     secrets,
     skewWindowMs: cfg.security.authSkewWindowMs,
     logger,
+    stripeGateway,
+    wpPaymentBridge,
   });
 
   const shutdown = async (signal: string) => {
@@ -235,37 +257,9 @@ async function main(): Promise<void> {
       continue;
     }
 
-    if (!job) {
-      await sleep(withJitter(idlePollMs, 1_000));
-      continue;
-    }
-
-    try {
-      await processJob(job, {
-        siteId: cfg.siteId,
-        wpBaseUrl: cfg.wpBaseUrl,
-        renderPathTemplate: cfg.pdfRenderPathTemplate,
-        chromeExecutablePath: cfg.chromeExecutablePath,
-        jobsRepo,
-        s3,
-        s3BucketPdf: cfg.s3.bucketPdf,
-        s3Region: cfg.s3.region,
-        hmacSecrets: secrets,
-        hmacSecretActive: cfg.security.hmacSecretActive,
-        workerId: cfg.workerId,
-        pdfRenderer,
-        logger,
-        memGuard,
-        admissionMaxMb: cfg.ramGuardMaxMb,
-        pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
-        pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
-        prescriptionStore,
-        htmlBuilder,
-      });
-    } catch (err) {
-      await failOrRetry(
-        job,
-        {
+    if (job) {
+      try {
+        await processJob(job, {
           siteId: cfg.siteId,
           wpBaseUrl: cfg.wpBaseUrl,
           renderPathTemplate: cfg.pdfRenderPathTemplate,
@@ -285,10 +279,70 @@ async function main(): Promise<void> {
           pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
           prescriptionStore,
           htmlBuilder,
-        },
-        err,
-      );
+        });
+      } catch (err) {
+        await failOrRetry(
+          job,
+          {
+            siteId: cfg.siteId,
+            wpBaseUrl: cfg.wpBaseUrl,
+            renderPathTemplate: cfg.pdfRenderPathTemplate,
+            chromeExecutablePath: cfg.chromeExecutablePath,
+            jobsRepo,
+            s3,
+            s3BucketPdf: cfg.s3.bucketPdf,
+            s3Region: cfg.s3.region,
+            hmacSecrets: secrets,
+            hmacSecretActive: cfg.security.hmacSecretActive,
+            workerId: cfg.workerId,
+            pdfRenderer,
+            logger,
+            memGuard,
+            admissionMaxMb: cfg.ramGuardMaxMb,
+            pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
+            pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
+            prescriptionStore,
+            htmlBuilder,
+          },
+          err,
+        );
+      }
+      continue;
     }
+
+    if (prismaJobsRepo) {
+      let paymentJob = null;
+      try {
+        paymentJob = await prismaJobsRepo.claimNextPendingPaymentActionJob({
+          workerId: cfg.workerId,
+          leaseMinutes: cfg.leaseMinutes,
+        });
+      } catch (err: unknown) {
+        logger.error(
+          "payment.job.claim_failed",
+          {
+            message: err instanceof Error ? err.message : "Failed to claim payment job",
+            queue_mode: prismaJobsRepo.mode,
+            queue_table: prismaJobsRepo.getTableName(),
+          },
+          undefined,
+        );
+        await sleep(withJitter(claimFailureBackoffMs, 1_000));
+        continue;
+      }
+
+      if (paymentJob) {
+        await processPaymentActionJob(paymentJob, {
+          repo: prismaJobsRepo,
+          stripe: stripeGateway,
+          wpBridge: wpPaymentBridge,
+          logger,
+        });
+        continue;
+      }
+    }
+
+    await sleep(withJitter(idlePollMs, 1_000));
   }
 }
 

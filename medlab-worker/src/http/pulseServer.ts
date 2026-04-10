@@ -28,6 +28,8 @@ import { PatientRepo, PatientRepoError, type PatientProfileRecord } from "../pat
 import { DoctorReadRepo } from "../prescriptions/doctorReadRepo";
 import { PatientReadRepo } from "../prescriptions/patientReadRepo";
 import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
+import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
+import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -215,6 +217,8 @@ export interface PulseServerDeps {
   secrets: string[];
   skewWindowMs: number;
   logger: NdjsonLogger;
+  stripeGateway: StripeGateway;
+  wpPaymentBridge: WordPressPaymentBridge;
 }
 
 export function startPulseServer(deps: PulseServerDeps): http.Server {
@@ -239,6 +243,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "GET" && path === "/pulse") {
         return await handlePulse(req, res, deps, signingSecret);
+      }
+
+      if (method === "POST" && path === "/webhooks/stripe") {
+        return await handleStripeWebhook(req, res, deps);
       }
 
       if (method === "POST" && path === "/api/v2/auth/request-link") {
@@ -2560,6 +2568,9 @@ async function handlePrescriptionApprove(
     }
 
     const items = Array.isArray(rawItems) && rawItems.length > 0 ? rawItems : undefined;
+    const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
+      ? (body.payment as ApprovePrescriptionRequest["payment"])
+      : undefined;
     const input: ApprovePrescriptionRequest = {
       schema_version: CURRENT_SCHEMA_VERSION,
       site_id: deps.siteId,
@@ -2568,6 +2579,7 @@ async function handlePrescriptionApprove(
       req_id: reqId,
       doctor,
       items,
+      payment,
     };
 
     const result = normalizeActionResult(await repo.approvePrescription(prescriptionId, input));
@@ -2617,6 +2629,9 @@ async function handlePrescriptionReject(
   try {
     const body = parsedBody.body;
     const reason = typeof body.reason === "string" ? body.reason : null;
+    const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
+      ? (body.payment as RejectPrescriptionRequest["payment"])
+      : undefined;
     const input: RejectPrescriptionRequest = {
       schema_version: CURRENT_SCHEMA_VERSION,
       site_id: deps.siteId,
@@ -2624,6 +2639,7 @@ async function handlePrescriptionReject(
       nonce: crypto.randomBytes(12).toString("hex"),
       req_id: reqId,
       reason,
+      payment,
     };
     const result = normalizeActionResult(await repo.rejectPrescription(prescriptionId, input));
 
@@ -2649,6 +2665,166 @@ async function handlePrescriptionReject(
     deps.logger.error("ingest.reject_failed", { reason: message }, reqId, err);
     return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
   }
+}
+
+async function handleStripeWebhook(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+): Promise<void> {
+  const reqId = getResponseReqId(res);
+  if (!deps.stripeGateway.hasWebhookSecret()) {
+    deps.logger.warning("stripe.webhook.disabled", { reason: "missing_webhook_secret" }, reqId);
+    return sendUnsignedJson(res, 503, { ok: false, code: "ML_STRIPE_WEBHOOK_DISABLED", req_id: reqId });
+  }
+
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_INGEST_BODY_BYTES);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    deps.logger.warning("stripe.webhook.bad_body", { reason: message }, reqId, err);
+    return sendUnsignedJson(res, 400, { ok: false, code: "ML_BODY_INVALID", req_id: reqId });
+  }
+
+  const signatureHeader = (() => {
+    const raw = req.headers["stripe-signature"];
+    return Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
+  })();
+
+  if (!deps.stripeGateway.verifyWebhookSignature(rawBody, signatureHeader)) {
+    deps.logger.warning("stripe.webhook.rejected", { reason: "bad_signature" }, reqId);
+    return sendUnsignedJson(res, 401, { ok: false, code: "ML_STRIPE_BAD_SIG", req_id: reqId });
+  }
+
+  let event: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(rawBody.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("invalid_event");
+    }
+    event = parsed as Record<string, unknown>;
+  } catch (err: unknown) {
+    deps.logger.warning("stripe.webhook.bad_json", { reason: err instanceof Error ? err.message : "invalid_json" }, reqId, err);
+    return sendUnsignedJson(res, 400, { ok: false, code: "ML_STRIPE_BAD_PAYLOAD", req_id: reqId });
+  }
+
+  const eventType = typeof event.type === "string" ? event.type.trim() : "";
+  const dataNode = event.data && typeof event.data === "object" && !Array.isArray(event.data)
+    ? (event.data as Record<string, unknown>)
+    : null;
+  const objectNode = dataNode?.object;
+  if (!objectNode || typeof objectNode !== "object" || Array.isArray(objectNode)) {
+    return sendUnsignedJson(res, 200, { ok: true, ignored: true, req_id: reqId });
+  }
+
+  let paymentIntent: StripePaymentIntentRecord;
+  try {
+    paymentIntent = normalizeWebhookPaymentIntent(objectNode);
+  } catch (err: unknown) {
+    deps.logger.warning("stripe.webhook.ignored", { reason: err instanceof Error ? err.message : "invalid_payment_intent" }, reqId, err);
+    return sendUnsignedJson(res, 200, { ok: true, ignored: true, req_id: reqId });
+  }
+
+  const wpPrescriptionId = extractWpPrescriptionId(paymentIntent);
+  if (wpPrescriptionId == null || wpPrescriptionId < 1) {
+    deps.logger.warning(
+      "stripe.webhook.ignored",
+      { event_type: eventType, payment_intent_id: paymentIntent.id, reason: "missing_wp_prescription_id" },
+      reqId,
+    );
+    return sendUnsignedJson(res, 200, { ok: true, ignored: true, req_id: reqId });
+  }
+
+  const shouldSync = eventType === "payment_intent.amount_capturable_updated"
+    || eventType === "payment_intent.succeeded"
+    || eventType === "payment_intent.canceled"
+    || eventType === "payment_intent.payment_failed";
+
+  if (!shouldSync) {
+    return sendUnsignedJson(res, 200, { ok: true, ignored: true, req_id: reqId });
+  }
+
+  try {
+    await deps.wpPaymentBridge.syncAuthorizedIntent(wpPrescriptionId, {
+      paymentIntentId: paymentIntent.id,
+      stripeStatus: paymentIntent.status,
+      amountCents: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      eventType,
+      reqId,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "wordpress_sync_failed";
+    deps.logger.error(
+      "stripe.webhook.sync_failed",
+      { event_type: eventType, payment_intent_id: paymentIntent.id, wp_prescription_id: wpPrescriptionId, reason: message },
+      reqId,
+      err,
+    );
+    return sendUnsignedJson(res, 500, { ok: false, code: "ML_STRIPE_WEBHOOK_SYNC_FAILED", req_id: reqId });
+  }
+
+  deps.logger.info(
+    "stripe.webhook.synced",
+    {
+      event_type: eventType,
+      payment_intent_id: paymentIntent.id,
+      stripe_status: paymentIntent.status,
+      wp_prescription_id: wpPrescriptionId,
+    },
+    reqId,
+  );
+
+  return sendUnsignedJson(res, 200, { ok: true, req_id: reqId });
+}
+
+function normalizeWebhookPaymentIntent(value: unknown): StripePaymentIntentRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("payment_intent_required");
+  }
+  const row = value as Record<string, unknown>;
+  if (String(row.object ?? "").trim() !== "payment_intent") {
+    throw new Error("payment_intent_object_required");
+  }
+  const metadata: Record<string, string> = {};
+  const rawMetadata = row.metadata;
+  if (rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)) {
+    for (const [key, entry] of Object.entries(rawMetadata as Record<string, unknown>)) {
+      if (typeof entry === "string") {
+        metadata[key] = entry;
+      }
+    }
+  }
+  return {
+    id: normalizeRequiredString(row.id, "payment_intent.id"),
+    object: "payment_intent",
+    status: typeof row.status === "string" ? row.status.trim() : "",
+    amount: typeof row.amount === "number" && Number.isFinite(row.amount) ? Math.trunc(row.amount) : null,
+    currency: typeof row.currency === "string" ? row.currency.trim().toLowerCase() : null,
+    metadata,
+    client_secret: null,
+    next_action: Object.prototype.hasOwnProperty.call(row, "next_action") ? row.next_action : null,
+  };
+}
+
+function extractWpPrescriptionId(paymentIntent: StripePaymentIntentRecord): number | null {
+  const candidates = [
+    paymentIntent.metadata.prescription_id,
+    paymentIntent.metadata.wp_prescription_id,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.trim() === "") {
+      continue;
+    }
+    const parsed = Number.parseInt(candidate, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.trunc(parsed);
+    }
+  }
+
+  return null;
 }
 
 function asApprovalRepo(jobsRepo: JobsRepo): PostgresApprovalRepo | null {
@@ -4190,6 +4366,22 @@ function sendJson(
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", data.length);
   res.setHeader("X-MedLab-Signature", token);
+  res.end(data);
+}
+
+function sendUnsignedJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): void {
+  const normalizedBody = normalizeErrorResponseBody(res, status, body);
+  const data = Buffer.from(JSON.stringify(normalizedBody));
+
+  res.statusCode = status;
+  applyApiResponseHeaders(res, extraHeaders);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Length", data.length);
   res.end(data);
 }
 

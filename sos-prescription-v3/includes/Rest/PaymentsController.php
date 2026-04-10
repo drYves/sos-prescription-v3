@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace SosPrescription\Rest;
 
+use SOSPrescription\Core\ReqId;
+use SosPrescription\Core\Mls1Verifier;
+use SosPrescription\Core\NdjsonLogger;
+use SosPrescription\Core\NonceStore;
 use SosPrescription\Repositories\PrescriptionRepository;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\Pricing;
@@ -14,6 +18,7 @@ use SosPrescription\Services\Audit;
 use SosPrescription\Services\RestGuard;
 use WP_Error;
 use WP_REST_Request;
+use WP_REST_Response;
 
 final class PaymentsController
 {
@@ -43,9 +48,12 @@ final class PaymentsController
     public function get_config(WP_REST_Request $request)
     {
         $cfg = StripeConfig::get();
+        $enabled = (bool) ($cfg['enabled'] ?? false)
+            && (string) ($cfg['publishable_key'] ?? '') !== ''
+            && StripeClient::is_enabled();
 
         return rest_ensure_response([
-            'enabled' => (bool) $cfg['enabled'],
+            'enabled' => $enabled,
             'publishable_key' => (string) $cfg['publishable_key'],
             'provider' => 'stripe',
             'capture_method' => 'manual',
@@ -329,6 +337,101 @@ final class PaymentsController
         ]);
     }
 
+    public function worker_sync_intent(WP_REST_Request $request)
+    {
+        global $wpdb;
+
+        if (!($wpdb instanceof \wpdb)) {
+            return new WP_Error('sosprescription_db_unavailable', 'Base de données indisponible.', ['status' => 500]);
+        }
+
+        $verifier = $this->get_worker_sync_verifier($wpdb);
+        $verified = $verifier->verifyJsonBodySigned($request, 'payments_worker_sync');
+        if (is_wp_error($verified)) {
+            return $verified;
+        }
+
+        $data = is_array($verified['data'] ?? null) ? $verified['data'] : [];
+        $reqId = ReqId::coalesce(isset($verified['req_id']) && is_string($verified['req_id']) ? $verified['req_id'] : null);
+        $siteId = $this->read_config_string('ML_SITE_ID', 'unknown_site');
+        if ((string) ($data['site_id'] ?? '') !== $siteId) {
+            return new WP_Error('sosprescription_worker_sync_site', 'Site invalide.', ['status' => 403]);
+        }
+
+        $id = (int) $request->get_param('id');
+        if ($id < 1) {
+            return new WP_Error('sosprescription_bad_id', 'ID invalide.', ['status' => 400]);
+        }
+
+        $paymentIntentId = trim((string) ($data['payment_intent_id'] ?? ''));
+        if ($paymentIntentId === '') {
+            return new WP_Error('sosprescription_bad_intent', 'payment_intent_id requis.', ['status' => 400]);
+        }
+
+        $row = $this->repo->get_payment_fields($id);
+        if ($row === null) {
+            return new WP_Error('sosprescription_not_found', 'Prescription introuvable.', ['status' => 404]);
+        }
+
+        $storedIntentId = is_string($row['payment_intent_id'] ?? null) ? trim((string) $row['payment_intent_id']) : '';
+        if ($storedIntentId !== '' && $storedIntentId !== $paymentIntentId) {
+            return new WP_Error('sosprescription_intent_mismatch', 'PaymentIntent ne correspond pas à cette prescription.', ['status' => 409]);
+        }
+
+        $stripeStatus = strtolower(trim((string) ($data['stripe_status'] ?? '')));
+        $amountCents = isset($data['amount_cents']) && is_numeric($data['amount_cents']) ? (int) $data['amount_cents'] : null;
+        $currency = isset($data['currency']) && is_scalar($data['currency'])
+            ? strtoupper(trim((string) $data['currency']))
+            : strtoupper(trim((string) ($row['currency'] ?? 'EUR')));
+        if ($currency === '') {
+            $currency = 'EUR';
+        }
+
+        $this->repo->update_payment_fields($id, [
+            'payment_provider' => 'stripe',
+            'payment_intent_id' => $paymentIntentId,
+            'payment_status' => $stripeStatus !== '' ? $stripeStatus : null,
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+        ]);
+
+        $localStatus = strtolower(trim((string) ($row['status'] ?? '')));
+        $owner = $this->repo->get_owner_user_id($id);
+        $statusTransitioned = false;
+
+        if (in_array($stripeStatus, ['requires_capture', 'succeeded'], true)) {
+            $statusTransitioned = $this->repo->set_status_if_current($id, 'payment_pending', 'pending');
+            if ($localStatus === 'payment_pending' && $statusTransitioned && $owner !== null) {
+                Notifications::patient_payment_confirmed($id, (int) $owner);
+            }
+        }
+
+        Audit::log('payment_intent_worker_sync', 'prescription', $id, $id, [
+            'payment_intent_id' => $paymentIntentId,
+            'stripe_status' => $stripeStatus,
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'event_type' => isset($data['event_type']) && is_scalar($data['event_type']) ? (string) $data['event_type'] : '',
+            'source' => 'worker',
+        ]);
+
+        Logger::log('runtime', 'info', 'payment.intent.worker_sync', [
+            'prescription_id' => $id,
+            'payment_intent_id' => $paymentIntentId,
+            'stripe_status' => $stripeStatus,
+            'amount_cents' => $amountCents,
+            'currency' => $currency,
+            'req_id' => $reqId,
+        ]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'payment_intent_id' => $paymentIntentId,
+            'stripe_status' => $stripeStatus,
+            'local_status' => $statusTransitioned ? 'pending' : $localStatus,
+        ], 200);
+    }
+
     private function mark_payment_pending_if_possible(int $id, array $row): void
     {
         $currentStatus = isset($row['status']) ? strtolower(trim((string) $row['status'])) : '';
@@ -423,5 +526,34 @@ final class PaymentsController
         }
 
         return rest_ensure_response(['ok' => true]);
+    }
+
+    private function get_worker_sync_verifier(\wpdb $wpdb): Mls1Verifier
+    {
+        $siteId = $this->read_config_string('ML_SITE_ID', 'unknown_site');
+        $env = $this->read_config_string('SOSPRESCRIPTION_ENV', 'prod');
+        $logger = new NdjsonLogger('web', $siteId, $env);
+
+        return Mls1Verifier::fromEnv(new NonceStore($wpdb, $siteId), $logger);
+    }
+
+    private function read_config_string(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                return $value;
+            }
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $default;
     }
 }
