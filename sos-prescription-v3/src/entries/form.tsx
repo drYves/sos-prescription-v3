@@ -3484,10 +3484,10 @@ function PublicFormApp() {
     <div className="sp-app-root sp-app-theme">
       <div className="sp-app-container">
         <header className="sp-app-header">
-          <div className="sp-app-header__eyebrow">Medical-Grade Aura</div>
+          <div className="sp-app-header__eyebrow">Médecins inscrits à l’Ordre · Données sécurisées HDS</div>
           <h1 className="sp-app-header__title">SOS Prescription</h1>
           <p className="sp-app-header__subtitle">
-            Évaluation médicale asynchrone sécurisée pour le renouvellement ou la continuité d’un traitement déjà connu.
+            Validation médicale sécurisée pour la continuité de votre traitement.
           </p>
         </header>
 
