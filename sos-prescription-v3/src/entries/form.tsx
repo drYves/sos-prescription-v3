@@ -183,11 +183,16 @@ type ArtifactAnalysis = {
   };
 };
 
+type FormWindow = Window & {
+  SosPrescription?: AppConfig;
+  SOSPrescription?: AppConfig;
+  Stripe?: (publishableKey: string) => StripeJsInstance;
+  __SosPrescriptionPublicFormRoot?: ReturnType<typeof createRoot>;
+  __SosPrescriptionPatientRoot?: ReturnType<typeof createRoot>;
+};
+
 declare global {
   interface Window {
-    SosPrescription?: AppConfig;
-    SOSPrescription?: AppConfig;
-    Stripe?: (publishableKey: string) => StripeJsInstance;
     __SosPrescriptionPublicFormRoot?: ReturnType<typeof createRoot>;
     __SosPrescriptionPatientRoot?: ReturnType<typeof createRoot>;
   }
@@ -269,7 +274,8 @@ function TextareaField({
 }
 
 function getConfigOrThrow(): AppConfig {
-  const cfg = (typeof window !== 'undefined' ? (window.SosPrescription || window.SOSPrescription) : null) || null;
+  const formWindow = window as FormWindow;
+  const cfg = (typeof window !== 'undefined' ? (formWindow.SosPrescription || formWindow.SOSPrescription) : null) || null;
   if (!cfg || typeof cfg.restBase !== 'string' || typeof cfg.nonce !== 'string') {
     throw new Error('Configuration SosPrescription introuvable (window.SosPrescription / window.SOSPrescription).');
   }
@@ -434,7 +440,8 @@ async function confirmPaymentIntentApi(id: number, paymentIntentId: string): Pro
 let stripeScriptPromise: Promise<void> | null = null;
 
 function ensureStripeJs(): Promise<void> {
-  if (typeof window !== 'undefined' && typeof window.Stripe === 'function') {
+  const formWindow = window as FormWindow;
+  if (typeof window !== 'undefined' && typeof formWindow.Stripe === 'function') {
     return Promise.resolve();
   }
 
@@ -2560,7 +2567,8 @@ function StepPaymentAuth({
           return;
         }
 
-        if (typeof window.Stripe !== 'function') {
+        const formWindow = window as FormWindow;
+        if (typeof formWindow.Stripe !== 'function') {
           throw new Error('Stripe.js indisponible.');
         }
 
@@ -2578,7 +2586,7 @@ function StepPaymentAuth({
         }
 
         mountRef.current.innerHTML = '';
-        stripeRef.current = window.Stripe(nextPublishableKey);
+        stripeRef.current = formWindow.Stripe(nextPublishableKey);
         const elements = stripeRef.current.elements();
         const card = elements.create('card');
         card.mount(mountRef.current);
@@ -3132,7 +3140,7 @@ function PublicFormApp() {
     const patientName = splitPatientNameValue(patientFullName);
     if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
       setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
-      return;
+      return null;
     }
 
     setStage('priority_selection');
@@ -3165,14 +3173,14 @@ function PublicFormApp() {
         message,
       });
       setSubmitError(message);
-      return;
+      return null;
     }
 
     const patientFullName = safePatientNameValue(fullName);
     const patientName = splitPatientNameValue(patientFullName);
     if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
       setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
-      return;
+      return null;
     }
 
     setSubmitLoading(true);
@@ -3741,9 +3749,10 @@ function installExternalProfileAccordion(options: ExternalProfileAccordionOption
 }
 
 function mountPatientConsole(container: HTMLElement): void {
-  window.__SosPrescriptionPatientRoot?.unmount?.();
+  const formWindow = window as FormWindow;
+  formWindow.__SosPrescriptionPatientRoot?.unmount?.();
   const root = createRoot(container);
-  window.__SosPrescriptionPatientRoot = root;
+  formWindow.__SosPrescriptionPatientRoot = root;
   root.render(
     <React.StrictMode>
       <PatientConsole />
@@ -3752,9 +3761,10 @@ function mountPatientConsole(container: HTMLElement): void {
 }
 
 function mountPublicForm(container: HTMLElement): void {
-  window.__SosPrescriptionPublicFormRoot?.unmount?.();
+  const formWindow = window as FormWindow;
+  formWindow.__SosPrescriptionPublicFormRoot?.unmount?.();
   const root = createRoot(container);
-  window.__SosPrescriptionPublicFormRoot = root;
+  formWindow.__SosPrescriptionPublicFormRoot = root;
   root.render(
     <React.StrictMode>
       <PublicFormApp />
