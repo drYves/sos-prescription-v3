@@ -104,7 +104,7 @@ export class WordPressPaymentBridge {
     }
 
     if (!response.ok) {
-      const message = extractResponseMessage(parsed) ?? response.statusText || "WordPress payment sync failed";
+      const message = (extractResponseMessage(parsed) ?? response.statusText) || "WordPress payment sync failed";
       const transient = response.status >= 500 || response.status === 429;
       throw new WordPressPaymentBridgeError("ML_WP_SYNC_HTTP", message, transient, response.status);
     }

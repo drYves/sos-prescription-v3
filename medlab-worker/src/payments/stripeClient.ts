@@ -171,7 +171,7 @@ export class StripeGateway {
     }
 
     if (!response.ok) {
-      const stripeMessage = extractStripeErrorMessage(parsed) ?? response.statusText || "Stripe request failed";
+      const stripeMessage = (extractStripeErrorMessage(parsed) ?? response.statusText) || "Stripe request failed";
       const transient = response.status >= 500 || response.status === 429;
       throw new StripeGatewayError(
         mapStripeHttpStatusToCode(response.status),

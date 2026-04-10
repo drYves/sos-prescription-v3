@@ -18,6 +18,9 @@ const prismaPrescriptionStore_1 = require("./prescriptions/prismaPrescriptionSto
 const nonceCache_1 = require("./security/nonceCache");
 const s3Service_1 = require("./s3/s3Service");
 const sleep_1 = require("./utils/sleep");
+const paymentProcessor_1 = require("./payments/paymentProcessor");
+const stripeClient_1 = require("./payments/stripeClient");
+const wordpressPaymentBridge_1 = require("./payments/wordpressPaymentBridge");
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 async function main() {
     const cfg = (0, config_1.loadConfig)();
@@ -32,6 +35,16 @@ async function main() {
     }
     const idlePollMs = Math.max(cfg.pollIntervalMs, 5_000);
     const claimFailureBackoffMs = Math.max(idlePollMs, 10_000);
+    const stripeGateway = new stripeClient_1.StripeGateway({
+        secretKey: process.env.STRIPE_SECRET_KEY,
+        webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    });
+    const wpPaymentBridge = new wordpressPaymentBridge_1.WordPressPaymentBridge({
+        wpBaseUrl: cfg.wpBaseUrl,
+        siteId: cfg.siteId,
+        hmacSecret: cfg.security.hmacSecretActive,
+        timeoutMs: cfg.restRequestTimeoutMs,
+    });
     const jobsRepo = new prismaJobsRepo_1.PrismaJobsRepo({
         siteId: cfg.siteId,
         workerId: cfg.workerId,
@@ -43,6 +56,7 @@ async function main() {
     });
     const artifactRepo = new artifactRepo_1.ArtifactRepo({ logger });
     const messagesRepo = new messagesRepo_1.MessagesRepo({ logger });
+    const prismaJobsRepo = jobsRepo instanceof prismaJobsRepo_1.PrismaJobsRepo ? jobsRepo : null;
     process.stderr.write("Initialisation du Bucket S3...\n");
     const s3 = new s3Service_1.S3Service(cfg.s3);
     process.stderr.write("Lancement du binaire Chrome...\n");
@@ -75,6 +89,9 @@ async function main() {
         title: cfg.openRouter.title,
         logger,
     });
+    if (prismaJobsRepo) {
+        await prismaJobsRepo.ensurePaymentActionQueueSchema();
+    }
     const secrets = [
         cfg.security.hmacSecretActive,
         ...(cfg.security.hmacSecretPrevious ? [cfg.security.hmacSecretPrevious] : []),
@@ -99,6 +116,8 @@ async function main() {
         secrets,
         skewWindowMs: cfg.security.authSkewWindowMs,
         logger,
+        stripeGateway,
+        wpPaymentBridge,
     });
     const shutdown = async (signal) => {
         logger.warning("system.shutdown", { signal, queue_mode: jobsRepo.mode }, undefined);
@@ -197,56 +216,83 @@ async function main() {
             await (0, sleep_1.sleep)(withJitter(claimFailureBackoffMs, 1_000));
             continue;
         }
-        if (!job) {
-            await (0, sleep_1.sleep)(withJitter(idlePollMs, 1_000));
+        if (job) {
+            try {
+                await (0, processor_1.processJob)(job, {
+                    siteId: cfg.siteId,
+                    wpBaseUrl: cfg.wpBaseUrl,
+                    renderPathTemplate: cfg.pdfRenderPathTemplate,
+                    chromeExecutablePath: cfg.chromeExecutablePath,
+                    jobsRepo,
+                    s3,
+                    s3BucketPdf: cfg.s3.bucketPdf,
+                    s3Region: cfg.s3.region,
+                    hmacSecrets: secrets,
+                    hmacSecretActive: cfg.security.hmacSecretActive,
+                    workerId: cfg.workerId,
+                    pdfRenderer,
+                    logger,
+                    memGuard,
+                    admissionMaxMb: cfg.ramGuardMaxMb,
+                    pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
+                    pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
+                    prescriptionStore,
+                    htmlBuilder,
+                });
+            }
+            catch (err) {
+                await (0, processor_1.failOrRetry)(job, {
+                    siteId: cfg.siteId,
+                    wpBaseUrl: cfg.wpBaseUrl,
+                    renderPathTemplate: cfg.pdfRenderPathTemplate,
+                    chromeExecutablePath: cfg.chromeExecutablePath,
+                    jobsRepo,
+                    s3,
+                    s3BucketPdf: cfg.s3.bucketPdf,
+                    s3Region: cfg.s3.region,
+                    hmacSecrets: secrets,
+                    hmacSecretActive: cfg.security.hmacSecretActive,
+                    workerId: cfg.workerId,
+                    pdfRenderer,
+                    logger,
+                    memGuard,
+                    admissionMaxMb: cfg.ramGuardMaxMb,
+                    pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
+                    pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
+                    prescriptionStore,
+                    htmlBuilder,
+                }, err);
+            }
             continue;
         }
-        try {
-            await (0, processor_1.processJob)(job, {
-                siteId: cfg.siteId,
-                wpBaseUrl: cfg.wpBaseUrl,
-                renderPathTemplate: cfg.pdfRenderPathTemplate,
-                chromeExecutablePath: cfg.chromeExecutablePath,
-                jobsRepo,
-                s3,
-                s3BucketPdf: cfg.s3.bucketPdf,
-                s3Region: cfg.s3.region,
-                hmacSecrets: secrets,
-                hmacSecretActive: cfg.security.hmacSecretActive,
-                workerId: cfg.workerId,
-                pdfRenderer,
-                logger,
-                memGuard,
-                admissionMaxMb: cfg.ramGuardMaxMb,
-                pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
-                pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
-                prescriptionStore,
-                htmlBuilder,
-            });
+        if (prismaJobsRepo) {
+            let paymentJob = null;
+            try {
+                paymentJob = await prismaJobsRepo.claimNextPendingPaymentActionJob({
+                    workerId: cfg.workerId,
+                    leaseMinutes: cfg.leaseMinutes,
+                });
+            }
+            catch (err) {
+                logger.error("payment.job.claim_failed", {
+                    message: err instanceof Error ? err.message : "Failed to claim payment job",
+                    queue_mode: prismaJobsRepo.mode,
+                    queue_table: prismaJobsRepo.getTableName(),
+                }, undefined);
+                await (0, sleep_1.sleep)(withJitter(claimFailureBackoffMs, 1_000));
+                continue;
+            }
+            if (paymentJob) {
+                await (0, paymentProcessor_1.processPaymentActionJob)(paymentJob, {
+                    repo: prismaJobsRepo,
+                    stripe: stripeGateway,
+                    wpBridge: wpPaymentBridge,
+                    logger,
+                });
+                continue;
+            }
         }
-        catch (err) {
-            await (0, processor_1.failOrRetry)(job, {
-                siteId: cfg.siteId,
-                wpBaseUrl: cfg.wpBaseUrl,
-                renderPathTemplate: cfg.pdfRenderPathTemplate,
-                chromeExecutablePath: cfg.chromeExecutablePath,
-                jobsRepo,
-                s3,
-                s3BucketPdf: cfg.s3.bucketPdf,
-                s3Region: cfg.s3.region,
-                hmacSecrets: secrets,
-                hmacSecretActive: cfg.security.hmacSecretActive,
-                workerId: cfg.workerId,
-                pdfRenderer,
-                logger,
-                memGuard,
-                admissionMaxMb: cfg.ramGuardMaxMb,
-                pdfRenderTimeoutMs: cfg.pdfRenderTimeoutMs,
-                pdfReadyTimeoutMs: cfg.pdfReadyTimeoutMs,
-                prescriptionStore,
-                htmlBuilder,
-            }, err);
-        }
+        await (0, sleep_1.sleep)(withJitter(idlePollMs, 1_000));
     }
 }
 function resolveQueueMode(value) {
