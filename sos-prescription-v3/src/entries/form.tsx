@@ -56,6 +56,45 @@ type PaymentsConfig = {
   capture_method?: string;
 };
 
+type PaymentIntentResponse = {
+  provider?: string;
+  payment_intent_id: string | null;
+  client_secret: string | null;
+  status?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
+  priority?: string | null;
+  publishable_key?: string;
+  capture_method?: string | null;
+};
+
+type StripeCardElementInstance = {
+  mount: (element: HTMLElement) => void;
+  destroy: () => void;
+};
+
+type StripeElementsInstance = {
+  create: (type: 'card', options?: Record<string, unknown>) => StripeCardElementInstance;
+};
+
+type StripeConfirmCardResult = {
+  error?: {
+    message?: string;
+  };
+  paymentIntent?: {
+    id?: string;
+    status?: string;
+  };
+};
+
+type StripeJsInstance = {
+  elements: (options?: Record<string, unknown>) => StripeElementsInstance;
+  confirmCardPayment: (
+    clientSecret: string,
+    payload: Record<string, unknown>,
+  ) => Promise<StripeConfirmCardResult>;
+};
+
 type FlowType = 'ro_proof' | 'depannage_no_proof';
 type Stage = 'choose' | 'form' | 'priority_selection' | 'payment_auth' | 'done';
 type FrequencyUnit = 'jour' | 'semaine';
@@ -148,6 +187,7 @@ declare global {
   interface Window {
     SosPrescription?: AppConfig;
     SOSPrescription?: AppConfig;
+    Stripe?: (publishableKey: string) => StripeJsInstance;
     __SosPrescriptionPublicFormRoot?: ReturnType<typeof createRoot>;
     __SosPrescriptionPatientRoot?: ReturnType<typeof createRoot>;
   }
@@ -373,6 +413,51 @@ async function getPaymentsConfigApi(): Promise<PaymentsConfig | null> {
     provider: typeof data.provider === 'string' ? data.provider : 'stripe',
     capture_method: typeof data.capture_method === 'string' ? data.capture_method : 'manual',
   };
+}
+
+async function createPaymentIntentApi(id: number, priority: 'standard' | 'express'): Promise<PaymentIntentResponse> {
+  return sharedApi(`/prescriptions/${id}/payment/intent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priority }),
+  }, 'form') as Promise<PaymentIntentResponse>;
+}
+
+async function confirmPaymentIntentApi(id: number, paymentIntentId: string): Promise<unknown> {
+  return sharedApi(`/prescriptions/${id}/payment/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payment_intent_id: paymentIntentId }),
+  }, 'form');
+}
+
+let stripeScriptPromise: Promise<void> | null = null;
+
+function ensureStripeJs(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.Stripe === 'function') {
+    return Promise.resolve();
+  }
+
+  if (!stripeScriptPromise) {
+    stripeScriptPromise = new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>('script[data-stripe-js="1"]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js.')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://js.stripe.com/v3/';
+      script.async = true;
+      script.dataset.stripeJs = '1';
+      script.addEventListener('load', () => resolve(), { once: true });
+      script.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js.')), { once: true });
+      document.body.appendChild(script);
+    });
+  }
+
+  return stripeScriptPromise;
 }
 
 async function createSubmissionApi(payload: Record<string, unknown>): Promise<SubmissionInitResponse> {
@@ -2361,9 +2446,9 @@ type StepPaymentAuthProps = {
   selectedAmount: number | null;
   selectedPriorityEta: string;
   paymentsConfig: PaymentsConfig | null;
-  submitLoading: boolean;
+  preparedSubmission: SubmissionResult | null;
   onBack: () => void;
-  onSubmit: () => void;
+  onAuthorized: () => void;
 };
 
 function StepPaymentAuth({
@@ -2378,10 +2463,233 @@ function StepPaymentAuth({
   selectedAmount,
   selectedPriorityEta,
   paymentsConfig,
-  submitLoading,
+  preparedSubmission,
   onBack,
-  onSubmit,
+  onAuthorized,
 }: StepPaymentAuthProps) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const stripeRef = useRef<StripeJsInstance | null>(null);
+  const cardRef = useRef<StripeCardElementInstance | null>(null);
+
+  const [initializing, setInitializing] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [amountCents, setAmountCents] = useState<number | null>(selectedAmount);
+  const [currency, setCurrency] = useState<string>(() => String(pricing?.currency || 'EUR').toUpperCase());
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function boot(): Promise<void> {
+      setError(null);
+      setInitializing(true);
+      setClientSecret(null);
+      setPaymentIntentId(null);
+      setAmountCents(selectedAmount);
+      setCurrency(String(pricing?.currency || 'EUR').toUpperCase());
+
+      if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
+        setError('Impossible d’initialiser la pré-autorisation : demande non préparée.');
+        setInitializing(false);
+        return;
+      }
+
+      if (!paymentsConfig?.enabled) {
+        setError('La pré-autorisation bancaire est temporairement indisponible. Merci de réessayer ultérieurement.');
+        setInitializing(false);
+        return;
+      }
+
+      try {
+        const intent = await createPaymentIntentApi(Number(preparedSubmission.id), priority);
+        if (disposed) {
+          return;
+        }
+
+        const nextClientSecret = typeof intent.client_secret === 'string' ? intent.client_secret.trim() : '';
+        const nextPaymentIntentId = typeof intent.payment_intent_id === 'string' ? intent.payment_intent_id.trim() : '';
+        const nextStatus = String(intent.status || '').trim().toLowerCase();
+        const nextPublishableKey = typeof intent.publishable_key === 'string' && intent.publishable_key.trim() !== ''
+          ? intent.publishable_key.trim()
+          : String(paymentsConfig?.publishable_key || '').trim();
+        const nextAmount = Number.isFinite(Number(intent.amount_cents)) ? Number(intent.amount_cents) : selectedAmount;
+        const nextCurrency = typeof intent.currency === 'string' && intent.currency.trim() !== ''
+          ? intent.currency.trim().toUpperCase()
+          : String(pricing?.currency || 'EUR').toUpperCase();
+
+        setClientSecret(nextClientSecret || null);
+        setPaymentIntentId(nextPaymentIntentId || null);
+        setAmountCents(nextAmount ?? null);
+        setCurrency(nextCurrency);
+
+        if (nextPaymentIntentId && (nextStatus === 'requires_capture' || nextStatus === 'succeeded')) {
+          const confirmed = await confirmPaymentIntentApi(Number(preparedSubmission.id), nextPaymentIntentId);
+          if (disposed) {
+            return;
+          }
+
+          const confirmedStatus = confirmed && typeof confirmed === 'object' && 'status' in confirmed
+            ? String((confirmed as { status?: unknown }).status || '').toLowerCase()
+            : nextStatus;
+
+          if (confirmedStatus === 'requires_capture' || confirmedStatus === 'succeeded') {
+            frontendLog('payment_authorization_resume_ok', 'info', {
+              prescription_id: preparedSubmission.id,
+              uid: preparedSubmission.uid,
+              payment_intent_id: nextPaymentIntentId,
+              priority,
+              status: confirmedStatus,
+            });
+            onAuthorized();
+            return;
+          }
+        }
+
+        if (!nextClientSecret) {
+          throw new Error('Client secret Stripe manquant pour la pré-autorisation.');
+        }
+
+        if (!nextPublishableKey) {
+          throw new Error('Stripe n’est pas configuré (clé publique manquante).');
+        }
+
+        await ensureStripeJs();
+        if (disposed) {
+          return;
+        }
+
+        if (typeof window.Stripe !== 'function') {
+          throw new Error('Stripe.js indisponible.');
+        }
+
+        if (!mountRef.current) {
+          throw new Error('Zone de paiement introuvable.');
+        }
+
+        if (cardRef.current) {
+          try {
+            cardRef.current.destroy();
+          } catch {
+            // noop
+          }
+          cardRef.current = null;
+        }
+
+        mountRef.current.innerHTML = '';
+        stripeRef.current = window.Stripe(nextPublishableKey);
+        const elements = stripeRef.current.elements();
+        const card = elements.create('card');
+        card.mount(mountRef.current);
+        cardRef.current = card;
+      } catch (err) {
+        if (!disposed) {
+          setError(err instanceof Error ? err.message : 'Erreur initialisation paiement');
+        }
+      } finally {
+        if (!disposed) {
+          setInitializing(false);
+        }
+      }
+    }
+
+    void boot();
+
+    return () => {
+      disposed = true;
+      if (cardRef.current) {
+        try {
+          cardRef.current.destroy();
+        } catch {
+          // noop
+        }
+        cardRef.current = null;
+      }
+    };
+  }, [onAuthorized, paymentsConfig?.enabled, paymentsConfig?.publishable_key, preparedSubmission, pricing?.currency, priority, selectedAmount]);
+
+  const handleAuthorize = useCallback(async () => {
+    setError(null);
+
+    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
+      setError('Aucune demande préparée pour la pré-autorisation.');
+      return;
+    }
+
+    if (!clientSecret) {
+      setError('Client secret Stripe manquant.');
+      return;
+    }
+
+    if (!stripeRef.current || !cardRef.current) {
+      setError('Stripe n’est pas prêt.');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const cfg = getConfigOrThrow();
+      const billingName = safePatientNameValue(fullName) || String(cfg.currentUser?.displayName || '').trim() || undefined;
+      const billingEmail = typeof cfg.currentUser?.email === 'string' && cfg.currentUser.email.trim() !== ''
+        ? cfg.currentUser.email.trim()
+        : undefined;
+
+      const result = await stripeRef.current.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardRef.current,
+          billing_details: {
+            name: billingName,
+            email: billingEmail,
+          },
+        },
+      });
+
+      if (result?.error) {
+        throw new Error(result.error.message || 'La pré-autorisation a été refusée.');
+      }
+
+      const confirmedPaymentIntentId = typeof result?.paymentIntent?.id === 'string' && result.paymentIntent.id.trim() !== ''
+        ? result.paymentIntent.id.trim()
+        : paymentIntentId;
+
+      if (!confirmedPaymentIntentId) {
+        throw new Error('PaymentIntent invalide après confirmation.');
+      }
+
+      const confirmPayload = await confirmPaymentIntentApi(Number(preparedSubmission.id), confirmedPaymentIntentId);
+      const confirmStatus = confirmPayload && typeof confirmPayload === 'object' && 'status' in confirmPayload
+        ? String((confirmPayload as { status?: unknown }).status || '').toLowerCase()
+        : '';
+
+      if (confirmStatus !== '' && confirmStatus !== 'requires_capture' && confirmStatus !== 'succeeded') {
+        throw new Error('L’autorisation bancaire n’est pas finalisée. Merci de réessayer.');
+      }
+
+      frontendLog('payment_authorization_ok', 'info', {
+        prescription_id: preparedSubmission.id,
+        uid: preparedSubmission.uid,
+        payment_intent_id: confirmedPaymentIntentId,
+        priority,
+        status: confirmStatus || String(result?.paymentIntent?.status || '').toLowerCase() || null,
+      });
+
+      onAuthorized();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur de pré-autorisation bancaire.';
+      frontendLog('payment_authorization_error', 'error', {
+        prescription_id: preparedSubmission.id,
+        uid: preparedSubmission.uid,
+        priority,
+        message,
+      });
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [clientSecret, fullName, onAuthorized, paymentIntentId, preparedSubmission, priority]);
+
   return (
     <div className="sp-app-stack">
       <section className="sp-app-card">
@@ -2437,6 +2745,12 @@ function StepPaymentAuth({
           </div>
         </div>
 
+        {preparedSubmission?.uid ? (
+          <div className="sp-app-inline-note">
+            Dossier préparé : <strong>{preparedSubmission.uid}</strong>
+          </div>
+        ) : null}
+
         {pricingLoading ? (
           <div className="sp-app-inline-status">
             <Spinner />
@@ -2449,35 +2763,45 @@ function StepPaymentAuth({
             <div>
               <h3 className="sp-app-section__title">Autorisation de carte</h3>
               <p className="sp-app-section__hint">
-                Intégration Stripe Elements prévue en phase 2.
+                Stripe Elements est chargé à la volée pour sécuriser la carte sans jamais la stocker côté serveur.
               </p>
             </div>
           </div>
+
+          {error ? (
+            <div className="sp-app-block">
+              <Notice variant="error">{error}</Notice>
+            </div>
+          ) : null}
+
           <div className="sp-app-block">
-            <div className="sp-app-card">Zone de chargement Stripe Elements (Phase 2)</div>
+            <div className="sp-app-card">
+              {initializing ? (
+                <div className="sp-app-inline-status">
+                  <Spinner />
+                  <span>Initialisation sécurisée du module bancaire…</span>
+                </div>
+              ) : (
+                <div ref={mountRef} />
+              )}
+            </div>
           </div>
+
           <div className="sp-app-inline-note">
             {paymentsConfig?.provider
-              ? `Fournisseur prévu : ${String(paymentsConfig.provider).toUpperCase()}${paymentsConfig.capture_method ? ` • capture ${paymentsConfig.capture_method}` : ''}`
-              : 'Le tunnel d’autorisation sera branché lors de la prochaine phase.'}
+              ? `Fournisseur : ${String(paymentsConfig.provider).toUpperCase()}${paymentsConfig.capture_method ? ` • capture ${String(paymentsConfig.capture_method).toUpperCase()}` : ''}`
+              : 'Fournisseur de paiement configuré dynamiquement.'}
+            {amountCents != null ? ` • Empreinte estimée : ${formatMoney(amountCents, currency)}` : ''}
           </div>
         </div>
       </section>
 
       <div className="sp-app-actions">
-        <Button type="button" variant="secondary" onClick={onBack} disabled={submitLoading}>
+        <Button type="button" variant="secondary" onClick={onBack} disabled={submitting}>
           Retour à la priorité
         </Button>
-
-        <Button type="button" onClick={onSubmit} disabled={submitLoading || pricingLoading || !pricing}>
-          {submitLoading ? (
-            <>
-              <Spinner />
-              {' '}Transmission…
-            </>
-          ) : (
-            'Transmettre la demande'
-          )}
+        <Button type="button" onClick={() => { void handleAuthorize(); }} disabled={initializing || submitting || !preparedSubmission}>
+          {submitting ? <Spinner /> : 'Autoriser la carte et transmettre au médecin'}
         </Button>
       </div>
     </div>
@@ -2595,6 +2919,7 @@ function PublicFormApp() {
   const [rejectedFiles, setRejectedFiles] = useState<File[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [preparedSubmission, setPreparedSubmission] = useState<SubmissionResult | null>(null);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [copiedUid, setCopiedUid] = useState(false);
 
@@ -2759,6 +3084,7 @@ function PublicFormApp() {
     setRejectedFiles([]);
     setAnalysisMessage(null);
     setSubmitError(null);
+    setPreparedSubmission(null);
     setSubmissionResult(null);
     setCopiedUid(false);
     setAttestationNoProof(false);
@@ -2787,6 +3113,7 @@ function PublicFormApp() {
     setRejectedFiles([]);
     setAnalysisMessage(null);
     setSubmitError(null);
+    setPreparedSubmission(null);
     setSubmissionResult(null);
     setStage('form');
   }, []);
@@ -2811,23 +3138,13 @@ function PublicFormApp() {
     setStage('priority_selection');
   }, [flow, fullName, submitBlockInfo]);
 
-  const handleContinueToPaymentAuth = useCallback(() => {
+  const prepareSubmissionForPayment = useCallback(async (): Promise<SubmissionResult | null> => {
     setSubmitError(null);
 
-    if (pricingLoading) {
-      setSubmitError('La tarification clinique est encore en cours de chargement.');
-      return;
+    if (preparedSubmission && Number(preparedSubmission.id) > 0) {
+      return preparedSubmission;
     }
 
-    if (!pricing || selectedAmount == null) {
-      setSubmitError('Impossible de poursuivre sans tarification dynamique. Merci de réessayer.');
-      return;
-    }
-
-    setStage('payment_auth');
-  }, [pricing, pricingLoading, selectedAmount]);
-
-  const handleSubmit = useCallback(async () => {
     setSubmitError(null);
 
     frontendLog('submit_clicked', 'info', {
@@ -2981,6 +3298,8 @@ function PublicFormApp() {
       }
 
       const finalizePayload = {
+        flow,
+        priority,
         patient: {
           fullname: patientFullName,
           firstName: patientName.firstName,
@@ -3037,10 +3356,11 @@ function PublicFormApp() {
       });
 
       const finalized = await finalizeSubmissionApi(submissionRef, finalizePayload);
+      const localPrescriptionId = Number((finalized as { local_prescription_id?: unknown }).local_prescription_id || finalized.id || 0);
       const result: SubmissionResult = {
-        id: Number((finalized.prescription_id as number) || finalized.id || 0),
+        id: Number.isFinite(localPrescriptionId) ? localPrescriptionId : 0,
         uid: String(finalized.uid || ''),
-        status: String(finalized.status || ''),
+        status: String((finalized as { local_status?: unknown }).local_status || finalized.status || 'payment_pending'),
         created_at: typeof finalized.created_at === 'string' ? finalized.created_at : undefined,
       };
 
@@ -3051,8 +3371,12 @@ function PublicFormApp() {
         status: result.status || null,
       });
 
-      setSubmissionResult(result);
-      setStage('done');
+      if (result.id < 1) {
+        throw new Error('Prescription locale introuvable après préparation du paiement.');
+      }
+
+      setPreparedSubmission(result);
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur soumission';
       frontendLog('submission_error', 'error', {
@@ -3063,6 +3387,7 @@ function PublicFormApp() {
         files_count: files.length,
       });
       setSubmitError(message);
+      return null;
     } finally {
       setSubmitLoading(false);
     }
@@ -3082,11 +3407,61 @@ function PublicFormApp() {
     isLoggedIn,
     items,
     medicalNotes,
+    preparedSubmission,
     priority,
     stage,
     submitBlockInfo,
     submitError,
   ]);
+
+  const handleContinueToPaymentAuth = useCallback(async () => {
+    setSubmitError(null);
+
+    if (pricingLoading) {
+      setSubmitError('La tarification clinique est encore en cours de chargement.');
+      return;
+    }
+
+    if (!pricing || selectedAmount == null) {
+      setSubmitError('Impossible de poursuivre sans tarification dynamique. Merci de réessayer.');
+      return;
+    }
+
+    if (!paymentsConfig?.enabled) {
+      setSubmitError('La pré-autorisation bancaire est actuellement indisponible.');
+      return;
+    }
+
+    if (preparedSubmission && Number(preparedSubmission.id) > 0) {
+      setStage('payment_auth');
+      return;
+    }
+
+    const nextSubmission = await prepareSubmissionForPayment();
+    if (nextSubmission && Number(nextSubmission.id) > 0) {
+      setStage('payment_auth');
+    }
+  }, [paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
+
+  const handlePaymentAuthorized = useCallback(() => {
+    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
+      setSubmitError('Impossible de finaliser la transmission : demande préparée introuvable.');
+      return;
+    }
+
+    setSubmitError(null);
+    setSubmissionResult({
+      ...preparedSubmission,
+      status: 'pending',
+    });
+    setStage('done');
+  }, [preparedSubmission]);
+
+  const handleBackToClinicalForm = useCallback(() => {
+    setPreparedSubmission(null);
+    setSubmitError(null);
+    setStage('form');
+  }, []);
 
   const patientPortalUrl = useMemo(() => {
     const base = config.urls?.patientPortal || null;
@@ -3226,7 +3601,7 @@ function PublicFormApp() {
             selectedAmount={selectedAmount}
             selectedPriorityEta={selectedPriorityEta}
             onPriorityChange={setPriority}
-            onBack={() => setStage('form')}
+            onBack={handleBackToClinicalForm}
             onContinue={handleContinueToPaymentAuth}
             continueDisabled={submitLoading || pricingLoading || !pricing}
           />
@@ -3245,9 +3620,9 @@ function PublicFormApp() {
             selectedAmount={selectedAmount}
             selectedPriorityEta={selectedPriorityEta}
             paymentsConfig={paymentsConfig}
-            submitLoading={submitLoading}
+            preparedSubmission={preparedSubmission}
             onBack={() => setStage('priority_selection')}
-            onSubmit={handleSubmit}
+            onAuthorized={handlePaymentAuthorized}
           />
         ) : null}
 

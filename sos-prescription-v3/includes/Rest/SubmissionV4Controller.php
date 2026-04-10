@@ -6,6 +6,7 @@ namespace SosPrescription\Rest;
 use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\RestGuard;
+use SosPrescription\Services\StripeConfig;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -162,9 +163,22 @@ final class SubmissionV4Controller extends \WP_REST_Controller
                 'submission_v4_finalize'
             );
 
-            $localStubId = $this->ensure_local_prescription_stub_from_worker_payload($workerPayload);
+            $localStubContext = [
+                'patient_user_id' => (int) get_current_user_id(),
+                'flow' => $this->normalize_optional_scalar_string($payload['flow'] ?? ($workerPayload['flow'] ?? null)),
+                'priority' => $this->normalize_optional_scalar_string($payload['priority'] ?? ($workerPayload['priority'] ?? null)),
+                'status' => $this->resolve_local_stub_status($workerPayload['status'] ?? null),
+            ];
+
+            $localStubId = $this->ensure_local_prescription_stub_from_worker_payload($workerPayload, $localStubContext);
             if ($localStubId < 1) {
                 error_log('[SOSPrescription] finalize_submission: local stub missing after finalize | req_id=' . $reqId . ' | submission_ref=' . $submissionRef);
+            } else {
+                $workerPayload['local_prescription_id'] = $localStubId;
+                $workerPayload['local_status'] = $localStubContext['status'];
+                if (!isset($workerPayload['id']) || !is_scalar($workerPayload['id']) || !is_numeric((string) $workerPayload['id'])) {
+                    $workerPayload['id'] = $localStubId;
+                }
             }
 
             return $this->to_rest_response($workerPayload, 200, $reqId);
@@ -387,7 +401,7 @@ final class SubmissionV4Controller extends \WP_REST_Controller
     /**
      * @param array<string, mixed> $workerPayload
      */
-    private function ensure_local_prescription_stub_from_worker_payload(array $workerPayload): int
+    private function ensure_local_prescription_stub_from_worker_payload(array $workerPayload, array $context = []): int
     {
         $uid = isset($workerPayload['uid']) && is_scalar($workerPayload['uid'])
             ? trim((string) $workerPayload['uid'])
@@ -398,6 +412,7 @@ final class SubmissionV4Controller extends \WP_REST_Controller
 
         $existingId = $this->find_local_stub_id_by_uid($uid);
         if ($existingId > 0) {
+            $this->hydrate_local_prescription_stub($existingId, $context);
             return $existingId;
         }
 
@@ -405,9 +420,11 @@ final class SubmissionV4Controller extends \WP_REST_Controller
             ? trim((string) $workerPayload['prescription_id'])
             : '';
 
-        $status = $this->normalize_local_stub_status($workerPayload['status'] ?? null);
+        $status = isset($context['status']) && is_scalar($context['status'])
+            ? $this->normalize_local_stub_status($context['status'])
+            : $this->normalize_local_stub_status($workerPayload['status'] ?? null);
 
-        return $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId);
+        return $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId, $context);
     }
 
     private function find_local_stub_id_by_uid(string $uid): int
@@ -426,7 +443,7 @@ final class SubmissionV4Controller extends \WP_REST_Controller
         return is_numeric($id) && (int) $id > 0 ? (int) $id : 0;
     }
 
-    private function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId): int
+    private function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId, array $context = []): int
     {
         $uid = trim($uid);
         if ($uid === '' || !$this->prescription_table_has_column('uid')) {
@@ -443,6 +460,27 @@ final class SubmissionV4Controller extends \WP_REST_Controller
         if ($this->prescription_table_has_column('status')) {
             $data['status'] = $status;
             $formats[] = '%s';
+        }
+        if ($this->prescription_table_has_column('patient_user_id')) {
+            $patientUserId = isset($context['patient_user_id']) ? (int) $context['patient_user_id'] : 0;
+            if ($patientUserId > 0) {
+                $data['patient_user_id'] = $patientUserId;
+                $formats[] = '%d';
+            }
+        }
+        if ($this->prescription_table_has_column('flow')) {
+            $flow = $this->normalize_local_stub_flow($context['flow'] ?? null);
+            if ($flow !== null) {
+                $data['flow'] = $flow;
+                $formats[] = '%s';
+            }
+        }
+        if ($this->prescription_table_has_column('priority')) {
+            $priority = $this->normalize_local_stub_priority($context['priority'] ?? null);
+            if ($priority !== null) {
+                $data['priority'] = $priority;
+                $formats[] = '%s';
+            }
         }
         if ($this->prescription_table_has_column('payload_json')) {
             $data['payload_json'] = $this->build_local_stub_payload_json($workerPrescriptionId);
@@ -464,6 +502,7 @@ final class SubmissionV4Controller extends \WP_REST_Controller
 
         $existingId = $this->find_local_stub_id_by_uid($uid);
         if ($existingId > 0) {
+            $this->hydrate_local_prescription_stub($existingId, $context);
             return $existingId;
         }
 
@@ -484,6 +523,102 @@ final class SubmissionV4Controller extends \WP_REST_Controller
 
         $json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         return is_string($json) && $json !== '' ? $json : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+    }
+
+    private function hydrate_local_prescription_stub(int $id, array $context): void
+    {
+        if ($id < 1) {
+            return;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $data = [];
+        $formats = [];
+
+        if ($this->prescription_table_has_column('patient_user_id')) {
+            $patientUserId = isset($context['patient_user_id']) ? (int) $context['patient_user_id'] : 0;
+            if ($patientUserId > 0) {
+                $data['patient_user_id'] = $patientUserId;
+                $formats[] = '%d';
+            }
+        }
+
+        if ($this->prescription_table_has_column('flow')) {
+            $flow = $this->normalize_local_stub_flow($context['flow'] ?? null);
+            if ($flow !== null) {
+                $data['flow'] = $flow;
+                $formats[] = '%s';
+            }
+        }
+
+        if ($this->prescription_table_has_column('priority')) {
+            $priority = $this->normalize_local_stub_priority($context['priority'] ?? null);
+            if ($priority !== null) {
+                $data['priority'] = $priority;
+                $formats[] = '%s';
+            }
+        }
+
+        if ($this->prescription_table_has_column('status')) {
+            $status = isset($context['status']) ? $this->normalize_local_stub_status($context['status']) : 'pending';
+            if ($status !== '') {
+                $data['status'] = $status;
+                $formats[] = '%s';
+            }
+        }
+
+        if ($this->prescription_table_has_column('updated_at')) {
+            $data['updated_at'] = current_time('mysql');
+            $formats[] = '%s';
+        }
+
+        if ($data === [] || (count($data) === 1 && isset($data['updated_at']))) {
+            return;
+        }
+
+        $this->wpdb->update($table, $data, ['id' => $id], $formats, ['%d']);
+    }
+
+    private function normalize_local_stub_flow(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function normalize_local_stub_priority(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+        if ($normalized === '') {
+            return null;
+        }
+
+        return $normalized === 'express' ? 'express' : 'standard';
+    }
+
+    private function resolve_local_stub_status(mixed $workerStatus): string
+    {
+        if ($this->payments_enabled_for_submission_flow()) {
+            return 'payment_pending';
+        }
+
+        return $this->normalize_local_stub_status($workerStatus);
+    }
+
+    private function payments_enabled_for_submission_flow(): bool
+    {
+        $cfg = StripeConfig::get();
+
+        return !empty($cfg['enabled'])
+            && trim((string) ($cfg['secret_key'] ?? '')) !== ''
+            && trim((string) ($cfg['publishable_key'] ?? '')) !== '';
     }
 
     private function normalize_local_stub_status(mixed $value): string

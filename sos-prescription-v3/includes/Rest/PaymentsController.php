@@ -88,6 +88,9 @@ final class PaymentsController
             return new WP_Error('sosprescription_payment_not_allowed', 'Paiement impossible : demande déjà décidée.', ['status' => 400]);
         }
 
+        $this->mark_payment_pending_if_possible($id, $row);
+        $row['status'] = 'payment_pending';
+
         $params = $request->get_json_params();
         if (!is_array($params)) {
             $params = [];
@@ -324,6 +327,28 @@ final class PaymentsController
             'currency' => $pi_cur,
             'next_action' => isset($pi['next_action']) ? $pi['next_action'] : null,
         ]);
+    }
+
+    private function mark_payment_pending_if_possible(int $id, array $row): void
+    {
+        $currentStatus = isset($row['status']) ? strtolower(trim((string) $row['status'])) : '';
+        if ($currentStatus === 'payment_pending') {
+            return;
+        }
+
+        if ($currentStatus === 'pending') {
+            $this->repo->set_status_if_current($id, 'pending', 'payment_pending');
+            return;
+        }
+
+        if ($currentStatus === 'in_review') {
+            $this->repo->set_status_if_current($id, 'in_review', 'payment_pending');
+            return;
+        }
+
+        if ($currentStatus === 'needs_info') {
+            $this->repo->set_status_if_current($id, 'needs_info', 'payment_pending');
+        }
     }
 
     public function stripe_webhook(WP_REST_Request $request)
