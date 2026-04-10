@@ -57,7 +57,7 @@ type PaymentsConfig = {
 };
 
 type FlowType = 'ro_proof' | 'depannage_no_proof';
-type Stage = 'choose' | 'form' | 'priority_selection' | 'done';
+type Stage = 'choose' | 'form' | 'priority_selection' | 'payment_auth' | 'done';
 type FrequencyUnit = 'jour' | 'semaine';
 type DurationUnit = 'jour' | 'mois' | 'semaine';
 
@@ -1723,6 +1723,838 @@ function ScheduleEditor({
   );
 }
 
+function getFlowLabel(flow: FlowType): string {
+  return flow === 'ro_proof'
+    ? 'Renouvellement avec preuve'
+    : 'Dépannage sans preuve';
+}
+
+type StepFlowChoiceProps = {
+  flow: FlowType | null;
+  onSelectFlow: (nextFlow: FlowType) => void;
+};
+
+function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
+  return (
+    <section className="sp-app-card">
+      <div className="sp-app-section__header">
+        <div>
+          <h2 className="sp-app-section__title">Choisissez le scénario médical</h2>
+          <p className="sp-app-section__hint">
+            Nous vous guiderons ensuite vers la saisie adaptée.
+          </p>
+        </div>
+      </div>
+
+      <div className="sp-app-choice-grid">
+        <button
+          type="button"
+          className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
+          onClick={() => onSelectFlow('ro_proof')}
+        >
+          <div className="sp-app-choice-card__title">Renouvellement avec preuve</div>
+          <div className="sp-app-choice-card__text">
+            Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
+          </div>
+          <div className="sp-app-choice-card__meta">Pré-remplissage assisté possible.</div>
+        </button>
+
+        <button
+          type="button"
+          className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
+          onClick={() => onSelectFlow('depannage_no_proof')}
+        >
+          <div className="sp-app-choice-card__title">Dépannage sans preuve</div>
+          <div className="sp-app-choice-card__text">
+            En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
+          </div>
+          <div className="sp-app-choice-card__meta">Attestation sur l’honneur requise.</div>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+type StepClinicalDataProps = {
+  flow: FlowType;
+  isLoggedIn: boolean;
+  analysisInProgress: boolean;
+  fullName: string;
+  birthdate: string;
+  ageLabel: string;
+  medicalNotes: string;
+  items: MedicationItem[];
+  files: LocalUpload[];
+  rejectedFiles: File[];
+  analysisMessage: string | null;
+  attestationNoProof: boolean;
+  consentRequired: boolean;
+  consentTelemedicine: boolean;
+  consentTruth: boolean;
+  consentCgu: boolean;
+  consentPrivacy: boolean;
+  compliance: AppConfig['compliance'];
+  submitLoading: boolean;
+  onBackToChoice: () => void;
+  onFullNameChange: (value: string) => void;
+  onBirthdateChange: (value: string) => void;
+  onMedicalNotesChange: (value: string) => void;
+  onFilesSelected: (list: FileList | null) => void;
+  onRemoveFile: (fileId: string) => void;
+  onAddMedication: (item: MedicationSearchResult) => void;
+  onUpdateMedication: (index: number, patch: Partial<MedicationItem>) => void;
+  onRemoveMedication: (index: number) => void;
+  onAttestationChange: (checked: boolean) => void;
+  onConsentTelemedicineChange: (checked: boolean) => void;
+  onConsentTruthChange: (checked: boolean) => void;
+  onConsentCguChange: (checked: boolean) => void;
+  onConsentPrivacyChange: (checked: boolean) => void;
+  onContinue: () => void;
+};
+
+function StepClinicalData({
+  flow,
+  isLoggedIn,
+  analysisInProgress,
+  fullName,
+  birthdate,
+  ageLabel,
+  medicalNotes,
+  items,
+  files,
+  rejectedFiles,
+  analysisMessage,
+  attestationNoProof,
+  consentRequired,
+  consentTelemedicine,
+  consentTruth,
+  consentCgu,
+  consentPrivacy,
+  compliance,
+  submitLoading,
+  onBackToChoice,
+  onFullNameChange,
+  onBirthdateChange,
+  onMedicalNotesChange,
+  onFilesSelected,
+  onRemoveFile,
+  onAddMedication,
+  onUpdateMedication,
+  onRemoveMedication,
+  onAttestationChange,
+  onConsentTelemedicineChange,
+  onConsentTruthChange,
+  onConsentCguChange,
+  onConsentPrivacyChange,
+  onContinue,
+}: StepClinicalDataProps) {
+  return (
+    <div className="sp-app-stack">
+      <section className="sp-app-card">
+        <div className="sp-app-section__header">
+          <div>
+            <h2 className="sp-app-section__title">Informations patient</h2>
+            <p className="sp-app-section__hint">
+              Renseignez les éléments indispensables au contrôle médical.
+            </p>
+          </div>
+          <div className="sp-app-section__actions">
+            <Button type="button" variant="secondary" onClick={onBackToChoice}>
+              Modifier le type
+            </Button>
+          </div>
+        </div>
+
+        <div className="sp-app-grid sp-app-grid--two">
+          <div className="sp-app-field">
+            <input
+              type="text"
+              tabIndex={-1}
+              autoComplete="username"
+              name="sp_trap_username"
+              style={{
+                position: 'absolute',
+                left: '-9999px',
+                top: 'auto',
+                width: '1px',
+                height: '1px',
+                overflow: 'hidden',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+              aria-hidden="true"
+            />
+            <input
+              type="password"
+              tabIndex={-1}
+              autoComplete="new-password"
+              name="sp_trap_password"
+              style={{
+                position: 'absolute',
+                left: '-9999px',
+                top: 'auto',
+                width: '1px',
+                height: '1px',
+                overflow: 'hidden',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+              aria-hidden="true"
+            />
+            <label className="sp-app-field__label" htmlFor="sp-patient-fullname">
+              Nom complet
+            </label>
+            <TextInput
+              id="sp-patient-fullname"
+              name="sp_patient_identity_fullname"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-form-type="other"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="words"
+              value={fullName}
+              onChange={(event) => onFullNameChange(event.target.value)}
+              placeholder="Prénom NOM"
+            />
+          </div>
+
+          <div className="sp-app-field">
+            <label className="sp-app-field__label" htmlFor="sp-patient-birthdate">
+              Date de naissance (JJ/MM/AAAA)
+            </label>
+            <TextInput
+              id="sp-patient-birthdate"
+              name="sp_patient_identity_birthdate"
+              inputMode="numeric"
+              pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
+              value={birthdate}
+              onChange={(event) => onBirthdateChange(formatBirthdateInput(event.target.value))}
+              placeholder="JJ/MM/AAAA"
+            />
+            {ageLabel ? <div className="sp-app-field__hint">Âge estimé : {ageLabel}</div> : null}
+          </div>
+        </div>
+
+        <div className="sp-app-field">
+          <label className="sp-app-field__label" htmlFor="sp-patient-medical-notes">
+            Précisions médicales (optionnel)
+          </label>
+          <TextareaField
+            id="sp-patient-medical-notes"
+            name="medical_notes"
+            value={medicalNotes}
+            onChange={(event) => onMedicalNotesChange(event.target.value)}
+            placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
+          />
+        </div>
+      </section>
+
+      {flow === 'ro_proof' ? (
+        <section className="sp-app-card">
+          <div className="sp-app-section__header">
+            <div>
+              <h2 className="sp-app-section__title">Justificatifs médicaux</h2>
+              <p className="sp-app-section__hint">
+                Importez votre ordonnance ou une photo de la boîte. Cela nous aide à vérifier le traitement et à pré-remplir la demande.
+              </p>
+            </div>
+          </div>
+
+          <div className="sp-app-upload">
+            <input
+              id="sp-evidence-input"
+              type="file"
+              className="sp-app-hidden"
+              accept="image/jpeg,image/png,application/pdf"
+              multiple
+              disabled={!isLoggedIn || analysisInProgress}
+              onChange={(event) => {
+                onFilesSelected(event.target.files);
+                event.currentTarget.value = '';
+              }}
+            />
+
+            <div className="sp-app-upload__actions">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!isLoggedIn || analysisInProgress}
+                onClick={() => {
+                  document.getElementById('sp-evidence-input')?.click();
+                }}
+              >
+                {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
+              </Button>
+
+              {analysisInProgress ? (
+                <div className="sp-app-inline-status">
+                  <Spinner />
+                  <span>Analyse automatique…</span>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="sp-app-field__hint">JPG, PNG ou PDF (Max 5 Mo)</div>
+            {!isLoggedIn ? (
+              <div className="sp-app-field__hint sp-app-field__hint--warning">
+                Connectez-vous pour importer un justificatif.
+              </div>
+            ) : null}
+          </div>
+
+          {files.length > 0 ? (
+            <div className="sp-app-upload-list">
+              {files.map((file) => (
+                <div key={file.id} className="sp-app-upload-item">
+                  <div className="sp-app-upload-item__content">
+                    <div className="sp-app-upload-item__title">{file.original_name}</div>
+                    <div className="sp-app-upload-item__meta">
+                      {Math.round((file.size_bytes || 0) / 1024)} Ko • {file.mime || 'application/octet-stream'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sp-app-icon-button"
+                    onClick={() => onRemoveFile(file.id)}
+                    aria-label={`Retirer ${file.original_name}`}
+                    title="Retirer"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {analysisMessage ? (
+            <div className="sp-app-block">
+              <Notice variant="success">{analysisMessage}</Notice>
+            </div>
+          ) : null}
+
+          {rejectedFiles.length > 0 ? (
+            <div className="sp-app-block">
+              <Notice variant="warning">
+                <div className="sp-app-notice__title">Documents à vérifier</div>
+                <div className="sp-app-notice__text">
+                  Certains fichiers n’ont pas pu être exploités automatiquement.
+                </div>
+                <div className="sp-app-tag-list">
+                  {rejectedFiles.map((file, index) => (
+                    <span key={`${file.name}-${index}`} className="sp-app-tag">{file.name}</span>
+                  ))}
+                </div>
+              </Notice>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="sp-app-card">
+        <div className="sp-app-section__header">
+          <div>
+            <h2 className="sp-app-section__title">Traitement demandé</h2>
+            <p className="sp-app-section__hint">
+              Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
+            </p>
+          </div>
+        </div>
+
+        <div className="sp-app-field">
+          <label className="sp-app-field__label">Recherche médicament</label>
+          <MedicationSearch onSelect={onAddMedication} disabled={!isLoggedIn} />
+        </div>
+
+        {items.length > 0 ? (
+          <div className="sp-app-medication-list">
+            {items.map((item, index) => (
+              <div key={`${item.label}-${index}`} className="sp-app-medication-card">
+                <div className="sp-app-medication-card__head">
+                  <div className="sp-app-medication-card__content">
+                    <div className="sp-app-medication-card__title">{item.label}</div>
+                    <div className="sp-app-medication-card__meta">
+                      {item.cis ? `CIS ${item.cis}` : ''}
+                      {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
+                    </div>
+                  </div>
+
+                  <Button type="button" variant="secondary" onClick={() => onRemoveMedication(index)}>
+                    Retirer
+                  </Button>
+                </div>
+
+                <div className="sp-app-block">
+                  <div className="sp-app-field__label">Posologie</div>
+                  <ScheduleEditor
+                    value={item.schedule || {}}
+                    onChange={(nextSchedule) => {
+                      onUpdateMedication(index, { schedule: nextSchedule });
+                    }}
+                  />
+                  <div className="sp-app-field__hint">
+                    Les champs CIS/CIP sont enregistrés pour traçabilité.
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="sp-app-empty">Aucun médicament ajouté pour le moment.</div>
+        )}
+      </section>
+
+      {flow === 'depannage_no_proof' ? (
+        <section className="sp-app-card sp-app-card--warning">
+          <div className="sp-app-section__header">
+            <div>
+              <h2 className="sp-app-section__title">Attestation sur l’honneur</h2>
+              <p className="sp-app-section__hint">
+                En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
+              </p>
+            </div>
+          </div>
+
+          <label className="sp-app-checkbox">
+            <input
+              type="checkbox"
+              checked={attestationNoProof}
+              onChange={(event) => onAttestationChange(event.target.checked)}
+            />
+            <span>
+              Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
+            </span>
+          </label>
+        </section>
+      ) : null}
+
+      {consentRequired ? (
+        <section className="sp-app-card">
+          <div className="sp-app-section__header">
+            <div>
+              <h2 className="sp-app-section__title">Consentements requis</h2>
+              <p className="sp-app-section__hint">
+                Avant de poursuivre, vous devez valider les points ci-dessous.
+              </p>
+            </div>
+          </div>
+
+          <div className="sp-app-stack sp-app-stack--compact">
+            <label className="sp-app-checkbox">
+              <input
+                id="sp-consent-medical"
+                type="checkbox"
+                checked={consentTelemedicine}
+                onChange={(event) => onConsentTelemedicineChange(event.target.checked)}
+              />
+              <span>
+                J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
+              </span>
+            </label>
+
+            <label className="sp-app-checkbox">
+              <input
+                id="sp-consent-truth"
+                type="checkbox"
+                checked={consentTruth}
+                onChange={(event) => onConsentTruthChange(event.target.checked)}
+              />
+              <span>Je certifie que les informations renseignées sont exactes.</span>
+            </label>
+
+            <label className="sp-app-checkbox">
+              <input
+                id="sp-consent-cgu"
+                type="checkbox"
+                checked={consentCgu}
+                onChange={(event) => onConsentCguChange(event.target.checked)}
+              />
+              <span>
+                J’ai lu et j’accepte{' '}
+                <a
+                  href={compliance?.cgu_url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="sp-app-link"
+                >
+                  les CGU
+                </a>
+                .
+              </span>
+            </label>
+
+            <label className="sp-app-checkbox">
+              <input
+                id="sp-consent-privacy"
+                type="checkbox"
+                checked={consentPrivacy}
+                onChange={(event) => onConsentPrivacyChange(event.target.checked)}
+              />
+              <span>
+                J’ai lu{' '}
+                <a
+                  href={compliance?.privacy_url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="sp-app-link"
+                >
+                  la politique de confidentialité
+                </a>
+                .
+              </span>
+            </label>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onBackToChoice} disabled={submitLoading}>
+          Retour
+        </Button>
+
+        <Button type="button" onClick={onContinue} disabled={submitLoading}>
+          Continuer vers la priorité
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type StepPrioritySelectionProps = {
+  flow: FlowType;
+  itemsCount: number;
+  filesCount: number;
+  pricingLoading: boolean;
+  pricing: PricingConfig | null;
+  priority: 'standard' | 'express';
+  paymentsConfig: PaymentsConfig | null;
+  selectedAmount: number | null;
+  selectedPriorityEta: string;
+  onPriorityChange: (priority: 'standard' | 'express') => void;
+  onBack: () => void;
+  onContinue: () => void;
+  continueDisabled: boolean;
+};
+
+function StepPrioritySelection({
+  flow,
+  itemsCount,
+  filesCount,
+  pricingLoading,
+  pricing,
+  priority,
+  paymentsConfig,
+  selectedAmount,
+  selectedPriorityEta,
+  onPriorityChange,
+  onBack,
+  onContinue,
+  continueDisabled,
+}: StepPrioritySelectionProps) {
+  return (
+    <div className="sp-app-stack">
+      <section className="sp-app-card">
+        <div className="sp-app-section__header">
+          <div>
+            <h2 className="sp-app-section__title">Choisissez la priorité de traitement</h2>
+            <p className="sp-app-section__hint">
+              Cette étape intervient après la saisie médicale et avant la pré-autorisation bancaire.
+            </p>
+          </div>
+        </div>
+
+        <div className="sp-app-summary-grid">
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Scénario</div>
+            <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Médicaments</div>
+            <div className="sp-app-summary-card__value">{itemsCount}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Justificatifs</div>
+            <div className="sp-app-summary-card__value">{filesCount}</div>
+          </div>
+        </div>
+
+        {pricingLoading ? (
+          <div className="sp-app-inline-status">
+            <Spinner />
+            <span>Chargement de la tarification clinique…</span>
+          </div>
+        ) : pricing ? (
+          <div className="sp-app-choice-grid">
+            <button
+              type="button"
+              className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
+              onClick={() => onPriorityChange('standard')}
+            >
+              <div className="sp-app-choice-card__title">Standard</div>
+              <div className="sp-app-choice-card__text">{describePriorityTurnaround('standard', pricing)}</div>
+              <div className="sp-app-choice-card__meta">
+                {formatMoney(pricing.standard_cents, pricing.currency)}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
+              onClick={() => onPriorityChange('express')}
+            >
+              <div className="sp-app-choice-card__title">Express SOS</div>
+              <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
+              <div className="sp-app-choice-card__meta">
+                {formatMoney(pricing.express_cents, pricing.currency)}
+              </div>
+            </button>
+          </div>
+        ) : (
+          <Notice variant="error">
+            Impossible de charger la tarification dynamique depuis l’API. Merci de réessayer avant de poursuivre.
+          </Notice>
+        )}
+
+        <div className="sp-app-block">
+          <Notice variant="info">
+            Les montants affichés correspondent aux <strong>frais d’expertise clinique</strong>. La priorité sélectionnée sera reprise à l’étape de pré-autorisation bancaire.
+          </Notice>
+        </div>
+
+        {selectedAmount != null && pricing ? (
+          <div className="sp-app-priority-selection__summary">
+            <strong>Montant sélectionné :</strong> {formatMoney(selectedAmount, pricing.currency)}
+            <br />
+            <span>{selectedPriorityEta}</span>
+            {paymentsConfig?.capture_method ? (
+              <>
+                <br />
+                <span>Mode prévu : {String(paymentsConfig.capture_method).toUpperCase()}</span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onBack}>
+          Retour à la saisie
+        </Button>
+
+        <Button type="button" onClick={onContinue} disabled={continueDisabled}>
+          Continuer vers la pré-autorisation
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type StepPaymentAuthProps = {
+  flow: FlowType;
+  fullName: string;
+  birthdate: string;
+  itemsCount: number;
+  filesCount: number;
+  priority: 'standard' | 'express';
+  pricingLoading: boolean;
+  pricing: PricingConfig | null;
+  selectedAmount: number | null;
+  selectedPriorityEta: string;
+  paymentsConfig: PaymentsConfig | null;
+  submitLoading: boolean;
+  onBack: () => void;
+  onSubmit: () => void;
+};
+
+function StepPaymentAuth({
+  flow,
+  fullName,
+  birthdate,
+  itemsCount,
+  filesCount,
+  priority,
+  pricingLoading,
+  pricing,
+  selectedAmount,
+  selectedPriorityEta,
+  paymentsConfig,
+  submitLoading,
+  onBack,
+  onSubmit,
+}: StepPaymentAuthProps) {
+  return (
+    <div className="sp-app-stack">
+      <section className="sp-app-card">
+        <div className="sp-app-section__header">
+          <div>
+            <h2 className="sp-app-section__title">Pré-autorisation bancaire</h2>
+            <p className="sp-app-section__hint">
+              Dernière étape avant la transmission sécurisée au médecin.
+            </p>
+          </div>
+        </div>
+
+        <div className="sp-app-block">
+          <Notice variant="info">
+            <strong>Votre carte n’est débitée qu’après validation du médecin. Zéro frais en cas de refus médical.</strong>
+          </Notice>
+        </div>
+
+        <div className="sp-app-summary-grid">
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Patient</div>
+            <div className="sp-app-summary-card__value">{safePatientNameValue(fullName) || '—'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Naissance</div>
+            <div className="sp-app-summary-card__value">{birthdate || '—'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Scénario</div>
+            <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Priorité</div>
+            <div className="sp-app-summary-card__value">{priority === 'express' ? 'Express SOS' : 'Standard'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Délai visé</div>
+            <div className="sp-app-summary-card__value">{selectedPriorityEta}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Frais d’expertise clinique</div>
+            <div className="sp-app-summary-card__value">
+              {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : '—'}
+            </div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Médicaments</div>
+            <div className="sp-app-summary-card__value">{itemsCount}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Justificatifs</div>
+            <div className="sp-app-summary-card__value">{filesCount}</div>
+          </div>
+        </div>
+
+        {pricingLoading ? (
+          <div className="sp-app-inline-status">
+            <Spinner />
+            <span>Préparation du récapitulatif financier…</span>
+          </div>
+        ) : null}
+
+        <div className="sp-app-card sp-app-card--nested">
+          <div className="sp-app-section__header">
+            <div>
+              <h3 className="sp-app-section__title">Autorisation de carte</h3>
+              <p className="sp-app-section__hint">
+                Intégration Stripe Elements prévue en phase 2.
+              </p>
+            </div>
+          </div>
+          <div className="sp-app-block">
+            <div className="sp-app-card">Zone de chargement Stripe Elements (Phase 2)</div>
+          </div>
+          <div className="sp-app-inline-note">
+            {paymentsConfig?.provider
+              ? `Fournisseur prévu : ${String(paymentsConfig.provider).toUpperCase()}${paymentsConfig.capture_method ? ` • capture ${paymentsConfig.capture_method}` : ''}`
+              : 'Le tunnel d’autorisation sera branché lors de la prochaine phase.'}
+          </div>
+        </div>
+      </section>
+
+      <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onBack} disabled={submitLoading}>
+          Retour à la priorité
+        </Button>
+
+        <Button type="button" onClick={onSubmit} disabled={submitLoading || pricingLoading || !pricing}>
+          {submitLoading ? (
+            <>
+              <Spinner />
+              {' '}Transmission…
+            </>
+          ) : (
+            'Transmettre la demande'
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type StepSuccessProps = {
+  submissionResult: SubmissionResult;
+  copiedUid: boolean;
+  patientPortalUrl: string | null;
+  onCopyUid: () => void | Promise<void>;
+  onReset: () => void;
+};
+
+function StepSuccess({
+  submissionResult,
+  copiedUid,
+  patientPortalUrl,
+  onCopyUid,
+  onReset,
+}: StepSuccessProps) {
+  return (
+    <div className="sp-app-stack">
+      <section className="sp-app-card sp-app-card--success">
+        <div className="sp-app-confirmation">
+          <div className="sp-app-confirmation__title">Merci ! Votre demande est enregistrée.</div>
+          <div className="sp-app-confirmation__label">Numéro de dossier</div>
+          <div className="sp-app-confirmation__uid-row">
+            <div className="sp-app-confirmation__uid">{submissionResult.uid}</div>
+            <button
+              type="button"
+              className="sp-app-icon-button"
+              onClick={() => {
+                void onCopyUid();
+              }}
+              aria-label="Copier le numéro de dossier"
+              title="Copier"
+            >
+              {copiedUid ? 'Copié' : 'Copier'}
+            </button>
+          </div>
+          <div className="sp-app-confirmation__text">
+            Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
+          </div>
+        </div>
+      </section>
+
+      {patientPortalUrl ? (
+        <section className="sp-app-card">
+          <div className="sp-app-section__header">
+            <div>
+              <h2 className="sp-app-section__title">Suite de la demande</h2>
+              <p className="sp-app-section__hint">
+                Vous pourrez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
+              </p>
+            </div>
+          </div>
+          <div className="sp-app-actions sp-app-actions--start">
+            <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
+              Ouvrir l’espace patient
+            </a>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onReset}>
+          Nouvelle demande
+        </Button>
+        <div className="sp-app-inline-note">
+          Vous pourrez toujours compléter via la messagerie patient.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PublicFormApp() {
   const config = useMemo(() => getConfigOrThrow(), []);
   const notices = config.notices || {};
@@ -1949,6 +2781,16 @@ function PublicFormApp() {
     }
   }, [submissionResult?.uid]);
 
+  const handleSelectFlow = useCallback((nextFlow: FlowType) => {
+    setFlow(nextFlow);
+    setFiles([]);
+    setRejectedFiles([]);
+    setAnalysisMessage(null);
+    setSubmitError(null);
+    setSubmissionResult(null);
+    setStage('form');
+  }, []);
+
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
 
@@ -1968,6 +2810,22 @@ function PublicFormApp() {
 
     setStage('priority_selection');
   }, [flow, fullName, submitBlockInfo]);
+
+  const handleContinueToPaymentAuth = useCallback(() => {
+    setSubmitError(null);
+
+    if (pricingLoading) {
+      setSubmitError('La tarification clinique est encore en cours de chargement.');
+      return;
+    }
+
+    if (!pricing || selectedAmount == null) {
+      setSubmitError('Impossible de poursuivre sans tarification dynamique. Merci de réessayer.');
+      return;
+    }
+
+    setStage('payment_auth');
+  }, [pricing, pricingLoading, selectedAmount]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitError(null);
@@ -2238,6 +3096,15 @@ function PublicFormApp() {
     return `${base}${base.includes('?') ? '&' : '?'}rx_uid=${encodeURIComponent(String(submissionResult.uid))}`;
   }, [config.urls?.patientPortal, submissionResult?.uid]);
 
+  const stageEntries: Array<{ key: Stage; label: string }> = [
+    { key: 'choose', label: 'Type de demande' },
+    { key: 'form', label: 'Saisie médicale' },
+    { key: 'priority_selection', label: 'Priorité' },
+    { key: 'payment_auth', label: 'Pré-autorisation' },
+    { key: 'done', label: 'Confirmation' },
+  ];
+  const activeStageIndex = stageEntries.findIndex((entry) => entry.key === stage);
+
   return (
     <div className="sp-app-root sp-app-theme">
       <div className="sp-app-container">
@@ -2250,29 +3117,19 @@ function PublicFormApp() {
         </header>
 
         <div className="sp-app-stagebar" aria-label="Progression de la demande">
-          {[
-            { key: 'choose', label: 'Type de demande' },
-            { key: 'form', label: 'Saisie médicale' },
-            { key: 'priority_selection', label: 'Priorité' },
-            { key: 'done', label: 'Confirmation' },
-          ].map((entry, index) => {
-            const order: Stage[] = ['choose', 'form', 'priority_selection', 'done'];
-            const activeIndex = order.indexOf(stage);
-            const currentIndex = order.indexOf(entry.key as Stage);
-            return (
-              <div
-                key={entry.key}
-                className={cx(
-                  'sp-app-stagebar__item',
-                  currentIndex <= activeIndex && 'is-complete',
-                  currentIndex === activeIndex && 'is-active',
-                )}
-              >
-                <div className="sp-app-stagebar__badge">{index + 1}</div>
-                <div className="sp-app-stagebar__label">{entry.label}</div>
-              </div>
-            );
-          })}
+          {stageEntries.map((entry, index) => (
+            <div
+              key={entry.key}
+              className={cx(
+                'sp-app-stagebar__item',
+                index <= activeStageIndex && 'is-complete',
+                index === activeStageIndex && 'is-active',
+              )}
+            >
+              <div className="sp-app-stagebar__badge">{index + 1}</div>
+              <div className="sp-app-stagebar__label">{entry.label}</div>
+            </div>
+          ))}
         </div>
 
         {noticeEnabled && noticeItems.length > 0 ? (
@@ -2313,592 +3170,95 @@ function PublicFormApp() {
         ) : null}
 
         {stage === 'choose' ? (
-          <section className="sp-app-card">
-            <div className="sp-app-section__header">
-              <div>
-                <h2 className="sp-app-section__title">Choisissez le scénario médical</h2>
-                <p className="sp-app-section__hint">
-                  Nous vous guiderons ensuite vers la saisie adaptée.
-                </p>
-              </div>
-            </div>
-
-            <div className="sp-app-choice-grid">
-              <button
-                type="button"
-                className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
-                onClick={() => {
-                  setFlow('ro_proof');
-                  setFiles([]);
-                  setRejectedFiles([]);
-                  setAnalysisMessage(null);
-                  setSubmitError(null);
-                  setSubmissionResult(null);
-                  setStage('form');
-                }}
-              >
-                <div className="sp-app-choice-card__title">Renouvellement avec preuve</div>
-                <div className="sp-app-choice-card__text">
-                  Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
-                </div>
-                <div className="sp-app-choice-card__meta">Pré-remplissage assisté possible.</div>
-              </button>
-
-              <button
-                type="button"
-                className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
-                onClick={() => {
-                  setFlow('depannage_no_proof');
-                  setFiles([]);
-                  setRejectedFiles([]);
-                  setAnalysisMessage(null);
-                  setSubmitError(null);
-                  setSubmissionResult(null);
-                  setStage('form');
-                }}
-              >
-                <div className="sp-app-choice-card__title">Dépannage sans preuve</div>
-                <div className="sp-app-choice-card__text">
-                  En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
-                </div>
-                <div className="sp-app-choice-card__meta">Attestation sur l’honneur requise.</div>
-              </button>
-            </div>
-          </section>
+          <StepFlowChoice flow={flow} onSelectFlow={handleSelectFlow} />
         ) : null}
 
-        {stage === 'form' ? (
-          <div className="sp-app-stack">
-            <section className="sp-app-card">
-              <div className="sp-app-section__header">
-                <div>
-                  <h2 className="sp-app-section__title">Informations patient</h2>
-                  <p className="sp-app-section__hint">
-                    Renseignez les éléments indispensables au contrôle médical.
-                  </p>
-                </div>
-                <div className="sp-app-section__actions">
-                  <Button type="button" variant="secondary" onClick={() => setStage('choose')}>
-                    Modifier le type
-                  </Button>
-                </div>
-              </div>
-
-              <div className="sp-app-grid sp-app-grid--two">
-                <div className="sp-app-field">
-                  <input
-                    type="text"
-                    tabIndex={-1}
-                    autoComplete="username"
-                    name="sp_trap_username"
-                    style={{
-                      position: 'absolute',
-                      left: '-9999px',
-                      top: 'auto',
-                      width: '1px',
-                      height: '1px',
-                      overflow: 'hidden',
-                      opacity: 0,
-                      pointerEvents: 'none',
-                    }}
-                    aria-hidden="true"
-                  />
-                  <input
-                    type="password"
-                    tabIndex={-1}
-                    autoComplete="new-password"
-                    name="sp_trap_password"
-                    style={{
-                      position: 'absolute',
-                      left: '-9999px',
-                      top: 'auto',
-                      width: '1px',
-                      height: '1px',
-                      overflow: 'hidden',
-                      opacity: 0,
-                      pointerEvents: 'none',
-                    }}
-                    aria-hidden="true"
-                  />
-                  <label className="sp-app-field__label" htmlFor="sp-patient-fullname">
-                    Nom complet
-                  </label>
-                  <TextInput
-                    id="sp-patient-fullname"
-                    name="sp_patient_identity_fullname"
-                    autoComplete="new-password"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    spellCheck={false}
-                    autoCorrect="off"
-                    autoCapitalize="words"
-                    value={fullName}
-                    onChange={(event) => setFullName(event.target.value)}
-                    placeholder="Prénom NOM"
-                  />
-                </div>
-
-                <div className="sp-app-field">
-                  <label className="sp-app-field__label" htmlFor="sp-patient-birthdate">
-                    Date de naissance (JJ/MM/AAAA)
-                  </label>
-                  <TextInput
-                    id="sp-patient-birthdate"
-                    name="sp_patient_identity_birthdate"
-                    inputMode="numeric"
-                    pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
-                    value={birthdate}
-                    onChange={(event) => setBirthdate(formatBirthdateInput(event.target.value))}
-                    placeholder="JJ/MM/AAAA"
-                  />
-                  {ageLabel ? <div className="sp-app-field__hint">Âge estimé : {ageLabel}</div> : null}
-                </div>
-              </div>
-
-              <div className="sp-app-field">
-                <label className="sp-app-field__label" htmlFor="sp-patient-medical-notes">
-                  Précisions médicales (optionnel)
-                </label>
-                <TextareaField
-                  id="sp-patient-medical-notes"
-                  name="medical_notes"
-                  value={medicalNotes}
-                  onChange={(event) => setMedicalNotes(event.target.value)}
-                  placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
-                />
-              </div>
-            </section>
-
-            {flow === 'ro_proof' ? (
-              <section className="sp-app-card">
-                <div className="sp-app-section__header">
-                  <div>
-                    <h2 className="sp-app-section__title">Justificatifs médicaux</h2>
-                    <p className="sp-app-section__hint">
-                      Importez votre ordonnance ou une photo de la boîte. Cela nous aide à vérifier le traitement et à pré-remplir la demande.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="sp-app-upload">
-                  <input
-                    id="sp-evidence-input"
-                    type="file"
-                    className="sp-app-hidden"
-                    accept="image/jpeg,image/png,application/pdf"
-                    multiple
-                    disabled={!isLoggedIn || analysisInProgress}
-                    onChange={(event) => {
-                      handleFilesSelected(event.target.files);
-                      event.currentTarget.value = '';
-                    }}
-                  />
-
-                  <div className="sp-app-upload__actions">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={!isLoggedIn || analysisInProgress}
-                      onClick={() => {
-                        document.getElementById('sp-evidence-input')?.click();
-                      }}
-                    >
-                      {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
-                    </Button>
-
-                    {analysisInProgress ? (
-                      <div className="sp-app-inline-status">
-                        <Spinner />
-                        <span>Analyse automatique…</span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="sp-app-field__hint">JPG, PNG ou PDF (Max 5 Mo)</div>
-                  {!isLoggedIn ? (
-                    <div className="sp-app-field__hint sp-app-field__hint--warning">
-                      Connectez-vous pour importer un justificatif.
-                    </div>
-                  ) : null}
-                </div>
-
-                {files.length > 0 ? (
-                  <div className="sp-app-upload-list">
-                    {files.map((file) => (
-                      <div key={file.id} className="sp-app-upload-item">
-                        <div className="sp-app-upload-item__content">
-                          <div className="sp-app-upload-item__title">{file.original_name}</div>
-                          <div className="sp-app-upload-item__meta">
-                            {Math.round((file.size_bytes || 0) / 1024)} Ko • {file.mime || 'application/octet-stream'}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="sp-app-icon-button"
-                          onClick={() => {
-                            setFiles((current) => current.filter((entry) => entry.id !== file.id));
-                          }}
-                          aria-label={`Retirer ${file.original_name}`}
-                          title="Retirer"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                {analysisMessage ? (
-                  <div className="sp-app-block">
-                    <Notice variant="success">{analysisMessage}</Notice>
-                  </div>
-                ) : null}
-
-                {rejectedFiles.length > 0 ? (
-                  <div className="sp-app-block">
-                    <Notice variant="warning">
-                      <div className="sp-app-notice__title">Documents à vérifier</div>
-                      <div className="sp-app-notice__text">
-                        Certains fichiers n’ont pas pu être exploités automatiquement.
-                      </div>
-                      <div className="sp-app-tag-list">
-                        {rejectedFiles.map((file, index) => (
-                          <span key={`${file.name}-${index}`} className="sp-app-tag">{file.name}</span>
-                        ))}
-                      </div>
-                    </Notice>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
-            <section className="sp-app-card">
-              <div className="sp-app-section__header">
-                <div>
-                  <h2 className="sp-app-section__title">Traitement demandé</h2>
-                  <p className="sp-app-section__hint">
-                    Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
-                  </p>
-                </div>
-              </div>
-
-              <div className="sp-app-field">
-                <label className="sp-app-field__label">Recherche médicament</label>
-                <MedicationSearch onSelect={addMedication} disabled={!isLoggedIn} />
-              </div>
-
-              {items.length > 0 ? (
-                <div className="sp-app-medication-list">
-                  {items.map((item, index) => (
-                    <div key={`${item.label}-${index}`} className="sp-app-medication-card">
-                      <div className="sp-app-medication-card__head">
-                        <div className="sp-app-medication-card__content">
-                          <div className="sp-app-medication-card__title">{item.label}</div>
-                          <div className="sp-app-medication-card__meta">
-                            {item.cis ? `CIS ${item.cis}` : ''}
-                            {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
-                          </div>
-                        </div>
-
-                        <Button type="button" variant="secondary" onClick={() => removeMedication(index)}>
-                          Retirer
-                        </Button>
-                      </div>
-
-                      <div className="sp-app-block">
-                        <div className="sp-app-field__label">Posologie</div>
-                        <ScheduleEditor
-                          value={item.schedule || {}}
-                          onChange={(nextSchedule) => {
-                            updateMedication(index, { schedule: nextSchedule });
-                          }}
-                        />
-                        <div className="sp-app-field__hint">
-                          Les champs CIS/CIP sont enregistrés pour traçabilité.
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="sp-app-empty">Aucun médicament ajouté pour le moment.</div>
-              )}
-            </section>
-
-            {flow === 'depannage_no_proof' ? (
-              <section className="sp-app-card sp-app-card--warning">
-                <div className="sp-app-section__header">
-                  <div>
-                    <h2 className="sp-app-section__title">Attestation sur l’honneur</h2>
-                    <p className="sp-app-section__hint">
-                      En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
-                    </p>
-                  </div>
-                </div>
-
-                <label className="sp-app-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={attestationNoProof}
-                    onChange={(event) => setAttestationNoProof(event.target.checked)}
-                  />
-                  <span>
-                    Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
-                  </span>
-                </label>
-              </section>
-            ) : null}
-
-            {consentRequired ? (
-              <section className="sp-app-card">
-                <div className="sp-app-section__header">
-                  <div>
-                    <h2 className="sp-app-section__title">Consentements requis</h2>
-                    <p className="sp-app-section__hint">
-                      Avant de poursuivre, vous devez valider les points ci-dessous.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="sp-app-stack sp-app-stack--compact">
-                  <label className="sp-app-checkbox">
-                    <input
-                      id="sp-consent-medical"
-                      type="checkbox"
-                      checked={consentTelemedicine}
-                      onChange={(event) => setConsentTelemedicine(event.target.checked)}
-                    />
-                    <span>
-                      J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
-                    </span>
-                  </label>
-
-                  <label className="sp-app-checkbox">
-                    <input
-                      id="sp-consent-truth"
-                      type="checkbox"
-                      checked={consentTruth}
-                      onChange={(event) => setConsentTruth(event.target.checked)}
-                    />
-                    <span>Je certifie que les informations renseignées sont exactes.</span>
-                  </label>
-
-                  <label className="sp-app-checkbox">
-                    <input
-                      id="sp-consent-cgu"
-                      type="checkbox"
-                      checked={consentCgu}
-                      onChange={(event) => setConsentCgu(event.target.checked)}
-                    />
-                    <span>
-                      J’ai lu et j’accepte{' '}
-                      <a
-                        href={compliance?.cgu_url || '#'}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="sp-app-link"
-                      >
-                        les CGU
-                      </a>
-                      .
-                    </span>
-                  </label>
-
-                  <label className="sp-app-checkbox">
-                    <input
-                      id="sp-consent-privacy"
-                      type="checkbox"
-                      checked={consentPrivacy}
-                      onChange={(event) => setConsentPrivacy(event.target.checked)}
-                    />
-                    <span>
-                      J’ai lu{' '}
-                      <a
-                        href={compliance?.privacy_url || '#'}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="sp-app-link"
-                      >
-                        la politique de confidentialité
-                      </a>
-                      .
-                    </span>
-                  </label>
-                </div>
-              </section>
-            ) : null}
-
-            <div className="sp-app-actions">
-              <Button type="button" variant="secondary" onClick={() => setStage('choose')} disabled={submitLoading}>
-                Retour
-              </Button>
-
-              <Button type="button" onClick={handleContinueToPriority} disabled={submitLoading}>
-                Continuer vers la priorité
-              </Button>
-            </div>
-          </div>
+        {stage === 'form' && flow ? (
+          <StepClinicalData
+            flow={flow}
+            isLoggedIn={isLoggedIn}
+            analysisInProgress={analysisInProgress}
+            fullName={fullName}
+            birthdate={birthdate}
+            ageLabel={ageLabel}
+            medicalNotes={medicalNotes}
+            items={items}
+            files={files}
+            rejectedFiles={rejectedFiles}
+            analysisMessage={analysisMessage}
+            attestationNoProof={attestationNoProof}
+            consentRequired={consentRequired}
+            consentTelemedicine={consentTelemedicine}
+            consentTruth={consentTruth}
+            consentCgu={consentCgu}
+            consentPrivacy={consentPrivacy}
+            compliance={compliance}
+            submitLoading={submitLoading}
+            onBackToChoice={() => setStage('choose')}
+            onFullNameChange={setFullName}
+            onBirthdateChange={setBirthdate}
+            onMedicalNotesChange={setMedicalNotes}
+            onFilesSelected={handleFilesSelected}
+            onRemoveFile={(fileId) => {
+              setFiles((current) => current.filter((entry) => entry.id !== fileId));
+            }}
+            onAddMedication={addMedication}
+            onUpdateMedication={updateMedication}
+            onRemoveMedication={removeMedication}
+            onAttestationChange={setAttestationNoProof}
+            onConsentTelemedicineChange={setConsentTelemedicine}
+            onConsentTruthChange={setConsentTruth}
+            onConsentCguChange={setConsentCgu}
+            onConsentPrivacyChange={setConsentPrivacy}
+            onContinue={handleContinueToPriority}
+          />
         ) : null}
 
-        {stage === 'priority_selection' ? (
-          <div className="sp-app-stack">
-            <section className="sp-app-card">
-              <div className="sp-app-section__header">
-                <div>
-                  <h2 className="sp-app-section__title">Choisissez la priorité de traitement</h2>
-                  <p className="sp-app-section__hint">
-                    Cette étape intervient après la saisie médicale et avant l’autorisation de paiement.
-                  </p>
-                </div>
-              </div>
+        {stage === 'priority_selection' && flow ? (
+          <StepPrioritySelection
+            flow={flow}
+            itemsCount={items.length}
+            filesCount={files.length}
+            pricingLoading={pricingLoading}
+            pricing={pricing}
+            priority={priority}
+            paymentsConfig={paymentsConfig}
+            selectedAmount={selectedAmount}
+            selectedPriorityEta={selectedPriorityEta}
+            onPriorityChange={setPriority}
+            onBack={() => setStage('form')}
+            onContinue={handleContinueToPaymentAuth}
+            continueDisabled={submitLoading || pricingLoading || !pricing}
+          />
+        ) : null}
 
-              <div className="sp-app-summary-grid">
-                <div className="sp-app-summary-card">
-                  <div className="sp-app-summary-card__label">Scénario</div>
-                  <div className="sp-app-summary-card__value">
-                    {flow === 'ro_proof' ? 'Renouvellement avec preuve' : 'Dépannage sans preuve'}
-                  </div>
-                </div>
-                <div className="sp-app-summary-card">
-                  <div className="sp-app-summary-card__label">Médicaments</div>
-                  <div className="sp-app-summary-card__value">{items.length}</div>
-                </div>
-                <div className="sp-app-summary-card">
-                  <div className="sp-app-summary-card__label">Justificatifs</div>
-                  <div className="sp-app-summary-card__value">{files.length}</div>
-                </div>
-              </div>
-
-              {pricingLoading ? (
-                <div className="sp-app-inline-status">
-                  <Spinner />
-                  <span>Chargement de la tarification…</span>
-                </div>
-              ) : pricing ? (
-                <div className="sp-app-choice-grid">
-                  <button
-                    type="button"
-                    className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
-                    onClick={() => setPriority('standard')}
-                  >
-                    <div className="sp-app-choice-card__title">Standard</div>
-                    <div className="sp-app-choice-card__text">{describePriorityTurnaround('standard', pricing)}</div>
-                    <div className="sp-app-choice-card__meta">
-                      {formatMoney(pricing.standard_cents, pricing.currency)}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
-                    onClick={() => setPriority('express')}
-                  >
-                    <div className="sp-app-choice-card__title">Express</div>
-                    <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
-                    <div className="sp-app-choice-card__meta">
-                      {formatMoney(pricing.express_cents, pricing.currency)}
-                    </div>
-                  </button>
-                </div>
-              ) : (
-                <Notice variant="error">
-                  Impossible de charger la tarification dynamique depuis l’API. Merci de réessayer avant de poursuivre.
-                </Notice>
-              )}
-
-              {paymentsConfig?.enabled ? (
-                <div className="sp-app-block">
-                  <Notice variant="info">
-                    La priorité sélectionnée sera reprise dans le tunnel de paiement sécurisé.
-                  </Notice>
-                </div>
-              ) : (
-                <div className="sp-app-block">
-                  <Notice variant="info">Paiement désactivé (mode test).</Notice>
-                </div>
-              )}
-
-              {selectedAmount != null && pricing ? (
-                <div className="sp-app-priority-selection__summary">
-                  <strong>Montant sélectionné :</strong> {formatMoney(selectedAmount, pricing.currency)}
-                  <br />
-                  <span>{selectedPriorityEta}</span>
-                </div>
-              ) : null}
-            </section>
-
-            <div className="sp-app-actions">
-              <Button type="button" variant="secondary" onClick={() => setStage('form')} disabled={submitLoading}>
-                Retour à la saisie
-              </Button>
-
-              <Button type="button" onClick={handleSubmit} disabled={submitLoading || !pricing}>
-                {submitLoading ? (
-                  <>
-                    <Spinner />
-                    {' '}Soumission…
-                  </>
-                ) : (
-                  'Soumettre au médecin'
-                )}
-              </Button>
-            </div>
-          </div>
+        {stage === 'payment_auth' && flow ? (
+          <StepPaymentAuth
+            flow={flow}
+            fullName={fullName}
+            birthdate={birthdate}
+            itemsCount={items.length}
+            filesCount={files.length}
+            priority={priority}
+            pricingLoading={pricingLoading}
+            pricing={pricing}
+            selectedAmount={selectedAmount}
+            selectedPriorityEta={selectedPriorityEta}
+            paymentsConfig={paymentsConfig}
+            submitLoading={submitLoading}
+            onBack={() => setStage('priority_selection')}
+            onSubmit={handleSubmit}
+          />
         ) : null}
 
         {stage === 'done' && submissionResult ? (
-          <div className="sp-app-stack">
-            <section className="sp-app-card sp-app-card--success">
-              <div className="sp-app-confirmation">
-                <div className="sp-app-confirmation__title">Merci ! Votre demande est enregistrée.</div>
-                <div className="sp-app-confirmation__label">Numéro de dossier</div>
-                <div className="sp-app-confirmation__uid-row">
-                  <div className="sp-app-confirmation__uid">{submissionResult.uid}</div>
-                  <button
-                    type="button"
-                    className="sp-app-icon-button"
-                    onClick={() => {
-                      void copyUid();
-                    }}
-                    aria-label="Copier le numéro de dossier"
-                    title="Copier"
-                  >
-                    {copiedUid ? 'Copié' : 'Copier'}
-                  </button>
-                </div>
-                <div className="sp-app-confirmation__text">
-                  Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
-                </div>
-              </div>
-            </section>
-
-            {patientPortalUrl ? (
-              <section className="sp-app-card">
-                <div className="sp-app-section__header">
-                  <div>
-                    <h2 className="sp-app-section__title">Suite de la demande</h2>
-                    <p className="sp-app-section__hint">
-                      Vous pourrez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
-                    </p>
-                  </div>
-                </div>
-                <div className="sp-app-actions sp-app-actions--start">
-                  <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
-                    Ouvrir l’espace patient
-                  </a>
-                </div>
-              </section>
-            ) : null}
-
-            <div className="sp-app-actions">
-              <Button type="button" variant="secondary" onClick={resetToChoose}>
-                Nouvelle demande
-              </Button>
-              <div className="sp-app-inline-note">
-                Vous pourrez toujours compléter via la messagerie patient.
-              </div>
-            </div>
-          </div>
+          <StepSuccess
+            submissionResult={submissionResult}
+            copiedUid={copiedUid}
+            patientPortalUrl={patientPortalUrl}
+            onCopyUid={copyUid}
+            onReset={resetToChoose}
+          />
         ) : null}
       </div>
     </div>
