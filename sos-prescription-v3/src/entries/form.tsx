@@ -114,6 +114,13 @@ type Schedule = {
   rounding: number;
 };
 
+type MedEditorState = {
+  detailId: number;
+  index: number;
+  medicationName: string;
+  draft: Schedule;
+};
+
 type MedicationSearchResult = {
   cis?: string;
   cip13?: string;
@@ -2921,6 +2928,7 @@ function PublicFormApp() {
   });
 
   const [items, setItems] = useState<MedicationItem[]>([]);
+  const [medEditor, setMedEditor] = useState<MedEditorState | null>(null);
   const [files, setFiles] = useState<LocalUpload[]>([]);
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
   const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
@@ -2938,6 +2946,43 @@ function PublicFormApp() {
   const [consentTruth, setConsentTruth] = useState(false);
   const [consentCgu, setConsentCgu] = useState(false);
   const [consentPrivacy, setConsentPrivacy] = useState(false);
+
+  useEffect(() => {
+    if (!medEditor) {
+      return;
+    }
+
+    if (!Number.isFinite(medEditor.detailId) || medEditor.detailId < 1) {
+      setMedEditor(null);
+      return;
+    }
+
+    if (!Number.isInteger(medEditor.index) || medEditor.index < 0 || medEditor.index >= items.length) {
+      setMedEditor(null);
+      return;
+    }
+
+    const currentItem = items[medEditor.index];
+    if (!currentItem) {
+      setMedEditor(null);
+      return;
+    }
+
+    const currentName = aiSafeText(currentItem.label);
+    const editorName = aiSafeText(medEditor.medicationName);
+
+    if (currentName && editorName && currentName !== editorName) {
+      setMedEditor((current) => {
+        if (!current) {
+          return null;
+        }
+        return {
+          ...current,
+          medicationName: currentName,
+        };
+      });
+    }
+  }, [items, medEditor]);
 
   useEffect(() => {
     let cancelled = false;

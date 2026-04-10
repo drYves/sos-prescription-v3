@@ -91,32 +91,31 @@ class ApiPayloadError extends Error {
   }
 }
 
-declare global {
-  interface Window {
-    SosPrescription?: AppConfig;
-    SOSPrescription?: AppConfig;
-    Stripe?: (
-      publishableKey: string
-    ) => {
-      elements: () => {
-        create: (type: string) => {
-          mount: (element: HTMLElement) => void;
-          destroy: () => void;
-        };
+type PatientConsoleWindow = Window & {
+  SosPrescription?: AppConfig;
+  SOSPrescription?: AppConfig;
+  Stripe?: (
+    publishableKey: string
+  ) => {
+    elements: () => {
+      create: (type: string) => {
+        mount: (element: HTMLElement) => void;
+        destroy: () => void;
       };
-      confirmCardPayment: (
-        clientSecret: string,
-        payload: Record<string, unknown>
-      ) => Promise<{
-        error?: { message?: string };
-        paymentIntent?: { id?: string };
-      }>;
     };
-  }
-}
+    confirmCardPayment: (
+      clientSecret: string,
+      payload: Record<string, unknown>
+    ) => Promise<{
+      error?: { message?: string };
+      paymentIntent?: { id?: string };
+    }>;
+  };
+};
 
 function getAppConfig(): AppConfig {
-  const cfg = window.SosPrescription || window.SOSPrescription;
+  const g = window as PatientConsoleWindow;
+  const cfg = g.SosPrescription || g.SOSPrescription;
   if (!cfg || typeof cfg.restBase !== 'string' || typeof cfg.nonce !== 'string') {
     throw new Error('Configuration SosPrescription introuvable (window.SosPrescription).');
   }
@@ -675,7 +674,8 @@ function formatMoney(amountCents: number | null | undefined, currency: string | 
 let stripeScriptPromise: Promise<void> | null = null;
 
 function ensureStripeJs(): Promise<void> {
-  if (typeof window !== 'undefined' && typeof window.Stripe === 'function') {
+  const g = (typeof window !== 'undefined' ? window : null) as PatientConsoleWindow | null;
+  if (g && typeof g.Stripe === 'function') {
     return Promise.resolve();
   }
 
@@ -824,7 +824,7 @@ function PaymentCard({
 }) {
   const cfg = getAppConfig();
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<ReturnType<NonNullable<typeof window.Stripe>> | null>(null);
+  const stripeRef = useRef<ReturnType<NonNullable<PatientConsoleWindow['Stripe']>> | null>(null);
   const cardRef = useRef<{ destroy: () => void } | null>(null);
 
   const [initializing, setInitializing] = useState(true);
@@ -857,14 +857,15 @@ function PaymentCard({
 
         await ensureStripeJs();
         if (disposed) return;
-        if (typeof window.Stripe !== 'function') {
+        const g = window as PatientConsoleWindow;
+        if (typeof g.Stripe !== 'function') {
           throw new Error('Stripe.js indisponible.');
         }
         if (!mountRef.current) {
           throw new Error('Zone de paiement introuvable.');
         }
 
-        stripeRef.current = stripeRef.current || window.Stripe(intent.publishable_key);
+        stripeRef.current = stripeRef.current || g.Stripe(intent.publishable_key);
         const elements = stripeRef.current.elements();
 
         if (cardRef.current) {

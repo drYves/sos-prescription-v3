@@ -46,12 +46,10 @@ type ArtifactAccessPayload = {
   };
 };
 
-declare global {
-  interface Window {
-    SOSPrescription?: AppConfig;
-    SosPrescription?: AppConfig;
-  }
-}
+type DoctorMessagingWindow = Window & {
+  SOSPrescription?: AppConfig;
+  SosPrescription?: AppConfig;
+};
 
 const POLL_VISIBLE_MS = 15000;
 const POLL_HIDDEN_MS = 30000;
@@ -61,7 +59,8 @@ function cx(...classes: Array<string | false | null | undefined>): string {
 }
 
 function getAppConfig(): AppConfig {
-  const cfg = window.SOSPrescription || window.SosPrescription;
+  const g = window as DoctorMessagingWindow;
+  const cfg = g.SOSPrescription || g.SosPrescription;
   if (!cfg || typeof cfg.restBase !== 'string' || typeof cfg.nonce !== 'string') {
     throw new Error('Configuration SosPrescription introuvable (window.SosPrescription).');
   }
