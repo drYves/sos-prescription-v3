@@ -73,6 +73,34 @@
     '.spu-rounded-xl{border-radius:12px;}',
     '.spu-p-4{padding:1rem;}'
   ].join('');
+  var DOCTOR_CONSOLE_POLISH_STYLE_ID = 'sp-doctor-console-polish-styles';
+  var DOCTOR_CONSOLE_POLISH_CSS = [
+    '.sosprescription-doctor .dc-detail-tabs{background:transparent !important;padding:0 20px 14px;gap:18px;border-bottom:1px solid #eef2f7;}',
+    '.sosprescription-doctor .dc-detail-tab{padding:0 0 12px;border:0;background:transparent !important;border-radius:0;color:#64748b;font-size:13px;font-weight:600;position:relative;}',
+    '.sosprescription-doctor .dc-detail-tab::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:999px;background:transparent;transition:background-color .15s ease;}',
+    '.sosprescription-doctor .dc-detail-tab:hover{border-color:transparent;color:#0f172a;background:transparent !important;}',
+    '.sosprescription-doctor .dc-detail-tab.is-active{border-color:transparent;background:transparent !important;color:#0f172a;font-weight:800;}',
+    '.sosprescription-doctor .dc-detail-tab.is-active::after{background:var(--sp-color-primary,#2b6df8);}',
+    '.sosprescription-doctor .dc-item--urgent{background:linear-gradient(180deg, rgba(217,119,6,.08), rgba(255,255,255,1));}',
+    '.sosprescription-doctor .dc-item--urgent:hover{background:linear-gradient(180deg, rgba(217,119,6,.14), rgba(255,255,255,1));}',
+    '.sosprescription-doctor .dc-item--urgent.is-selected{border-left-color:var(--sp-color-warning,#d97706);}',
+    '.sosprescription-doctor .dc-urgency-chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid transparent;white-space:nowrap;}',
+    '.sosprescription-doctor .dc-urgency-chip__icon{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;}',
+    '.sosprescription-doctor .dc-urgency-chip__icon svg{width:14px;height:14px;}',
+    '.sosprescription-doctor .dc-urgency-chip--standard{background:var(--sp-color-primary-light,#edf4ff);border-color:rgba(43,109,248,.18);color:var(--sp-color-primary-dark,#1747b7);}',
+    '.sosprescription-doctor .dc-urgency-chip--urgent{background:var(--sp-color-warning-light,#fff8eb);border-color:rgba(217,119,6,.2);color:var(--sp-color-warning,#d97706);}',
+    '.sosprescription-doctor .dc-proof-viewer__image-button,.sosprescription-doctor .dc-inline-proof-card__image-button{display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in;}',
+    '.sosprescription-doctor .dc-proof-lightbox{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;}',
+    '.sosprescription-doctor .dc-proof-lightbox[hidden]{display:none !important;}',
+    '.sosprescription-doctor .dc-proof-lightbox__backdrop{position:absolute;inset:0;background:rgba(15,23,42,.74);backdrop-filter:blur(3px);}',
+    '.sosprescription-doctor .dc-proof-lightbox__dialog{position:relative;z-index:1;width:min(100%, 1180px);max-height:calc(100vh - 48px);display:flex;flex-direction:column;gap:14px;padding:20px;border-radius:20px;background:#ffffff;box-shadow:0 24px 70px rgba(15,23,42,.28);}',
+    '.sosprescription-doctor .dc-proof-lightbox__meta{padding-right:44px;font-size:13px;font-weight:700;color:#334155;}',
+    '.sosprescription-doctor .dc-proof-lightbox__viewport{display:flex;align-items:center;justify-content:center;overflow:auto;}',
+    '.sosprescription-doctor .dc-proof-lightbox__image{display:block;max-width:100%;height:auto;border-radius:16px;}',
+    '.sosprescription-doctor .dc-proof-lightbox__close{position:absolute;top:16px;right:16px;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid #dbe5f1;border-radius:999px;background:#ffffff;color:#0f172a;font-size:24px;line-height:1;cursor:pointer;}',
+    '.sp-plugin-toolbar-meta .is-clinically-hidden{display:none !important;}'
+  ].join('');
+  var proofLightboxKeydownBound = false;
 
   function ensureDoctorChatUtilityStyles() {
     if (!document || !document.head || document.getElementById(DOCTOR_CHAT_UTILITY_STYLE_ID)) {
@@ -84,6 +112,111 @@
     style.type = 'text/css';
     style.textContent = DOCTOR_CHAT_UTILITY_CSS;
     document.head.appendChild(style);
+  }
+
+  function ensureDoctorConsolePolishStyles() {
+    if (!document || !document.head || document.getElementById(DOCTOR_CONSOLE_POLISH_STYLE_ID)) {
+      return;
+    }
+
+    var style = document.createElement('style');
+    style.id = DOCTOR_CONSOLE_POLISH_STYLE_ID;
+    style.type = 'text/css';
+    style.textContent = DOCTOR_CONSOLE_POLISH_CSS;
+    document.head.appendChild(style);
+  }
+
+  function cleanupHostToolbarMeta() {
+    Array.prototype.slice.call(document.querySelectorAll('.sp-plugin-toolbar-meta')).forEach(function (container) {
+      Array.prototype.slice.call(container.querySelectorAll('a, button')).forEach(function (node) {
+        var label = normalizeText(node.textContent).toLowerCase();
+        if (!label) return;
+        if (label.indexOf('mon compte médecin') === -1
+          && label.indexOf('mon compte medecin') === -1
+          && label.indexOf('se déconnecter') === -1
+          && label.indexOf('se deconnecter') === -1) {
+          return;
+        }
+        var wrapper = node.closest('.sp-plugin-toolbar-meta__item, .sp-button, li, .menu-item') || node;
+        wrapper.classList.add('is-clinically-hidden');
+        wrapper.hidden = true;
+        wrapper.setAttribute('aria-hidden', 'true');
+      });
+    });
+  }
+
+  function ensureProofLightbox() {
+    var existing = root.querySelector('[data-dc-proof-lightbox]');
+    if (existing) {
+      return existing;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dc-proof-lightbox';
+    overlay.hidden = true;
+    overlay.setAttribute('data-dc-proof-lightbox', '1');
+    overlay.innerHTML = [
+      '<div class="dc-proof-lightbox__backdrop" data-action="close-proof-lightbox"></div>',
+      '<div class="dc-proof-lightbox__dialog" role="dialog" aria-modal="true" aria-label="Preuve médicale">',
+      '  <button type="button" class="dc-proof-lightbox__close" data-action="close-proof-lightbox" aria-label="Fermer">×</button>',
+      '  <div class="dc-proof-lightbox__meta" data-dc-proof-lightbox-meta></div>',
+      '  <div class="dc-proof-lightbox__viewport">',
+      '    <img class="dc-proof-lightbox__image" data-dc-proof-lightbox-image alt="Preuve médicale" loading="lazy" />',
+      '  </div>',
+      '</div>'
+    ].join('');
+    root.appendChild(overlay);
+
+    if (!proofLightboxKeydownBound) {
+      document.addEventListener('keydown', function (event) {
+        if (event && event.key === 'Escape') {
+          closeProofLightbox();
+        }
+      });
+      proofLightboxKeydownBound = true;
+    }
+
+    return overlay;
+  }
+
+  function openProofLightbox(url, label) {
+    var accessUrl = normalizeText(url);
+    if (!accessUrl) {
+      return;
+    }
+
+    var overlay = ensureProofLightbox();
+    var image = overlay.querySelector('[data-dc-proof-lightbox-image]');
+    var meta = overlay.querySelector('[data-dc-proof-lightbox-meta]');
+    if (!image || !meta) {
+      return;
+    }
+
+    overlay.setAttribute('data-prev-body-overflow', document.body.style.overflow || '');
+    document.body.style.overflow = 'hidden';
+    image.setAttribute('src', accessUrl);
+    image.setAttribute('alt', normalizeText(label) || 'Preuve médicale');
+    meta.textContent = normalizeText(label) || 'Preuve médicale';
+    overlay.hidden = false;
+  }
+
+  function closeProofLightbox() {
+    var overlay = root.querySelector('[data-dc-proof-lightbox]');
+    if (!overlay) {
+      return;
+    }
+
+    var image = overlay.querySelector('[data-dc-proof-lightbox-image]');
+    var meta = overlay.querySelector('[data-dc-proof-lightbox-meta]');
+    if (image) {
+      image.removeAttribute('src');
+    }
+    if (meta) {
+      meta.textContent = '';
+    }
+
+    document.body.style.overflow = overlay.getAttribute('data-prev-body-overflow') || '';
+    overlay.hidden = true;
   }
 
   function getDoctorMessagingApi() {
@@ -250,6 +383,8 @@
   var PENDING_BUCKET_STATUSES = ['pending', 'payment_pending', 'in_review', 'needs_info'];
 
   ensureDoctorChatUtilityStyles();
+  ensureDoctorConsolePolishStyles();
+  cleanupHostToolbarMeta();
 
   if (!restBase || !nonce) {
     root.innerHTML = '<div class="sosprescription-doctor"><div class="dc-error-card">Configuration REST manquante (restBase/nonce).</div></div>';
@@ -396,6 +531,13 @@
       return [
         '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
         '  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.48-8.48"></path>',
+        '</svg>'
+      ].join('');
+    }
+    if (iconName === 'zap') {
+      return [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '  <path d="M13 2 4 14h7l-1 8 9-12h-7z"></path>',
         '</svg>'
       ].join('');
     }
@@ -1032,6 +1174,11 @@
     return normalizeText(asObject(normalizeArtifactAccessPayload(payload).access).mime_type || '').toLowerCase();
   }
 
+  function isPdfMimeType(mime) {
+    var normalized = normalizeText(mime).toLowerCase();
+    return normalized === 'application/pdf' || /pdf/.test(normalized);
+  }
+
   function renderProofErrorHtml(message, artifactId, placeholderClass) {
     var artifact = normalizeText(artifactId);
     var klass = normalizeText(placeholderClass) || 'dc-proof-placeholder';
@@ -1655,6 +1802,39 @@
     return out;
   }
 
+  function computeInboxUrgency(source) {
+    var flowKey = extractFlowKey(source);
+    var priority = extractPriority(source);
+
+    if (flowKey === 'depannage_no_proof') {
+      return {
+        tone: 'urgent',
+        label: 'Dépannage SOS',
+        icon: 'zap'
+      };
+    }
+
+    if (priority === 'Express') {
+      return {
+        tone: 'urgent',
+        label: 'Express',
+        icon: 'zap'
+      };
+    }
+
+    return {
+      tone: 'standard',
+      label: 'Standard',
+      icon: ''
+    };
+  }
+
+  function renderInboxUrgencyBadge(source) {
+    var urgency = computeInboxUrgency(source);
+    var icon = urgency.icon ? '<span class="dc-urgency-chip__icon" aria-hidden="true">' + buildLucideIcon(urgency.icon) + '</span>' : '';
+    return '<span class="dc-urgency-chip dc-urgency-chip--' + escHtml(urgency.tone) + '">' + icon + '<span>' + escHtml(urgency.label) + '</span></span>';
+  }
+
   function buildInboxAlertBadges(source) {
     var badges = [];
     var thread = extractThreadShadowState(source);
@@ -2159,9 +2339,9 @@
     var source = hasObjectKeys(detail) ? detail : row;
     var patient = extractPatientData(source);
     var statusInfo = computeCaseStatus(source);
-    var urgencyVariant = patient.priority === 'Express' ? 'warn' : 'soft';
     var medicationsPreview = buildMedicationPreview(source);
     var alertBadges = buildInboxAlertBadges(source);
+    var urgencyBadge = renderInboxUrgencyBadge(source);
 
     return [
       '<div class="dc-item__row">',
@@ -2171,7 +2351,7 @@
       medicationsPreview ? '  <div class="dc-item__meds" title="' + escHtml(medicationsPreview) + '">' + escHtml(medicationsPreview) + '</div>' : '',
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
-      '    ' + statusBadge(patient.priority, urgencyVariant),
+      '    ' + urgencyBadge,
       alertBadges ? '    <div class="dc-item__alerts">' + alertBadges + '</div>' : '',
       '  </div>'
     ].join('');
@@ -2182,13 +2362,17 @@
 
     var id = Number(row && row.id || 0);
     var isSelected = Number(state.selectedId) === id;
+    var detail = asObject(state.details[id]);
+    var source = hasObjectKeys(detail) ? detail : row;
+    var urgency = computeInboxUrgency(source);
 
     node.type = 'button';
-    node.className = 'dc-item' + (isSelected ? ' is-selected' : '');
+    node.className = 'dc-item dc-item--' + urgency.tone + (isSelected ? ' is-selected' : '');
     node.setAttribute('data-action', 'select');
     node.setAttribute('data-id', String(id));
     node.setAttribute('data-role', 'inbox-item');
     node.setAttribute('data-case-id', String(id));
+    node.setAttribute('data-urgency-tone', urgency.tone);
     setHtmlIfChanged(node, renderInboxItemMarkup(row));
   }
 
@@ -2825,6 +3009,18 @@
     if (!slot) return;
 
     var detailId = Number(detail && detail.id || 0);
+    var decisionStatus = normalizeText(detail && detail.status || '').toLowerCase();
+    if (decisionStatus !== 'approved') {
+      slot.hidden = true;
+      slot.innerHTML = '';
+      slot.setAttribute('data-rendered-case-id', String(detailId));
+      slot.setAttribute('data-pdf-doc-key', '');
+      slot.setAttribute('data-pdf-signed-url', '');
+      return;
+    }
+
+    slot.hidden = false;
+
     var pdf = extractPdfState(detailId);
     var status = normalizeText(pdf.status || 'pending').toLowerCase();
     var message = firstText([
@@ -2901,6 +3097,7 @@
     var access = asObject(normalized.access);
     var frameClass = normalizeText(opts.frameClass) || 'dc-proof-viewer__frame';
     var imageClass = normalizeText(opts.imageClass) || 'dc-proof-viewer__image';
+    var imageButtonClass = normalizeText(opts.imageButtonClass) || 'dc-proof-viewer__image-button';
     var placeholderClass = normalizeText(opts.placeholderClass) || 'dc-proof-placeholder';
     var emptyMessage = normalizeText(opts.emptyMessage) || 'Sélectionnez une preuve pour l’afficher.';
     var accessUrl = getArtifactAccessUrl(normalized);
@@ -2908,10 +3105,15 @@
       return '<div class="' + escHtml(placeholderClass) + '">' + escHtml(emptyMessage) + '</div>';
     }
     var mime = getArtifactAccessMimeType(normalized);
-    if (mime === 'application/pdf' || /pdf/.test(mime)) {
+    var label = normalizeText(opts.label) || normalizeText(artifact.original_name) || 'Preuve médicale';
+    if (isPdfMimeType(mime)) {
       return '<iframe class="' + escHtml(frameClass) + '" src="' + escHtml(String(accessUrl)) + '#toolbar=0&view=FitH" loading="lazy"></iframe>';
     }
-    return '<img class="' + escHtml(imageClass) + '" src="' + escHtml(String(accessUrl)) + '" alt="Preuve médicale" loading="lazy" />';
+    return [
+      '<button type="button" class="' + escHtml(imageButtonClass) + '" data-action="open-proof-lightbox" data-proof-url="' + escHtml(String(accessUrl)) + '" data-proof-label="' + escHtml(label) + '">',
+      '  <img class="' + escHtml(imageClass) + '" src="' + escHtml(String(accessUrl)) + '" alt="' + escHtml(label) + '" loading="lazy" />',
+      '</button>'
+    ].join('');
   }
 
   function renderInlineProofPanel(detail) {
@@ -2936,8 +3138,10 @@
       viewerHtml = buildProofViewerHtml(accessPayload, {
         frameClass: 'dc-inline-proof-card__frame',
         imageClass: 'dc-inline-proof-card__image',
+        imageButtonClass: 'dc-inline-proof-card__image-button',
         placeholderClass: 'dc-inline-proof-card__placeholder',
-        emptyMessage: 'Sélectionnez une preuve pour l’afficher.'
+        emptyMessage: 'Sélectionnez une preuve pour l’afficher.',
+        label: normalizeText(artifact.original_name) || 'Preuve médicale'
       });
     }
 
@@ -2950,9 +3154,13 @@
     }).join('') + '</div>' : '';
 
     var inlineAccessUrl = getArtifactAccessUrl(accessPayload);
-    var openButtonHtml = inlineAccessUrl
-      ? '<a class="sp-button sp-button--secondary" href="' + escHtml(String(inlineAccessUrl)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
-      : '';
+    var inlineMime = getArtifactAccessMimeType(accessPayload);
+    var openButtonHtml = '';
+    if (inlineAccessUrl) {
+      openButtonHtml = isPdfMimeType(inlineMime)
+        ? '<a class="sp-button sp-button--secondary" href="' + escHtml(String(inlineAccessUrl)) + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+        : '<button type="button" class="sp-button sp-button--secondary" data-action="open-proof-lightbox" data-proof-url="' + escHtml(String(inlineAccessUrl)) + '" data-proof-label="' + escHtml(normalizeText(artifact.original_name) || 'Preuve médicale') + '">Agrandir</button>';
+    }
 
     var titleLabel = normalizeText(artifact.original_name) || 'Preuve médicale';
     var titleMeta = normalizeText(artifact.mime_type) || 'Document';
@@ -2998,8 +3206,10 @@
       viewerHtml = buildProofViewerHtml(accessPayload, {
         frameClass: 'dc-proof-viewer__frame',
         imageClass: 'dc-proof-viewer__image',
+        imageButtonClass: 'dc-proof-viewer__image-button',
         placeholderClass: 'dc-proof-placeholder',
-        emptyMessage: 'Sélectionnez une preuve pour l’afficher.'
+        emptyMessage: 'Sélectionnez une preuve pour l’afficher.',
+        label: normalizeText(artifact.original_name) || 'Preuve médicale'
       });
     }
 
@@ -3286,6 +3496,7 @@
 
   function render() {
     ensureShell();
+    cleanupHostToolbarMeta();
     renderHeaderInto();
     renderNoticeInto();
     patchInboxList();
@@ -3508,6 +3719,7 @@
     if (numericId < 1) return Promise.resolve(null);
 
     var changed = Number(state.selectedId) !== numericId;
+    closeProofLightbox();
     closeMedicationEditor();
     state.selectedId = numericId;
     state.refusalOpen = false;
@@ -3770,6 +3982,16 @@
         renderDetail();
         loadProofAccess(proofDetailId, proofArtifactId);
       }
+      return;
+    }
+
+    if (action === 'open-proof-lightbox') {
+      openProofLightbox(actionEl.getAttribute('data-proof-url') || '', actionEl.getAttribute('data-proof-label') || 'Preuve médicale');
+      return;
+    }
+
+    if (action === 'close-proof-lightbox') {
+      closeProofLightbox();
       return;
     }
 

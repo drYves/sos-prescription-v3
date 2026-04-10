@@ -2919,6 +2919,92 @@ function renderFatal(container: HTMLElement, message: string): void {
   container.appendChild(notice);
 }
 
+type ExternalProfileAccordionOptions = {
+  collapsedByDefault: boolean;
+};
+
+function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): void {
+  const collapsedByDefault = !!options.collapsedByDefault;
+
+  const enhanceCard = (card: Element | null): boolean => {
+    if (!(card instanceof HTMLElement)) {
+      return false;
+    }
+
+    if (card.dataset.spAccordionReady === '1') {
+      return true;
+    }
+
+    const header = card.querySelector('.sp-profile-card__header');
+    if (!(header instanceof HTMLElement)) {
+      return false;
+    }
+
+    const content = document.createElement('div');
+    content.className = 'sp-profile-card__content';
+    content.id = 'sp-profile-card-content';
+
+    Array.from(card.children).forEach((child) => {
+      if (child !== header) {
+        content.appendChild(child);
+      }
+    });
+
+    card.appendChild(content);
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'sp-profile-card__toggle';
+    toggle.setAttribute('aria-controls', 'sp-profile-card-content');
+
+    const toggleIcon = document.createElement('span');
+    toggleIcon.className = 'sp-profile-card__toggle-icon';
+    toggleIcon.setAttribute('aria-hidden', 'true');
+    toggleIcon.textContent = '⌃';
+
+    const toggleLabel = document.createElement('span');
+    toggleLabel.className = 'sp-profile-card__toggle-label';
+
+    toggle.appendChild(toggleLabel);
+    toggle.appendChild(toggleIcon);
+    header.appendChild(toggle);
+
+    const setCollapsed = (collapsed: boolean): void => {
+      card.classList.toggle('is-collapsed', collapsed);
+      content.hidden = collapsed;
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
+    };
+
+    toggle.addEventListener('click', () => {
+      setCollapsed(!card.classList.contains('is-collapsed'));
+    });
+
+    card.dataset.spAccordionReady = '1';
+    setCollapsed(collapsedByDefault);
+    return true;
+  };
+
+  const tryEnhance = (): boolean => enhanceCard(document.querySelector('.sp-profile-card'));
+
+  if (tryEnhance()) {
+    return;
+  }
+
+  if (!(document.body instanceof HTMLElement)) {
+    return;
+  }
+
+  const observer = new MutationObserver(() => {
+    if (tryEnhance()) {
+      observer.disconnect();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  window.setTimeout(() => observer.disconnect(), 12000);
+}
+
 function mountPatientConsole(container: HTMLElement): void {
   window.__SosPrescriptionPatientRoot?.unmount?.();
   const root = createRoot(container);
@@ -2943,12 +3029,19 @@ function mountPublicForm(container: HTMLElement): void {
 
 (function boot() {
   const dedicatedPatientRoot = document.getElementById('sosprescription-root-patient');
+  const sharedRoot = document.getElementById('sosprescription-root-form');
+  const sharedAppKind = sharedRoot
+    ? String(sharedRoot.getAttribute('data-app') || '').trim().toLowerCase()
+    : '';
+  const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
+
+  installExternalProfileAccordion({ collapsedByDefault: shouldCollapseProfile });
+
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);
     return;
   }
 
-  const sharedRoot = document.getElementById('sosprescription-root-form');
   if (!sharedRoot) {
     return;
   }
@@ -2965,8 +3058,7 @@ function mountPublicForm(container: HTMLElement): void {
     return;
   }
 
-  const appKind = String(sharedRoot.getAttribute('data-app') || '').trim().toLowerCase();
-  if (appKind === 'patient') {
+  if (sharedAppKind === 'patient') {
     mountPatientConsole(sharedRoot);
     return;
   }

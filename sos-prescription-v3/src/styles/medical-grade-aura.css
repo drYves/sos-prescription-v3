@@ -1027,3 +1027,162 @@
     align-items: stretch;
   }
 }
+
+
+:root {
+  --sp-color-accent-soft: var(--sp-color-primary-light);
+}
+
+.sp-page-shell.sp-app-container {
+  width: min(100%, 800px);
+  margin-inline: auto;
+}
+
+.sp-console-grid {
+  grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.sp-profile-card {
+  width: min(100%, 800px);
+  margin: 12px auto 18px;
+  padding: 0;
+  border: var(--sp-app-border);
+  border-radius: var(--sp-app-radius);
+  background: var(--sp-app-surface);
+  box-shadow: var(--sp-app-shadow);
+  font-family: var(--sp-app-font-family);
+  color: var(--sp-app-text);
+  overflow: hidden;
+}
+
+.sp-profile-card__header {
+  margin: 0;
+  padding: 18px 20px;
+}
+
+.sp-profile-card__meta {
+  color: var(--sp-app-text-soft);
+}
+
+.sp-profile-card__content {
+  padding: 0 20px 18px;
+}
+
+.sp-profile-card__content[hidden] {
+  display: none !important;
+}
+
+.sp-profile-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: var(--sp-app-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sp-app-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.sp-profile-card__toggle:hover {
+  background: var(--sp-app-surface-soft);
+  border-color: #cdd9ea;
+}
+
+.sp-profile-card__toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--sp-color-primary-dark);
+  transition: transform 0.15s ease;
+}
+
+.sp-profile-card.is-collapsed .sp-profile-card__toggle-icon {
+  transform: rotate(-180deg);
+}
+
+.sp-profile-card.is-collapsed .sp-profile-card__header {
+  border-bottom: 0;
+}
+
+.sp-thread-list--viewer-patient {
+  gap: 16px;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item {
+  justify-content: flex-start;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item.is-own {
+  justify-content: flex-end;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item__bubble {
+  max-width: min(100%, 560px);
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: var(--sp-app-border);
+  box-shadow: 0 14px 32px rgba(16, 39, 74, 0.08);
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--role-doctor .sp-thread-item__bubble {
+  background: var(--sp-color-accent-soft);
+  border-color: #c9dafc;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__bubble,
+.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__bubble {
+  background: #ffffff;
+  border-color: #dbe5f1;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item__author {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sp-app-text-soft);
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--role-doctor .sp-thread-item__author {
+  color: var(--sp-color-primary-dark);
+  font-weight: 800;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__author {
+  color: var(--sp-app-text-soft);
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item__body {
+  margin-top: 10px;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item__meta {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: var(--sp-app-text-soft);
+}
+
+@media (max-width: 900px) {
+  .sp-page-shell.sp-app-container,
+  .sp-profile-card {
+    width: min(100%, 800px);
+  }
+
+  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
+    max-width: 100%;
+  }
+
+  .sp-profile-card__header {
+    align-items: flex-start;
+  }
+}

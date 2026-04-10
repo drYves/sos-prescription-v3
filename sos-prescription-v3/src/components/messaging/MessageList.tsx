@@ -30,42 +30,98 @@ function cx(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');
 }
 
+function normalizeRole(authorRole: string): string {
+  return String(authorRole || '').trim().toUpperCase();
+}
+
 function isOwnMessage(authorRole: string, viewerRole: ViewerRole): boolean {
-  const normalizedAuthorRole = String(authorRole || '').trim().toUpperCase();
-  return normalizedAuthorRole === viewerRole;
+  return normalizeRole(authorRole) === viewerRole;
 }
 
 function getRoleLabel(authorRole: string, viewerRole: ViewerRole): string {
-  const normalizedAuthorRole = String(authorRole || '').trim().toUpperCase();
+  const normalizedAuthorRole = normalizeRole(authorRole);
+
   if (viewerRole === 'DOCTOR') {
     if (normalizedAuthorRole === 'DOCTOR') return 'VOUS';
     if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
     return 'INTERLOCUTEUR';
   }
 
-  if (normalizedAuthorRole === 'PATIENT') return 'VOUS';
+  if (normalizedAuthorRole === 'PATIENT') return 'MOI';
   if (normalizedAuthorRole === 'DOCTOR') return 'MÉDECIN';
   return 'INTERLOCUTEUR';
+}
+
+function formatMessageDate(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) {
+    return raw;
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const parts = formatter.formatToParts(date);
+    const map: Record<string, string> = {};
+
+    parts.forEach((part) => {
+      if (part.type !== 'literal') {
+        map[part.type] = part.value;
+      }
+    });
+
+    const day = map.day || '';
+    const month = map.month || '';
+    const year = map.year || '';
+    const hour = map.hour || '';
+    const minute = map.minute || '';
+
+    if (day && month && year && hour && minute) {
+      return `${day} ${month} ${year} à ${hour}:${minute}`;
+    }
+
+    return formatter.format(date);
+  } catch {
+    return raw;
+  }
 }
 
 const MessageList = React.memo(
   function MessageListComponent({ messages, viewerRole, fileIndex, onDownloadFile }: Props) {
     return (
-      <div className="sp-thread-list">
-        {messages.map((message) => {
+      <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
+        {messages.map((message, index) => {
           const mine = isOwnMessage(message.author_role, viewerRole);
           const roleLabel = getRoleLabel(message.author_role, viewerRole);
           const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
-          const normalizedRole = String(message.author_role || '').trim().toUpperCase();
-          const highlightDoctor = viewerRole === 'PATIENT' && normalizedRole === 'DOCTOR';
+          const normalizedRole = normalizeRole(message.author_role);
+          const formattedDate = formatMessageDate(message.created_at);
+          const itemKey = Number.isFinite(Number(message.id)) && Number(message.id) > 0
+            ? String(message.id)
+            : `${normalizedRole}-${message.created_at}-${index}`;
 
           return (
             <div
-              key={message.id}
+              key={itemKey}
               className={cx(
                 'sp-thread-item',
                 mine && 'is-own',
-                highlightDoctor && 'sp-thread-item--doctor-highlight',
+                mine && 'sp-thread-item--mine',
+                normalizedRole === 'DOCTOR' && 'sp-thread-item--role-doctor',
+                normalizedRole === 'PATIENT' && 'sp-thread-item--role-patient',
+                viewerRole === 'PATIENT' && 'sp-thread-item--viewer-patient',
+                viewerRole === 'DOCTOR' && 'sp-thread-item--viewer-doctor',
               )}
             >
               <article className="sp-thread-item__bubble">
@@ -94,7 +150,7 @@ const MessageList = React.memo(
                   </div>
                 ) : null}
 
-                <div className="sp-thread-item__meta">{message.created_at}</div>
+                <div className="sp-thread-item__meta">{formattedDate || message.created_at}</div>
               </article>
             </div>
           );
