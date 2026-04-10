@@ -428,12 +428,104 @@ async function getPaymentsConfigApi(): Promise<PaymentsConfig | null> {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+
+    const trimmed = value.trim();
+    if (trimmed !== '') {
+      return trimmed;
+    }
+  }
+
+  return '';
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+
+  return null;
+}
+
+function normalizePaymentIntentResponse(payload: unknown): PaymentIntentResponse {
+  const root = asRecord(payload);
+  const nestedCandidates: unknown[] = [
+    root?.intent,
+    root?.payment_intent,
+    root?.paymentIntent,
+    root?.data,
+  ];
+
+  let nested: Record<string, unknown> | null = null;
+  for (const candidate of nestedCandidates) {
+    const record = asRecord(candidate);
+    if (record) {
+      nested = record;
+      break;
+    }
+  }
+
+  return {
+    provider: firstNonEmptyString(root?.provider, nested?.provider) || 'stripe',
+    payment_intent_id: firstNonEmptyString(
+      root?.payment_intent_id,
+      root?.paymentIntentId,
+      root?.id,
+      nested?.payment_intent_id,
+      nested?.paymentIntentId,
+      nested?.id,
+    ) || null,
+    client_secret: firstNonEmptyString(
+      root?.client_secret,
+      root?.clientSecret,
+      nested?.client_secret,
+      nested?.clientSecret,
+    ) || null,
+    status: firstNonEmptyString(root?.status, nested?.status) || null,
+    amount_cents: firstFiniteNumber(
+      root?.amount_cents,
+      root?.amount,
+      nested?.amount_cents,
+      nested?.amount,
+    ),
+    currency: firstNonEmptyString(root?.currency, nested?.currency) || null,
+    priority: firstNonEmptyString(root?.priority, nested?.priority) || null,
+    publishable_key: firstNonEmptyString(
+      root?.publishable_key,
+      root?.publishableKey,
+      nested?.publishable_key,
+      nested?.publishableKey,
+    ),
+    capture_method: firstNonEmptyString(
+      root?.capture_method,
+      root?.captureMethod,
+      nested?.capture_method,
+      nested?.captureMethod,
+    ) || null,
+  };
+}
+
 async function createPaymentIntentApi(id: number, priority: 'standard' | 'express'): Promise<PaymentIntentResponse> {
-  return sharedApi(`/prescriptions/${id}/payment/intent`, {
+  const payload = await sharedApi(`/prescriptions/${id}/payment/intent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ priority }),
-  }, 'form') as Promise<PaymentIntentResponse>;
+  }, 'form');
+
+  return normalizePaymentIntentResponse(payload);
 }
 
 async function confirmPaymentIntentApi(id: number, paymentIntentId: string): Promise<unknown> {
@@ -2796,9 +2888,8 @@ function StepPaymentAuth({
                   <Spinner />
                   <span>Initialisation sécurisée du module bancaire…</span>
                 </div>
-              ) : (
-                <div ref={mountRef} />
-              )}
+              ) : null}
+              <div ref={mountRef} data-sp-stripe-mount="1" />
             </div>
           </div>
 
