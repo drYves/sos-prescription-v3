@@ -390,7 +390,7 @@ async function v4Api(path: string, init: RequestInit = {}, scope: 'form' | 'pati
 
 async function searchMedicationsApi(query: string, limit = 20): Promise<unknown> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  return sharedApi(`/medications/search?${params.toString()}`, { method: 'GET' }, 'form');
+  return v4Api(`/medications/search?${params.toString()}`, { method: 'GET' }, 'form');
 }
 
 async function getPricingApi(): Promise<PricingConfig | null> {
