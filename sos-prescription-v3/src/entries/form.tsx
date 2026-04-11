@@ -1274,14 +1274,14 @@ function formatEtaMinutes(minutes: number | null | undefined): string | null {
     return null;
   }
   if (value < 60) {
-    return `${value} min`;
+    return `${value} minute${value > 1 ? 's' : ''}`;
   }
   const hours = Math.floor(value / 60);
   const rest = value % 60;
   if (rest < 1) {
-    return `${hours} h`;
+    return `${hours} heure${hours > 1 ? 's' : ''}`;
   }
-  return `${hours} h ${rest} min`;
+  return `${hours} heure${hours > 1 ? 's' : ''} ${rest} minute${rest > 1 ? 's' : ''}`;
 }
 
 function describePriorityTurnaround(
@@ -1426,14 +1426,14 @@ function buildSubmitBlockInfo(input: {
   if (flow === 'depannage_no_proof' && !input.attestationNoProof) {
     reasons.push({
       code: 'attestation_missing',
-      message: 'Merci de confirmer l’attestation de dépannage sans preuve.',
+      message: 'Merci de confirmer l’attestation de dépannage sans justificatif.',
     });
   }
 
   if (input.consentRequired) {
     const missing: string[] = [];
-    if (!input.consentTelemedicine) missing.push('analyse médicale du dossier');
-    if (!input.consentTruth) missing.push('attestation sur l’honneur');
+    if (!input.consentTelemedicine) missing.push('analyse de votre demande par un médecin');
+    if (!input.consentTruth) missing.push('exactitude des informations');
     if (!input.consentCgu) missing.push('CGU');
     if (!input.consentPrivacy) missing.push('politique de confidentialité');
 
@@ -1844,8 +1844,8 @@ function ScheduleEditor({
   }, [doses, normalized, onChange]);
 
   return (
-    <div className="sp-app-card sp-app-card--nested">
-      <div className="sp-app-grid sp-app-grid--two">
+    <div className="sp-app-card sp-app-card--nested sp-app-schedule-editor">
+      <div className="sp-app-grid sp-app-grid--two sp-app-schedule-editor__overview">
         <div className="sp-app-field">
           <label className="sp-app-field__label">Nombre de prises</label>
           <TextInput
@@ -1892,15 +1892,15 @@ function ScheduleEditor({
       </div>
 
       {freqUnit === 'jour' ? (
-        <div className="sp-app-schedule">
+        <div className="sp-app-schedule sp-app-schedule--grouped">
           <div className="sp-app-schedule__header">
             <div className="sp-app-schedule__title">
-              {autoTimesEnabled ? 'Horaires proposés automatiquement' : 'Horaires personnalisés'}
+              {autoTimesEnabled ? 'Horaires suggérés' : 'Horaires personnalisés'}
             </div>
             <div className="sp-app-schedule__actions">
               {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={resetAutomaticTimes}>
-Recalculer les horaires
+Recalculer
                 </Button>
               ) : (
                 <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
@@ -1909,13 +1909,13 @@ Proposer des horaires
               )}
               {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
-Saisir moi-même
+Personnaliser
                 </Button>
               ) : null}
             </div>
           </div>
 
-          <div className="sp-app-grid sp-app-grid--three">
+          <div className="sp-app-grid sp-app-grid--two sp-app-schedule__anchors">
             <div className="sp-app-field">
               <label className="sp-app-field__label">1ère prise</label>
               <TextInput
@@ -1952,7 +1952,7 @@ Saisir moi-même
         </div>
       ) : null}
 
-      <div className="sp-app-dose-list">
+      <div className="sp-app-dose-list sp-app-dose-list--grouped">
         {Array.from({ length: count }).map((_, index) => {
           const isFirst = index === 0;
           const isLast = index === count - 1 && count > 1;
@@ -1985,8 +1985,8 @@ Saisir moi-même
 
 function getFlowLabel(flow: FlowType): string {
   return flow === 'ro_proof'
-    ? 'Renouvellement avec preuve'
-    : 'Dépannage sans preuve';
+    ? 'Renouvellement avec justificatif'
+    : 'Dépannage sans justificatif';
 }
 
 type StepFlowChoiceProps = {
@@ -1999,14 +1999,14 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
     <section className="sp-app-card">
       <div className="sp-app-section__header">
         <div>
-          <h2 className="sp-app-section__title">Choisissez le scénario médical</h2>
+          <h2 className="sp-app-section__title">Choisissez votre situation</h2>
           <p className="sp-app-section__hint">
-            Nous vous guiderons ensuite vers la saisie adaptée.
+            Nous vous guidons ensuite vers les informations à renseigner.
           </p>
         </div>
       </div>
 
-      <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le scénario médical">
+      <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir votre situation">
         <button
           type="button"
           role="radio"
@@ -2015,11 +2015,11 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
           onClick={() => onSelectFlow('ro_proof')}
         >
-          <div className="sp-app-choice-card__title">Renouvellement avec preuve</div>
+          <div className="sp-app-choice-card__title">Renouvellement avec justificatif</div>
           <div className="sp-app-choice-card__text">
             Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
           </div>
-          <div className="sp-app-choice-card__meta">Pré-remplissage assisté possible.</div>
+          <div className="sp-app-choice-card__meta">Pré-remplissage assisté disponible.</div>
         </button>
 
         <button
@@ -2030,7 +2030,7 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
           onClick={() => onSelectFlow('depannage_no_proof')}
         >
-          <div className="sp-app-choice-card__title">Dépannage sans preuve</div>
+          <div className="sp-app-choice-card__title">Dépannage sans justificatif</div>
           <div className="sp-app-choice-card__text">
             En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
           </div>
@@ -2126,7 +2126,7 @@ function StepClinicalData({
           </div>
           <div className="sp-app-section__actions">
             <Button type="button" variant="secondary" onClick={onBackToChoice}>
-              Modifier le scénario
+              Modifier ma situation
             </Button>
           </div>
         </div>
@@ -2335,7 +2335,7 @@ function StepClinicalData({
         {items.length > 0 ? (
           <div className="sp-app-medication-list">
             {items.map((item, index) => (
-              <div key={`${item.label}-${index}`} className="sp-app-medication-card">
+              <div key={`${item.label}-${index}`} className="sp-app-medication-card sp-app-medication-card--stacked">
                 <div className="sp-app-medication-card__head">
                   <div className="sp-app-medication-card__content">
                     <div className="sp-app-medication-card__title">{item.label}</div>
@@ -2371,17 +2371,17 @@ function StepClinicalData({
       </section>
 
       {flow === 'depannage_no_proof' ? (
-        <section className="sp-app-card sp-app-card--warning">
+        <section className="sp-app-card sp-app-card--attestation">
           <div className="sp-app-section__header">
             <div>
               <h2 className="sp-app-section__title">Attestation sur l’honneur</h2>
               <p className="sp-app-section__hint">
-                En cas de perte, d’oubli ou de voyage, vous devez certifier que ce traitement vous a déjà été prescrit.
+                Merci de confirmer que ce traitement vous a déjà été prescrit.
               </p>
             </div>
           </div>
 
-          <label className="sp-app-checkbox sp-app-checkbox--emphasis">
+          <label className="sp-app-checkbox sp-app-checkbox--emphasis sp-app-checkbox--statement">
             <span className="sp-app-checkbox__control">
               <input
                 type="checkbox"
@@ -2391,7 +2391,7 @@ function StepClinicalData({
               <span className="sp-app-checkbox__box" aria-hidden="true" />
             </span>
             <span className="sp-app-checkbox__text">
-              Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
+              Je certifie que ce traitement m’a déjà été prescrit et que les informations renseignées sont exactes.
             </span>
           </label>
         </section>
@@ -2401,14 +2401,14 @@ function StepClinicalData({
         <section className="sp-app-card">
           <div className="sp-app-section__header">
             <div>
-              <h2 className="sp-app-section__title">Points à valider avant l’envoi</h2>
+              <h2 className="sp-app-section__title">Points à valider</h2>
               <p className="sp-app-section__hint">
-                Avant l’envoi au médecin, merci de valider les éléments ci-dessous.
+                Avant de poursuivre, merci de valider les éléments ci-dessous.
               </p>
             </div>
           </div>
 
-          <div className="sp-app-stack sp-app-stack--compact">
+          <div className="sp-app-stack sp-app-stack--compact sp-app-consent-list">
             <label className="sp-app-checkbox">
               <span className="sp-app-checkbox__control">
                 <input
@@ -2420,7 +2420,7 @@ function StepClinicalData({
                 <span className="sp-app-checkbox__box" aria-hidden="true" />
               </span>
               <span className="sp-app-checkbox__text">
-                J’accepte que ma demande et mes informations médicales soient étudiées par un médecin dans le cadre de ce service de continuité de traitement.
+                J’accepte l’analyse de ma demande par un médecin.
               </span>
             </label>
 
@@ -2434,7 +2434,7 @@ function StepClinicalData({
                 />
                 <span className="sp-app-checkbox__box" aria-hidden="true" />
               </span>
-              <span className="sp-app-checkbox__text">Je confirme que les informations communiquées sont exactes.</span>
+              <span className="sp-app-checkbox__text">Je confirme l’exactitude des informations.</span>
             </label>
 
             <div className="sp-app-checkbox sp-app-checkbox--with-action">
@@ -2488,11 +2488,11 @@ function StepClinicalData({
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBackToChoice} disabled={submitLoading}>
-          Retour au scénario
+          Modifier ma situation
         </Button>
 
         <Button type="button" onClick={onContinue} disabled={submitLoading}>
-          Choisir le délai de traitement
+          Continuer
         </Button>
       </div>
     </div>
@@ -2535,16 +2535,16 @@ function StepPrioritySelection({
       <section className="sp-app-card">
         <div className="sp-app-section__header">
           <div>
-            <h2 className="sp-app-section__title">Choisissez le délai de traitement</h2>
+            <h2 className="sp-app-section__title">Choisissez la rapidité de traitement</h2>
             <p className="sp-app-section__hint">
-              Sélectionnez l’option adaptée avant la sécurisation du paiement.
+              Choisissez une option avant le paiement sécurisé.
             </p>
           </div>
         </div>
 
         <div className="sp-app-summary-grid">
           <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Scénario</div>
+            <div className="sp-app-summary-card__label">Situation</div>
             <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
           </div>
           <div className="sp-app-summary-card">
@@ -2563,7 +2563,7 @@ function StepPrioritySelection({
             <span>Chargement du montant de la demande…</span>
           </div>
         ) : pricing ? (
-          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le délai de traitement">
+          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir la rapidité de traitement">
             <button
               type="button"
               role="radio"
@@ -2587,7 +2587,7 @@ function StepPrioritySelection({
               className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
               onClick={() => onPriorityChange('express')}
             >
-              <div className="sp-app-choice-card__title">Express SOS</div>
+              <div className="sp-app-choice-card__title">Express</div>
               <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
               <div className="sp-app-choice-card__meta">
                 {formatMoney(pricing.express_cents, pricing.currency)}
@@ -2602,26 +2602,26 @@ function StepPrioritySelection({
 
         <div className="sp-app-block">
           <Notice variant="info">
-            Les montants affichés correspondent aux <strong>frais d’expertise clinique</strong>. L’option choisie sera rappelée avant la sécurisation de votre carte.
+            Les montants correspondent aux <strong>frais d’analyse médicale</strong>. Votre choix sera rappelé avant le paiement sécurisé.
           </Notice>
         </div>
 
         {selectedAmount != null && pricing ? (
           <div className="sp-app-priority-selection__summary" data-priority={priority}>
-            <strong>Option choisie</strong>
+            <strong>Votre choix</strong>
             <div className="sp-app-priority-selection__amount">{formatMoney(selectedAmount, pricing.currency)}</div>
-            <span>{priority === 'express' ? 'Express SOS' : 'Standard'} • {selectedPriorityEta}</span>
+            <span>{priority === 'express' ? 'Express' : 'Standard'} • {selectedPriorityEta}</span>
           </div>
         ) : null}
       </section>
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBack}>
-          Modifier les informations médicales
+          Modifier mes informations
         </Button>
 
         <Button type="button" onClick={onContinue} disabled={continueDisabled}>
-          Continuer vers le paiement sécurisé
+          Continuer
         </Button>
       </div>
     </div>
@@ -2890,16 +2890,16 @@ function StepPaymentAuth({
       <section className="sp-app-card">
         <div className="sp-app-section__header">
           <div>
-            <h2 className="sp-app-section__title">Sécurisation du paiement</h2>
+            <h2 className="sp-app-section__title">Paiement sécurisé</h2>
             <p className="sp-app-section__hint">
-              Cette étape vérifie votre carte avant l’envoi sécurisé du dossier au médecin.
+              Votre carte est vérifiée avant l’envoi de votre demande.
             </p>
           </div>
         </div>
 
         <div className="sp-app-block">
           <Notice variant="info">
-            <strong>Votre carte est seulement vérifiée ici. Elle n’est débitée qu’après validation du médecin. Aucun frais en cas de refus médical.</strong>
+            <strong>Votre carte est vérifiée uniquement. Elle ne sera débitée qu’après validation médicale. Aucun frais en cas de refus.</strong>
           </Notice>
         </div>
 
@@ -2913,19 +2913,19 @@ function StepPaymentAuth({
             <div className="sp-app-summary-card__value">{birthdate || '—'}</div>
           </div>
           <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Scénario</div>
+            <div className="sp-app-summary-card__label">Situation</div>
             <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
           </div>
           <div className="sp-app-summary-card">
             <div className="sp-app-summary-card__label">Priorité</div>
-            <div className="sp-app-summary-card__value">{priority === 'express' ? 'Express SOS' : 'Standard'}</div>
+            <div className="sp-app-summary-card__value">{priority === 'express' ? 'Express' : 'Standard'}</div>
           </div>
           <div className="sp-app-summary-card">
             <div className="sp-app-summary-card__label">Délai visé</div>
             <div className="sp-app-summary-card__value">{selectedPriorityEta}</div>
           </div>
           <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Frais d’expertise clinique</div>
+            <div className="sp-app-summary-card__label">Frais d’analyse médicale</div>
             <div className="sp-app-summary-card__value">
               {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : '—'}
             </div>
@@ -2958,7 +2958,7 @@ function StepPaymentAuth({
             <div>
               <h3 className="sp-app-section__title">Carte bancaire sécurisée</h3>
               <p className="sp-app-section__hint">
-                Saisissez votre carte dans le formulaire bancaire sécurisé. Les données ne sont jamais stockées sur nos serveurs.
+                Saisissez votre carte dans le formulaire sécurisé. Les données ne sont pas stockées.
               </p>
             </div>
           </div>
@@ -2982,17 +2982,15 @@ function StepPaymentAuth({
           </div>
 
           <div className="sp-app-inline-note">
-            {paymentsConfig?.provider
-              ? `Paiement sécurisé par ${String(paymentsConfig.provider).toUpperCase()}`
-              : 'Paiement sécurisé'}
-            {amountCents != null ? ` • Aucun débit avant validation médicale • Montant autorisé temporairement : ${formatMoney(amountCents, currency)}` : ' • Aucun débit avant validation médicale'}
+            Paiement sécurisé
+            {amountCents != null ? ` • Aucun débit avant validation médicale • Autorisation temporaire : ${formatMoney(amountCents, currency)}` : ' • Aucun débit avant validation médicale'}
           </div>
         </div>
       </section>
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBack} disabled={submitting}>
-          Modifier le délai de traitement
+          Modifier mon choix
         </Button>
         <Button
           type="button"
@@ -3007,7 +3005,7 @@ function StepPaymentAuth({
               <span>Validation sécurisée en cours…</span>
             </>
           ) : (
-            'Sécuriser ma carte et envoyer ma demande'
+            'Valider et envoyer ma demande'
           )}
         </Button>
       </div>
@@ -3042,7 +3040,7 @@ function StepSuccess({
       <section className="sp-app-card sp-app-card--success">
         <div className="sp-app-confirmation">
           <div className="sp-app-confirmation__title">Merci ! Votre demande est enregistrée.</div>
-          <div className="sp-app-confirmation__label">Numéro de dossier</div>
+          <div className="sp-app-confirmation__label">Numéro de suivi</div>
           <div className="sp-app-confirmation__uid-row">
             <div className="sp-app-confirmation__uid">{submissionResult.uid}</div>
             <button
@@ -3051,14 +3049,14 @@ function StepSuccess({
               onClick={() => {
                 void onCopyUid();
               }}
-              aria-label="Copier le numéro de dossier"
+              aria-label="Copier le numéro de suivi"
               title="Copier"
             >
-              {copiedUid ? 'Numéro copié' : 'Copier le numéro'}
+              {copiedUid ? 'Copié' : 'Copier'}
             </button>
           </div>
           <div className="sp-app-confirmation__text">
-            Conservez ce numéro. Il vous permettra de retrouver votre dossier et d’échanger avec le médecin.
+            Conservez ce numéro pour suivre votre demande et échanger avec le médecin.
           </div>
         </div>
       </section>
@@ -3069,7 +3067,7 @@ function StepSuccess({
             <div>
               <h2 className="sp-app-section__title">Suite de la demande</h2>
               <p className="sp-app-section__hint">
-                Vous pourrez suivre votre dossier et échanger avec le médecin depuis votre espace patient.
+                Suivez votre demande et échangez avec le médecin depuis votre espace patient.
               </p>
             </div>
           </div>
@@ -3083,10 +3081,10 @@ function StepSuccess({
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onReset}>
-          Nouvelle demande
+          Faire une nouvelle demande
         </Button>
         <div className="sp-app-inline-note">
-          Vous pourrez toujours compléter via la messagerie patient.
+          Vous pouvez compléter votre demande à tout moment via la messagerie.
         </div>
       </div>
     </div>
@@ -3754,7 +3752,6 @@ function PublicFormApp() {
       >
         <header className="sp-app-header">
           <div className="sp-app-header__eyebrow">Médecins inscrits à l’Ordre · Données sécurisées HDS</div>
-          <h1 className="sp-app-header__title">SOS Prescription</h1>
           <p className="sp-app-header__subtitle">
             Validation médicale sécurisée pour la continuité de votre traitement.
           </p>
@@ -3792,13 +3789,6 @@ function PublicFormApp() {
           </div>
         ) : null}
 
-        <div className="sp-app-block">
-          <Notice variant="warning">
-            Service réservé au <strong>renouvellement / continuité d’un traitement déjà connu</strong>.
-            <br />
-            Aucune urgence vitale, pas d’arrêt de travail, et aucun médicament classé comme stupéfiant.
-          </Notice>
-        </div>
 
         {!isLoggedIn ? (
           <div className="sp-app-block">
