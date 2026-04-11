@@ -32,12 +32,14 @@ final class BdpmTableShortcode
         $meta = get_option('sosprescription_bdpm_meta');
         $version = (is_array($meta) && !empty($meta['bdpm_version'])) ? (string) $meta['bdpm_version'] : '';
         $imported = (is_array($meta) && !empty($meta['imported_at'])) ? (string) $meta['imported_at'] : '';
+        $api_url = '/wp-json/sosprescription/v4/medications/search';
 
         Logger::log_shortcode('sosprescription_bdpm_table', 'info', 'shortcode_render', [
             'atts_count' => count($atts),
             'per_page' => (int) $per_page,
             'bdpm_version' => $version,
             'bdpm_imported_at' => $imported,
+            'api_url' => $api_url,
         ]);
 
         Assets::enqueue_frontend('bdpm_table');
@@ -62,7 +64,8 @@ final class BdpmTableShortcode
         $content .= ScreenFrame::mount(
             'doctor-catalog',
             sprintf(
-                '<div id="sosprescription-bdpm-table-root" class="sosprescription-bdpm" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div>',
+                '<div id="sosprescription-bdpm-table-root" class="sosprescription-bdpm" data-api-url="%s" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div>',
+                esc_attr($api_url),
                 (int) $per_page,
                 esc_attr($version),
                 esc_attr($imported),

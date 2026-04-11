@@ -126,6 +126,7 @@ type MedicationSearchResult = {
   cis?: string;
   cip13?: string;
   label: string;
+  sublabel?: string | null;
   specialite?: string;
   tauxRemb?: string;
   prixTTC?: number;
@@ -1614,6 +1615,14 @@ function MedicationSearch({
             {results.map((result) => {
               const selectable = result?.is_selectable !== false;
               const key = `${result.cip13 || result.cis || result.label}`;
+              const sublabel = typeof result.sublabel === 'string' ? result.sublabel.trim() : '';
+              const metaParts = [
+                result.cis ? `CIS ${result.cis}` : null,
+                result.cip13 ? `CIP13 ${result.cip13}` : null,
+                result.tauxRemb ? `Remb. ${result.tauxRemb}` : null,
+                typeof result.prixTTC === 'number' ? formatAmountValue(result.prixTTC, 'EUR') : null,
+              ].filter((value): value is string => Boolean(value));
+
               return (
                 <button
                   key={key}
@@ -1636,18 +1645,21 @@ function MedicationSearch({
                   }}
                 >
                   <div className="sp-app-search__item-row">
-                    <div className="sp-app-search__item-title">{result.label}</div>
+                    <div className="sp-app-search__item-title">
+                      <strong>{result.label}</strong>
+                      {sublabel ? (
+                        <div>
+                          <small>{sublabel}</small>
+                        </div>
+                      ) : null}
+                    </div>
                     {!selectable ? (
                       <span className="sp-app-search__badge">Non disponible en ligne</span>
                     ) : null}
                   </div>
-                  <div className="sp-app-search__item-meta">
-                    {result.specialite || result.label}
-                    {result.cis ? ` • CIS ${result.cis}` : ''}
-                    {result.cip13 ? ` • CIP13 ${result.cip13}` : ''}
-                    {result.tauxRemb ? ` • Remb. ${result.tauxRemb}` : ''}
-                    {typeof result.prixTTC === 'number' ? ` • ${formatAmountValue(result.prixTTC, 'EUR')}` : ''}
-                  </div>
+                  {metaParts.length > 0 ? (
+                    <div className="sp-app-search__item-meta">{metaParts.join(' • ')}</div>
+                  ) : null}
                 </button>
               );
             })}
