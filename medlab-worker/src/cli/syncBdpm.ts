@@ -641,12 +641,26 @@ function parseOptionalDecimal(value: string): string | null {
     return null;
   }
 
-  const canonical = normalized.replace(/\s+/g, "").replace(",", ".");
-  if (!/^[-+]?\d+(?:\.\d+)?$/.test(canonical)) {
-    throw new Error(`Invalid decimal: ${normalized}`);
+  // Nettoyage robuste pour les anomalies BDPM (ex: "1 466,29", "1,466,29", "1.466,29")
+  let clean = normalized.replace(/\s+/g, '');
+
+  const lastComma = clean.lastIndexOf(',');
+  const lastDot = clean.lastIndexOf('.');
+  const lastSeparatorIndex = Math.max(lastComma, lastDot);
+
+  if (lastSeparatorIndex !== -1) {
+    const integerPart = clean.substring(0, lastSeparatorIndex).replace(/[^0-9-]/g, '');
+    const decimalPart = clean.substring(lastSeparatorIndex + 1).replace(/[^0-9]/g, '');
+    clean = `${integerPart}.${decimalPart}`;
+  } else {
+    clean = clean.replace(/[^0-9-]/g, '');
   }
 
-  return canonical;
+  if (!/^[-+]?\d+(?:\.\d+)?$/.test(clean) || clean === '') {
+    return null;
+  }
+
+  return clean;
 }
 
 function parseRequiredInteger(value: string, field: string, lineNumber: number): number {
