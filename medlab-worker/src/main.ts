@@ -20,6 +20,8 @@ import { sleep } from "./utils/sleep";
 import { processPaymentActionJob } from "./payments/paymentProcessor";
 import { StripeGateway } from "./payments/stripeClient";
 import { WordPressPaymentBridge } from "./payments/wordpressPaymentBridge";
+import { CopilotService } from "./services/copilotService";
+import { SmartReplyService } from "./services/smartReplyService";
 
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 
@@ -108,6 +110,24 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const copilotService = new CopilotService({
+    apiKey: cfg.openRouter.apiKey,
+    model: cfg.openRouter.model,
+    baseUrl: cfg.openRouter.baseUrl,
+    requestTimeoutMs: cfg.openRouter.requestTimeoutMs,
+    httpReferer: cfg.openRouter.httpReferer,
+    title: `${cfg.openRouter.title ?? "SOS Prescription Worker"} Copilot`,
+    logger,
+  });
+
+  const smartReplyService = new SmartReplyService({
+    siteId: cfg.siteId,
+    copilot: copilotService,
+    logger,
+  });
+
+  await smartReplyService.ensureSchema();
+
   if (prismaJobsRepo) {
     await prismaJobsRepo.ensurePaymentActionQueueSchema();
   }
@@ -139,6 +159,7 @@ async function main(): Promise<void> {
     logger,
     stripeGateway,
     wpPaymentBridge,
+    smartReplyService,
   });
 
   const shutdown = async (signal: string) => {
@@ -170,6 +191,12 @@ async function main(): Promise<void> {
 
     try {
       await messagesRepo.close();
+    } catch {
+      // noop
+    }
+
+    try {
+      await smartReplyService.close();
     } catch {
       // noop
     }
@@ -340,6 +367,29 @@ async function main(): Promise<void> {
         });
         continue;
       }
+    }
+
+    let smartReplyJob = null;
+    try {
+      smartReplyJob = await smartReplyService.claimNextPendingJob({
+        workerId: cfg.workerId,
+        leaseMinutes: cfg.leaseMinutes,
+      });
+    } catch (err: unknown) {
+      logger.error(
+        "smart_replies.job.claim_failed",
+        {
+          message: err instanceof Error ? err.message : "Failed to claim smart reply job",
+        },
+        undefined,
+      );
+      await sleep(withJitter(claimFailureBackoffMs, 1_000));
+      continue;
+    }
+
+    if (smartReplyJob) {
+      await smartReplyService.processJob(smartReplyJob);
+      continue;
     }
 
     await sleep(withJitter(idlePollMs, 1_000));

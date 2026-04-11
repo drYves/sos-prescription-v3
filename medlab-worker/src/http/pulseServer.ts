@@ -1,3 +1,4 @@
+// src/http/pulseServer.ts
 import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
@@ -29,7 +30,7 @@ import { PatientReadRepo } from "../prescriptions/patientReadRepo";
 import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
 import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
 import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
-import { handleMedicationSearchRequest } from "./medicationSearchController";
+import { SmartReplyService } from "../services/smartReplyService";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -219,6 +220,7 @@ export interface PulseServerDeps {
   logger: NdjsonLogger;
   stripeGateway: StripeGateway;
   wpPaymentBridge: WordPressPaymentBridge;
+  smartReplyService?: SmartReplyService;
 }
 
 export function startPulseServer(deps: PulseServerDeps): http.Server {
@@ -310,11 +312,6 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/prescriptions/get") {
         return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
-      }
-
-      if (method === "GET" && (path === "/api/v1/medications/search" || path === "/api/v2/medications/search")) {
-        const response = await handleMedicationSearchRequest(url, { logger: deps.logger });
-        return sendJson(res, response.statusCode, response.body, signingSecret);
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
@@ -2464,6 +2461,27 @@ async function handlePrescriptionMessagesCreate(
       body: typeof messageBlock.body === "string" ? messageBlock.body : null,
       attachmentArtifactIds: normalizeAttachmentArtifactIds(messageBlock.attachment_artifact_ids),
     });
+
+    if (actor.role === ActorRole.PATIENT && deps.smartReplyService && result.message.body.trim() !== "") {
+      try {
+        await deps.smartReplyService.enqueueGenerateSmartReplies({
+          prescriptionId,
+          messageId: result.message.id,
+          reqId,
+        });
+      } catch (enqueueErr: unknown) {
+        deps.logger.error(
+          "smart_replies.enqueue_failed",
+          {
+            prescription_id: prescriptionId,
+            message_id: result.message.id,
+            author_role: actor.role,
+          },
+          reqId,
+          enqueueErr,
+        );
+      }
+    }
 
     if (actor.role === ActorRole.DOCTOR && result.threadState.unreadCountPatient === 1) {
       await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
