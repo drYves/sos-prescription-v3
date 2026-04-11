@@ -3625,8 +3625,26 @@ function PublicFormApp() {
   const activeStageIndex = stageEntries.findIndex((entry) => entry.key === stage);
 
   return (
-    <div className="sp-app-root sp-app-theme">
-      <div className="sp-app-container">
+    <div
+      className="sp-app-root sp-app-theme"
+      data-flow={flow || 'none'}
+      data-stage={stage}
+      data-stage-index={activeStageIndex >= 0 ? activeStageIndex + 1 : 0}
+    >
+      <div
+        className="sp-app-container"
+        data-stage-surface={
+          stage === 'payment_auth'
+            ? 'payment'
+            : stage === 'priority_selection'
+              ? 'priority'
+              : stage === 'done'
+                ? 'confirmation'
+                : stage === 'form'
+                  ? 'clinical'
+                  : 'choice'
+        }
+      >
         <header className="sp-app-header">
           <div className="sp-app-header__eyebrow">Médecins inscrits à l’Ordre · Données sécurisées HDS</div>
           <h1 className="sp-app-header__title">SOS Prescription</h1>

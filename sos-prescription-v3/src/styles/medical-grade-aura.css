@@ -1,44 +1,64 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
-:root {
-  --sp-app-font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --sp-app-text: #14213d;
-  --sp-app-text-soft: #5f6b85;
-  --sp-app-border: 1px solid #dde5f1;
-  --sp-app-radius: 16px;
-  --sp-app-radius-sm: 12px;
-  --sp-app-surface: #ffffff;
-  --sp-app-surface-soft: #f8fbff;
-  --sp-app-surface-contrast: #eef4ff;
-  --sp-app-shadow: 0 16px 40px rgba(16, 39, 74, 0.08);
-  --sp-color-primary: #2b6df8;
-  --sp-color-primary-light: #edf4ff;
-  --sp-color-primary-dark: #1747b7;
-  --sp-color-success: #0f9f6e;
-  --sp-color-success-light: #edfdf6;
-  --sp-color-warning: #d97706;
-  --sp-color-warning-light: #fff8eb;
-  --sp-color-error: #d14343;
-  --sp-color-error-light: #fff2f2;
+#sosprescription-root-form,
+#sosprescription-root-patient,
+.sp-app-root,
+.sp-app-theme,
+.sp-page-shell,
+.sp-profile-card,
+.sp-panel,
+.sp-card,
+.sp-inline-card,
+.sp-auth-hint {
+  --sp-app-font-family: var(--sp-font-body, "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif);
+  --sp-app-font-title: var(--sp-font-display, "Plus Jakarta Sans", var(--sp-app-font-family));
+  --sp-app-text: var(--sp-color-text-1, #0f172a);
+  --sp-app-text-soft: var(--sp-color-text-3, color-mix(in srgb, #0f172a 70%, #ffffff 30%));
+  --sp-app-text-muted: var(--sp-color-text-4, color-mix(in srgb, #0f172a 56%, #ffffff 44%));
+  --sp-app-border: var(--sp-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  --sp-app-border-strong: var(--sp-border-hairline-strong, 1px solid rgba(15, 108, 189, 0.22));
+  --sp-app-radius: var(--sp-radius-lg, 20px);
+  --sp-app-radius-sm: var(--sp-radius-md, 16px);
+  --sp-app-surface: var(--sp-glass-surface-strong, rgba(255, 255, 255, 0.92));
+  --sp-app-surface-soft: color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 90%, var(--sp-color-surface, #ffffff) 10%);
+  --sp-app-surface-contrast: var(--sp-color-accent-soft, color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 12%, #ffffff));
+  --sp-app-shadow: var(--sp-shadow-premium, 0 1px 1px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.08), 0 34px 84px rgba(15, 23, 42, 0.05));
+  --sp-app-shadow-lg: var(--sp-shadow-premium-lg, 0 2px 2px rgba(15, 23, 42, 0.08), 0 24px 54px rgba(15, 23, 42, 0.10), 0 48px 120px rgba(15, 23, 42, 0.08));
+  --sp-app-focus-ring: var(--sp-color-focus-ring, rgba(15, 108, 189, 0.18));
+  --sp-app-accent-border: color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 24%, transparent);
+  --sp-app-accent-border-strong: color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 36%, transparent);
+  --sp-app-button-shadow: 0 10px 24px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 24%, transparent);
+  --sp-color-primary: var(--sp-color-accent, #0f6cbd);
+  --sp-color-primary-light: var(--sp-color-accent-soft, color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 12%, #ffffff));
+  --sp-color-primary-dark: var(--sp-color-accent-ink, color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 72%, #0f172a 28%));
+  --sp-color-success-light: var(--sp-color-success-soft, color-mix(in srgb, var(--sp-color-success, #159f6e) 11%, #ffffff));
+  --sp-color-warning-light: var(--sp-color-warning-soft, color-mix(in srgb, var(--sp-color-warning, #d68f12) 12%, #ffffff));
+  --sp-color-error: var(--sp-color-danger, #c03a3a);
+  --sp-color-error-light: var(--sp-color-danger-soft, color-mix(in srgb, var(--sp-color-danger, #c03a3a) 11%, #ffffff));
 }
 
 .sp-app-root,
-.sp-app-theme {
+.sp-app-theme,
+.sp-page-shell,
+.sp-profile-card {
   font-family: var(--sp-app-font-family);
   color: var(--sp-app-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .sp-app-root {
   width: 100%;
 }
 
-.sp-app-container {
-  width: min(100%, 980px);
+.sp-app-container,
+.sp-page-shell.sp-app-container {
+  width: min(100%, var(--sp-workspace-max, 75rem));
+  max-width: none !important;
   margin: 0 auto;
 }
 
-.sp-app-root .sp-app-container {
-  padding: 16px;
+.sp-app-root .sp-app-container,
+.sp-page-shell.sp-app-container {
+  padding: clamp(1rem, 0.9rem + 0.5vw, 1.5rem);
 }
 
 .sp-app-header {
@@ -63,10 +83,15 @@
 .sp-app-header__title,
 .sp-page-title,
 .sp-panel__title,
-.sp-section__title {
+.sp-section__title,
+.sp-app-section__title,
+.sp-thread-composer__title,
+.sp-app-confirmation__title,
+.sp-profile-card__title {
   margin: 0;
+  font-family: var(--sp-app-font-title);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--sp-letter-spacing-heading, -0.015em);
   color: var(--sp-app-text);
 }
 
@@ -98,7 +123,7 @@
 
 .sp-app-stagebar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -123,7 +148,7 @@
   font-size: 12px;
   font-weight: 800;
   color: var(--sp-app-text-soft);
-  background: #eef2f7;
+  background: var(--sp-color-surface-alt);
 }
 
 .sp-app-stagebar__label {
@@ -134,14 +159,14 @@
 
 .sp-app-stagebar__item.is-complete,
 .sp-app-stagebar__item.is-active {
-  border-color: #cbdcff;
+  border-color: var(--sp-app-accent-border);
   background: var(--sp-color-primary-light);
 }
 
 .sp-app-stagebar__item.is-complete .sp-app-stagebar__badge,
 .sp-app-stagebar__item.is-active .sp-app-stagebar__badge {
   background: var(--sp-color-primary);
-  color: #fff;
+  color: var(--sp-color-surface);
 }
 
 .sp-app-block {
@@ -180,12 +205,12 @@
 
 .sp-app-card--warning {
   background: var(--sp-color-warning-light);
-  border-color: #f2d29b;
+  border-color: var(--sp-color-warning-border);
 }
 
 .sp-app-card--success {
   background: var(--sp-color-success-light);
-  border-color: #bfe9d8;
+  border-color: var(--sp-color-success-border);
 }
 
 .sp-app-section__header,
@@ -286,7 +311,7 @@
   padding: 12px 14px;
   border: var(--sp-app-border);
   border-radius: var(--sp-app-radius-sm);
-  background: #fff;
+  background: var(--sp-color-surface);
   color: var(--sp-app-text);
   font: inherit;
   box-sizing: border-box;
@@ -303,8 +328,8 @@
 .sp-app-textarea:focus,
 .sp-textarea:focus {
   outline: none;
-  border-color: #c3d7ff;
-  box-shadow: 0 0 0 4px rgba(43, 109, 248, 0.12);
+  border-color: var(--sp-app-accent-border);
+  box-shadow: 0 0 0 4px var(--sp-app-focus-ring);
 }
 
 .sp-app-button,
@@ -315,14 +340,19 @@
   gap: 8px;
   min-height: 44px;
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: var(--sp-app-radius-sm);
   border: 1px solid transparent;
   font-family: var(--sp-app-font-family);
   font-size: 0.92rem;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition:
+    background-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-motion-fast, 140ms) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .sp-app-button:hover,
@@ -340,8 +370,8 @@
 .sp-app-button--primary,
 .sp-button--primary {
   background: var(--sp-color-primary);
-  color: #fff;
-  box-shadow: 0 12px 24px rgba(43, 109, 248, 0.25);
+  color: var(--sp-color-surface);
+  box-shadow: var(--sp-app-button-shadow);
 }
 
 .sp-app-button--primary:hover,
@@ -351,8 +381,8 @@
 
 .sp-app-button--secondary,
 .sp-button--secondary {
-  background: #fff;
-  border-color: #d6dfef;
+  background: var(--sp-color-surface);
+  border-color: var(--sp-color-border-hairline);
   color: var(--sp-app-text);
 }
 
@@ -368,7 +398,7 @@
 
 .sp-app-button--danger {
   background: var(--sp-color-error);
-  color: #fff;
+  color: var(--sp-color-surface);
 }
 
 .sp-app-notice,
@@ -387,26 +417,26 @@
 
 .sp-app-notice--info,
 .sp-alert--info {
-  background: #f2f7ff;
-  border-color: #cfe0ff;
+  background: var(--sp-color-info-soft);
+  border-color: var(--sp-color-info-border);
 }
 
 .sp-app-notice--success,
 .sp-alert--success {
   background: var(--sp-color-success-light);
-  border-color: #bfe9d8;
+  border-color: var(--sp-color-success-border);
 }
 
 .sp-app-notice--warning,
 .sp-alert--warning {
   background: var(--sp-color-warning-light);
-  border-color: #f2d29b;
+  border-color: var(--sp-color-warning-border);
 }
 
 .sp-app-notice--error,
 .sp-alert--error {
   background: var(--sp-color-error-light);
-  border-color: #f5c2c2;
+  border-color: var(--sp-color-danger-border);
 }
 
 .sp-app-choice-card {
@@ -416,18 +446,22 @@
   border: var(--sp-app-border);
   border-radius: var(--sp-app-radius);
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+  transition:
+    background-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-motion-fast, 140ms) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .sp-app-choice-card:hover {
   transform: translateY(-1px);
-  border-color: #cbdcff;
-  box-shadow: 0 14px 28px rgba(16, 39, 74, 0.08);
+  border-color: var(--sp-app-accent-border);
+  box-shadow: var(--sp-app-shadow);
 }
 
 .sp-app-choice-card.is-selected {
   background: var(--sp-color-primary-light);
-  border-color: #b9ceff;
+  border-color: var(--sp-app-accent-border-strong);
 }
 
 .sp-app-choice-card__title {
@@ -488,7 +522,7 @@
   overflow: hidden;
   border: var(--sp-app-border);
   border-radius: var(--sp-app-radius);
-  background: #fff;
+  background: var(--sp-color-surface);
   box-shadow: var(--sp-app-shadow);
 }
 
@@ -557,7 +591,7 @@
   text-align: left;
   border: 0;
   border-bottom: var(--sp-app-border);
-  background: #fff;
+  background: var(--sp-color-surface);
   font: inherit;
 }
 
@@ -688,7 +722,7 @@
   min-height: 40px;
   border-radius: 999px;
   border: var(--sp-app-border);
-  background: #fff;
+  background: var(--sp-color-surface);
   color: var(--sp-app-text);
   font: inherit;
   cursor: pointer;
@@ -720,7 +754,7 @@
   margin-top: 16px;
   padding: 16px;
   border-radius: var(--sp-app-radius-sm);
-  background: #fff;
+  background: var(--sp-color-surface);
   border: var(--sp-app-border);
 }
 
@@ -798,7 +832,7 @@
 .sp-app-confirmation__label,
 .sp-app-confirmation__text {
   margin-top: 10px;
-  color: rgba(20, 33, 61, 0.72);
+  color: var(--sp-app-text-soft);
 }
 
 .sp-app-confirmation__uid-row {
@@ -827,7 +861,7 @@
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  border: 2px solid rgba(20, 33, 61, 0.2);
+  border: 2px solid color-mix(in srgb, var(--sp-color-text-1, #0f172a) 18%, transparent);
   border-top-color: var(--sp-color-primary);
   animation: spAppSpin 0.8s linear infinite;
 }
@@ -843,12 +877,12 @@
 }
 
 .sp-page-shell--narrow {
-  width: min(100%, 720px);
+  width: min(100%, var(--sp-container-reading, 47.5rem));
   margin: 0 auto;
 }
 
 .sp-console-grid {
-  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(18rem, 20rem) minmax(0, 1fr);
   align-items: start;
 }
 
@@ -875,7 +909,7 @@
 
 .sp-list-item--button.is-selected {
   background: var(--sp-color-primary-light);
-  border-color: #b9ceff;
+  border-color: var(--sp-app-accent-border-strong);
 }
 
 .sp-thread-list {
@@ -893,13 +927,13 @@
 }
 
 .sp-thread-item__bubble {
-  max-width: min(100%, 720px);
+  max-width: min(100%, var(--sp-container-reading, 47.5rem));
   padding: 14px 16px;
 }
 
 .sp-thread-item--doctor-highlight .sp-thread-item__bubble {
   background: var(--sp-color-primary-light);
-  border-color: #b9ceff;
+  border-color: var(--sp-app-accent-border-strong);
 }
 
 .sp-thread-item__body {
@@ -1029,22 +1063,18 @@
 }
 
 
-:root {
-  --sp-color-accent-soft: var(--sp-color-primary-light);
-}
-
 .sp-page-shell.sp-app-container {
-  width: min(100%, 800px);
+  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
   margin-inline: auto;
 }
 
 .sp-console-grid {
-  grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+  grid-template-columns: minmax(18rem, 20rem) minmax(0, 1fr);
   gap: 18px;
 }
 
 .sp-profile-card {
-  width: min(100%, 800px);
+  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
   margin: 12px auto 18px;
   padding: 0;
   border: var(--sp-app-border);
@@ -1082,17 +1112,21 @@
   padding: 0 14px;
   border: var(--sp-app-border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--sp-color-surface);
   color: var(--sp-app-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-motion-fast, 140ms) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .sp-profile-card__toggle:hover {
   background: var(--sp-app-surface-soft);
-  border-color: #cdd9ea;
+  border-color: var(--sp-color-border-hairline-strong);
 }
 
 .sp-profile-card__toggle-icon {
@@ -1102,7 +1136,7 @@
   width: 18px;
   height: 18px;
   color: var(--sp-color-primary-dark);
-  transition: transform 0.15s ease;
+  transition: transform var(--sp-motion-fast, 140ms) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .sp-profile-card.is-collapsed .sp-profile-card__toggle-icon {
@@ -1126,23 +1160,23 @@
 }
 
 .sp-thread-list--viewer-patient .sp-thread-item__bubble {
-  max-width: min(100%, 560px);
+  max-width: var(--sp-message-bubble-max, 70%);
   padding: 16px 18px;
-  border-radius: 20px;
-  background: #ffffff;
+  border-radius: var(--sp-app-radius);
+  background: var(--sp-color-surface);
   border: var(--sp-app-border);
-  box-shadow: 0 14px 32px rgba(16, 39, 74, 0.08);
+  box-shadow: var(--sp-app-shadow);
 }
 
 .sp-thread-list--viewer-patient .sp-thread-item--role-doctor .sp-thread-item__bubble {
   background: var(--sp-color-accent-soft);
-  border-color: #c9dafc;
+  border-color: var(--sp-app-accent-border);
 }
 
 .sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__bubble,
 .sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__bubble {
-  background: #ffffff;
-  border-color: #dbe5f1;
+  background: var(--sp-color-surface);
+  border-color: var(--sp-color-border-hairline);
 }
 
 .sp-thread-list--viewer-patient .sp-thread-item__author {
@@ -1175,7 +1209,7 @@
 @media (max-width: 900px) {
   .sp-page-shell.sp-app-container,
   .sp-profile-card {
-    width: min(100%, 800px);
+    width: min(100%, var(--sp-workspace-max, 75rem)) !important;
   }
 
   .sp-thread-list--viewer-patient .sp-thread-item__bubble {
@@ -1184,5 +1218,152 @@
 
   .sp-profile-card__header {
     align-items: flex-start;
+  }
+}
+
+
+.sp-app-button:active,
+.sp-button:active,
+.sp-app-choice-card:active,
+.sp-list-item--button:active,
+.sp-profile-card__toggle:active {
+  transform: scale(0.98);
+}
+
+.sp-app-root[data-stage="payment_auth"] .sp-app-header,
+.sp-app-root[data-stage="done"] .sp-app-header,
+.sp-app-root[data-stage="payment_auth"] .sp-app-stagebar,
+.sp-app-root[data-stage="done"] .sp-app-stagebar {
+  border-color: var(--sp-app-accent-border);
+}
+
+.sp-app-root[data-stage="done"] .sp-app-header,
+.sp-app-root[data-stage="done"] .sp-app-stagebar {
+  border-color: var(--sp-color-success-border);
+}
+
+.sp-app-card,
+.sp-panel,
+.sp-inline-card,
+.sp-card,
+.sp-app-search__results,
+.sp-payment-card__mount,
+.sp-profile-card,
+.sp-thread-item__bubble,
+.sp-app-stagebar,
+.sp-app-header {
+  -webkit-backdrop-filter: var(--sp-glass-effect, blur(20px) saturate(170%));
+  backdrop-filter: var(--sp-glass-effect, blur(20px) saturate(170%));
+}
+
+.sp-app-header,
+.sp-app-stagebar {
+  border: var(--sp-app-border);
+  border-radius: var(--sp-app-radius);
+  background: var(--sp-app-surface);
+  box-shadow: var(--sp-app-shadow);
+}
+
+.sp-app-header {
+  padding: clamp(1rem, 0.9rem + 0.5vw, 1.35rem);
+}
+
+.sp-app-stagebar {
+  overflow: hidden;
+}
+
+.sp-app-stagebar__item {
+  min-height: 100%;
+}
+
+.sp-app-input,
+.sp-app-select,
+.sp-app-textarea,
+.sp-textarea {
+  border: var(--sp-app-border-strong);
+  border-radius: var(--sp-app-radius-sm);
+  background: var(--sp-color-surface);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.sp-app-input:focus,
+.sp-app-select:focus,
+.sp-app-textarea:focus,
+.sp-textarea:focus {
+  border-color: var(--sp-color-accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--sp-color-accent) 28%, transparent),
+    0 0 0 4px var(--sp-app-focus-ring);
+}
+
+.sp-app-button,
+.sp-button,
+.sp-app-icon-button,
+.sp-profile-card__toggle {
+  border-radius: var(--sp-app-radius-sm);
+}
+
+.sp-app-button--primary,
+.sp-button--primary {
+  box-shadow: var(--sp-app-button-shadow);
+}
+
+.sp-app-button--secondary,
+.sp-button--secondary,
+.sp-app-icon-button,
+.sp-profile-card__toggle {
+  border-color: var(--sp-color-border-hairline);
+}
+
+.sp-app-button--secondary:hover,
+.sp-button--secondary:hover,
+.sp-app-icon-button:hover,
+.sp-profile-card__toggle:hover {
+  border-color: var(--sp-color-border-hairline-strong);
+}
+
+.sp-app-notice,
+.sp-alert,
+.sp-app-summary-card,
+.sp-app-priority-selection__summary,
+.sp-app-note-card,
+.sp-app-empty,
+.sp-app-upload-item,
+.sp-app-medication-card,
+.sp-inline-card,
+.sp-list-item,
+.sp-thread-item__bubble,
+.sp-app-schedule,
+.sp-payment-card__mount {
+  box-shadow: var(--sp-app-shadow);
+}
+
+.sp-thread-item__bubble {
+  max-width: min(100%, var(--sp-container-reading, 47.5rem));
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item__bubble {
+  max-width: var(--sp-message-bubble-max, 70%);
+  background: var(--sp-color-surface);
+  border-color: var(--sp-color-border-hairline);
+  box-shadow: var(--sp-app-shadow);
+}
+
+.sp-profile-card,
+.sp-page-shell.sp-app-container {
+  max-width: none !important;
+}
+
+.sp-profile-card {
+  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
+}
+
+@media (max-width: 900px) {
+  .sp-app-stagebar {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
+    max-width: 100%;
   }
 }
