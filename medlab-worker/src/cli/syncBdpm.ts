@@ -632,15 +632,26 @@ function parseOptionalFrenchDate(value: string): Date | null {
     return null;
   }
 
-  const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) {
-    throw new Error(`Invalid French date: ${normalized}`);
+  let day: number;
+  let month: number;
+  let year: number;
+
+  const matchFr = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (matchFr) {
+    day = Number(matchFr[1]);
+    month = Number(matchFr[2]);
+    year = Number(matchFr[3]);
+  } else {
+    const matchIso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (matchIso) {
+      year = Number(matchIso[1]);
+      month = Number(matchIso[2]);
+      day = Number(matchIso[3]);
+    } else {
+      throw new Error(`Invalid date format (expected DD/MM/YYYY or YYYY-MM-DD): ${normalized}`);
+    }
   }
 
-  const [, dayRaw, monthRaw, yearRaw] = match;
-  const day = Number(dayRaw);
-  const month = Number(monthRaw);
-  const year = Number(yearRaw);
   const date = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 
   if (
@@ -648,7 +659,7 @@ function parseOptionalFrenchDate(value: string): Date | null {
     || date.getUTCMonth() !== month - 1
     || date.getUTCDate() !== day
   ) {
-    throw new Error(`Invalid French date: ${normalized}`);
+    throw new Error(`Invalid date values: ${normalized}`);
   }
 
   return date;
