@@ -31,6 +31,7 @@ import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapp
 import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
 import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
 import { SmartReplyService } from "../services/smartReplyService";
+import { handleMedicationSearchRequest } from "./medicationSearchController";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -245,6 +246,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "GET" && path === "/pulse") {
         return await handlePulse(req, res, deps, signingSecret);
+      }
+
+      if (method === "GET" && path === "/api/v2/medications/search") {
+        return await handleMedicationSearch(req, res, deps, signingSecret, url);
       }
 
       if (method === "POST" && path === "/webhooks/stripe") {
@@ -468,6 +473,18 @@ function logSubmissionRejected(
 
 function isSubmissionExpiredError(err: unknown): boolean {
   return err instanceof SubmissionRepoError && err.code === "ML_SUBMISSION_EXPIRED";
+}
+
+
+async function handleMedicationSearch(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  url: URL,
+): Promise<void> {
+  const response = await handleMedicationSearchRequest(url, { logger: deps.logger });
+  sendJson(res, response.statusCode, response.body, signingSecret);
 }
 
 async function handlePulse(
