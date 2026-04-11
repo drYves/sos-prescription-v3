@@ -111,7 +111,6 @@ type Schedule = {
   autoTimesEnabled: boolean;
   start: string;
   end: string;
-  rounding: number;
 };
 
 type MedEditorState = {
@@ -120,6 +119,8 @@ type MedEditorState = {
   medicationName: string;
   draft: Schedule;
 };
+
+const AUTO_SCHEDULE_STEP_MINUTES = 5;
 
 type MedicationSearchResult = {
   cis?: string;
@@ -934,7 +935,7 @@ function fillArray(values: string[] | undefined, size: number, fallback: string)
   return next;
 }
 
-function distributeTimes(count: number, start: string, end: string, rounding: number): {
+function distributeTimes(count: number, start: string, end: string): {
   times: string[];
   start: string;
   end: string;
@@ -942,7 +943,7 @@ function distributeTimes(count: number, start: string, end: string, rounding: nu
   collisionResolved: boolean;
 } {
   const warnings: string[] = [];
-  const step = clampInt(rounding, 1, 60, 5);
+  const step = AUTO_SCHEDULE_STEP_MINUTES;
   const startMinutes = parseTimeToMinutes(start) ?? 8 * 60;
   let endMinutes = parseTimeToMinutes(end) ?? 20 * 60;
 
@@ -1039,7 +1040,6 @@ function normalizeSchedule(value: Partial<Schedule> | null | undefined): Schedul
     : value?.durationUnit === 'semaine'
       ? 'semaine'
       : 'jour';
-  const rounding = clampInt(value?.rounding, 1, 60, 5);
   const autoTimesEnabled = value?.autoTimesEnabled !== false;
   const start = typeof value?.start === 'string' ? value.start : typeof value?.times?.[0] === 'string' ? value.times[0] : '08:00';
   const end = typeof value?.end === 'string' ? value.end : typeof value?.times?.[value?.times?.length ? value.times.length - 1 : 0] === 'string' ? value.times[value.times.length - 1] : '20:00';
@@ -1050,7 +1050,7 @@ function normalizeSchedule(value: Partial<Schedule> | null | undefined): Schedul
   const doses = fillArray(value?.doses, nb, '1');
 
   if (autoTimesEnabled && freqUnit === 'jour') {
-    const auto = distributeTimes(nb, safeStart, safeEnd, rounding);
+    const auto = distributeTimes(nb, safeStart, safeEnd);
     times = auto.times;
     return {
       nb,
@@ -1063,7 +1063,6 @@ function normalizeSchedule(value: Partial<Schedule> | null | undefined): Schedul
       autoTimesEnabled: true,
       start: auto.start,
       end: auto.end,
-      rounding,
     };
   }
 
@@ -1078,7 +1077,6 @@ function normalizeSchedule(value: Partial<Schedule> | null | undefined): Schedul
     autoTimesEnabled: autoTimesEnabled && freqUnit === 'jour',
     start: safeStart,
     end: safeEnd,
-    rounding,
   };
 }
 
@@ -1172,7 +1170,6 @@ function aiBuildScheduleFromText(value: unknown): Schedule {
     doses: doses.length > 0 ? doses : undefined,
     start: times[0] || '08:00',
     end: times[times.length - 1] || '20:00',
-    rounding: 5,
     note: '',
   });
 
@@ -1232,7 +1229,42 @@ function mergeMedicationItems(current: MedicationItem[], incoming: MedicationIte
 
 function formatMoney(amountCents: number | null | undefined, currency: string | undefined): string {
   const cents = typeof amountCents === 'number' ? amountCents : 0;
-  return `${(cents / 100).toFixed(2)} ${(currency || 'EUR').toUpperCase()}`;
+  const safeCurrency = String(currency || 'EUR').toUpperCase();
+
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: safeCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  } catch {
+    const amount = (cents / 100).toLocaleString('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${amount} ${safeCurrency}`;
+  }
+}
+
+function formatAmountValue(amount: number | null | undefined, currency: string | undefined): string {
+  const value = typeof amount === 'number' ? amount : 0;
+  const safeCurrency = String(currency || 'EUR').toUpperCase();
+
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: safeCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    const formatted = value.toLocaleString('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${formatted} ${safeCurrency}`;
+  }
 }
 
 function formatEtaMinutes(minutes: number | null | undefined): string | null {
@@ -1261,13 +1293,62 @@ function describePriorityTurnaround(
 
   if (eta) {
     return priority === 'express'
-      ? `Priorité absolue : ${eta}`
-      : `Traitement sous ${eta}`;
+      ? `Traitement prioritaire estimé sous ${eta}`
+      : `Traitement estimé sous ${eta}`;
   }
 
   return priority === 'express'
-    ? 'Priorité absolue selon disponibilité médicale.'
-    : 'Traitement selon la file médicale en cours.';
+    ? 'Traitement prioritaire selon la disponibilité médicale.'
+    : 'Traitement selon l’ordre d’arrivée des dossiers.';
+}
+
+function toPatientSafePaymentErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const message = raw.trim().toLowerCase();
+
+  if (!message) {
+    return 'La sécurisation bancaire n’a pas pu aboutir. Merci de réessayer.';
+  }
+
+  if (
+    message.includes('stripe')
+    || message.includes('paymentintent')
+    || message.includes('client secret')
+    || message.includes('clé publique')
+    || message.includes('module bancaire')
+    || message.includes('paiement introuvable')
+  ) {
+    return 'Le formulaire bancaire sécurisé n’a pas pu être chargé. Merci de réessayer dans quelques instants.';
+  }
+
+  if (message.includes('refus') || message.includes('carte')) {
+    return 'La vérification de votre carte n’a pas pu aboutir. Merci de contrôler les informations saisies ou d’essayer une autre carte.';
+  }
+
+  if (message.includes('finalisée') || message.includes('finalise')) {
+    return 'La vérification bancaire est encore en cours. Merci de patienter quelques secondes puis de réessayer.';
+  }
+
+  return 'La sécurisation bancaire n’a pas pu aboutir. Merci de réessayer.';
+}
+
+function toPatientSafeSubmissionErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const message = raw.trim().toLowerCase();
+
+  if (!message) {
+    return 'Nous n’avons pas pu préparer votre demande pour le moment. Merci de réessayer.';
+  }
+
+  if (message.includes('tarification')) {
+    return 'Le montant de votre demande n’est pas encore disponible. Merci de réessayer dans quelques instants.';
+  }
+
+  if (message.includes('connect')) {
+    return 'Merci de vous connecter pour finaliser votre demande.';
+  }
+
+  return 'Nous n’avons pas pu préparer votre demande pour le moment. Merci de réessayer.';
 }
 
 function buildSubmitBlockInfo(input: {
@@ -1350,7 +1431,7 @@ function buildSubmitBlockInfo(input: {
 
   if (input.consentRequired) {
     const missing: string[] = [];
-    if (!input.consentTelemedicine) missing.push('téléconsultation');
+    if (!input.consentTelemedicine) missing.push('analyse médicale du dossier');
     if (!input.consentTruth) missing.push('attestation sur l’honneur');
     if (!input.consentCgu) missing.push('CGU');
     if (!input.consentPrivacy) missing.push('politique de confidentialité');
@@ -1407,6 +1488,7 @@ function MedicationSearch({
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const resultsId = 'sp-medication-search-results';
 
   const canSearch = useMemo(() => query.trim().length >= 2, [query]);
   const hasDisabledResults = useMemo(
@@ -1466,7 +1548,7 @@ function MedicationSearch({
             return;
           }
           setResults([]);
-          setError(reason instanceof Error ? reason.message : 'Erreur lors de la recherche');
+          setError('La recherche du médicament n’a pas pu aboutir. Merci de réessayer.');
         })
         .finally(() => {
           if (!controller.signal.aborted) {
@@ -1482,11 +1564,17 @@ function MedicationSearch({
   }, [canSearch, disabled, query]);
 
   return (
-    <div className="sp-app-search">
+    <div className="sp-app-search" data-open={open ? 'true' : 'false'} data-loading={loading ? 'true' : 'false'}>
       <TextInput
+        id="sp-medication-search-input"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? resultsId : undefined}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder={disabled ? disabledHint : 'Rechercher un médicament (nom, CIS, CIP7/13)…'}
+        placeholder={disabled ? disabledHint : 'Nom du médicament ou code CIP si vous l’avez'}
         onFocus={() => {
           if (!disabled && query.trim().length >= 2) {
             setOpen(true);
@@ -1496,7 +1584,7 @@ function MedicationSearch({
       />
 
       {open ? (
-        <div className="sp-app-search__results">
+        <div className="sp-app-search__results" id={resultsId} role="listbox" aria-label="Résultats de recherche médicament">
           <div className="sp-app-search__head">
             <span>Résultats</span>
             {loading ? <Spinner /> : null}
@@ -1512,11 +1600,11 @@ function MedicationSearch({
                 <div className="sp-app-note-card">
                   <div className="sp-app-note-card__title">Aucun résultat</div>
                   <div className="sp-app-note-card__text">
-                    Si votre médicament n’apparaît pas, c’est souvent lié à :
+                    Essayez d’affiner la recherche avec le nom exact, le dosage ou le code CIP si vous l’avez.
                     <ul className="sp-app-list">
-                      <li>une BDPM non importée / non prête</li>
-                      <li>une whitelist qui restreint le périmètre</li>
-                      <li>une recherche trop courte (min. 2 caractères, ou CIS/CIP)</li>
+                      <li>vérifiez l’orthographe du médicament</li>
+                      <li>ajoutez le dosage ou la forme si nécessaire</li>
+                      <li>essayez le code CIP indiqué sur la boîte</li>
                     </ul>
                   </div>
                 </div>
@@ -1531,6 +1619,8 @@ function MedicationSearch({
                   key={key}
                   type="button"
                   disabled={!selectable}
+                  role="option"
+                  aria-disabled={!selectable}
                   className={cx(
                     'sp-app-search__item',
                     selectable ? 'is-selectable' : 'is-disabled',
@@ -1556,7 +1646,7 @@ function MedicationSearch({
                     {result.cis ? ` • CIS ${result.cis}` : ''}
                     {result.cip13 ? ` • CIP13 ${result.cip13}` : ''}
                     {result.tauxRemb ? ` • Remb. ${result.tauxRemb}` : ''}
-                    {typeof result.prixTTC === 'number' ? ` • ${result.prixTTC.toFixed(2)}€` : ''}
+                    {typeof result.prixTTC === 'number' ? ` • ${formatAmountValue(result.prixTTC, 'EUR')}` : ''}
                   </div>
                 </button>
               );
@@ -1565,8 +1655,8 @@ function MedicationSearch({
 
           <div className="sp-app-search__foot">
             {hasDisabledResults
-              ? 'Les résultats grisés ne sont pas disponibles en ligne.'
-              : 'Cliquez sur un résultat pour l’ajouter.'}
+              ? 'Les résultats grisés ne peuvent pas être ajoutés dans ce parcours.'
+              : 'Sélectionnez un résultat pour l’ajouter à votre demande.'}
           </div>
         </div>
       ) : null}
@@ -1597,7 +1687,6 @@ function ScheduleEditor({
       || !Array.isArray(input.doses)
       || input.start == null
       || input.end == null
-      || input.rounding == null
     ) {
       onChange(normalized);
     }
@@ -1608,10 +1697,9 @@ function ScheduleEditor({
   const autoTimesEnabled = normalized.autoTimesEnabled !== false && freqUnit === 'jour';
   const startTime = normalized.start || '08:00';
   const endTime = normalized.end || '20:00';
-  const rounding = normalized.rounding ?? 5;
   const autoDistribution = useMemo(
-    () => (autoTimesEnabled ? distributeTimes(count, startTime, endTime, rounding) : null),
-    [autoTimesEnabled, count, startTime, endTime, rounding],
+    () => (autoTimesEnabled ? distributeTimes(count, startTime, endTime) : null),
+    [autoTimesEnabled, count, startTime, endTime],
   );
   const times = autoDistribution ? autoDistribution.times : fillArray(normalized.times, count, '');
   const doses = fillArray(normalized.doses, count, '1');
@@ -1627,7 +1715,7 @@ function ScheduleEditor({
   const updateCount = useCallback((raw: string) => {
     const nextCount = clampInt(raw, 1, freqUnit === 'jour' ? 6 : 12, 1);
     if (autoTimesEnabled) {
-      const auto = distributeTimes(nextCount, startTime, endTime, rounding);
+      const auto = distributeTimes(nextCount, startTime, endTime);
       onChange({
         ...normalized,
         nb: nextCount,
@@ -1646,12 +1734,12 @@ function ScheduleEditor({
       times: fillArray(normalized.times, nextCount, ''),
       doses: fillArray(normalized.doses, nextCount, '1'),
     });
-  }, [autoTimesEnabled, endTime, freqUnit, normalized, onChange, rounding, startTime]);
+  }, [autoTimesEnabled, endTime, freqUnit, normalized, onChange, startTime]);
 
   const updateFreqUnit = useCallback((nextFreqUnit: FrequencyUnit) => {
     const safeCount = clampInt(normalized.nb, 1, nextFreqUnit === 'jour' ? 6 : 12, 1);
     if (nextFreqUnit === 'jour') {
-      const auto = distributeTimes(safeCount, normalized.start, normalized.end, normalized.rounding);
+      const auto = distributeTimes(safeCount, normalized.start, normalized.end);
       onChange({
         ...normalized,
         nb: safeCount,
@@ -1676,7 +1764,7 @@ function ScheduleEditor({
   }, [normalized, onChange]);
 
   const enableAutomaticTimes = useCallback(() => {
-    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, normalized.rounding);
+    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end);
     onChange({
       ...normalized,
       autoTimesEnabled: true,
@@ -1697,7 +1785,7 @@ function ScheduleEditor({
   }, [normalized, onChange]);
 
   const resetAutomaticTimes = useCallback(() => {
-    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, normalized.rounding);
+    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end);
     onChange({
       ...normalized,
       autoTimesEnabled: true,
@@ -1711,7 +1799,7 @@ function ScheduleEditor({
   const updateAnchors = useCallback((nextStart: string, nextEnd: string) => {
     const safeStart = isTimeString(nextStart) ? nextStart : normalized.start;
     const safeEnd = isTimeString(nextEnd) ? nextEnd : normalized.end;
-    const auto = distributeTimes(normalized.nb, safeStart, safeEnd, normalized.rounding);
+    const auto = distributeTimes(normalized.nb, safeStart, safeEnd);
     onChange({
       ...normalized,
       autoTimesEnabled: true,
@@ -1721,25 +1809,6 @@ function ScheduleEditor({
     });
   }, [normalized, onChange]);
 
-  const updateRounding = useCallback((raw: string) => {
-    const nextRounding = clampInt(raw, 1, 60, 5);
-    if (autoTimesEnabled) {
-      const auto = distributeTimes(normalized.nb, normalized.start, normalized.end, nextRounding);
-      onChange({
-        ...normalized,
-        rounding: nextRounding,
-        start: auto.start,
-        end: auto.end,
-        times: auto.times,
-      });
-      return;
-    }
-
-    onChange({
-      ...normalized,
-      rounding: nextRounding,
-    });
-  }, [autoTimesEnabled, normalized, onChange]);
 
   const updateTime = useCallback((index: number, nextTime: string) => {
     const nextTimes = fillArray(times, normalized.nb, '');
@@ -1814,21 +1883,21 @@ function ScheduleEditor({
         <div className="sp-app-schedule">
           <div className="sp-app-schedule__header">
             <div className="sp-app-schedule__title">
-              {autoTimesEnabled ? 'Horaires auto (répartis entre la 1ère et la dernière prise)' : 'Horaires personnalisés'}
+              {autoTimesEnabled ? 'Horaires proposés automatiquement' : 'Horaires personnalisés'}
             </div>
             <div className="sp-app-schedule__actions">
               {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={resetAutomaticTimes}>
-                  Réinitialiser les horaires
+Recalculer les horaires
                 </Button>
               ) : (
                 <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
-                  Horaires auto
+Proposer des horaires
                 </Button>
               )}
               {autoTimesEnabled ? (
                 <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
-                  Personnaliser
+Saisir moi-même
                 </Button>
               ) : null}
             </div>
@@ -1853,16 +1922,6 @@ function ScheduleEditor({
                 value={normalized.end}
                 onChange={(event) => updateAnchors(normalized.start, event.target.value)}
                 disabled={!autoTimesEnabled}
-              />
-            </div>
-            <div className="sp-app-field">
-              <label className="sp-app-field__label">Arrondi (min)</label>
-              <TextInput
-                type="number"
-                min={1}
-                max={60}
-                value={rounding}
-                onChange={(event) => updateRounding(event.target.value)}
               />
             </div>
           </div>
@@ -1890,9 +1949,7 @@ function ScheduleEditor({
             <div key={index} className="sp-app-dose-row">
               <div className="sp-app-dose-row__label">
                 <span>{label}</span>
-                {autoTimesEnabled && (isFirst || isLast) ? (
-                  <span className="sp-app-dose-row__hint">(ancre)</span>
-                ) : null}
+
               </div>
               <TextInput
                 type="time"
@@ -1902,7 +1959,7 @@ function ScheduleEditor({
               />
               <TextInput
                 type="text"
-                placeholder="Dose"
+                placeholder="Dose ou quantité"
                 value={doses[index] || '1'}
                 onChange={(event) => updateDose(index, event.target.value)}
               />
@@ -1937,9 +1994,12 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
         </div>
       </div>
 
-      <div className="sp-app-choice-grid">
+      <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le scénario médical">
         <button
           type="button"
+          role="radio"
+          aria-checked={flow === 'ro_proof'}
+          data-selected={flow === 'ro_proof' ? 'true' : 'false'}
           className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
           onClick={() => onSelectFlow('ro_proof')}
         >
@@ -1952,6 +2012,9 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
 
         <button
           type="button"
+          role="radio"
+          aria-checked={flow === 'depannage_no_proof'}
+          data-selected={flow === 'depannage_no_proof' ? 'true' : 'false'}
           className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
           onClick={() => onSelectFlow('depannage_no_proof')}
         >
@@ -2051,7 +2114,7 @@ function StepClinicalData({
           </div>
           <div className="sp-app-section__actions">
             <Button type="button" variant="secondary" onClick={onBackToChoice}>
-              Modifier le type
+              Modifier le scénario
             </Button>
           </div>
         </div>
@@ -2136,7 +2199,7 @@ function StepClinicalData({
             name="medical_notes"
             value={medicalNotes}
             onChange={(event) => onMedicalNotesChange(event.target.value)}
-            placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin..."
+            placeholder="Allergies, traitements en cours, contre-indications ou toute information utile au médecin..."
           />
         </div>
       </section>
@@ -2206,7 +2269,7 @@ function StepClinicalData({
                   </div>
                   <button
                     type="button"
-                    className="sp-app-icon-button"
+                    className="sp-app-button sp-app-button--secondary sp-app-button--compact sp-app-button--copy"
                     onClick={() => onRemoveFile(file.id)}
                     aria-label={`Retirer ${file.original_name}`}
                     title="Retirer"
@@ -2252,8 +2315,8 @@ function StepClinicalData({
           </div>
         </div>
 
-        <div className="sp-app-field">
-          <label className="sp-app-field__label">Recherche médicament</label>
+        <div className="sp-app-field sp-app-field--search">
+          <label className="sp-app-field__label">Médicament concerné</label>
           <MedicationSearch onSelect={onAddMedication} disabled={!isLoggedIn} />
         </div>
 
@@ -2284,7 +2347,7 @@ function StepClinicalData({
                     }}
                   />
                   <div className="sp-app-field__hint">
-                    Les champs CIS/CIP sont enregistrés pour traçabilité.
+                    Les références du médicament sont conservées pour la vérification médicale et pharmaceutique.
                   </div>
                 </div>
               </div>
@@ -2306,13 +2369,16 @@ function StepClinicalData({
             </div>
           </div>
 
-          <label className="sp-app-checkbox">
-            <input
-              type="checkbox"
-              checked={attestationNoProof}
-              onChange={(event) => onAttestationChange(event.target.checked)}
-            />
-            <span>
+          <label className="sp-app-checkbox sp-app-checkbox--emphasis">
+            <span className="sp-app-checkbox__control">
+              <input
+                type="checkbox"
+                checked={attestationNoProof}
+                onChange={(event) => onAttestationChange(event.target.checked)}
+              />
+              <span className="sp-app-checkbox__box" aria-hidden="true" />
+            </span>
+            <span className="sp-app-checkbox__text">
               Je certifie sur l’honneur que les informations renseignées sont exactes et que ce traitement m’a déjà été prescrit par un médecin.
             </span>
           </label>
@@ -2323,88 +2389,98 @@ function StepClinicalData({
         <section className="sp-app-card">
           <div className="sp-app-section__header">
             <div>
-              <h2 className="sp-app-section__title">Consentements requis</h2>
+              <h2 className="sp-app-section__title">Points à valider avant l’envoi</h2>
               <p className="sp-app-section__hint">
-                Avant de poursuivre, vous devez valider les points ci-dessous.
+                Avant l’envoi au médecin, merci de valider les éléments ci-dessous.
               </p>
             </div>
           </div>
 
           <div className="sp-app-stack sp-app-stack--compact">
             <label className="sp-app-checkbox">
-              <input
-                id="sp-consent-medical"
-                type="checkbox"
-                checked={consentTelemedicine}
-                onChange={(event) => onConsentTelemedicineChange(event.target.checked)}
-              />
-              <span>
-                J’accepte que ma demande et mes informations médicales soient traitées dans le cadre de la téléconsultation.
+              <span className="sp-app-checkbox__control">
+                <input
+                  id="sp-consent-medical"
+                  type="checkbox"
+                  checked={consentTelemedicine}
+                  onChange={(event) => onConsentTelemedicineChange(event.target.checked)}
+                />
+                <span className="sp-app-checkbox__box" aria-hidden="true" />
+              </span>
+              <span className="sp-app-checkbox__text">
+                J’accepte que ma demande et mes informations médicales soient étudiées par un médecin dans le cadre de ce service de continuité de traitement.
               </span>
             </label>
 
             <label className="sp-app-checkbox">
-              <input
-                id="sp-consent-truth"
-                type="checkbox"
-                checked={consentTruth}
-                onChange={(event) => onConsentTruthChange(event.target.checked)}
-              />
-              <span>Je certifie que les informations renseignées sont exactes.</span>
+              <span className="sp-app-checkbox__control">
+                <input
+                  id="sp-consent-truth"
+                  type="checkbox"
+                  checked={consentTruth}
+                  onChange={(event) => onConsentTruthChange(event.target.checked)}
+                />
+                <span className="sp-app-checkbox__box" aria-hidden="true" />
+              </span>
+              <span className="sp-app-checkbox__text">Je confirme que les informations communiquées sont exactes.</span>
             </label>
 
-            <label className="sp-app-checkbox">
-              <input
-                id="sp-consent-cgu"
-                type="checkbox"
-                checked={consentCgu}
-                onChange={(event) => onConsentCguChange(event.target.checked)}
-              />
-              <span>
-                J’ai lu et j’accepte{' '}
-                <a
-                  href={compliance?.cgu_url || '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="sp-app-link"
-                >
-                  les CGU
-                </a>
-                .
-              </span>
-            </label>
+            <div className="sp-app-checkbox sp-app-checkbox--with-action">
+              <label className="sp-app-checkbox__label" htmlFor="sp-consent-cgu">
+                <span className="sp-app-checkbox__control">
+                  <input
+                    id="sp-consent-cgu"
+                    type="checkbox"
+                    checked={consentCgu}
+                    onChange={(event) => onConsentCguChange(event.target.checked)}
+                  />
+                  <span className="sp-app-checkbox__box" aria-hidden="true" />
+                </span>
+                <span className="sp-app-checkbox__text">J’ai lu et j’accepte les conditions générales d’utilisation.</span>
+              </label>
+              <a
+                href={compliance?.cgu_url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="sp-app-link sp-app-checkbox__action"
+              >
+                Lire les CGU
+              </a>
+            </div>
 
-            <label className="sp-app-checkbox">
-              <input
-                id="sp-consent-privacy"
-                type="checkbox"
-                checked={consentPrivacy}
-                onChange={(event) => onConsentPrivacyChange(event.target.checked)}
-              />
-              <span>
-                J’ai lu{' '}
-                <a
-                  href={compliance?.privacy_url || '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="sp-app-link"
-                >
-                  la politique de confidentialité
-                </a>
-                .
-              </span>
-            </label>
+            <div className="sp-app-checkbox sp-app-checkbox--with-action">
+              <label className="sp-app-checkbox__label" htmlFor="sp-consent-privacy">
+                <span className="sp-app-checkbox__control">
+                  <input
+                    id="sp-consent-privacy"
+                    type="checkbox"
+                    checked={consentPrivacy}
+                    onChange={(event) => onConsentPrivacyChange(event.target.checked)}
+                  />
+                  <span className="sp-app-checkbox__box" aria-hidden="true" />
+                </span>
+                <span className="sp-app-checkbox__text">J’ai pris connaissance de la politique de confidentialité.</span>
+              </label>
+              <a
+                href={compliance?.privacy_url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="sp-app-link sp-app-checkbox__action"
+              >
+                Lire la politique de confidentialité
+              </a>
+            </div>
           </div>
         </section>
       ) : null}
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBackToChoice} disabled={submitLoading}>
-          Retour
+          Retour au scénario
         </Button>
 
         <Button type="button" onClick={onContinue} disabled={submitLoading}>
-          Continuer vers la priorité
+          Choisir le délai de traitement
         </Button>
       </div>
     </div>
@@ -2447,9 +2523,9 @@ function StepPrioritySelection({
       <section className="sp-app-card">
         <div className="sp-app-section__header">
           <div>
-            <h2 className="sp-app-section__title">Choisissez la priorité de traitement</h2>
+            <h2 className="sp-app-section__title">Choisissez le délai de traitement</h2>
             <p className="sp-app-section__hint">
-              Cette étape intervient après la saisie médicale et avant la pré-autorisation bancaire.
+              Sélectionnez l’option adaptée avant la sécurisation du paiement.
             </p>
           </div>
         </div>
@@ -2472,12 +2548,15 @@ function StepPrioritySelection({
         {pricingLoading ? (
           <div className="sp-app-inline-status">
             <Spinner />
-            <span>Chargement de la tarification clinique…</span>
+            <span>Chargement du montant de la demande…</span>
           </div>
         ) : pricing ? (
-          <div className="sp-app-choice-grid">
+          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le délai de traitement">
             <button
               type="button"
+              role="radio"
+              aria-checked={priority === 'standard'}
+              data-selected={priority === 'standard' ? 'true' : 'false'}
               className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
               onClick={() => onPriorityChange('standard')}
             >
@@ -2490,6 +2569,9 @@ function StepPrioritySelection({
 
             <button
               type="button"
+              role="radio"
+              aria-checked={priority === 'express'}
+              data-selected={priority === 'express' ? 'true' : 'false'}
               className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
               onClick={() => onPriorityChange('express')}
             >
@@ -2502,38 +2584,32 @@ function StepPrioritySelection({
           </div>
         ) : (
           <Notice variant="error">
-            Impossible de charger la tarification dynamique depuis l’API. Merci de réessayer avant de poursuivre.
+            Nous n’avons pas pu charger le montant de la demande. Merci de réessayer avant de poursuivre.
           </Notice>
         )}
 
         <div className="sp-app-block">
           <Notice variant="info">
-            Les montants affichés correspondent aux <strong>frais d’expertise clinique</strong>. La priorité sélectionnée sera reprise à l’étape de pré-autorisation bancaire.
+            Les montants affichés correspondent aux <strong>frais d’expertise clinique</strong>. L’option choisie sera rappelée avant la sécurisation de votre carte.
           </Notice>
         </div>
 
         {selectedAmount != null && pricing ? (
-          <div className="sp-app-priority-selection__summary">
-            <strong>Montant sélectionné :</strong> {formatMoney(selectedAmount, pricing.currency)}
-            <br />
-            <span>{selectedPriorityEta}</span>
-            {paymentsConfig?.capture_method ? (
-              <>
-                <br />
-                <span>Mode prévu : {String(paymentsConfig.capture_method).toUpperCase()}</span>
-              </>
-            ) : null}
+          <div className="sp-app-priority-selection__summary" data-priority={priority}>
+            <strong>Option choisie</strong>
+            <div className="sp-app-priority-selection__amount">{formatMoney(selectedAmount, pricing.currency)}</div>
+            <span>{priority === 'express' ? 'Express SOS' : 'Standard'} • {selectedPriorityEta}</span>
           </div>
         ) : null}
       </section>
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBack}>
-          Retour à la saisie
+          Modifier les informations médicales
         </Button>
 
         <Button type="button" onClick={onContinue} disabled={continueDisabled}>
-          Continuer vers la pré-autorisation
+          Continuer vers le paiement sécurisé
         </Button>
       </div>
     </div>
@@ -2597,13 +2673,13 @@ function StepPaymentAuth({
       setCurrency(String(pricing?.currency || 'EUR').toUpperCase());
 
       if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-        setError('Impossible d’initialiser la pré-autorisation : demande non préparée.');
+        setError('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
         setInitializing(false);
         return;
       }
 
       if (!paymentsConfig?.enabled) {
-        setError('La pré-autorisation bancaire est temporairement indisponible. Merci de réessayer ultérieurement.');
+        setError('La sécurisation bancaire est temporairement indisponible. Merci de réessayer un peu plus tard.');
         setInitializing(false);
         return;
       }
@@ -2654,11 +2730,11 @@ function StepPaymentAuth({
         }
 
         if (!nextClientSecret) {
-          throw new Error('Client secret Stripe manquant pour la pré-autorisation.');
+          throw new Error('Le formulaire bancaire sécurisé n’a pas pu être préparé.');
         }
 
         if (!nextPublishableKey) {
-          throw new Error('Stripe n’est pas configuré (clé publique manquante).');
+          throw new Error('Le formulaire bancaire sécurisé n’est pas disponible pour le moment.');
         }
 
         await ensureStripeJs();
@@ -2668,11 +2744,11 @@ function StepPaymentAuth({
 
         const formWindow = window as FormWindow;
         if (typeof formWindow.Stripe !== 'function') {
-          throw new Error('Stripe.js indisponible.');
+          throw new Error('Le formulaire bancaire sécurisé n’a pas pu être chargé.');
         }
 
         if (!mountRef.current) {
-          throw new Error('Zone de paiement introuvable.');
+          throw new Error('La zone de saisie bancaire n’est pas disponible pour le moment.');
         }
 
         if (cardRef.current) {
@@ -2692,7 +2768,7 @@ function StepPaymentAuth({
         cardRef.current = card;
       } catch (err) {
         if (!disposed) {
-          setError(err instanceof Error ? err.message : 'Erreur initialisation paiement');
+          setError(toPatientSafePaymentErrorMessage(err));
         }
       } finally {
         if (!disposed) {
@@ -2720,17 +2796,17 @@ function StepPaymentAuth({
     setError(null);
 
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      setError('Aucune demande préparée pour la pré-autorisation.');
+      setError('Votre dossier n’est pas encore prêt. Merci de revenir à l’étape précédente puis de réessayer.');
       return;
     }
 
     if (!clientSecret) {
-      setError('Client secret Stripe manquant.');
+      setError('Le formulaire bancaire sécurisé n’est pas encore prêt. Merci de patienter quelques secondes.');
       return;
     }
 
     if (!stripeRef.current || !cardRef.current) {
-      setError('Stripe n’est pas prêt.');
+      setError('Le formulaire bancaire sécurisé n’est pas encore prêt. Merci de patienter quelques secondes.');
       return;
     }
 
@@ -2754,7 +2830,7 @@ function StepPaymentAuth({
       });
 
       if (result?.error) {
-        throw new Error(result.error.message || 'La pré-autorisation a été refusée.');
+        throw new Error(result.error.message || 'La vérification de votre carte n’a pas pu aboutir.');
       }
 
       const confirmedPaymentIntentId = typeof result?.paymentIntent?.id === 'string' && result.paymentIntent.id.trim() !== ''
@@ -2762,7 +2838,7 @@ function StepPaymentAuth({
         : paymentIntentId;
 
       if (!confirmedPaymentIntentId) {
-        throw new Error('PaymentIntent invalide après confirmation.');
+        throw new Error('La vérification bancaire n’a pas pu être finalisée.');
       }
 
       const confirmPayload = await confirmPaymentIntentApi(Number(preparedSubmission.id), confirmedPaymentIntentId);
@@ -2771,7 +2847,7 @@ function StepPaymentAuth({
         : '';
 
       if (confirmStatus !== '' && confirmStatus !== 'requires_capture' && confirmStatus !== 'succeeded') {
-        throw new Error('L’autorisation bancaire n’est pas finalisée. Merci de réessayer.');
+        throw new Error('La vérification bancaire est encore en cours. Merci de patienter quelques secondes puis de réessayer.');
       }
 
       frontendLog('payment_authorization_ok', 'info', {
@@ -2784,7 +2860,7 @@ function StepPaymentAuth({
 
       onAuthorized();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erreur de pré-autorisation bancaire.';
+      const message = toPatientSafePaymentErrorMessage(err);
       frontendLog('payment_authorization_error', 'error', {
         prescription_id: preparedSubmission.id,
         uid: preparedSubmission.uid,
@@ -2802,16 +2878,16 @@ function StepPaymentAuth({
       <section className="sp-app-card">
         <div className="sp-app-section__header">
           <div>
-            <h2 className="sp-app-section__title">Pré-autorisation bancaire</h2>
+            <h2 className="sp-app-section__title">Sécurisation du paiement</h2>
             <p className="sp-app-section__hint">
-              Dernière étape avant la transmission sécurisée au médecin.
+              Cette étape vérifie votre carte avant l’envoi sécurisé du dossier au médecin.
             </p>
           </div>
         </div>
 
         <div className="sp-app-block">
           <Notice variant="info">
-            <strong>Votre carte n’est débitée qu’après validation du médecin. Zéro frais en cas de refus médical.</strong>
+            <strong>Votre carte est seulement vérifiée ici. Elle n’est débitée qu’après validation du médecin. Aucun frais en cas de refus médical.</strong>
           </Notice>
         </div>
 
@@ -2854,23 +2930,23 @@ function StepPaymentAuth({
 
         {preparedSubmission?.uid ? (
           <div className="sp-app-inline-note">
-            Dossier préparé : <strong>{preparedSubmission.uid}</strong>
+            Référence de dossier : <strong>{preparedSubmission.uid}</strong>
           </div>
         ) : null}
 
         {pricingLoading ? (
           <div className="sp-app-inline-status">
             <Spinner />
-            <span>Préparation du récapitulatif financier…</span>
+<span>Préparation du montant de votre demande…</span>
           </div>
         ) : null}
 
-        <div className="sp-app-card sp-app-card--nested">
+        <div className="sp-app-card sp-app-card--nested sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
           <div className="sp-app-section__header">
             <div>
-              <h3 className="sp-app-section__title">Autorisation de carte</h3>
+              <h3 className="sp-app-section__title">Carte bancaire sécurisée</h3>
               <p className="sp-app-section__hint">
-                Stripe Elements est chargé à la volée pour sécuriser la carte sans jamais la stocker côté serveur.
+                Saisissez votre carte dans le formulaire bancaire sécurisé. Les données ne sont jamais stockées sur nos serveurs.
               </p>
             </div>
           </div>
@@ -2886,7 +2962,7 @@ function StepPaymentAuth({
               {initializing ? (
                 <div className="sp-app-inline-status">
                   <Spinner />
-                  <span>Initialisation sécurisée du module bancaire…</span>
+<span>Chargement du formulaire bancaire sécurisé…</span>
                 </div>
               ) : null}
               <div ref={mountRef} data-sp-stripe-mount="1" />
@@ -2895,21 +2971,41 @@ function StepPaymentAuth({
 
           <div className="sp-app-inline-note">
             {paymentsConfig?.provider
-              ? `Fournisseur : ${String(paymentsConfig.provider).toUpperCase()}${paymentsConfig.capture_method ? ` • capture ${String(paymentsConfig.capture_method).toUpperCase()}` : ''}`
-              : 'Fournisseur de paiement configuré dynamiquement.'}
-            {amountCents != null ? ` • Empreinte estimée : ${formatMoney(amountCents, currency)}` : ''}
+              ? `Paiement sécurisé par ${String(paymentsConfig.provider).toUpperCase()}`
+              : 'Paiement sécurisé'}
+            {amountCents != null ? ` • Aucun débit avant validation médicale • Montant autorisé temporairement : ${formatMoney(amountCents, currency)}` : ' • Aucun débit avant validation médicale'}
           </div>
         </div>
       </section>
 
       <div className="sp-app-actions">
         <Button type="button" variant="secondary" onClick={onBack} disabled={submitting}>
-          Retour à la priorité
+          Modifier le délai de traitement
         </Button>
-        <Button type="button" onClick={() => { void handleAuthorize(); }} disabled={initializing || submitting || !preparedSubmission}>
-          {submitting ? <Spinner /> : 'Autoriser la carte et transmettre au médecin'}
+        <Button
+          type="button"
+          onClick={() => { void handleAuthorize(); }}
+          disabled={initializing || submitting || !preparedSubmission}
+          aria-busy={submitting}
+          data-loading={submitting ? 'true' : 'false'}
+        >
+          {submitting ? (
+            <>
+              <Spinner />
+              <span>Validation sécurisée en cours…</span>
+            </>
+          ) : (
+            'Sécuriser ma carte et envoyer ma demande'
+          )}
         </Button>
       </div>
+
+      {submitting ? (
+        <div className="sp-app-inline-status sp-app-inline-status--payment" role="status" aria-live="polite">
+          <Spinner />
+          <span>Validation bancaire sécurisée en cours. Ne fermez pas la page et ne cliquez pas une seconde fois.</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2939,14 +3035,14 @@ function StepSuccess({
             <div className="sp-app-confirmation__uid">{submissionResult.uid}</div>
             <button
               type="button"
-              className="sp-app-icon-button"
+              className="sp-app-button sp-app-button--secondary sp-app-button--compact sp-app-button--copy"
               onClick={() => {
                 void onCopyUid();
               }}
               aria-label="Copier le numéro de dossier"
               title="Copier"
             >
-              {copiedUid ? 'Copié' : 'Copier'}
+              {copiedUid ? 'Numéro copié' : 'Copier le numéro'}
             </button>
           </div>
           <div className="sp-app-confirmation__text">
@@ -2967,7 +3063,7 @@ function StepSuccess({
           </div>
           <div className="sp-app-actions sp-app-actions--start">
             <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
-              Ouvrir l’espace patient
+              Accéder à mon espace patient
             </a>
           </div>
         </section>
@@ -3171,8 +3267,7 @@ function PublicFormApp() {
         autoTimesEnabled: true,
         start: '08:00',
         end: '20:00',
-        rounding: 5,
-      }),
+          }),
     };
 
     setItems((current) => {
@@ -3522,7 +3617,7 @@ function PublicFormApp() {
       setPreparedSubmission(result);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erreur soumission';
+      const message = toPatientSafeSubmissionErrorMessage(error);
       frontendLog('submission_error', 'error', {
         flow: flow || null,
         stage,
@@ -3562,17 +3657,17 @@ function PublicFormApp() {
     setSubmitError(null);
 
     if (pricingLoading) {
-      setSubmitError('La tarification clinique est encore en cours de chargement.');
+      setSubmitError('Le montant de votre demande est en cours de préparation. Merci de patienter quelques instants.');
       return;
     }
 
     if (!pricing || selectedAmount == null) {
-      setSubmitError('Impossible de poursuivre sans tarification dynamique. Merci de réessayer.');
+      setSubmitError('Le montant de votre demande n’est pas disponible pour le moment. Merci de réessayer.');
       return;
     }
 
     if (!paymentsConfig?.enabled) {
-      setSubmitError('La pré-autorisation bancaire est actuellement indisponible.');
+      setSubmitError('La sécurisation bancaire est actuellement indisponible. Merci de réessayer un peu plus tard.');
       return;
     }
 
@@ -3619,7 +3714,7 @@ function PublicFormApp() {
     { key: 'choose', label: 'Type de demande' },
     { key: 'form', label: 'Saisie médicale' },
     { key: 'priority_selection', label: 'Priorité' },
-    { key: 'payment_auth', label: 'Pré-autorisation' },
+    { key: 'payment_auth', label: 'Paiement sécurisé' },
     { key: 'done', label: 'Confirmation' },
   ];
   const activeStageIndex = stageEntries.findIndex((entry) => entry.key === stage);
@@ -3653,15 +3748,18 @@ function PublicFormApp() {
           </p>
         </header>
 
-        <div className="sp-app-stagebar" aria-label="Progression de la demande">
+        <div className="sp-app-stagebar" aria-label="Progression de la demande" role="list">
           {stageEntries.map((entry, index) => (
             <div
               key={entry.key}
               className={cx(
                 'sp-app-stagebar__item',
-                index <= activeStageIndex && 'is-complete',
+                index < activeStageIndex && 'is-complete',
                 index === activeStageIndex && 'is-active',
               )}
+              role="listitem"
+              aria-current={index === activeStageIndex ? 'step' : undefined}
+              aria-label={`Étape ${index + 1} sur ${stageEntries.length} : ${entry.label}`}
             >
               <div className="sp-app-stagebar__badge">{index + 1}</div>
               <div className="sp-app-stagebar__label">{entry.label}</div>
