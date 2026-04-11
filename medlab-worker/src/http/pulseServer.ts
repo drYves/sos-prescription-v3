@@ -1,4 +1,3 @@
-// src/http/pulseServer.ts
 import crypto from "node:crypto";
 import http from "node:http";
 import { URL } from "node:url";
@@ -30,6 +29,7 @@ import { PatientReadRepo } from "../prescriptions/patientReadRepo";
 import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
 import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
 import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
+import { handleMedicationSearchRequest } from "./medicationSearchController";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
@@ -310,6 +310,11 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/prescriptions/get") {
         return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
+      }
+
+      if (method === "GET" && (path === "/api/v1/medications/search" || path === "/api/v2/medications/search")) {
+        const response = await handleMedicationSearchRequest(url, { logger: deps.logger });
+        return sendJson(res, response.statusCode, response.body, signingSecret);
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {

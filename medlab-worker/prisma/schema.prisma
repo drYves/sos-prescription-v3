@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -212,4 +211,164 @@ model AuthToken {
 
   @@index([email, expiresAt])
   @@index([used, expiresAt])
+}
+
+
+model BdpmMedication {
+  cis                         String                    @id
+  denomination                String
+  normalizedDenomination      String
+  pharmaceuticalForm          String
+  administrationRoutesRaw     String
+  administrativeStatus        String
+  authorizationProcedure      String
+  commercializationState      String
+  authorizationDate           DateTime?
+  statusBdm                   String?
+  europeanAuthorizationNumber String?
+  holdersRaw                  String?
+  isUnderAdditionalMonitoring Boolean                   @default(false)
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
+  presentations               BdpmPresentation[]
+  compositions                BdpmComposition[]
+  genericGroupMembers         BdpmGenericGroupMember[]
+  prescriptionConditions      BdpmPrescriptionCondition[]
+  availabilityStatuses        BdpmAvailabilityStatus[]
+  therapeuticInterests        BdpmTherapeuticInterest[]
+  importantInfos              BdpmImportantInfo[]
+
+  @@index([normalizedDenomination])
+  @@index([denomination])
+  @@index([commercializationState])
+  @@index([authorizationDate])
+}
+
+model BdpmPresentation {
+  id                               String         @id
+  cis                              String
+  medication                       BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  cip7                             String
+  cip13                            String
+  label                            String
+  normalizedLabel                  String
+  presentationStatus               String
+  presentationCommercializationState String
+  commercializationDeclarationDate DateTime?
+  collectivitiesApproval           String?
+  reimbursementRate                String?
+  priceEuro                        Decimal?       @db.Decimal(10, 2)
+  publicPriceEuro                  Decimal?       @db.Decimal(10, 2)
+  dispensingFeeEuro                Decimal?       @db.Decimal(10, 2)
+  reimbursementIndications         String?
+  createdAt                        DateTime       @default(now())
+  updatedAt                        DateTime       @updatedAt
+
+  @@unique([cip13])
+  @@unique([cis, cip7])
+  @@index([cis])
+  @@index([cip7])
+  @@index([normalizedLabel])
+  @@index([presentationCommercializationState])
+}
+
+model BdpmComposition {
+  id                                 String         @id
+  cis                                String
+  medication                         BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  pharmaceuticalElementDesignation   String
+  substanceCode                      String
+  substanceName                      String
+  dosage                             String?
+  dosageReference                    String?
+  componentNature                    String
+  componentLinkNumber                String?
+  createdAt                          DateTime       @default(now())
+  updatedAt                          DateTime       @updatedAt
+
+  @@index([cis])
+  @@index([substanceCode])
+  @@index([substanceName])
+  @@index([componentNature])
+}
+
+model BdpmGenericGroupMember {
+  id               String         @id
+  cis              String
+  medication       BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  groupId          String
+  groupLabel       String
+  genericType      Int
+  genericTypeLabel String
+  sortOrder        Int
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([cis])
+  @@index([groupId, sortOrder])
+  @@index([genericType])
+}
+
+model BdpmPrescriptionCondition {
+  id                  String         @id
+  cis                 String
+  medication          BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  conditionText       String
+  normalizedCondition String
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@unique([cis, conditionText])
+  @@index([cis])
+  @@index([normalizedCondition])
+}
+
+model BdpmAvailabilityStatus {
+  id               String         @id
+  cis              String
+  medication       BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  cip13            String?
+  statusCode       Int
+  statusLabel      String
+  startDate        DateTime?
+  updatedDate      DateTime?
+  resupplyDate     DateTime?
+  ansmUrl          String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([cis])
+  @@index([cip13])
+  @@index([statusCode])
+  @@index([updatedDate])
+}
+
+model BdpmTherapeuticInterest {
+  id              String         @id
+  cis             String
+  medication      BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  atcCode         String
+  denomination    String
+  bdpmUrl         String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([cis, atcCode])
+  @@index([cis])
+  @@index([atcCode])
+}
+
+model BdpmImportantInfo {
+  id             String         @id
+  cis            String
+  medication     BdpmMedication @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  startDate      DateTime?
+  endDate        DateTime?
+  messageAndUrl  String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([cis])
+  @@index([startDate])
+  @@index([endDate])
 }
