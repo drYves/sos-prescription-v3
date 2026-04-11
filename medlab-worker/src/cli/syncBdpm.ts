@@ -298,18 +298,16 @@ async function downloadFile(url: string, filePath: string, timeoutMs: number): P
 }
 
 async function truncateBdpmTables(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE
-      "BdpmAvailabilityStatus",
-      "BdpmComposition",
-      "BdpmGenericGroupMember",
-      "BdpmImportantInfo",
-      "BdpmPrescriptionCondition",
-      "BdpmPresentation",
-      "BdpmTherapeuticInterest",
-      "BdpmMedication"
-    RESTART IDENTITY CASCADE
-  `);
+  await prisma.$transaction([
+    prisma.bdpmAvailabilityStatus.deleteMany(),
+    prisma.bdpmComposition.deleteMany(),
+    prisma.bdpmGenericGroupMember.deleteMany(),
+    prisma.bdpmImportantInfo.deleteMany(),
+    prisma.bdpmPrescriptionCondition.deleteMany(),
+    prisma.bdpmPresentation.deleteMany(),
+    prisma.bdpmTherapeuticInterest.deleteMany(),
+    prisma.bdpmMedication.deleteMany(),
+  ]);
 }
 
 async function importDatasetFile<Row>(
