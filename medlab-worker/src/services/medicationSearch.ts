@@ -322,7 +322,7 @@ function buildTokenClauses(tokens: string[]): Prisma.Sql {
     )
   `);
 
-  return Prisma.join(tokenFilters, Prisma.sql` AND `);
+  return Prisma.join(tokenFilters, " AND ");
 }
 
 function mapMedicationSearchRow(row: MedicationSearchRow): MedicationSearchResult {
