@@ -40,6 +40,7 @@ interface DownloadedDataset {
 
 interface ImportContext {
   logger: NdjsonLogger;
+  validCisSet: Set<string>;
 }
 
 interface DatasetDefinition<Row> {
@@ -63,7 +64,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_bdpm.txt",
     buildUrl: (opts) => new URL("CIS_bdpm.txt", opts.baseFileUrl).toString(),
     expectedColumns: 12,
-    parse: (fields, lineNumber) => parseSpecialty(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseSpecialty(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmMedication.createMany({
       data: rows as Prisma.BdpmMedicationCreateManyInput[],
       skipDuplicates: true,
@@ -74,7 +75,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_CIP_bdpm.txt",
     buildUrl: (opts) => new URL("CIS_CIP_bdpm.txt", opts.baseFileUrl).toString(),
     expectedColumns: 13,
-    parse: (fields, lineNumber) => parsePresentation(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parsePresentation(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmPresentation.createMany({
       data: rows as Prisma.BdpmPresentationCreateManyInput[],
       skipDuplicates: true,
@@ -85,7 +86,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_COMPO_bdpm.txt",
     buildUrl: (opts) => new URL("CIS_COMPO_bdpm.txt", opts.baseFileUrl).toString(),
     expectedColumns: 8,
-    parse: (fields, lineNumber) => parseComposition(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseComposition(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmComposition.createMany({
       data: rows as Prisma.BdpmCompositionCreateManyInput[],
       skipDuplicates: true,
@@ -96,7 +97,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_GENER_bdpm.txt",
     buildUrl: (opts) => new URL("CIS_GENER_bdpm.txt", opts.baseFileUrl).toString(),
     expectedColumns: 5,
-    parse: (fields, lineNumber) => parseGenericGroupMember(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseGenericGroupMember(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmGenericGroupMember.createMany({
       data: rows as Prisma.BdpmGenericGroupMemberCreateManyInput[],
       skipDuplicates: true,
@@ -107,7 +108,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_CPD_bdpm.txt",
     buildUrl: (opts) => new URL("CIS_CPD_bdpm.txt", opts.baseFileUrl).toString(),
     expectedColumns: 2,
-    parse: (fields, lineNumber) => parsePrescriptionCondition(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parsePrescriptionCondition(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmPrescriptionCondition.createMany({
       data: rows as Prisma.BdpmPrescriptionConditionCreateManyInput[],
       skipDuplicates: true,
@@ -118,7 +119,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_CIP_Dispo_Spec.txt",
     buildUrl: (opts) => new URL("CIS_CIP_Dispo_Spec.txt", opts.baseFileUrl).toString(),
     expectedColumns: 8,
-    parse: (fields, lineNumber) => parseAvailabilityStatus(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseAvailabilityStatus(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmAvailabilityStatus.createMany({
       data: rows as Prisma.BdpmAvailabilityStatusCreateManyInput[],
       skipDuplicates: true,
@@ -129,7 +130,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_MITM.txt",
     buildUrl: (opts) => new URL("CIS_MITM.txt", opts.baseFileUrl).toString(),
     expectedColumns: 4,
-    parse: (fields, lineNumber) => parseTherapeuticInterest(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseTherapeuticInterest(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmTherapeuticInterest.createMany({
       data: rows as Prisma.BdpmTherapeuticInterestCreateManyInput[],
       skipDuplicates: true,
@@ -140,7 +141,7 @@ const DATASETS: readonly DatasetDefinition<unknown>[] = [
     filename: "CIS_InfoImportantes.txt",
     buildUrl: (opts) => opts.importantInfoUrl,
     expectedColumns: 4,
-    parse: (fields, lineNumber) => parseImportantInfo(fields, lineNumber),
+    parse: (fields, lineNumber, _ctx) => parseImportantInfo(fields, lineNumber),
     insert: (prisma, rows) => prisma.bdpmImportantInfo.createMany({
       data: rows as Prisma.BdpmImportantInfoCreateManyInput[],
       skipDuplicates: true,
@@ -157,6 +158,7 @@ async function main(): Promise<void> {
   );
   const prisma = new PrismaClient();
   const downloadDir = opts.downloadDir ?? await mkdtemp(path.join(os.tmpdir(), "bdpm-sync-"));
+  const ctx: ImportContext = { logger, validCisSet: new Set() };
 
   logger.info(
     "bdpm.sync.started",
@@ -178,7 +180,17 @@ async function main(): Promise<void> {
 
     for (const downloadedDataset of downloaded) {
       const definition = findDatasetDefinition(downloadedDataset.key);
-      await importDatasetFile(definition, downloadedDataset, prisma, opts.chunkSize, { logger });
+
+      if (downloadedDataset.key !== "specialties" && ctx.validCisSet.size === 0) {
+        logger.info("bdpm.sync.loading_valid_cis", {}, undefined);
+        const meds = await prisma.bdpmMedication.findMany({ select: { cis: true } });
+        for (const medication of meds) {
+          ctx.validCisSet.add(medication.cis);
+        }
+        logger.info("bdpm.sync.valid_cis_loaded", { count: ctx.validCisSet.size }, undefined);
+      }
+
+      await importDatasetFile(definition, downloadedDataset, prisma, opts.chunkSize, ctx);
     }
 
     const counts = await collectRowCounts(prisma);
@@ -341,7 +353,14 @@ async function importDatasetFile<Row>(
     lineNumber += 1;
 
     const fields = splitTabColumns(line, definition.expectedColumns);
-    chunk.push(definition.parse(fields, lineNumber, ctx));
+    const parsed = definition.parse(fields, lineNumber, ctx);
+
+    const cisValue = (parsed as { cis?: unknown }).cis;
+    if (dataset.key !== "specialties" && typeof cisValue === "string" && !ctx.validCisSet.has(cisValue)) {
+      continue;
+    }
+
+    chunk.push(parsed);
 
     if (chunk.length >= chunkSize) {
       insertedRows += await definition.insert(prisma, chunk);
