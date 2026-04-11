@@ -7,8 +7,7 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const MIN_TEXT_QUERY_LENGTH = 2;
 const MIN_NUMERIC_QUERY_LENGTH = 3;
-
-const CONTROLLED_CONDITIONS = ["stupefiants", "liste i", "liste ii"] as const;
+const STUPEFIANT_REGEX = "(^|[[:space:]])stupefiant(s)?($|[[:space:]])";
 
 export interface MedicationSearchConfig {
   prisma?: PrismaClient;
@@ -24,6 +23,7 @@ export interface MedicationSearchResult {
   cis: string;
   cip13: string;
   label: string;
+  sublabel: string | null;
   isSelectable: boolean;
 }
 
@@ -47,6 +47,7 @@ interface MedicationSearchRow {
   cis: string;
   cip13: string;
   label: string;
+  sublabel: string | null;
   isSelectable: boolean;
 }
 
@@ -113,15 +114,15 @@ export class MedicationSearchService {
       WITH cpd_flags AS (
         SELECT
           cpd."cis" AS "cis",
-          TRUE AS "hasAnyCondition",
-          BOOL_OR(cpd."normalizedCondition" IN (${Prisma.join(CONTROLLED_CONDITIONS)})) AS "hasControlledCondition"
+          BOOL_OR(cpd."normalizedCondition" ~ ${STUPEFIANT_REGEX}) AS "hasStupefiantCondition"
         FROM "BdpmPrescriptionCondition" cpd
         GROUP BY cpd."cis"
       )
       SELECT
         m."cis" AS "cis",
         p."cip13" AS "cip13",
-        COALESCE(NULLIF(p."label", ''), m."denomination") AS "label",
+        m."denomination" AS "label",
+        NULLIF(BTRIM(p."label"), '') AS "sublabel",
         CASE
           WHEN p."cip13" = ${input.digitsOnly} THEN 0
           WHEN p."cip7" = ${input.digitsOnly} THEN 1
@@ -132,17 +133,14 @@ export class MedicationSearchService {
           ELSE 9
         END AS "matchRank",
         CASE
-          WHEN m."commercializationState" = 'Commercialisée'
-            AND p."presentationCommercializationState" = 'Déclaration de commercialisation' THEN 0
-          WHEN p."presentationCommercializationState" = 'Déclaration de commercialisation' THEN 1
-          WHEN m."commercializationState" = 'Commercialisée' THEN 2
+          WHEN BTRIM(m."commercializationState") = 'Commercialisée'
+            AND BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 0
+          WHEN BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 1
+          WHEN BTRIM(m."commercializationState") = 'Commercialisée' THEN 2
           ELSE 3
         END AS "commercializationRank",
         CASE
-          -- Règle métier CH0 : aucune CPD => OTC / accès direct => hors périmètre.
-          WHEN COALESCE(cpd."hasAnyCondition", FALSE) = FALSE THEN FALSE
-          -- Règle métier CH0 : listes I/II et stupéfiants => hors périmètre.
-          WHEN COALESCE(cpd."hasControlledCondition", FALSE) = TRUE THEN FALSE
+          WHEN COALESCE(cpd."hasStupefiantCondition", FALSE) = TRUE THEN FALSE
           ELSE TRUE
         END AS "isSelectable"
       FROM "BdpmPresentation" p
@@ -159,10 +157,10 @@ export class MedicationSearchService {
         OR m."cis" LIKE ${prefixValue}
       )
       ORDER BY
-        "matchRank" ASC,
         "commercializationRank" ASC,
+        "matchRank" ASC,
         "isSelectable" DESC,
-        CHAR_LENGTH(COALESCE(NULLIF(p."label", ''), m."denomination")) ASC,
+        CHAR_LENGTH(m."denomination") ASC,
         m."cis" ASC,
         p."cip13" ASC
       LIMIT ${input.limit}
@@ -180,36 +178,33 @@ export class MedicationSearchService {
       WITH cpd_flags AS (
         SELECT
           cpd."cis" AS "cis",
-          TRUE AS "hasAnyCondition",
-          BOOL_OR(cpd."normalizedCondition" IN (${Prisma.join(CONTROLLED_CONDITIONS)})) AS "hasControlledCondition"
+          BOOL_OR(cpd."normalizedCondition" ~ ${STUPEFIANT_REGEX}) AS "hasStupefiantCondition"
         FROM "BdpmPrescriptionCondition" cpd
         GROUP BY cpd."cis"
       )
       SELECT
         m."cis" AS "cis",
         p."cip13" AS "cip13",
-        COALESCE(NULLIF(p."label", ''), m."denomination") AS "label",
+        m."denomination" AS "label",
+        NULLIF(BTRIM(p."label"), '') AS "sublabel",
         CASE
-          WHEN p."normalizedLabel" = ${input.normalizedQuery} THEN 0
-          WHEN m."normalizedDenomination" = ${input.normalizedQuery} THEN 1
-          WHEN p."normalizedLabel" LIKE ${fullPrefix} THEN 2
-          WHEN m."normalizedDenomination" LIKE ${fullPrefix} THEN 3
-          WHEN p."normalizedLabel" LIKE ${fullContains} THEN 4
-          WHEN m."normalizedDenomination" LIKE ${fullContains} THEN 5
+          WHEN m."normalizedDenomination" = ${input.normalizedQuery} THEN 0
+          WHEN m."normalizedDenomination" LIKE ${fullPrefix} THEN 1
+          WHEN m."normalizedDenomination" LIKE ${fullContains} THEN 2
+          WHEN p."normalizedLabel" = ${input.normalizedQuery} THEN 3
+          WHEN p."normalizedLabel" LIKE ${fullPrefix} THEN 4
+          WHEN p."normalizedLabel" LIKE ${fullContains} THEN 5
           ELSE 9
         END AS "matchRank",
         CASE
-          WHEN m."commercializationState" = 'Commercialisée'
-            AND p."presentationCommercializationState" = 'Déclaration de commercialisation' THEN 0
-          WHEN p."presentationCommercializationState" = 'Déclaration de commercialisation' THEN 1
-          WHEN m."commercializationState" = 'Commercialisée' THEN 2
+          WHEN BTRIM(m."commercializationState") = 'Commercialisée'
+            AND BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 0
+          WHEN BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 1
+          WHEN BTRIM(m."commercializationState") = 'Commercialisée' THEN 2
           ELSE 3
         END AS "commercializationRank",
         CASE
-          -- Règle métier CH0 : aucune CPD => OTC / accès direct => hors périmètre.
-          WHEN COALESCE(cpd."hasAnyCondition", FALSE) = FALSE THEN FALSE
-          -- Règle métier CH0 : listes I/II et stupéfiants => hors périmètre.
-          WHEN COALESCE(cpd."hasControlledCondition", FALSE) = TRUE THEN FALSE
+          WHEN COALESCE(cpd."hasStupefiantCondition", FALSE) = TRUE THEN FALSE
           ELSE TRUE
         END AS "isSelectable"
       FROM "BdpmPresentation" p
@@ -219,10 +214,10 @@ export class MedicationSearchService {
         ON cpd."cis" = m."cis"
       WHERE ${tokenClauses}
       ORDER BY
-        "matchRank" ASC,
         "commercializationRank" ASC,
+        "matchRank" ASC,
         "isSelectable" DESC,
-        CHAR_LENGTH(COALESCE(NULLIF(p."label", ''), m."denomination")) ASC,
+        CHAR_LENGTH(m."denomination") ASC,
         m."cis" ASC,
         p."cip13" ASC
       LIMIT ${input.limit}
@@ -330,6 +325,7 @@ function mapMedicationSearchRow(row: MedicationSearchRow): MedicationSearchResul
     cis: row.cis,
     cip13: row.cip13,
     label: row.label,
+    sublabel: row.sublabel,
     isSelectable: row.isSelectable,
   };
 }

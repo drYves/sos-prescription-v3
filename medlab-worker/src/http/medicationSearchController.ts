@@ -81,6 +81,7 @@ function buildSuccessResponse(result: MedicationSearchResponse): MedicationSearc
         cis: item.cis,
         cip13: item.cip13,
         label: item.label,
+        sublabel: item.sublabel,
         is_selectable: item.isSelectable,
       })),
     },
