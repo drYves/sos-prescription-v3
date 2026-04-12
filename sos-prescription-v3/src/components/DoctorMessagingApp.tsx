@@ -288,6 +288,63 @@ function normalizeSmartReplies(payload: unknown): SmartReplyOption[] {
     .slice(0, 3);
 }
 
+function normalizePolishPayload(payload: unknown, originalDraft: string): PolishPayload {
+  const candidates: unknown[] = [];
+  if (payload && typeof payload === 'object') {
+    const root = payload as {
+      ok?: unknown;
+      message?: unknown;
+      rewritten_body?: unknown;
+      changes_summary?: unknown;
+      risk_flags?: unknown;
+      data?: unknown;
+      result?: unknown;
+      polish?: unknown;
+      payload?: unknown;
+    };
+
+    if (root.ok === false && typeof root.message === 'string' && root.message.trim() !== '') {
+      throw new Error(root.message.trim());
+    }
+
+    candidates.push(payload, root.data, root.result, root.polish, root.payload);
+  } else {
+    candidates.push(payload);
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+
+    const row = candidate as {
+      rewritten_body?: unknown;
+      changes_summary?: unknown;
+      risk_flags?: unknown;
+    };
+
+    const rewritten = typeof row.rewritten_body === 'string' && row.rewritten_body.trim() !== ''
+      ? row.rewritten_body
+      : null;
+    const changesSummary = Array.isArray(row.changes_summary)
+      ? row.changes_summary.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+      : [];
+    const riskFlags = Array.isArray(row.risk_flags)
+      ? row.risk_flags.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+      : [];
+
+    if (rewritten || changesSummary.length > 0 || riskFlags.length > 0) {
+      return {
+        rewritten_body: rewritten || originalDraft,
+        changes_summary: changesSummary,
+        risk_flags: riskFlags,
+      };
+    }
+  }
+
+  throw new Error('Réponse inattendue du service de reformulation.');
+}
+
 async function getDoctorMessages(prescriptionId: number): Promise<ThreadPayload> {
   return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages`, { method: 'GET' }, 'admin');
 }
@@ -343,7 +400,7 @@ async function requestArtifactAccess(artifactId: number, prescriptionId: number)
 }
 
 async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
-  return v4ApiJson<PolishPayload>(
+  const payload = await v4ApiJson<unknown>(
     '/messages/polish',
     {
       method: 'POST',
@@ -361,6 +418,8 @@ async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
     },
     'admin',
   );
+
+  return normalizePolishPayload(payload, draft);
 }
 
 async function getDoctorSmartReplies(prescriptionId: number): Promise<SmartRepliesPayload> {

@@ -346,15 +346,40 @@ function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | nul
   };
 }
 
-function normalizeMessageId(idValue: unknown, seqValue: unknown): number {
-  const directId = toPositiveInteger(idValue);
-  if (directId > 0) {
-    return directId;
+function normalizeMessageAuthorRole(value: unknown): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === '') {
+    return '';
   }
 
+  if (normalized.includes('patient')) {
+    return 'PATIENT';
+  }
+
+  if (
+    normalized.includes('doctor')
+    || normalized.includes('medecin')
+    || normalized.includes('médecin')
+    || normalized.includes('physician')
+    || normalized.includes('praticien')
+    || normalized.includes('admin')
+    || normalized.includes('administrator')
+  ) {
+    return 'DOCTOR';
+  }
+
+  return normalized.toUpperCase();
+}
+
+function normalizeMessageId(idValue: unknown, seqValue: unknown): number {
   const seqId = toPositiveInteger(seqValue);
   if (seqId > 0) {
     return seqId;
+  }
+
+  const directId = toPositiveInteger(idValue);
+  if (directId > 0) {
+    return directId;
   }
 
   return 0;
@@ -371,13 +396,25 @@ function normalizeMessageRecord(payload: unknown): MessageItem | null {
     return null;
   }
 
+  const rawAuthorRole =
+    payload.author_role
+    ?? payload.authorRole
+    ?? payload.role;
+  const rawCreatedAt =
+    payload.created_at
+    ?? payload.createdAt;
+  const rawAttachments =
+    typeof payload.attachments !== 'undefined'
+      ? payload.attachments
+      : payload.attachment_artifact_ids;
+
   return {
     id,
     seq: seq > 0 ? seq : undefined,
-    author_role: toRequiredString(payload.author_role, ''),
+    author_role: normalizeMessageAuthorRole(rawAuthorRole),
     body: toRequiredString(payload.body, ''),
-    created_at: toRequiredString(payload.created_at, ''),
-    attachments: normalizeAttachmentIds(payload.attachments),
+    created_at: toRequiredString(rawCreatedAt, ''),
+    attachments: normalizeAttachmentIds(rawAttachments),
   };
 }
 
@@ -1205,7 +1242,16 @@ export default function PatientConsole() {
         return;
       }
 
-      setMessages(normalizeMessageArray(messagesArray));
+      const normalizedMessages = normalizeMessageArray(messagesArray).filter((message) => {
+        const normalizedRole = normalizeMessageAuthorRole(message.author_role);
+        if (normalizedRole === 'PATIENT' || normalizedRole === 'DOCTOR') {
+          return true;
+        }
+
+        return String(message.body || '').trim() !== '' || (Array.isArray(message.attachments) && message.attachments.length > 0);
+      });
+
+      setMessages(normalizedMessages);
     } catch (err) {
       const banner = resolveBannerFromError(err);
       if (banner) {

@@ -13,6 +13,7 @@ type UploadedFile = {
 
 type MessageItem = {
   id: number;
+  seq?: number;
   author_role: string;
   body: string;
   created_at: string;
@@ -32,7 +33,28 @@ function cx(...classes: Array<string | false | null | undefined>): string {
 }
 
 function normalizeRole(authorRole: string): string {
-  return String(authorRole || '').trim().toUpperCase();
+  const normalized = String(authorRole || '').trim().toLowerCase();
+  if (normalized === '') {
+    return '';
+  }
+
+  if (normalized.includes('patient')) {
+    return 'PATIENT';
+  }
+
+  if (
+    normalized.includes('doctor')
+    || normalized.includes('medecin')
+    || normalized.includes('médecin')
+    || normalized.includes('physician')
+    || normalized.includes('praticien')
+    || normalized.includes('admin')
+    || normalized.includes('administrator')
+  ) {
+    return 'DOCTOR';
+  }
+
+  return normalized.toUpperCase();
 }
 
 function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerRole: ViewerRole): Set<string> {
@@ -74,10 +96,28 @@ function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerR
   return out;
 }
 
+function resolveActiveViewerRole(viewerRole: ViewerRole, currentUserRoles?: string[] | string): ViewerRole {
+  const roles = normalizeCurrentUserRoles(currentUserRoles, viewerRole);
+
+  if (roles.has(viewerRole)) {
+    return viewerRole;
+  }
+
+  if (roles.has('DOCTOR')) {
+    return 'DOCTOR';
+  }
+
+  if (roles.has('PATIENT')) {
+    return 'PATIENT';
+  }
+
+  return viewerRole;
+}
+
 function isOwnMessage(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): boolean {
   const normalizedAuthorRole = normalizeRole(authorRole);
-  const selfRoles = normalizeCurrentUserRoles(currentUserRoles, viewerRole);
-  return selfRoles.has(normalizedAuthorRole);
+  const activeViewerRole = resolveActiveViewerRole(viewerRole, currentUserRoles);
+  return normalizedAuthorRole === activeViewerRole;
 }
 
 function getRoleLabel(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): string {
@@ -147,8 +187,11 @@ const MessageList = React.memo(
           const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
           const normalizedRole = normalizeRole(message.author_role);
           const formattedDate = formatMessageDate(message.created_at);
-          const itemKey = Number.isFinite(Number(message.id)) && Number(message.id) > 0
-            ? String(message.id)
+          const messageSeq = Number((message as { seq?: unknown }).seq || 0);
+          const itemKey = Number.isFinite(messageSeq) && messageSeq > 0
+            ? `seq:${messageSeq}`
+            : Number.isFinite(Number(message.id)) && Number(message.id) > 0
+            ? `id:${message.id}`
             : `${normalizedRole}-${message.created_at}-${index}`;
 
           return (

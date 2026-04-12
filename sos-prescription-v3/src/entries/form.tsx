@@ -3967,14 +3967,47 @@ type ExternalProfileAccordionOptions = {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): void {
   const collapsedByDefault = !!options.collapsedByDefault;
+  let observer: MutationObserver | null = null;
+  let enhancing = false;
+
+  const rewriteProfileText = (card: HTMLElement): void => {
+    const oldCopy = 'Ces informations peuvent préremplir votre prochaine demande d’ordonnance. Vous pourrez toujours les modifier si la demande concerne un proche.';
+    const nextCopy = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
+
+    const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+    const touched = new Set<HTMLElement>();
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const currentValue = String(node.nodeValue || '').trim();
+      if (currentValue !== oldCopy) {
+        continue;
+      }
+
+      node.nodeValue = nextCopy;
+      if (node.parentElement) {
+        touched.add(node.parentElement);
+      }
+    }
+
+    touched.forEach((element) => {
+      element.textContent = nextCopy;
+    });
+  };
 
   const enhanceCard = (card: Element | null): boolean => {
     if (!(card instanceof HTMLElement)) {
       return false;
     }
 
+    rewriteProfileText(card);
+
     if (card.dataset.spAccordionReady === '1') {
       return true;
+    }
+
+    if (enhancing) {
+      return false;
     }
 
     const header = card.querySelector('.sp-profile-card__header');
@@ -3982,49 +4015,72 @@ function installExternalProfileAccordion(options: ExternalProfileAccordionOption
       return false;
     }
 
-    const content = document.createElement('div');
-    content.className = 'sp-profile-card__content';
-    content.id = 'sp-profile-card-content';
-
-    Array.from(card.children).forEach((child) => {
-      if (child !== header) {
-        content.appendChild(child);
-      }
-    });
-
-    card.appendChild(content);
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'sp-profile-card__toggle';
-    toggle.setAttribute('aria-controls', 'sp-profile-card-content');
-
-    const toggleIcon = document.createElement('span');
-    toggleIcon.className = 'sp-profile-card__toggle-icon';
-    toggleIcon.setAttribute('aria-hidden', 'true');
-    toggleIcon.textContent = '⌃';
-
-    const toggleLabel = document.createElement('span');
-    toggleLabel.className = 'sp-profile-card__toggle-label';
-
-    toggle.appendChild(toggleLabel);
-    toggle.appendChild(toggleIcon);
-    header.appendChild(toggle);
-
-    const setCollapsed = (collapsed: boolean): void => {
-      card.classList.toggle('is-collapsed', collapsed);
-      content.hidden = collapsed;
-      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
-    };
-
-    toggle.addEventListener('click', () => {
-      setCollapsed(!card.classList.contains('is-collapsed'));
-    });
-
+    enhancing = true;
     card.dataset.spAccordionReady = '1';
-    setCollapsed(collapsedByDefault);
-    return true;
+
+    try {
+      const existingContent = card.querySelector('.sp-profile-card__content');
+      const content = existingContent instanceof HTMLElement
+        ? existingContent
+        : document.createElement('div');
+
+      if (!(existingContent instanceof HTMLElement)) {
+        content.className = 'sp-profile-card__content';
+        content.id = card.id ? `${card.id}-content` : 'sp-profile-card-content';
+
+        Array.from(card.children).forEach((child) => {
+          if (child !== header && child !== content) {
+            content.appendChild(child);
+          }
+        });
+
+        card.appendChild(content);
+      }
+
+      let toggle = header.querySelector('.sp-profile-card__toggle');
+      if (!(toggle instanceof HTMLButtonElement)) {
+        toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'sp-profile-card__toggle';
+        toggle.setAttribute('aria-controls', content.id);
+
+        const toggleLabel = document.createElement('span');
+        toggleLabel.className = 'sp-profile-card__toggle-label';
+
+        const toggleIcon = document.createElement('span');
+        toggleIcon.className = 'sp-profile-card__toggle-icon';
+        toggleIcon.setAttribute('aria-hidden', 'true');
+        toggleIcon.textContent = '⌃';
+
+        toggle.appendChild(toggleLabel);
+        toggle.appendChild(toggleIcon);
+        header.appendChild(toggle);
+      }
+
+      const toggleLabel = toggle.querySelector('.sp-profile-card__toggle-label');
+      const setCollapsed = (collapsed: boolean): void => {
+        card.classList.toggle('is-collapsed', collapsed);
+        content.hidden = collapsed;
+        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        if (toggleLabel instanceof HTMLElement) {
+          toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
+        }
+      };
+
+      if (toggle.dataset.spAccordionBound !== '1') {
+        toggle.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setCollapsed(!card.classList.contains('is-collapsed'));
+        });
+        toggle.dataset.spAccordionBound = '1';
+      }
+
+      setCollapsed(collapsedByDefault);
+      return true;
+    } finally {
+      enhancing = false;
+    }
   };
 
   const tryEnhance = (): boolean => enhanceCard(document.querySelector('.sp-profile-card'));
@@ -4037,14 +4093,22 @@ function installExternalProfileAccordion(options: ExternalProfileAccordionOption
     return;
   }
 
-  const observer = new MutationObserver(() => {
+  observer = new MutationObserver(() => {
+    if (enhancing) {
+      return;
+    }
+
     if (tryEnhance()) {
-      observer.disconnect();
+      observer?.disconnect();
+      observer = null;
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-  window.setTimeout(() => observer.disconnect(), 12000);
+  window.setTimeout(() => {
+    observer?.disconnect();
+    observer = null;
+  }, 12000);
 }
 
 function mountPatientConsole(container: HTMLElement): void {

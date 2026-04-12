@@ -162,10 +162,10 @@ export default function MessageThread({
     setPolishing(true);
 
     try {
-      const result = await onPolishDraft(draftBody);
+      const result = await Promise.resolve(onPolishDraft(sourceDraft));
       const rewritten = typeof result?.rewritten_body === 'string' && result.rewritten_body.trim() !== ''
         ? result.rewritten_body
-        : draftBody;
+        : sourceDraft;
       setDraftBody(rewritten);
       textareaRef.current?.focus();
     } catch (error) {
