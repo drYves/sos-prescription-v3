@@ -160,6 +160,7 @@ async function main(): Promise<void> {
     stripeGateway,
     wpPaymentBridge,
     smartReplyService,
+    copilotService,
   });
 
   const shutdown = async (signal: string) => {

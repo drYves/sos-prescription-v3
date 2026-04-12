@@ -29,6 +29,7 @@ type MessageItem = {
   id: number;
   seq?: number;
   author_role: string;
+  author_wp_user_id?: number;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -116,6 +117,15 @@ function withCacheBuster(path: string, method: string): string {
     const separator = path.includes('?') ? '&' : '?';
     return `${path}${separator}_ts=${Date.now()}`;
   }
+}
+
+function toPositiveWpUserId(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : undefined;
+}
+
+function getCurrentWpUserId(): number | undefined {
+  return toPositiveWpUserId(getAppConfig().currentUser?.id);
 }
 
 async function apiJson<T>(path: string, init: RequestInit, scope = 'admin'): Promise<T> {
@@ -226,11 +236,18 @@ function normalizeMessage(input: Partial<MessageItem> | null | undefined): Messa
     ? ((input as { attachment_artifact_ids: unknown[] }).attachment_artifact_ids as unknown[])
     : [];
   const attachmentsSource = Array.isArray(input?.attachments) ? input.attachments : fallbackAttachments;
+  const authorWpUserId = toPositiveWpUserId(
+    (input as { author_wp_user_id?: unknown; authorWpUserId?: unknown; author_user_id?: unknown; authorUserId?: unknown } | null)?.author_wp_user_id
+      ?? (input as { author_wp_user_id?: unknown; authorWpUserId?: unknown; author_user_id?: unknown; authorUserId?: unknown } | null)?.authorWpUserId
+      ?? (input as { author_wp_user_id?: unknown; authorWpUserId?: unknown; author_user_id?: unknown; authorUserId?: unknown } | null)?.author_user_id
+      ?? (input as { author_wp_user_id?: unknown; authorWpUserId?: unknown; author_user_id?: unknown; authorUserId?: unknown } | null)?.authorUserId
+  );
 
   return {
     id: Number(input?.id || input?.seq || Date.now()),
     seq: Number(input?.seq || 0) || undefined,
     author_role: String(input?.author_role || 'DOCTOR'),
+    author_wp_user_id: authorWpUserId,
     body: String(input?.body || ''),
     created_at: String(input?.created_at || ''),
     attachments: toAttachmentIds(attachmentsSource),
@@ -366,6 +383,7 @@ async function postDoctorMessage(prescriptionId: number, body: string, attachmen
   return normalizeMessage(payload && payload.message ? payload.message : {
     id: Date.now(),
     author_role: 'DOCTOR',
+    author_wp_user_id: getCurrentWpUserId(),
     body,
     created_at: new Date().toISOString(),
     attachments,

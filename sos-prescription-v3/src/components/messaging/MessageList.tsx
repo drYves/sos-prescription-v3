@@ -15,6 +15,7 @@ type MessageItem = {
   id: number;
   seq?: number;
   author_role: string;
+  author_wp_user_id?: number;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -26,6 +27,19 @@ type Props = {
   currentUserRoles?: string[] | string;
   fileIndex: Record<number, UploadedFile>;
   onDownloadFile: (attachmentId: number) => void | Promise<void>;
+};
+
+type MessageListWindow = Window & {
+  SOSPrescription?: {
+    currentUser?: {
+      id?: number | string;
+    };
+  };
+  SosPrescription?: {
+    currentUser?: {
+      id?: number | string;
+    };
+  };
 };
 
 function cx(...classes: Array<string | false | null | undefined>): string {
@@ -57,73 +71,30 @@ function normalizeRole(authorRole: string): string {
   return normalized.toUpperCase();
 }
 
-function normalizeCurrentUserRoles(value: string[] | string | undefined): Set<string> {
-  const source = Array.isArray(value)
-    ? value
-    : typeof value === 'string' && value.trim() !== ''
-      ? value.split(/[\s,;|/]+/g)
-      : [];
-
-  const out = new Set<string>();
-
-  source.forEach((entry) => {
-    const normalized = String(entry || '').trim().toLowerCase();
-    if (normalized === '') {
-      return;
-    }
-
-    if (normalized.includes('patient')) {
-      out.add('PATIENT');
-    }
-
-    if (
-      normalized.includes('doctor')
-      || normalized.includes('medecin')
-      || normalized.includes('médecin')
-      || normalized.includes('physician')
-      || normalized.includes('praticien')
-      || normalized.includes('admin')
-      || normalized.includes('administrator')
-    ) {
-      out.add('DOCTOR');
-    }
-  });
-
-  return out;
+function normalizeWpUserId(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : 0;
 }
 
-function resolveActiveViewerRole(viewerRole: ViewerRole, currentUserRoles?: string[] | string): ViewerRole {
-  const normalizedViewerRole = normalizeRole(viewerRole);
-  if (normalizedViewerRole === 'PATIENT' || normalizedViewerRole === 'DOCTOR') {
-    return normalizedViewerRole;
-  }
-
-  const roles = normalizeCurrentUserRoles(currentUserRoles);
-  if (roles.has('DOCTOR')) {
-    return 'DOCTOR';
-  }
-
-  if (roles.has('PATIENT')) {
-    return 'PATIENT';
-  }
-
-  return 'PATIENT';
+function getCurrentWpUserId(): number {
+  const g = window as MessageListWindow;
+  const cfg = g.SosPrescription || g.SOSPrescription;
+  return normalizeWpUserId(cfg?.currentUser?.id);
 }
 
-function isOwnMessage(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): boolean {
-  const normalizedAuthorRole = normalizeRole(authorRole);
-  if (normalizedAuthorRole !== 'PATIENT' && normalizedAuthorRole !== 'DOCTOR') {
+function isOwnMessage(message: MessageItem): boolean {
+  const currentUserId = getCurrentWpUserId();
+  if (currentUserId < 1) {
     return false;
   }
 
-  const activeViewerRole = resolveActiveViewerRole(viewerRole, currentUserRoles);
-  return normalizedAuthorRole === activeViewerRole;
+  return normalizeWpUserId(message.author_wp_user_id) === currentUserId;
 }
 
-function getRoleLabel(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): string {
-  const normalizedAuthorRole = normalizeRole(authorRole);
+function getRoleLabel(message: MessageItem): string {
+  const normalizedAuthorRole = normalizeRole(message.author_role);
 
-  if (isOwnMessage(authorRole, viewerRole, currentUserRoles)) {
+  if (isOwnMessage(message)) {
     return 'VOUS';
   }
 
@@ -178,12 +149,12 @@ function formatMessageDate(value: string): string {
 }
 
 const MessageList = React.memo(
-  function MessageListComponent({ messages, viewerRole, currentUserRoles, fileIndex, onDownloadFile }: Props) {
+  function MessageListComponent({ messages, viewerRole, currentUserRoles: _currentUserRoles, fileIndex, onDownloadFile }: Props) {
     return (
       <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
         {messages.map((message, index) => {
-          const mine = isOwnMessage(message.author_role, viewerRole, currentUserRoles);
-          const roleLabel = getRoleLabel(message.author_role, viewerRole, currentUserRoles);
+          const mine = isOwnMessage(message);
+          const roleLabel = getRoleLabel(message);
           const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
           const normalizedRole = normalizeRole(message.author_role);
           const formattedDate = formatMessageDate(message.created_at);

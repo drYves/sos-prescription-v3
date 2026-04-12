@@ -52,6 +52,7 @@ type MessageItem = {
   id: number;
   seq?: number;
   author_role: string;
+  author_wp_user_id?: number;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -144,6 +145,11 @@ function isRecord(value: unknown): value is ApiPayloadRecord {
 function toPositiveInteger(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : 0;
+}
+
+function getCurrentWpUserId(): number | undefined {
+  const id = toPositiveInteger(getAppConfig().currentUser?.id);
+  return id > 0 ? id : undefined;
 }
 
 function toRequiredString(value: unknown, fallback = ''): string {
@@ -408,10 +414,18 @@ function normalizeMessageRecord(payload: unknown): MessageItem | null {
       ? payload.attachments
       : payload.attachment_artifact_ids;
 
+  const authorWpUserId = toPositiveInteger(
+    payload.author_wp_user_id
+    ?? payload.authorWpUserId
+    ?? payload.author_user_id
+    ?? payload.authorUserId
+  );
+
   return {
     id,
     seq: seq > 0 ? seq : undefined,
     author_role: normalizeMessageAuthorRole(rawAuthorRole),
+    author_wp_user_id: authorWpUserId > 0 ? authorWpUserId : undefined,
     body: toRequiredString(payload.body, ''),
     created_at: toRequiredString(rawCreatedAt, ''),
     attachments: normalizeAttachmentIds(rawAttachments),
@@ -589,6 +603,7 @@ async function postPatientMessage(id: number, body: string, attachments?: number
   return {
     id: Date.now(),
     author_role: 'PATIENT',
+    author_wp_user_id: getCurrentWpUserId(),
     body,
     created_at: new Date().toISOString(),
     attachments: Array.isArray(attachments) ? attachments.filter((value) => toPositiveInteger(value) > 0) : undefined,

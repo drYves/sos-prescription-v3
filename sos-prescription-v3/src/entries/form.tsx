@@ -3967,122 +3967,61 @@ type ExternalProfileAccordionOptions = {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): void {
   const collapsedByDefault = !!options.collapsedByDefault;
-  const legacyNeedle = 'préremplir votre prochaine demande d’ordonnance';
-  const nextCopy = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
-
-  const rewriteProfileText = (card: HTMLElement): void => {
-    const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-    const touched = new Set<HTMLElement>();
-
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const currentValue = String(node.nodeValue || '').trim();
-      if (!currentValue.includes(legacyNeedle)) {
-        continue;
-      }
-
-      node.nodeValue = nextCopy;
-      if (node.parentElement) {
-        touched.add(node.parentElement);
-      }
-    }
-
-    touched.forEach((element) => {
-      element.textContent = nextCopy;
-    });
-  };
-
-  const ensureCard = (): boolean => {
-    const card = document.querySelector('.sp-profile-card');
-    if (!(card instanceof HTMLElement)) {
-      return false;
-    }
-
-    rewriteProfileText(card);
-
-    const header = card.querySelector('.sp-profile-card__header');
-    if (!(header instanceof HTMLElement)) {
-      return false;
-    }
-
-    let content = card.querySelector(':scope > .sp-profile-card__content');
-    if (!(content instanceof HTMLElement)) {
-      const nextContent = document.createElement('div');
-      nextContent.className = 'sp-profile-card__content';
-      nextContent.id = card.id ? `${card.id}-content` : 'sp-profile-card-content';
-
-      Array.from(card.children).forEach((child) => {
-        if (child !== header && child !== nextContent) {
-          nextContent.appendChild(child);
-        }
-      });
-
-      card.appendChild(nextContent);
-      content = nextContent;
-    }
-
-    let toggle = header.querySelector('.sp-profile-card__toggle');
-    if (!(toggle instanceof HTMLButtonElement)) {
-      toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'sp-profile-card__toggle';
-      toggle.setAttribute('aria-controls', content.id);
-
-      const toggleLabel = document.createElement('span');
-      toggleLabel.className = 'sp-profile-card__toggle-label';
-
-      const toggleIcon = document.createElement('span');
-      toggleIcon.className = 'sp-profile-card__toggle-icon';
-      toggleIcon.setAttribute('aria-hidden', 'true');
-      toggleIcon.textContent = '⌃';
-
-      toggle.appendChild(toggleLabel);
-      toggle.appendChild(toggleIcon);
-      header.appendChild(toggle);
-    }
-
-    const toggleLabel = toggle.querySelector('.sp-profile-card__toggle-label');
-    const setCollapsed = (collapsed: boolean): void => {
-      card.dataset.spCollapsed = collapsed ? '1' : '0';
-      card.classList.toggle('is-collapsed', collapsed);
-      content.hidden = collapsed;
-      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      if (toggleLabel instanceof HTMLElement) {
-        toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
-      }
-    };
-
-    if (toggle.dataset.spAccordionBound !== '1') {
-      toggle.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const currentlyCollapsed = card.dataset.spCollapsed === '1';
-        setCollapsed(!currentlyCollapsed);
-      });
-      toggle.dataset.spAccordionBound = '1';
-    }
-
-    if (card.dataset.spAccordionReady !== '1') {
-      card.dataset.spAccordionReady = '1';
-      setCollapsed(collapsedByDefault);
-    } else {
-      setCollapsed(card.dataset.spCollapsed === '1');
-    }
-
-    return true;
-  };
-
-  if (ensureCard()) {
+  const card = document.querySelector('.sp-profile-card');
+  if (!(card instanceof HTMLElement)) {
     return;
   }
 
-  let attempts = 0;
-  const timer = window.setInterval(() => {
-    attempts += 1;
-    if (ensureCard() || attempts >= 60) {
-      window.clearInterval(timer);
+  const header = card.querySelector('.sp-profile-card__header');
+  if (!(header instanceof HTMLElement)) {
+    return;
+  }
+
+  const setCollapsed = (collapsed: boolean): void => {
+    card.classList.toggle('is-collapsed', collapsed);
+    card.dataset.spCollapsed = collapsed ? '1' : '0';
+    header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  };
+
+  if (header.dataset.spAccordionBound !== '1') {
+    header.addEventListener('click', (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const interactiveTarget = event.target instanceof Element
+        ? event.target.closest('a, button, input, select, textarea, label')
+        : null;
+      if (interactiveTarget && interactiveTarget !== header) {
+        return;
+      }
+
+      setCollapsed(card.dataset.spCollapsed !== '1');
+    });
+
+    header.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      event.preventDefault();
+      setCollapsed(card.dataset.spCollapsed !== '1');
+    });
+
+    if (!header.hasAttribute('tabindex')) {
+      header.tabIndex = 0;
     }
-  }, 200);
+    header.setAttribute('role', 'button');
+    header.dataset.spAccordionBound = '1';
+  }
+
+  if (card.dataset.spAccordionReady !== '1') {
+    card.dataset.spAccordionReady = '1';
+    setCollapsed(collapsedByDefault);
+    return;
+  }
+
+  setCollapsed(card.dataset.spCollapsed === '1');
 }
 
 function mountPatientConsole(container: HTMLElement): void {

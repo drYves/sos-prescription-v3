@@ -1091,6 +1091,10 @@
   padding: 18px 20px;
 }
 
+.sp-profile-card__header[role="button"] {
+  cursor: pointer;
+}
+
 .sp-profile-card__meta {
   color: var(--sp-app-text-soft);
 }
@@ -1100,6 +1104,10 @@
 }
 
 .sp-profile-card__content[hidden] {
+  display: none !important;
+}
+
+.sp-profile-card.is-collapsed .sp-profile-card__content {
   display: none !important;
 }
 
