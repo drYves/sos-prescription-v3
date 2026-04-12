@@ -84,15 +84,13 @@ final class AuthV4Controller extends \WP_REST_Controller
                 || (array_key_exists('sent', $workerPayload) && $workerPayload['sent'] === false);
 
             if ($notFound) {
-                return new WP_Error(
-                    'sosprescription_auth_email_not_found',
-                    'Adresse e-mail inconnue.',
-                    [
-                        'status' => 404,
-                        'req_id' => $responseReqId,
-                        'not_found' => true,
-                    ]
-                );
+                return $this->to_rest_response([
+                    'ok' => false,
+                    'code' => 'sosprescription_auth_email_not_found',
+                    'message' => 'Adresse e-mail inconnue.',
+                    'not_found' => true,
+                    'req_id' => $responseReqId,
+                ], 404, $responseReqId);
             }
 
             return $this->to_rest_response($workerPayload, 200, $responseReqId);

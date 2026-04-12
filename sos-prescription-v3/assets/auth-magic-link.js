@@ -197,11 +197,21 @@
       return false;
     }
 
-    const code = toSafeString(payload.code).trim().toLowerCase();
+    const nestedData = payload.data && typeof payload.data === 'object' ? payload.data : {};
+    const code = toSafeString(payload.code || nestedData.code).trim().toLowerCase();
+    const message = toSafeString(payload.message || nestedData.message).trim().toLowerCase();
+    const nestedStatus = Number(nestedData.status || 0);
+
     return payload.not_found === true
+      || nestedData.not_found === true
       || payload.sent === false
+      || nestedStatus === 404
       || code === 'sosprescription_auth_email_not_found'
-      || code === 'ml_auth_email_not_found';
+      || code === 'ml_auth_email_not_found'
+      || message.includes('e-mail inconnu')
+      || message.includes('email inconnu')
+      || message.includes('non reconnu')
+      || message.includes('not found');
   }
 
   function isNotFoundError(error) {
@@ -213,7 +223,12 @@
       return true;
     }
 
-    return isNotFoundPayload(error.payload);
+    const message = toSafeString(error.message).trim().toLowerCase();
+    return isNotFoundPayload(error.payload)
+      || message.includes('e-mail inconnu')
+      || message.includes('email inconnu')
+      || message.includes('non reconnu')
+      || message.includes('not found');
   }
 
   function setButtonBusy(button, busy, idleLabel) {
