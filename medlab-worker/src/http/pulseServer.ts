@@ -775,11 +775,32 @@ async function handleSubmissionDraftCreate(
       },
     }, reqId);
 
-    await mailService.sendMagicLink(
+    deps.logger.info(
+      "submission.draft.magic_link.dispatching",
+      {
+        submission_ref: draftResult.submission.publicRef,
+        email_fp: fingerprintPublicId(email),
+        redirect_present: resumeRedirect !== "",
+      },
+      reqId,
+    );
+
+    const mailResult = await mailService.sendMagicLink(
       {
         email,
         token: issued.token,
         expiresAt: issued.expiresAt,
+      },
+      reqId,
+    );
+
+    deps.logger.info(
+      "submission.draft.magic_link.dispatched",
+      {
+        submission_ref: draftResult.submission.publicRef,
+        email_fp: fingerprintPublicId(email),
+        delivery_mode: mailResult.deliveryMode,
+        sent: mailResult.sent,
       },
       reqId,
     );
@@ -792,7 +813,7 @@ async function handleSubmissionDraftCreate(
         flow_key: draftResult.submission.flowKey,
         priority: draftResult.submission.priority,
         email_fp: fingerprintPublicId(email),
-        sent: true,
+        sent: mailResult.sent,
       },
       reqId,
     );

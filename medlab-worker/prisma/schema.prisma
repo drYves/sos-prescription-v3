@@ -113,6 +113,7 @@ model Prescription {
   unreadCountPatient   Int                   @default(0)
   messages             PrescriptionMessage[]
   artifacts            Artifact[]
+  paymentActionJobs    PaymentActionJob[]
   finalizedBySubmission Submission?          @relation("SubmissionFinalizedPrescription")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
@@ -164,6 +165,35 @@ model Submission {
   @@index([ownerRole, ownerWpUserId, status, expiresAt])
   @@index([flowKey, status, createdAt])
   @@index([createdAt])
+}
+
+model PaymentActionJob {
+  id                   String       @id
+  siteId               String
+  kind                 String
+  prescriptionId       String
+  prescription         Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  wpPrescriptionId     Int?
+  paymentIntentId      String
+  provider             String       @default("stripe")
+  status               String       @default("PENDING")
+  attempts             Int          @default(0)
+  maxAttempts          Int          @default(8)
+  availableAt          DateTime     @default(now())
+  claimedAt            DateTime?
+  lockExpiresAt        DateTime?
+  workerRef            String?
+  reqId                String?
+  payload              Json?
+  result               Json?
+  lastErrorCode        String?
+  lastErrorMessageSafe String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([siteId, kind, prescriptionId, paymentIntentId], map: "PaymentActionJob_unique_action")
+  @@index([siteId, status, availableAt, lockExpiresAt], map: "PaymentActionJob_claim_idx")
+  @@index([paymentIntentId], map: "PaymentActionJob_intent_idx")
 }
 
 model Artifact {

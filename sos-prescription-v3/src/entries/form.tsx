@@ -2940,7 +2940,7 @@ function StepDraftValidation({
         ) : (
           <div className="sp-app-block">
             <Notice variant="info">
-              Vérifiez votre boîte e-mail après l’envoi. Le lien de connexion vous reconnectera directement sur ce dossier.
+              Après l’envoi, vérifiez votre e-mail. Le lien reçu vous redonnera accès à votre dossier.
             </Notice>
           </div>
         )}

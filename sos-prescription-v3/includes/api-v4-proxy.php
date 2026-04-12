@@ -217,12 +217,36 @@ if (!function_exists('sosprescription_v4_proxy_instantiate_dependency')) {
     }
 }
 
-if (!function_exists('sosprescription_v4_proxy_worker_client')) {
-    function sosprescription_v4_proxy_worker_client()
+if (!function_exists('sosprescription_v4_proxy_read_config_string')) {
+    function sosprescription_v4_proxy_read_config_string(string $name, string $default = ''): string
     {
-        static $client = null;
-        if ($client !== null) {
-            return $client;
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                return $value;
+            }
+
+            if (is_scalar($value)) {
+                return (string) $value;
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $default;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_worker_client')) {
+    function sosprescription_v4_proxy_worker_client(?int $timeoutS = null)
+    {
+        static $clients = [];
+        $cacheKey = $timeoutS !== null ? 'timeout_' . max(1, (int) $timeoutS) : 'default';
+        if (array_key_exists($cacheKey, $clients)) {
+            return $clients[$cacheKey];
         }
 
         $className = '\\SOSPrescription\\Core\\WorkerApiClient';
@@ -230,15 +254,98 @@ if (!function_exists('sosprescription_v4_proxy_worker_client')) {
             throw new RuntimeException('WorkerApiClient introuvable.');
         }
 
-        $factory = new ReflectionMethod($className, 'fromEnv');
-        $args = [];
+        if ($timeoutS === null) {
+            $factory = new ReflectionMethod($className, 'fromEnv');
+            $args = [];
 
-        foreach ($factory->getParameters() as $parameter) {
-            if ($parameter->isOptional()) {
+            foreach ($factory->getParameters() as $parameter) {
+                if ($parameter->isOptional()) {
+                    continue;
+                }
+
+                $type = $parameter->getType();
+                if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+                    $args[] = sosprescription_v4_proxy_instantiate_dependency($type->getName());
+                    continue;
+                }
+
+                if ($parameter->allowsNull()) {
+                    $args[] = null;
+                    continue;
+                }
+
+                $args[] = sosprescription_v4_proxy_default_scalar_dependency_value($parameter);
+            }
+
+            $clients[$cacheKey] = $factory->invokeArgs(null, $args);
+            return $clients[$cacheKey];
+        }
+
+        $reflection = new ReflectionClass($className);
+        $constructor = $reflection->getConstructor();
+        if (!($constructor instanceof ReflectionMethod)) {
+            throw new RuntimeException('Constructeur WorkerApiClient introuvable.');
+        }
+
+        $args = [];
+        foreach ($constructor->getParameters() as $parameter) {
+            $name = $parameter->getName();
+            $type = $parameter->getType();
+
+            if ($name === 'logger' && $type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+                $args[] = sosprescription_v4_proxy_instantiate_dependency($type->getName());
                 continue;
             }
 
-            $type = $parameter->getType();
+            if ($name === 'siteId') {
+                $siteId = trim((string) sosprescription_v4_proxy_read_config_string('ML_SITE_ID', ''));
+                if ($siteId === '') {
+                    $home = home_url('/');
+                    $siteId = is_string($home) && trim($home) !== '' ? trim($home) : 'unknown_site';
+                }
+
+                $args[] = $siteId;
+                continue;
+            }
+
+            if ($name === 'hmacSecret') {
+                $secret = trim((string) sosprescription_v4_proxy_read_config_string('ML_HMAC_SECRET', ''));
+                if ($secret === '') {
+                    throw new RuntimeException('Missing ML_HMAC_SECRET');
+                }
+
+                $args[] = $secret;
+                continue;
+            }
+
+            if ($name === 'kid') {
+                $kid = trim((string) sosprescription_v4_proxy_read_config_string('ML_HMAC_KID', ''));
+                $args[] = $kid !== '' ? $kid : null;
+                continue;
+            }
+
+            if ($name === 'workerBaseUrl') {
+                $workerBaseUrl = trim((string) sosprescription_v4_proxy_read_config_string('ML_WORKER_BASE_URL', ''));
+                $args[] = $workerBaseUrl !== '' ? $workerBaseUrl : null;
+                continue;
+            }
+
+            if ($name === 'timeoutS') {
+                $args[] = max(1, (int) $timeoutS);
+                continue;
+            }
+
+            if ($name === 'hmacSecretPrevious') {
+                $previous = trim((string) sosprescription_v4_proxy_read_config_string('ML_HMAC_SECRET_PREVIOUS', ''));
+                $args[] = $previous !== '' ? $previous : null;
+                continue;
+            }
+
+            if ($parameter->isDefaultValueAvailable()) {
+                $args[] = $parameter->getDefaultValue();
+                continue;
+            }
+
             if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
                 $args[] = sosprescription_v4_proxy_instantiate_dependency($type->getName());
                 continue;
@@ -252,8 +359,8 @@ if (!function_exists('sosprescription_v4_proxy_worker_client')) {
             $args[] = sosprescription_v4_proxy_default_scalar_dependency_value($parameter);
         }
 
-        $client = $factory->invokeArgs(null, $args);
-        return $client;
+        $clients[$cacheKey] = $reflection->newInstanceArgs($args);
+        return $clients[$cacheKey];
     }
 }
 
@@ -815,7 +922,7 @@ add_action('rest_api_init', static function (): void {
             }
 
             try {
-                $workerPayload = sosprescription_v4_proxy_worker_client()->postSignedJson(
+                $workerPayload = sosprescription_v4_proxy_worker_client(30)->postSignedJson(
                     '/api/v2/submissions/draft',
                     [
                         'email' => $email,
