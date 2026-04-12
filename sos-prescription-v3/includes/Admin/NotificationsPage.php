@@ -9,10 +9,140 @@ use SosPrescription\Services\Audit;
 
 final class NotificationsPage
 {
+    private const TWILIO_OPTION_KEY = 'sosprescription_twilio_settings';
+    private const TWILIO_SETTINGS_GROUP = 'sosprescription_twilio_settings_group';
+    private const TWILIO_SETTINGS_PAGE = 'sosprescription_twilio_settings_page';
+
     public static function register_actions(): void
     {
+        add_action('admin_init', [self::class, 'register_settings']);
+        add_filter('option_page_capability_' . self::TWILIO_SETTINGS_GROUP, [self::class, 'twilio_settings_capability']);
         add_action('admin_post_sosprescription_notifications_save', [self::class, 'handle_save']);
         add_action('admin_post_sosprescription_notifications_test', [self::class, 'handle_test']);
+    }
+
+    public static function twilio_settings_capability(): string
+    {
+        return current_user_can('manage_options') ? 'manage_options' : 'sosprescription_manage';
+    }
+
+    public static function register_settings(): void
+    {
+        register_setting(
+            self::TWILIO_SETTINGS_GROUP,
+            self::TWILIO_OPTION_KEY,
+            [
+                'type' => 'array',
+                'sanitize_callback' => [self::class, 'sanitize_twilio_settings'],
+                'default' => self::get_twilio_settings(),
+            ]
+        );
+
+        add_settings_section(
+            'sosprescription_twilio_main',
+            'Téléphonie / Twilio',
+            [self::class, 'render_twilio_section_intro'],
+            self::TWILIO_SETTINGS_PAGE
+        );
+
+        add_settings_field(
+            'sosprescription_twilio_number',
+            'Numéro Twilio',
+            [self::class, 'render_twilio_number_field'],
+            self::TWILIO_SETTINGS_PAGE,
+            'sosprescription_twilio_main',
+            [
+                'label_for' => 'sosprescription_twilio_number',
+            ]
+        );
+
+        add_settings_field(
+            'sosprescription_transfer_number',
+            'Numéro de transfert',
+            [self::class, 'render_twilio_transfer_number_field'],
+            self::TWILIO_SETTINGS_PAGE,
+            'sosprescription_twilio_main',
+            [
+                'label_for' => 'sosprescription_transfer_number',
+            ]
+        );
+    }
+
+    /**
+     * @param mixed $input
+     * @return array<string, string>
+     */
+    public static function sanitize_twilio_settings($input): array
+    {
+        $payload = is_array($input) ? $input : [];
+
+        $twilio_number = self::normalize_phone_value($payload['twilio_number'] ?? '');
+        $transfer_number = self::normalize_phone_value($payload['transfer_number'] ?? '');
+
+        return [
+            'twilio_number' => $twilio_number,
+            'transfer_number' => $transfer_number,
+            'updated_at' => current_time('mysql'),
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function get_twilio_settings(): array
+    {
+        $raw = get_option(self::TWILIO_OPTION_KEY, []);
+        $cfg = is_array($raw) ? $raw : [];
+
+        return [
+            'twilio_number' => self::normalize_phone_value($cfg['twilio_number'] ?? ''),
+            'transfer_number' => self::normalize_phone_value($cfg['transfer_number'] ?? ''),
+            'updated_at' => isset($cfg['updated_at']) && is_string($cfg['updated_at']) ? (string) $cfg['updated_at'] : '',
+        ];
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private static function normalize_phone_value($value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $normalized = trim(wp_strip_all_tags((string) $value));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/[\s\-\.\(\)]+/', '', $normalized) ?: $normalized;
+        if (strpos($normalized, '00') === 0) {
+            $normalized = '+' . substr($normalized, 2);
+        }
+
+        $normalized = preg_replace('/(?!^\+)[^0-9]/', '', $normalized) ?: $normalized;
+
+        return $normalized;
+    }
+
+    public static function render_twilio_section_intro(): void
+    {
+        echo '<p class="description">Configurez le numéro standard SOS Prescription affiché aux patients, ainsi que le numéro réel de transfert vers le médecin ou le secrétariat.</p>';
+        echo '<p class="description">Enregistrement via l’API Settings standard de WordPress.</p>';
+    }
+
+    public static function render_twilio_number_field(): void
+    {
+        $cfg = self::get_twilio_settings();
+        echo '<input class="regular-text" type="text" id="sosprescription_twilio_number" name="' . esc_attr(self::TWILIO_OPTION_KEY) . '[twilio_number]" value="' . esc_attr($cfg['twilio_number']) . '" placeholder="+33..." />';
+        echo '<p class="description">Numéro Twilio attribué par la plateforme et communiqué aux patients. Format international recommandé.</p>';
+    }
+
+    public static function render_twilio_transfer_number_field(): void
+    {
+        $cfg = self::get_twilio_settings();
+        echo '<input class="regular-text" type="text" id="sosprescription_transfer_number" name="' . esc_attr(self::TWILIO_OPTION_KEY) . '[transfer_number]" value="' . esc_attr($cfg['transfer_number']) . '" placeholder="+33..." />';
+        echo '<p class="description">Numéro réel appelé par Twilio lorsque le patient compose le numéro SOS Prescription.</p>';
     }
 
     public static function render_page(): void
@@ -32,8 +162,10 @@ final class NotificationsPage
         echo '</h1>';
 
         echo '<p style="max-width:980px;">';
-        echo '<strong>Objectif :</strong> informer patient/médecin qu\'une mise à jour existe, <strong>sans aucune donnée de santé</strong> dans les emails/SMS.';
+        echo '<strong>Objectif :</strong> informer patient/médecin par email, et configurer la téléphonie Twilio de standard / routage, <strong>sans aucune donnée de santé</strong> dans les notifications.';
         echo '</p>';
+
+        settings_errors(self::TWILIO_SETTINGS_GROUP);
 
         if ($updated) {
             echo '<div class="notice notice-success is-dismissible"><p>Paramètres enregistrés.</p></div>';
@@ -94,48 +226,6 @@ final class NotificationsPage
 
         echo '<hr style="margin:18px 0;" />';
 
-        echo '<h2>SMS (optionnel)</h2>';
-        echo '<p class="description">Recommandation MVP : commencer par l\'email. Le SMS peut être activé ensuite (webhook interne / prestataire).</p>';
-
-        echo '<label style="display:flex; align-items:center; gap:8px; margin:10px 0;">';
-        echo '<input type="checkbox" name="sms_enabled" value="1" ' . checked((bool) $cfg['sms_enabled'], true, false) . ' />';
-        echo '<strong>Activer les notifications SMS (via webhook)</strong>';
-        echo '</label>';
-
-        echo '<table class="form-table" role="presentation"><tbody>';
-
-        echo '<tr><th scope="row"><label for="sp_sms_phone_meta_key">Clé meta WP du téléphone</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_sms_phone_meta_key" name="sms_phone_meta_key" value="' . esc_attr((string) $cfg['sms_phone_meta_key']) . '" />';
-        echo '<p class="description">Ex: <code>billing_phone</code> (WooCommerce) ou <code>sosprescription_phone</code> (à définir).</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th scope="row"><label for="sp_sms_webhook_url">Webhook URL</label></th><td>';
-        echo '<input class="large-text" type="url" id="sp_sms_webhook_url" name="sms_webhook_url" value="' . esc_attr((string) $cfg['sms_webhook_url']) . '" placeholder="https://..." />';
-        echo '<p class="description">Le plugin enverra un POST JSON {to, message, event, prescription_id}.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th scope="row"><label for="sp_sms_webhook_secret">Secret (Bearer)</label></th><td>';
-        echo '<input class="regular-text" type="text" id="sp_sms_webhook_secret" name="sms_webhook_secret" value="' . esc_attr((string) $cfg['sms_webhook_secret']) . '" />';
-        echo '<p class="description">Optionnel. Ajouté en header <code>Authorization: Bearer ...</code>.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th scope="row">Quiet hours SMS</th><td>';
-        echo '<label style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">';
-        echo '<input type="checkbox" name="sms_quiet_hours_enabled" value="1" ' . checked((bool) $cfg['sms_quiet_hours_enabled'], true, false) . ' />';
-        echo '<span>Ne pas envoyer de SMS la nuit (envoi différé via WP-Cron)</span>';
-        echo '</label>';
-        echo '<div style="display:flex; gap:10px; align-items:center;">';
-        echo '<input type="text" name="sms_quiet_start" value="' . esc_attr((string) $cfg['sms_quiet_start']) . '" style="width:90px;" />';
-        echo '<span>→</span>';
-        echo '<input type="text" name="sms_quiet_end" value="' . esc_attr((string) $cfg['sms_quiet_end']) . '" style="width:90px;" />';
-        echo '<span class="description">Format HH:MM (ex: 22:00 → 08:00)</span>';
-        echo '</div>';
-        echo '</td></tr>';
-
-        echo '</tbody></table>';
-
-        echo '<hr style="margin:18px 0;" />';
-
         echo '<h2>Déclencheurs</h2>';
         echo '<p class="description">Vous pouvez activer/désactiver chaque type de notification.</p>';
 
@@ -156,6 +246,18 @@ final class NotificationsPage
         echo '</form>';
         echo '</div>';
 
+        echo '<div style="max-width:980px;background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
+        echo '<h2 style="margin-top:0;">Téléphonie / Twilio</h2>';
+        echo '<p class="description">Le numéro Twilio est affiché aux patients. Le numéro de transfert reste interne et sert uniquement au routage des appels entrants.</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('options.php')) . '">';
+        settings_fields(self::TWILIO_SETTINGS_GROUP);
+        do_settings_sections(self::TWILIO_SETTINGS_PAGE);
+        echo '<p style="margin-top:16px;">';
+        submit_button('Enregistrer la téléphonie', 'primary', 'submit', false);
+        echo '</p>';
+        echo '</form>';
+        echo '</div>';
+
         // --- Test notifications
         $test = isset($_GET['test']) ? (string) $_GET['test'] : '';
         $test_channel = isset($_GET['channel']) ? (string) $_GET['channel'] : '';
@@ -163,49 +265,31 @@ final class NotificationsPage
         if ($test === 'ok') {
             echo '<div class="notice notice-success is-dismissible"><p>Test ' . esc_html($test_channel) . ' : envoyé.</p></div>';
         } elseif ($test === 'fail') {
-            echo '<div class="notice notice-error is-dismissible"><p>Test ' . esc_html($test_channel) . ' : échec. Vérifiez la configuration (SMTP / webhook) et les logs.</p></div>';
+            echo '<div class="notice notice-error is-dismissible"><p>Test ' . esc_html($test_channel) . ' : échec. Vérifiez la configuration SMTP et les logs.</p></div>';
         }
 
         $user = wp_get_current_user();
         $default_email = $user && $user->user_email ? (string) $user->user_email : '';
-        $default_phone = '';
-        $meta_key = isset($cfg['sms_phone_meta_key']) ? (string) $cfg['sms_phone_meta_key'] : '';
-        if ($meta_key !== '') {
-            $maybe = get_user_meta((int) get_current_user_id(), $meta_key, true);
-            if (is_string($maybe) && trim($maybe) !== '') {
-                $default_phone = trim($maybe);
-            }
-        }
 
         echo '<div style="max-width:980px;background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
         echo '<h2 style="margin-top:0;">Tester l’envoi</h2>';
-        echo '<p class="description">Envoie un message de test <strong>sans donnée de santé</strong> vers une adresse email ou un numéro. Utile pour valider SMTP / webhook SMS.</p>';
+        echo '<p class="description">Envoie un message de test <strong>sans donnée de santé</strong>. Utile pour valider le canal email existant ; la téléphonie Twilio est configurée séparément ci-dessus.</p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="sosprescription_notifications_test" />';
         wp_nonce_field('sosprescription_notifications_test');
 
+        echo '<input type="hidden" name="channel" value="email" />';
         echo '<div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-end;">';
 
-        echo '<div>';
-        echo '<label style="display:block; font-weight:600; margin-bottom:6px;">Canal</label>';
-        echo '<label style="margin-right:12px;"><input type="radio" name="channel" value="email" checked /> Email</label>';
-        echo '<label><input type="radio" name="channel" value="sms" /> SMS</label>';
-        echo '</div>';
-
         echo '<div style="min-width:320px;">';
-        echo '<label for="sp_test_to" style="display:block; font-weight:600; margin-bottom:6px;">Destinataire</label>';
-        echo '<input id="sp_test_to" class="regular-text" type="text" name="to" value="' . esc_attr($default_email) . '" placeholder="email@domaine.fr ou +336..." />';
-        echo '<div class="description">Astuce : pour SMS, mettez un numéro au format international (+33...).</div>';
+        echo '<label for="sp_test_to" style="display:block; font-weight:600; margin-bottom:6px;">Email destinataire</label>';
+        echo '<input id="sp_test_to" class="regular-text" type="email" name="to" value="' . esc_attr($default_email) . '" placeholder="email@domaine.fr" />';
+        echo '<div class="description">Ce test couvre uniquement l’envoi email. Les appels Twilio se valident directement sur le numéro entrant configuré.</div>';
         echo '</div>';
 
         echo '<div>';
-        echo '<label style="display:block; font-weight:600; margin-bottom:6px;">Options</label>';
-        echo '<label><input type="checkbox" name="force_now" value="1" /> Forcer l’envoi SMS (ignorer quiet hours)</label>';
-        echo '</div>';
-
-        echo '<div>';
-        echo '<button type="submit" class="button">Envoyer un test</button>';
+        echo '<button type="submit" class="button">Envoyer un test email</button>';
         echo '</div>';
 
         echo '</div>';

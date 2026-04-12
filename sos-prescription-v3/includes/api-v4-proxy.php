@@ -240,6 +240,118 @@ if (!function_exists('sosprescription_v4_proxy_read_config_string')) {
     }
 }
 
+
+if (!function_exists('sosprescription_v4_proxy_normalize_phone')) {
+    function sosprescription_v4_proxy_normalize_phone($value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $normalized = trim(wp_strip_all_tags((string) $value));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/[\s\-\.\(\)]+/', '', $normalized) ?: $normalized;
+        if (strpos($normalized, '00') === 0) {
+            $normalized = '+' . substr($normalized, 2);
+        }
+
+        $normalized = preg_replace('/(?!^\+)[^0-9]/', '', $normalized) ?: $normalized;
+
+        return $normalized;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_get_twilio_config')) {
+    /**
+     * @return array{twilio_number:string,transfer_number:string,updated_at:string}
+     */
+    function sosprescription_v4_proxy_get_twilio_config(): array
+    {
+        $raw = get_option('sosprescription_twilio_settings', []);
+        $cfg = is_array($raw) ? $raw : [];
+
+        return [
+            'twilio_number' => sosprescription_v4_proxy_normalize_phone($cfg['twilio_number'] ?? ''),
+            'transfer_number' => sosprescription_v4_proxy_normalize_phone($cfg['transfer_number'] ?? ''),
+            'updated_at' => isset($cfg['updated_at']) && is_string($cfg['updated_at']) ? (string) $cfg['updated_at'] : '',
+        ];
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_worker_shared_secrets')) {
+    /**
+     * @return array<int, string>
+     */
+    function sosprescription_v4_proxy_worker_shared_secrets(): array
+    {
+        $candidates = [
+            trim((string) sosprescription_v4_proxy_read_config_string('ML_TWILIO_WORKER_SECRET', '')),
+            trim((string) sosprescription_v4_proxy_read_config_string('ML_HMAC_SECRET', '')),
+            trim((string) sosprescription_v4_proxy_read_config_string('ML_HMAC_SECRET_PREVIOUS', '')),
+        ];
+
+        $secrets = [];
+        foreach ($candidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+            $secrets[] = $candidate;
+        }
+
+        return array_values(array_unique($secrets));
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_require_worker_secret')) {
+    /**
+     * @return true|WP_Error
+     */
+    function sosprescription_v4_proxy_require_worker_secret(WP_REST_Request $request)
+    {
+        $secrets = sosprescription_v4_proxy_worker_shared_secrets();
+        if ($secrets === []) {
+            return new WP_Error(
+                'sosprescription_worker_secret_missing',
+                'Secret worker absent.',
+                ['status' => 503]
+            );
+        }
+
+        $authorization = (string) ($request->get_header('Authorization') ?: $request->get_header('authorization'));
+        $provided = '';
+        if ($authorization !== '' && preg_match('/Bearer\s+(.+)$/i', $authorization, $matches)) {
+            $provided = trim((string) $matches[1]);
+        }
+
+        if ($provided === '') {
+            $provided = trim((string) ($request->get_header('X-SOSPrescription-Worker-Secret') ?: $request->get_header('x-sosprescription-worker-secret')));
+        }
+
+        if ($provided === '') {
+            return new WP_Error(
+                'sosprescription_forbidden',
+                'Accès refusé.',
+                ['status' => 403]
+            );
+        }
+
+        foreach ($secrets as $secret) {
+            if (hash_equals($secret, $provided)) {
+                return true;
+            }
+        }
+
+        return new WP_Error(
+            'sosprescription_forbidden',
+            'Accès refusé.',
+            ['status' => 403]
+        );
+    }
+}
+
 if (!function_exists('sosprescription_v4_proxy_worker_client')) {
     function sosprescription_v4_proxy_worker_client(?int $timeoutS = null)
     {
@@ -830,6 +942,22 @@ if (!function_exists('sosprescription_v4_proxy_current_user_matches_draft')) {
 }
 
 add_action('rest_api_init', static function (): void {
+    register_rest_route('sosprescription/v4', '/twilio/config', [
+        'methods' => 'GET',
+        'permission_callback' => 'sosprescription_v4_proxy_require_worker_secret',
+        'callback' => static function () {
+            $reqId = sosprescription_v4_proxy_build_req_id();
+            $cfg = sosprescription_v4_proxy_get_twilio_config();
+
+            return sosprescription_v4_proxy_to_response([
+                'ok' => true,
+                'twilio_number' => $cfg['twilio_number'],
+                'transfer_number' => $cfg['transfer_number'],
+                'updated_at' => $cfg['updated_at'],
+            ], 200, $reqId);
+        },
+    ]);
+
     register_rest_route('sosprescription/v4', '/medications/search', [
         'methods' => 'GET',
         'permission_callback' => '__return_true',

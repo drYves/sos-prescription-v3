@@ -37,6 +37,7 @@ import { handleMedicationSearchRequest } from "./medicationSearchController";
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
+const MAX_TWILIO_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
 
@@ -49,6 +50,15 @@ type ErrorResponseBody = {
   message?: string;
   req_id?: string;
   schema_version?: string;
+};
+
+type TwilioFormValue = string | string[];
+type TwilioFormParams = Record<string, TwilioFormValue>;
+
+type TwilioRoutingConfig = {
+  twilioNumber: string;
+  transferNumber: string;
+  source: "wordpress" | "env" | "empty";
 };
 
 type PostgresApprovalRepo = JobsRepo;
@@ -289,6 +299,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/webhooks/stripe") {
         return await handleStripeWebhook(req, res, deps);
+      }
+
+      if (method === "POST" && path === "/webhooks/twilio/incoming") {
+        return await handleTwilioIncomingWebhook(req, res, deps);
       }
 
       if (method === "POST" && path === "/api/v2/auth/request-link") {
@@ -3099,6 +3113,299 @@ async function handlePrescriptionReject(
   }
 }
 
+async function handleTwilioIncomingWebhook(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+): Promise<void> {
+  const reqId = getResponseReqId(res);
+
+  let rawBody: Buffer;
+  try {
+    rawBody = await readRawBody(req, MAX_TWILIO_WEBHOOK_BODY_BYTES);
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
+    deps.logger.warning("twilio.webhook.bad_body", { reason }, reqId, err);
+    return sendUnsignedXml(res, 400, buildTwilioUnavailableTwiml());
+  }
+
+  const formParams = parseTwilioFormParams(rawBody);
+  const signatureHeader = normalizeOptionalString(getHeaderValue(req.headers["x-twilio-signature"])) ?? "";
+  const authToken = normalizeOptionalString(process.env.TWILIO_AUTH_TOKEN);
+
+  if (authToken) {
+    const requestUrl = buildTwilioRequestUrl(req, deps.workerPublicBaseUrl);
+    const signatureOk = validateTwilioFormSignature(authToken, signatureHeader, requestUrl, formParams);
+    if (!signatureOk) {
+      deps.logger.warning("twilio.webhook.rejected", { reason: "bad_signature" }, reqId);
+      return sendPlainText(res, 403, "Forbidden");
+    }
+  } else {
+    // TODO(mvp1): stocker le token Twilio côté configuration applicative quand il ne sera plus seulement fourni par l'environnement.
+    deps.logger.warning("twilio.webhook.signature_skipped", { reason: "missing_auth_token_todo" }, reqId);
+  }
+
+  const routing = await resolveTwilioRoutingConfig(deps, reqId);
+  if (routing.transferNumber === "") {
+    deps.logger.warning("twilio.webhook.unavailable", { reason: "missing_transfer_number", config_source: routing.source }, reqId);
+    return sendUnsignedXml(res, 200, buildTwilioUnavailableTwiml());
+  }
+
+  deps.logger.info(
+    "twilio.webhook.dial",
+    {
+      call_sid: flattenTwilioParam(formParams.CallSid) ?? "",
+      caller: maskPhoneForLog(flattenTwilioParam(formParams.From) ?? ""),
+      target: maskPhoneForLog(routing.transferNumber),
+      config_source: routing.source,
+      twilio_number_configured: routing.twilioNumber !== "",
+    },
+    reqId,
+  );
+
+  return sendUnsignedXml(res, 200, buildTwilioDialTwiml(routing.transferNumber));
+}
+
+function parseTwilioFormParams(rawBody: Buffer): TwilioFormParams {
+  const params = new URLSearchParams(rawBody.toString("utf8"));
+  const out: TwilioFormParams = {};
+
+  for (const [key, value] of params) {
+    const current = out[key];
+    if (current === undefined) {
+      out[key] = value;
+      continue;
+    }
+
+    if (Array.isArray(current)) {
+      current.push(value);
+      continue;
+    }
+
+    out[key] = [current, value];
+  }
+
+  return out;
+}
+
+function flattenTwilioParam(value: TwilioFormValue | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return typeof value === "string" ? value : null;
+}
+
+function validateTwilioFormSignature(
+  authToken: string,
+  signatureHeader: string,
+  requestUrl: string,
+  params: TwilioFormParams,
+): boolean {
+  if (signatureHeader.trim() === "") {
+    return false;
+  }
+
+  const expected = buildTwilioFormSignature(authToken, requestUrl, params);
+  return timingSafeEqualText(expected, signatureHeader.trim());
+}
+
+function buildTwilioFormSignature(
+  authToken: string,
+  requestUrl: string,
+  params: TwilioFormParams,
+): string {
+  let payload = requestUrl;
+  const keys = Object.keys(params).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+  for (const key of keys) {
+    const rawValue = params[key];
+    const values = Array.isArray(rawValue)
+      ? [...rawValue].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      : [rawValue];
+
+    for (const value of values) {
+      payload += `${key}${value}`;
+    }
+  }
+
+  return crypto.createHmac("sha1", authToken).update(payload, "utf8").digest("base64");
+}
+
+function buildTwilioRequestUrl(req: http.IncomingMessage, configuredBaseUrl?: string): string {
+  const rawUrl = typeof req.url === "string" && req.url.trim() !== ""
+    ? req.url
+    : "/webhooks/twilio/incoming";
+  if (/^https?:\/\//i.test(rawUrl)) {
+    return rawUrl;
+  }
+
+  const baseUrl = resolvePublicBaseUrl(req, configuredBaseUrl).replace(/\/+$/g, "");
+  const suffix = rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+  return `${baseUrl}${suffix}`;
+}
+
+async function resolveTwilioRoutingConfig(
+  deps: PulseServerDeps,
+  reqId: string,
+): Promise<TwilioRoutingConfig> {
+  const fromWordPress = await fetchTwilioRoutingConfigFromWordPress(deps, reqId);
+  if (fromWordPress) {
+    return { ...fromWordPress, source: "wordpress" };
+  }
+
+  const transferNumber = normalizeTwilioPhoneValue(
+    process.env.SOSPRESCRIPTION_TWILIO_TRANSFER_NUMBER
+      ?? process.env.TWILIO_TRANSFER_NUMBER
+      ?? "",
+  );
+  const twilioNumber = normalizeTwilioPhoneValue(
+    process.env.SOSPRESCRIPTION_TWILIO_NUMBER
+      ?? process.env.TWILIO_PHONE_NUMBER
+      ?? "",
+  );
+
+  if (transferNumber !== "" || twilioNumber !== "") {
+    return {
+      twilioNumber,
+      transferNumber,
+      source: "env",
+    };
+  }
+
+  return {
+    twilioNumber: "",
+    transferNumber: "",
+    source: "empty",
+  };
+}
+
+async function fetchTwilioRoutingConfigFromWordPress(
+  deps: PulseServerDeps,
+  reqId: string,
+): Promise<Omit<TwilioRoutingConfig, "source"> | null> {
+  const baseUrl = resolveWordPressBaseUrl(deps);
+  if (!baseUrl) {
+    return null;
+  }
+
+  const sharedSecret = normalizeOptionalString(process.env.ML_TWILIO_WORKER_SECRET)
+    ?? normalizeOptionalString(deps.secrets[0]);
+  if (!sharedSecret) {
+    deps.logger.warning("twilio.config.wordpress_skipped", { reason: "missing_worker_secret" }, reqId);
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(`${baseUrl}/wp-json/sosprescription/v4/twilio/config`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${sharedSecret}`,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      deps.logger.warning(
+        "twilio.config.wordpress_failed",
+        { status_code: response.status },
+        reqId,
+      );
+      return null;
+    }
+
+    const payload = await response.json() as unknown;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      deps.logger.warning("twilio.config.wordpress_failed", { reason: "invalid_payload" }, reqId);
+      return null;
+    }
+
+    const row = payload as Record<string, unknown>;
+    return {
+      twilioNumber: normalizeTwilioPhoneValue(row.twilio_number ?? row.twilioNumber),
+      transferNumber: normalizeTwilioPhoneValue(row.transfer_number ?? row.transferNumber),
+    };
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : "fetch_failed";
+    deps.logger.warning("twilio.config.wordpress_failed", { reason }, reqId, err);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function resolveWordPressBaseUrl(deps: PulseServerDeps): string | null {
+  const candidates = [
+    normalizeOptionalString(process.env.SOSPRESCRIPTION_WORDPRESS_BASE_URL),
+    normalizeOptionalString(process.env.WORDPRESS_BASE_URL),
+    /^https?:\/\//i.test(deps.siteId) ? deps.siteId : "",
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeOptionalString(candidate);
+    if (normalized) {
+      return normalized.replace(/\/+$/g, "");
+    }
+  }
+
+  return null;
+}
+
+function normalizeTwilioPhoneValue(value: unknown): string {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return "";
+  }
+
+  let phone = normalized.replace(/[\s\-\.\(\)]+/g, "");
+  if (phone.startsWith("00")) {
+    phone = `+${phone.slice(2)}`;
+  }
+
+  phone = phone.replace(/(?!^\+)[^0-9]/g, "");
+  return phone.trim();
+}
+
+function buildTwilioDialTwiml(transferNumber: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial>${escapeXml(transferNumber)}</Dial></Response>`;
+}
+
+function buildTwilioUnavailableTwiml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml("Le médecin n'est pas joignable pour le moment.")}</Say></Response>`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function timingSafeEqualText(a: string, b: string): boolean {
+  const left = Buffer.from(a, "utf8");
+  const right = Buffer.from(b, "utf8");
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(left, right);
+}
+
+function maskPhoneForLog(value: string): string {
+  const digits = value.replace(/\D+/g, "");
+  if (digits.length <= 4) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 2)}***${digits.slice(-2)}`;
+}
+
 async function handleStripeWebhook(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -4980,6 +5287,36 @@ function sendUnsignedJson(
   res.statusCode = status;
   applyApiResponseHeaders(res, extraHeaders);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Length", data.length);
+  res.end(data);
+}
+
+function sendUnsignedXml(
+  res: http.ServerResponse,
+  status: number,
+  body: string,
+  extraHeaders?: Record<string, string>,
+): void {
+  const data = Buffer.from(body, "utf8");
+
+  res.statusCode = status;
+  applyApiResponseHeaders(res, extraHeaders);
+  res.setHeader("Content-Type", "text/xml; charset=utf-8");
+  res.setHeader("Content-Length", data.length);
+  res.end(data);
+}
+
+function sendPlainText(
+  res: http.ServerResponse,
+  status: number,
+  body: string,
+  extraHeaders?: Record<string, string>,
+): void {
+  const data = Buffer.from(body, "utf8");
+
+  res.statusCode = status;
+  applyApiResponseHeaders(res, extraHeaders);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Content-Length", data.length);
   res.end(data);
 }
