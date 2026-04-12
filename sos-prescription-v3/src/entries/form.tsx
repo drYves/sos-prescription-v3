@@ -3967,20 +3967,17 @@ type ExternalProfileAccordionOptions = {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): void {
   const collapsedByDefault = !!options.collapsedByDefault;
-  let observer: MutationObserver | null = null;
-  let enhancing = false;
+  const legacyNeedle = 'préremplir votre prochaine demande d’ordonnance';
+  const nextCopy = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
 
   const rewriteProfileText = (card: HTMLElement): void => {
-    const oldCopy = 'Ces informations peuvent préremplir votre prochaine demande d’ordonnance. Vous pourrez toujours les modifier si la demande concerne un proche.';
-    const nextCopy = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
-
     const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
     const touched = new Set<HTMLElement>();
 
     while (walker.nextNode()) {
       const node = walker.currentNode;
       const currentValue = String(node.nodeValue || '').trim();
-      if (currentValue !== oldCopy) {
+      if (!currentValue.includes(legacyNeedle)) {
         continue;
       }
 
@@ -3995,120 +3992,97 @@ function installExternalProfileAccordion(options: ExternalProfileAccordionOption
     });
   };
 
-  const enhanceCard = (card: Element | null): boolean => {
+  const ensureCard = (): boolean => {
+    const card = document.querySelector('.sp-profile-card');
     if (!(card instanceof HTMLElement)) {
       return false;
     }
 
     rewriteProfileText(card);
 
-    if (card.dataset.spAccordionReady === '1') {
-      return true;
-    }
-
-    if (enhancing) {
-      return false;
-    }
-
     const header = card.querySelector('.sp-profile-card__header');
     if (!(header instanceof HTMLElement)) {
       return false;
     }
 
-    enhancing = true;
-    card.dataset.spAccordionReady = '1';
+    let content = card.querySelector(':scope > .sp-profile-card__content');
+    if (!(content instanceof HTMLElement)) {
+      const nextContent = document.createElement('div');
+      nextContent.className = 'sp-profile-card__content';
+      nextContent.id = card.id ? `${card.id}-content` : 'sp-profile-card-content';
 
-    try {
-      const existingContent = card.querySelector('.sp-profile-card__content');
-      const content = existingContent instanceof HTMLElement
-        ? existingContent
-        : document.createElement('div');
-
-      if (!(existingContent instanceof HTMLElement)) {
-        content.className = 'sp-profile-card__content';
-        content.id = card.id ? `${card.id}-content` : 'sp-profile-card-content';
-
-        Array.from(card.children).forEach((child) => {
-          if (child !== header && child !== content) {
-            content.appendChild(child);
-          }
-        });
-
-        card.appendChild(content);
-      }
-
-      let toggle = header.querySelector('.sp-profile-card__toggle');
-      if (!(toggle instanceof HTMLButtonElement)) {
-        toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'sp-profile-card__toggle';
-        toggle.setAttribute('aria-controls', content.id);
-
-        const toggleLabel = document.createElement('span');
-        toggleLabel.className = 'sp-profile-card__toggle-label';
-
-        const toggleIcon = document.createElement('span');
-        toggleIcon.className = 'sp-profile-card__toggle-icon';
-        toggleIcon.setAttribute('aria-hidden', 'true');
-        toggleIcon.textContent = '⌃';
-
-        toggle.appendChild(toggleLabel);
-        toggle.appendChild(toggleIcon);
-        header.appendChild(toggle);
-      }
-
-      const toggleLabel = toggle.querySelector('.sp-profile-card__toggle-label');
-      const setCollapsed = (collapsed: boolean): void => {
-        card.classList.toggle('is-collapsed', collapsed);
-        content.hidden = collapsed;
-        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        if (toggleLabel instanceof HTMLElement) {
-          toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
+      Array.from(card.children).forEach((child) => {
+        if (child !== header && child !== nextContent) {
+          nextContent.appendChild(child);
         }
-      };
+      });
 
-      if (toggle.dataset.spAccordionBound !== '1') {
-        toggle.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setCollapsed(!card.classList.contains('is-collapsed'));
-        });
-        toggle.dataset.spAccordionBound = '1';
-      }
-
-      setCollapsed(collapsedByDefault);
-      return true;
-    } finally {
-      enhancing = false;
+      card.appendChild(nextContent);
+      content = nextContent;
     }
+
+    let toggle = header.querySelector('.sp-profile-card__toggle');
+    if (!(toggle instanceof HTMLButtonElement)) {
+      toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'sp-profile-card__toggle';
+      toggle.setAttribute('aria-controls', content.id);
+
+      const toggleLabel = document.createElement('span');
+      toggleLabel.className = 'sp-profile-card__toggle-label';
+
+      const toggleIcon = document.createElement('span');
+      toggleIcon.className = 'sp-profile-card__toggle-icon';
+      toggleIcon.setAttribute('aria-hidden', 'true');
+      toggleIcon.textContent = '⌃';
+
+      toggle.appendChild(toggleLabel);
+      toggle.appendChild(toggleIcon);
+      header.appendChild(toggle);
+    }
+
+    const toggleLabel = toggle.querySelector('.sp-profile-card__toggle-label');
+    const setCollapsed = (collapsed: boolean): void => {
+      card.dataset.spCollapsed = collapsed ? '1' : '0';
+      card.classList.toggle('is-collapsed', collapsed);
+      content.hidden = collapsed;
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      if (toggleLabel instanceof HTMLElement) {
+        toggleLabel.textContent = collapsed ? 'Afficher le profil' : 'Masquer le profil';
+      }
+    };
+
+    if (toggle.dataset.spAccordionBound !== '1') {
+      toggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const currentlyCollapsed = card.dataset.spCollapsed === '1';
+        setCollapsed(!currentlyCollapsed);
+      });
+      toggle.dataset.spAccordionBound = '1';
+    }
+
+    if (card.dataset.spAccordionReady !== '1') {
+      card.dataset.spAccordionReady = '1';
+      setCollapsed(collapsedByDefault);
+    } else {
+      setCollapsed(card.dataset.spCollapsed === '1');
+    }
+
+    return true;
   };
 
-  const tryEnhance = (): boolean => enhanceCard(document.querySelector('.sp-profile-card'));
-
-  if (tryEnhance()) {
+  if (ensureCard()) {
     return;
   }
 
-  if (!(document.body instanceof HTMLElement)) {
-    return;
-  }
-
-  observer = new MutationObserver(() => {
-    if (enhancing) {
-      return;
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    attempts += 1;
+    if (ensureCard() || attempts >= 60) {
+      window.clearInterval(timer);
     }
-
-    if (tryEnhance()) {
-      observer?.disconnect();
-      observer = null;
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-  window.setTimeout(() => {
-    observer?.disconnect();
-    observer = null;
-  }, 12000);
+  }, 200);
 }
 
 function mountPatientConsole(container: HTMLElement): void {

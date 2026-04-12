@@ -117,12 +117,14 @@ export default function MessageThread({
   const [sending, setSending] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const polishRequestRef = useRef(0);
 
   useEffect(() => {
     setDraftBody('');
     setSending(false);
     setPolishing(false);
     setLocalError(null);
+    polishRequestRef.current = 0;
   }, [prescriptionId]);
 
   const visibleReplies = useMemo(() => smartReplies.slice(0, 3).filter((item) => String(item.body || '').trim() !== ''), [smartReplies]);
@@ -157,23 +159,48 @@ export default function MessageThread({
       return;
     }
 
+    const requestId = polishRequestRef.current + 1;
+    polishRequestRef.current = requestId;
+
     setLocalError(null);
     onSurfaceError?.(null);
     setPolishing(true);
 
     try {
       const result = await Promise.resolve(onPolishDraft(sourceDraft));
+      if (polishRequestRef.current !== requestId) {
+        return;
+      }
+
       const rewritten = typeof result?.rewritten_body === 'string' && result.rewritten_body.trim() !== ''
         ? result.rewritten_body
         : sourceDraft;
-      setDraftBody(rewritten);
+      const normalizedRewritten = rewritten.trim() !== '' ? rewritten : sourceDraft;
+      const riskFlags = Array.isArray(result?.risk_flags) ? result.risk_flags : [];
+
+      if (normalizedRewritten === sourceDraft && riskFlags.includes('ASSISTANT_UNAVAILABLE')) {
+        const nextError = 'Aide à la rédaction momentanément indisponible.';
+        setLocalError(nextError);
+        onSurfaceError?.(nextError);
+        return;
+      }
+
+      setDraftBody(normalizedRewritten);
       textareaRef.current?.focus();
     } catch (error) {
-      const nextError = error instanceof Error ? error.message : 'Impossible de reformuler le message.';
+      if (polishRequestRef.current !== requestId) {
+        return;
+      }
+
+      const nextError = error instanceof Error && error.message.trim() !== ''
+        ? error.message
+        : 'Aide à la rédaction momentanément indisponible.';
       setLocalError(nextError);
       onSurfaceError?.(nextError);
     } finally {
-      setPolishing(false);
+      if (polishRequestRef.current === requestId) {
+        setPolishing(false);
+      }
     }
   };
 
@@ -233,7 +260,11 @@ export default function MessageThread({
                 <button
                   type="button"
                   className="sp-app-icon-button"
-                  onClick={() => void handlePolish()}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handlePolish();
+                  }}
                   disabled={polishing || sending || draftBody.trim().length < 1}
                   title="Aide à la rédaction"
                   aria-label="Aide à la rédaction"

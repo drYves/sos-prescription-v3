@@ -400,26 +400,45 @@ async function requestArtifactAccess(artifactId: number, prescriptionId: number)
 }
 
 async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
-  const payload = await v4ApiJson<unknown>(
-    '/messages/polish',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        draft,
-        constraints: {
-          audience: 'patient',
-          tone: 'professional',
-          language: 'fr',
-          preserveDecision: true,
-          forceClarificationIfAmbiguous: true,
-        },
-      }),
-    },
-    'admin',
-  );
+  const sourceDraft = String(draft || '').trim();
+  if (sourceDraft === '') {
+    throw new Error('Message vide.');
+  }
 
-  return normalizePolishPayload(payload, draft);
+  try {
+    const payload = await v4ApiJson<unknown>(
+      '/messages/polish',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          draft: sourceDraft,
+          constraints: {
+            audience: 'patient',
+            tone: 'professional',
+            language: 'fr',
+            preserveDecision: true,
+            forceClarificationIfAmbiguous: true,
+          },
+        }),
+      },
+      'admin',
+    );
+
+    return normalizePolishPayload(payload, sourceDraft);
+  } catch (error) {
+    try {
+      console.error('Doctor messaging polish failed', error);
+    } catch {
+      // Ignore console failures.
+    }
+
+    if (error instanceof Error && error.message.trim() !== '') {
+      throw error;
+    }
+
+    throw new Error('Aide à la rédaction momentanément indisponible.');
+  }
 }
 
 async function getDoctorSmartReplies(prescriptionId: number): Promise<SmartRepliesPayload> {

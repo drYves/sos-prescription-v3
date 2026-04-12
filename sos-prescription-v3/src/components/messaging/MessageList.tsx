@@ -57,11 +57,11 @@ function normalizeRole(authorRole: string): string {
   return normalized.toUpperCase();
 }
 
-function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerRole: ViewerRole): Set<string> {
+function normalizeCurrentUserRoles(value: string[] | string | undefined): Set<string> {
   const source = Array.isArray(value)
     ? value
     : typeof value === 'string' && value.trim() !== ''
-      ? [value]
+      ? value.split(/[\s,;|/]+/g)
       : [];
 
   const out = new Set<string>();
@@ -74,12 +74,12 @@ function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerR
 
     if (normalized.includes('patient')) {
       out.add('PATIENT');
-      return;
     }
 
     if (
       normalized.includes('doctor')
       || normalized.includes('medecin')
+      || normalized.includes('médecin')
       || normalized.includes('physician')
       || normalized.includes('praticien')
       || normalized.includes('admin')
@@ -89,20 +89,16 @@ function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerR
     }
   });
 
-  if (out.size < 1) {
-    out.add(viewerRole);
-  }
-
   return out;
 }
 
 function resolveActiveViewerRole(viewerRole: ViewerRole, currentUserRoles?: string[] | string): ViewerRole {
-  const roles = normalizeCurrentUserRoles(currentUserRoles, viewerRole);
-
-  if (roles.has(viewerRole)) {
-    return viewerRole;
+  const normalizedViewerRole = normalizeRole(viewerRole);
+  if (normalizedViewerRole === 'PATIENT' || normalizedViewerRole === 'DOCTOR') {
+    return normalizedViewerRole;
   }
 
+  const roles = normalizeCurrentUserRoles(currentUserRoles);
   if (roles.has('DOCTOR')) {
     return 'DOCTOR';
   }
@@ -111,11 +107,15 @@ function resolveActiveViewerRole(viewerRole: ViewerRole, currentUserRoles?: stri
     return 'PATIENT';
   }
 
-  return viewerRole;
+  return 'PATIENT';
 }
 
 function isOwnMessage(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): boolean {
   const normalizedAuthorRole = normalizeRole(authorRole);
+  if (normalizedAuthorRole !== 'PATIENT' && normalizedAuthorRole !== 'DOCTOR') {
+    return false;
+  }
+
   const activeViewerRole = resolveActiveViewerRole(viewerRole, currentUserRoles);
   return normalizedAuthorRole === activeViewerRole;
 }
