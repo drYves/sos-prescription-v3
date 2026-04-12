@@ -175,6 +175,30 @@ type SubmissionResult = {
   created_at?: string;
 };
 
+type DraftSaveResponse = {
+  submission_ref?: string;
+  expires_at?: string;
+  expires_in?: number;
+  sent?: boolean;
+  redirect_to?: string;
+  message?: string;
+};
+
+type StoredDraftPayload = {
+  submission_ref?: string;
+  email?: string;
+  flow?: FlowType;
+  priority?: 'standard' | 'express' | string;
+  patient?: Record<string, unknown>;
+  items?: Array<Record<string, unknown>>;
+  private_notes?: string;
+  files?: Array<Record<string, unknown>>;
+  redirect_to?: string;
+  expires_at?: string | null;
+  attestation_no_proof?: boolean;
+  consent?: Record<string, unknown>;
+};
+
 type AnalyzeMedication = {
   label?: string;
   scheduleText?: string;
@@ -580,6 +604,25 @@ async function createSubmissionApi(payload: Record<string, unknown>): Promise<Su
   }, 'form') as Promise<SubmissionInitResponse>;
 }
 
+async function saveSubmissionDraftApi(payload: Record<string, unknown>): Promise<DraftSaveResponse> {
+  return v4Api('/submissions/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 'form') as Promise<DraftSaveResponse>;
+}
+
+async function loadSubmissionDraftApi(submissionRef: string): Promise<StoredDraftPayload> {
+  const ref = String(submissionRef || '').trim();
+  if (!ref) {
+    throw new Error('Référence de brouillon manquante.');
+  }
+
+  return v4Api(`/submissions/draft/${encodeURIComponent(ref)}`, {
+    method: 'GET',
+  }, 'form') as Promise<StoredDraftPayload>;
+}
+
 async function submissionArtifactInitApi(submissionRef: string, payload: Record<string, unknown>): Promise<unknown> {
   const ref = String(submissionRef || '').trim();
   if (!ref) {
@@ -749,6 +792,99 @@ function frontendLog(event: string, level: 'debug' | 'info' | 'warning' | 'error
   } catch {
     // noop
   }
+}
+
+function buildCurrentFormRedirectUrl(): string {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('resume_draft');
+    return url.toString();
+  } catch {
+    return window.location.href;
+  }
+}
+
+function resolveResumeDraftRefFromUrl(): string | null {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('resume_draft');
+    const normalized = String(raw || '').trim();
+    return /^[A-Za-z0-9_-]{8,128}$/.test(normalized) ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
+function createPlaceholderFile(name: string, mimeType: string): File {
+  try {
+    return new File([''], name || 'document', { type: mimeType || 'application/octet-stream' });
+  } catch {
+    return new Blob([''], { type: mimeType || 'application/octet-stream' }) as File;
+  }
+}
+
+function normalizeStoredDraftItems(value: unknown): MedicationItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const item = entry as Record<string, unknown>;
+      const label = typeof item.label === 'string' ? item.label.trim() : '';
+      if (!label) {
+        return null;
+      }
+
+      return {
+        cis: typeof item.cis === 'string' && item.cis.trim() !== '' ? item.cis.trim() : undefined,
+        cip13: typeof item.cip13 === 'string' && item.cip13.trim() !== '' ? item.cip13.trim() : null,
+        label,
+        schedule: normalizeSchedule(item.schedule && typeof item.schedule === 'object' ? item.schedule as Partial<Schedule> : {}),
+        quantite: typeof item.quantite === 'string' && item.quantite.trim() !== '' ? item.quantite.trim() : undefined,
+      } satisfies MedicationItem;
+    })
+    .filter((entry): entry is MedicationItem => Boolean(entry));
+}
+
+function normalizeStoredDraftFiles(value: unknown): LocalUpload[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const file = entry as Record<string, unknown>;
+      const originalName = typeof file.original_name === 'string' && file.original_name.trim() !== ''
+        ? file.original_name.trim()
+        : `document-${index + 1}.pdf`;
+      const mimeType = typeof file.mime_type === 'string' && file.mime_type.trim() !== ''
+        ? file.mime_type.trim()
+        : 'application/octet-stream';
+      const sizeBytes = Number(file.size_bytes || 0);
+      const normalizedStatus = typeof file.status === 'string' && file.status.trim().toUpperCase() === 'READY'
+        ? 'READY'
+        : 'QUEUED';
+
+      return {
+        id: typeof file.id === 'string' && file.id.trim() !== '' ? file.id.trim() : `restored_${index}_${Date.now()}`,
+        file: createPlaceholderFile(originalName, mimeType),
+        original_name: originalName,
+        mime: mimeType,
+        mime_type: mimeType,
+        size_bytes: Number.isFinite(sizeBytes) ? sizeBytes : 0,
+        kind: 'PROOF',
+        status: normalizedStatus,
+      } satisfies LocalUpload;
+    })
+    .filter((entry): entry is LocalUpload => Boolean(entry));
 }
 
 function resolveFlowFromUrl(): FlowType | null {
@@ -1416,15 +1552,9 @@ function buildSubmitBlockInfo(input: {
   consentCgu: boolean;
   consentPrivacy: boolean;
   analysisInProgress: boolean;
+  allowProofWithoutDetectedItems?: boolean;
 }): { ok: boolean; reasons: Array<{ code: string; message: string }>; code: string | null; message: string | null } {
   const reasons: Array<{ code: string; message: string }> = [];
-
-  if (!input.loggedIn) {
-    reasons.push({
-      code: 'auth_missing',
-      message: 'Vous devez être connecté pour soumettre une demande.',
-    });
-  }
 
   const flow = String(input.flow || '').trim();
   const fullName = safePatientNameValue(input.fullname);
@@ -1466,7 +1596,14 @@ function buildSubmitBlockInfo(input: {
     });
   }
 
-  if (flow === 'ro_proof' && fileCount > 0 && itemCount < 1 && !input.analysisInProgress) {
+  if (
+    input.loggedIn
+    && flow === 'ro_proof'
+    && fileCount > 0
+    && itemCount < 1
+    && !input.analysisInProgress
+    && !input.allowProofWithoutDetectedItems
+  ) {
     reasons.push({
       code: 'medication_detection_missing',
       message: 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.',
@@ -1534,7 +1671,7 @@ function createLocalUpload(file: File): LocalUpload {
 function MedicationSearch({
   onSelect,
   disabled = false,
-  disabledHint = 'Connectez-vous pour rechercher des médicaments.',
+  disabledHint = 'Recherche momentanément indisponible.',
 }: {
   onSelect: (item: MedicationSearchResult) => void;
   disabled?: boolean;
@@ -2172,7 +2309,7 @@ function StepClinicalData({
   onContinue,
 }: StepClinicalDataProps) {
   const showMedicationSection = flow === 'depannage_no_proof'
-    || (flow === 'ro_proof' && files.length > 0 && !analysisInProgress && items.length > 0);
+    || flow === 'ro_proof';
 
   return (
     <div className="sp-app-stack">
@@ -2294,7 +2431,7 @@ function StepClinicalData({
               className="sp-app-hidden"
               accept="image/jpeg,image/png,application/pdf"
               multiple
-              disabled={!isLoggedIn || analysisInProgress}
+              disabled={analysisInProgress}
               onChange={(event) => {
                 onFilesSelected(event.target.files);
                 event.currentTarget.value = '';
@@ -2305,7 +2442,7 @@ function StepClinicalData({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={!isLoggedIn || analysisInProgress}
+                disabled={analysisInProgress}
                 onClick={() => {
                   document.getElementById('sp-evidence-input')?.click();
                 }}
@@ -2324,7 +2461,7 @@ function StepClinicalData({
             <div className="sp-app-field__hint">JPG, PNG ou PDF (Max 5 Mo)</div>
             {!isLoggedIn ? (
               <div className="sp-app-field__hint sp-app-field__hint--warning">
-                Connectez-vous pour importer un justificatif.
+                Vous pourrez valider votre adresse à la fin du parcours. Les documents seront liés à votre dossier avant le paiement.
               </div>
             ) : null}
           </div>
@@ -2390,7 +2527,7 @@ function StepClinicalData({
 
           <div className="sp-app-field sp-app-field--search">
             <label className="sp-app-field__label">Médicament concerné</label>
-            <MedicationSearch onSelect={onAddMedication} disabled={!isLoggedIn} />
+            <MedicationSearch onSelect={onAddMedication} />
           </div>
 
           {items.length > 0 ? (
@@ -2684,6 +2821,137 @@ function StepPrioritySelection({
 
         <Button type="button" onClick={onContinue} disabled={continueDisabled}>
           Continuer
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type StepDraftValidationProps = {
+  flow: FlowType;
+  fullName: string;
+  birthdate: string;
+  itemsCount: number;
+  filesCount: number;
+  priority: 'standard' | 'express';
+  pricingLoading: boolean;
+  pricing: PricingConfig | null;
+  selectedAmount: number | null;
+  selectedPriorityEta: string;
+  draftEmail: string;
+  draftSending: boolean;
+  draftSent: boolean;
+  draftSuccessMessage: string | null;
+  onDraftEmailChange: (value: string) => void;
+  onBack: () => void;
+  onSend: () => void;
+};
+
+function StepDraftValidation({
+  flow,
+  fullName,
+  birthdate,
+  itemsCount,
+  filesCount,
+  priority,
+  pricingLoading,
+  pricing,
+  selectedAmount,
+  selectedPriorityEta,
+  draftEmail,
+  draftSending,
+  draftSent,
+  draftSuccessMessage,
+  onDraftEmailChange,
+  onBack,
+  onSend,
+}: StepDraftValidationProps) {
+  return (
+    <div className="sp-app-stack">
+      <section className="sp-app-card">
+        <div className="sp-app-section__header">
+          <div>
+            <h2 className="sp-app-section__title">Validez votre adresse pour envoyer votre dossier</h2>
+            <p className="sp-app-section__hint">
+              Nous vous envoyons un lien de connexion pour reprendre ce dossier, confirmer votre identité et poursuivre jusqu’au paiement.
+            </p>
+          </div>
+        </div>
+
+        <div className="sp-app-summary-grid">
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Patient</div>
+            <div className="sp-app-summary-card__value">{safePatientNameValue(fullName) || '—'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Naissance</div>
+            <div className="sp-app-summary-card__value">{birthdate || '—'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Situation</div>
+            <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Priorité</div>
+            <div className="sp-app-summary-card__value">{priority === 'express' ? 'Express' : 'Standard'}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Délai visé</div>
+            <div className="sp-app-summary-card__value">{selectedPriorityEta}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Montant estimé</div>
+            <div className="sp-app-summary-card__value">
+              {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : pricingLoading ? 'Chargement…' : '—'}
+            </div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Médicaments</div>
+            <div className="sp-app-summary-card__value">{itemsCount}</div>
+          </div>
+          <div className="sp-app-summary-card">
+            <div className="sp-app-summary-card__label">Justificatifs</div>
+            <div className="sp-app-summary-card__value">{filesCount}</div>
+          </div>
+        </div>
+
+        <div className="sp-app-field">
+          <label className="sp-app-field__label" htmlFor="sp-draft-email">
+            Adresse e-mail
+          </label>
+          <TextInput
+            id="sp-draft-email"
+            type="email"
+            autoComplete="email"
+            inputMode="email"
+            value={draftEmail}
+            onChange={(event) => onDraftEmailChange(event.target.value)}
+            placeholder="vous@exemple.fr"
+          />
+          <div className="sp-app-field__hint">
+            Cette adresse servira à vous renvoyer vers ce dossier pour finaliser l’envoi et procéder au paiement.
+          </div>
+        </div>
+
+        {draftSent && draftSuccessMessage ? (
+          <div className="sp-app-block">
+            <Notice variant="success">{draftSuccessMessage}</Notice>
+          </div>
+        ) : (
+          <div className="sp-app-block">
+            <Notice variant="info">
+              Vérifiez votre boîte e-mail après l’envoi. Le lien de connexion vous reconnectera directement sur ce dossier.
+            </Notice>
+          </div>
+        )}
+      </section>
+
+      <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onBack} disabled={draftSending}>
+          Modifier mon choix
+        </Button>
+        <Button type="button" onClick={onSend} disabled={draftSending} aria-busy={draftSending}>
+          {draftSending ? 'Envoi en cours…' : 'Recevoir mon lien de validation'}
         </Button>
       </div>
     </div>
@@ -3197,6 +3465,12 @@ function PublicFormApp() {
   const [preparedSubmission, setPreparedSubmission] = useState<SubmissionResult | null>(null);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [copiedUid, setCopiedUid] = useState(false);
+  const [draftEmail, setDraftEmail] = useState<string>(() => String(config.currentUser?.email || '').trim());
+  const [draftSending, setDraftSending] = useState(false);
+  const [draftSent, setDraftSent] = useState(false);
+  const [draftSuccessMessage, setDraftSuccessMessage] = useState<string | null>(null);
+  const [draftResumeLoading, setDraftResumeLoading] = useState(false);
+  const [resumedDraftRef, setResumedDraftRef] = useState<string | null>(null);
   const submissionRefStateRef = useRef<SubmissionRefState>({ ref: null });
 
   const compliance = config.compliance || {};
@@ -3282,6 +3556,7 @@ function PublicFormApp() {
   }, []);
 
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
+  const isDraftMode = !isLoggedIn;
   const selectedAmount = useMemo(() => {
     if (!pricing) {
       return null;
@@ -3293,6 +3568,108 @@ function PublicFormApp() {
     [priority, pricing],
   );
   const ageLabel = useMemo(() => ageLabelFromBirthdate(birthdate), [birthdate]);
+
+  useEffect(() => {
+    const draftRef = resolveResumeDraftRefFromUrl();
+    if (!isLoggedIn || !draftRef) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function resumeDraft(): Promise<void> {
+      setDraftResumeLoading(true);
+      setSubmitError(null);
+
+      try {
+        const payload = await loadSubmissionDraftApi(draftRef);
+        if (cancelled) {
+          return;
+        }
+
+        const patient = payload.patient && typeof payload.patient === 'object' && !Array.isArray(payload.patient)
+          ? payload.patient as Record<string, unknown>
+          : {};
+        const joinedName = [
+          firstNonEmptyString(patient.firstName, patient.first_name),
+          firstNonEmptyString(patient.lastName, patient.last_name),
+        ].filter(Boolean).join(' ');
+        const nextFullName = safePatientNameValue(firstNonEmptyString(patient.fullname, patient.fullName, joinedName));
+        const nextBirthdate = firstNonEmptyString(patient.birthdate, patient.birthDate);
+        const nextNotes = firstNonEmptyString(
+          payload.private_notes,
+          patient.note,
+          patient.medical_notes,
+          patient.medicalNotes,
+        );
+
+        const nextFlow = payload.flow === 'ro_proof' || payload.flow === 'depannage_no_proof'
+          ? payload.flow
+          : null;
+
+        if (nextFlow) {
+          setFlow(nextFlow);
+        }
+        setPriority(payload.priority === 'express' ? 'express' : 'standard');
+        if (nextFullName) {
+          setFullName(nextFullName);
+        }
+        if (nextBirthdate) {
+          setBirthdate(nextBirthdate);
+        }
+        setMedicalNotes(nextNotes);
+        setItems(normalizeStoredDraftItems(payload.items));
+        setFiles(normalizeStoredDraftFiles(payload.files));
+        setRejectedFiles([]);
+        setAnalysisMessage(null);
+        setPreparedSubmission(null);
+        setSubmissionResult(null);
+        setDraftEmail(typeof payload.email === 'string' ? payload.email : String(config.currentUser?.email || '').trim());
+        setDraftSent(false);
+        setDraftSuccessMessage(null);
+        setAttestationNoProof(Boolean(payload.attestation_no_proof));
+        const storedConsent = payload.consent;
+        if (storedConsent && typeof storedConsent === 'object' && !Array.isArray(storedConsent)) {
+          const consent = storedConsent as Record<string, unknown>;
+          setConsentTelemedicine(Boolean(consent.telemedicine));
+          setConsentTruth(Boolean(consent.truth));
+          setConsentCgu(Boolean(consent.cgu));
+          setConsentPrivacy(Boolean(consent.privacy));
+        } else {
+          setConsentTelemedicine(false);
+          setConsentTruth(false);
+          setConsentCgu(false);
+          setConsentPrivacy(false);
+        }
+
+        submissionRefStateRef.current = { ref: draftRef };
+        setResumedDraftRef(draftRef);
+        setStage('priority_selection');
+
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('resume_draft');
+          window.history.replaceState({}, document.title, url.toString());
+        } catch {
+          // noop
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSubmitError('Nous n’avons pas pu reprendre votre brouillon. Merci de demander un nouveau lien de connexion.');
+        }
+      } finally {
+        if (!cancelled) {
+          setDraftResumeLoading(false);
+        }
+      }
+    }
+
+    void resumeDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.currentUser?.email, isLoggedIn]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
     loggedIn: isLoggedIn,
@@ -3308,6 +3685,7 @@ function PublicFormApp() {
     consentCgu,
     consentPrivacy,
     analysisInProgress,
+    allowProofWithoutDetectedItems: Boolean(resumedDraftRef),
   }), [
     analysisInProgress,
     attestationNoProof,
@@ -3322,6 +3700,7 @@ function PublicFormApp() {
     fullName,
     isLoggedIn,
     items.length,
+    resumedDraftRef,
   ]);
 
   const addMedication = useCallback((medication: MedicationSearchResult) => {
@@ -3405,6 +3784,13 @@ function PublicFormApp() {
     setRejectedFiles([]);
     setAnalysisMessage(null);
     setFiles((current) => [...current, ...nextUploads]);
+
+    if (!isLoggedIn) {
+      setAnalysisInProgress(false);
+      setAnalysisMessage('Les documents seront joints à votre dossier après validation de votre adresse.');
+      return;
+    }
+
     setAnalysisInProgress(true);
 
     const rejected: File[] = [];
@@ -3472,7 +3858,7 @@ function PublicFormApp() {
     } finally {
       setAnalysisInProgress(false);
     }
-  }, [ensureSubmissionRef, flow]);
+  }, [ensureSubmissionRef, flow, isLoggedIn]);
 
   const resetToChoose = useCallback(() => {
     setStage('choose');
@@ -3494,6 +3880,11 @@ function PublicFormApp() {
     setPreparedSubmission(null);
     setSubmissionResult(null);
     setCopiedUid(false);
+    setDraftEmail(String(config.currentUser?.email || '').trim());
+    setDraftSending(false);
+    setDraftSent(false);
+    setDraftSuccessMessage(null);
+    setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
     setAttestationNoProof(false);
     setConsentTelemedicine(false);
@@ -3523,6 +3914,10 @@ function PublicFormApp() {
     setSubmitError(null);
     setPreparedSubmission(null);
     setSubmissionResult(null);
+    setDraftSending(false);
+    setDraftSent(false);
+    setDraftSuccessMessage(null);
+    setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
     setStage('form');
   }, []);
@@ -3546,6 +3941,172 @@ function PublicFormApp() {
 
     setStage('priority_selection');
   }, [flow, fullName, submitBlockInfo]);
+
+  const handleSendDraftLink = useCallback(async () => {
+    setSubmitError(null);
+    setDraftSuccessMessage(null);
+    setDraftSent(false);
+
+    if (!flow) {
+      setSubmitError('Merci de choisir un parcours avant de continuer.');
+      return;
+    }
+
+    if (!submitBlockInfo.ok) {
+      setSubmitError(
+        submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.',
+      );
+      return;
+    }
+
+    const patientFullName = safePatientNameValue(fullName);
+    const patientName = splitPatientNameValue(patientFullName);
+    if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
+      setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
+      return;
+    }
+
+    const email = String(draftEmail || '').trim().toLowerCase();
+    if (!isEmailLikeValue(email)) {
+      setSubmitError('Merci de renseigner une adresse e-mail valide.');
+      return;
+    }
+
+    const fileManifest = files.map((file) => ({
+      id: file.id,
+      original_name: file.original_name,
+      mime_type: file.mime_type || file.mime || 'application/octet-stream',
+      size_bytes: Number.isFinite(Number(file.size_bytes || 0)) ? Number(file.size_bytes || 0) : 0,
+      kind: 'PROOF',
+      status: file.status === 'READY' ? 'READY' : 'QUEUED',
+    }));
+
+    setDraftSending(true);
+
+    try {
+      const response = await saveSubmissionDraftApi({
+        email,
+        flow,
+        priority,
+        redirect_to: buildCurrentFormRedirectUrl(),
+        patient: {
+          email,
+          fullname: patientFullName,
+          firstName: patientName.firstName,
+          lastName: patientName.lastName,
+          birthdate: birthdate.trim(),
+          birthDate: birthdate.trim(),
+          note: medicalNotes.trim() || undefined,
+          medical_notes: medicalNotes.trim() || undefined,
+          medicalNotes: medicalNotes.trim() || undefined,
+        },
+        items: items.map((item) => {
+          const payload: Record<string, unknown> = {
+            label: (item.label || '').trim(),
+            schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : {},
+          };
+
+          if (item.cis) {
+            payload.cis = String(item.cis);
+          }
+          if (item.cip13) {
+            payload.cip13 = String(item.cip13);
+          }
+          if (item.quantite) {
+            payload.quantite = String(item.quantite);
+          }
+
+          return payload;
+        }),
+        privateNotes: medicalNotes.trim() || undefined,
+        files: fileManifest,
+        consent: consentRequired ? {
+          telemedicine: consentTelemedicine,
+          truth: consentTruth,
+          cgu: consentCgu,
+          privacy: consentPrivacy,
+          timestamp: new Date().toISOString(),
+          cgu_version: compliance?.cgu_version ? String(compliance.cgu_version) : '',
+          privacy_version: compliance?.privacy_version ? String(compliance.privacy_version) : '',
+        } : undefined,
+        attestation_no_proof: flow === 'depannage_no_proof' ? attestationNoProof : undefined,
+      });
+
+      const submissionRef = typeof response.submission_ref === 'string' ? response.submission_ref.trim() : '';
+      if (!submissionRef) {
+        throw new Error('Référence de brouillon manquante.');
+      }
+
+      submissionRefStateRef.current = { ref: submissionRef };
+
+      const uploadableEntries = files.filter((entry) => entry.file instanceof File && Number(entry.file.size || 0) > 0);
+      const failedUploads: string[] = [];
+
+      for (const entry of uploadableEntries) {
+        try {
+          await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
+          setFiles((current) => current.map((file) => (
+            file.id === entry.id
+              ? {
+                ...file,
+                status: 'READY',
+              }
+              : file
+          )));
+        } catch {
+          failedUploads.push(entry.original_name || entry.file.name || 'document');
+          setFiles((current) => current.map((file) => (
+            file.id === entry.id
+              ? {
+                ...file,
+                status: 'QUEUED',
+              }
+              : file
+          )));
+        }
+      }
+
+      setDraftEmail(email);
+      setDraftSent(true);
+
+      if (failedUploads.length > 0) {
+        setAnalysisMessage('Certains justificatifs devront être ajoutés à nouveau après connexion.');
+        setDraftSuccessMessage('Lien de connexion envoyé. Vérifiez vos emails pour valider votre demande. Certains justificatifs devront être ajoutés à nouveau après connexion.');
+      } else if (uploadableEntries.length > 0) {
+        setAnalysisMessage('Les justificatifs seront vérifiés après connexion.');
+        setDraftSuccessMessage('Lien de connexion envoyé. Vérifiez vos emails pour valider votre demande.');
+      } else {
+        setDraftSuccessMessage('Lien de connexion envoyé. Vérifiez vos emails pour valider votre demande.');
+      }
+    } catch (error) {
+      const message = toPatientSafeSubmissionErrorMessage(error);
+      setSubmitError(
+        message.includes('connexion')
+          ? message
+          : 'Le lien de connexion n’a pas pu être envoyé. Merci de réessayer.',
+      );
+    } finally {
+      setDraftSending(false);
+    }
+  }, [
+    attestationNoProof,
+    birthdate,
+    compliance?.cgu_version,
+    compliance?.privacy_version,
+    consentCgu,
+    consentPrivacy,
+    consentRequired,
+    consentTelemedicine,
+    consentTruth,
+    draftEmail,
+    files,
+    flow,
+    fullName,
+    items,
+    medicalNotes,
+    priority,
+    submitBlockInfo,
+  ]);
 
   const prepareSubmissionForPayment = useCallback(async (): Promise<SubmissionResult | null> => {
     setSubmitError(null);
@@ -3635,7 +4196,8 @@ function PublicFormApp() {
         attestation_no_proof: flow === 'depannage_no_proof' ? attestationNoProof : undefined,
       };
 
-      if (!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) {
+      const allowProofOnlyFinalize = flow === 'ro_proof' && files.length > 0 && Boolean(resumedDraftRef);
+      if ((!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) && !allowProofOnlyFinalize) {
         throw new Error(
           flow === 'ro_proof'
             ? 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.'
@@ -3703,6 +4265,7 @@ function PublicFormApp() {
     medicalNotes,
     preparedSubmission,
     priority,
+    resumedDraftRef,
     stage,
     submitBlockInfo,
     ensureSubmissionRef,
@@ -3721,6 +4284,11 @@ function PublicFormApp() {
       return;
     }
 
+    if (isDraftMode) {
+      setStage('payment_auth');
+      return;
+    }
+
     if (!paymentsConfig?.enabled) {
       setSubmitError('La sécurisation bancaire est actuellement indisponible. Merci de réessayer un peu plus tard.');
       return;
@@ -3735,7 +4303,7 @@ function PublicFormApp() {
     if (nextSubmission && Number(nextSubmission.id) > 0) {
       setStage('payment_auth');
     }
-  }, [paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
+  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
 
   const handlePaymentAuthorized = useCallback(() => {
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
@@ -3754,6 +4322,8 @@ function PublicFormApp() {
   const handleBackToClinicalForm = useCallback(() => {
     setPreparedSubmission(null);
     setSubmitError(null);
+    setDraftSent(false);
+    setDraftSuccessMessage(null);
     setStage('form');
   }, []);
 
@@ -3769,7 +4339,7 @@ function PublicFormApp() {
     { key: 'choose', label: 'Type de demande' },
     { key: 'form', label: 'Saisie médicale' },
     { key: 'priority_selection', label: 'Priorité' },
-    { key: 'payment_auth', label: 'Paiement sécurisé' },
+    { key: 'payment_auth', label: isDraftMode ? 'Validation' : 'Paiement sécurisé' },
     { key: 'done', label: 'Confirmation' },
   ];
   const activeStageIndex = stageEntries.findIndex((entry) => entry.key === stage);
@@ -3838,10 +4408,16 @@ function PublicFormApp() {
         {!isLoggedIn ? (
           <div className="sp-app-block">
             <Notice variant="info">
-              Vous êtes en <strong>mode aperçu</strong>. Connectez-vous (ou créez un compte) pour soumettre votre demande.
+              Vous pouvez compléter votre dossier sans créer de compte au préalable.
               <br />
-              La recherche de médicaments et l’import de justificatifs sont désactivés tant que vous n’êtes pas connecté.
+              Nous vous demanderons simplement de valider votre adresse e-mail à la fin du parcours pour envoyer votre dossier.
             </Notice>
+          </div>
+        ) : null}
+
+        {draftResumeLoading ? (
+          <div className="sp-app-block">
+            <Notice variant="info">Reprise du brouillon en cours…</Notice>
           </div>
         ) : null}
 
@@ -3915,22 +4491,44 @@ function PublicFormApp() {
         ) : null}
 
         {stage === 'payment_auth' && flow ? (
-          <StepPaymentAuth
-            flow={flow}
-            fullName={fullName}
-            birthdate={birthdate}
-            itemsCount={items.length}
-            filesCount={files.length}
-            priority={priority}
-            pricingLoading={pricingLoading}
-            pricing={pricing}
-            selectedAmount={selectedAmount}
-            selectedPriorityEta={selectedPriorityEta}
-            paymentsConfig={paymentsConfig}
-            preparedSubmission={preparedSubmission}
-            onBack={() => setStage('priority_selection')}
-            onAuthorized={handlePaymentAuthorized}
-          />
+          isDraftMode ? (
+            <StepDraftValidation
+              flow={flow}
+              fullName={fullName}
+              birthdate={birthdate}
+              itemsCount={items.length}
+              filesCount={files.length}
+              priority={priority}
+              pricingLoading={pricingLoading}
+              pricing={pricing}
+              selectedAmount={selectedAmount}
+              selectedPriorityEta={selectedPriorityEta}
+              draftEmail={draftEmail}
+              draftSending={draftSending}
+              draftSent={draftSent}
+              draftSuccessMessage={draftSuccessMessage}
+              onDraftEmailChange={setDraftEmail}
+              onBack={() => setStage('priority_selection')}
+              onSend={handleSendDraftLink}
+            />
+          ) : (
+            <StepPaymentAuth
+              flow={flow}
+              fullName={fullName}
+              birthdate={birthdate}
+              itemsCount={items.length}
+              filesCount={files.length}
+              priority={priority}
+              pricingLoading={pricingLoading}
+              pricing={pricing}
+              selectedAmount={selectedAmount}
+              selectedPriorityEta={selectedPriorityEta}
+              paymentsConfig={paymentsConfig}
+              preparedSubmission={preparedSubmission}
+              onBack={() => setStage('priority_selection')}
+              onAuthorized={handlePaymentAuthorized}
+            />
+          )
         ) : null}
 
         {stage === 'done' && submissionResult ? (

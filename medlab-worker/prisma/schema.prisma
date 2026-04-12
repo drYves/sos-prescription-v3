@@ -26,6 +26,7 @@ enum ArtifactStatus {
 }
 
 enum SubmissionStatus {
+  DRAFT
   OPEN
   FINALIZED
   EXPIRED
@@ -206,6 +207,7 @@ model AuthToken {
   email         String
   ownerRole     ActorRole
   ownerWpUserId Int?
+  meta          Json?
   expiresAt     DateTime
   used          Boolean   @default(false)
 

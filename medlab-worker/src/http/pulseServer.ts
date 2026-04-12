@@ -82,6 +82,18 @@ interface SubmissionCreateRequestBody {
   idempotency_key?: unknown;
 }
 
+interface SubmissionDraftRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  email?: unknown;
+  flow?: unknown;
+  priority?: unknown;
+  redirect_to?: unknown;
+  idempotency_key?: unknown;
+}
+
 interface PatientProfileRequestBody {
   req_id?: unknown;
   ts_ms?: unknown;
@@ -293,6 +305,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
         return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
       }
 
+      if (method === "POST" && path === "/api/v2/submissions/draft") {
+        return await handleSubmissionDraftCreate(req, res, deps, signingSecret, submissionRepo, authService, mailService);
+      }
+
       const submissionArtifactInitMatch = method === "POST" ? path.match(/^\/api\/v2\/submissions\/([^/]+)\/artifacts\/init$/) : null;
       if (submissionArtifactInitMatch) {
         return await handleSubmissionArtifactUploadInit(
@@ -480,7 +496,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 function logSubmissionRejected(
   logger: NdjsonLogger,
   reqId: string,
-  phase: "create" | "finalize" | "artifact_init",
+  phase: "create" | "create_draft" | "finalize" | "artifact_init",
   reason: string,
   code?: string,
   submissionRef?: string,
@@ -706,6 +722,125 @@ async function handleSubmissionCreate(
 
     const message = err instanceof Error ? err.message : "submission_create_failed";
     logSubmissionRejected(deps.logger, reqId, "create", message, "ML_SUBMISSION_CREATE_FAILED", undefined, err, "error");
+    return sendJson(
+      res,
+      500,
+      { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId },
+      signingSecret,
+    );
+  }
+}
+
+async function handleSubmissionDraftCreate(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  submissionRepo: SubmissionRepo,
+  authService: AuthService,
+  mailService: MailService,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/submissions/draft");
+  if (parsedBody.ok !== true) {
+    logSubmissionRejected(deps.logger, getResponseReqId(res), "create_draft", parsedBody.code, parsedBody.code, undefined, undefined, "warning");
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const body = parsedBody.body as SubmissionDraftRequestBody;
+    const email = normalizeMagicLinkRequestEmail(body.email);
+    const flowKey = normalizeSubmissionFlow(body.flow);
+    const priority = normalizeSubmissionPriority(body.priority);
+    const redirectTo = normalizeOptionalRedirectTo(body.redirect_to);
+    const idempotencyKey = normalizeSubmissionIdempotencyKey(body.idempotency_key);
+
+    const draftResult = await submissionRepo.createDraftSubmission({
+      flowKey,
+      priority,
+      reqId,
+      idempotencyKey,
+    });
+
+    const resumeRedirect = appendResumeDraftToRedirect(redirectTo, draftResult.submission.publicRef);
+
+    const issued = await authService.issueMagicLink({
+      email,
+      ownerRole: ActorRole.PATIENT,
+      ownerWpUserId: null,
+      metadata: {
+        draft_ref: draftResult.submission.publicRef,
+        redirect_to: resumeRedirect,
+      },
+    }, reqId);
+
+    await mailService.sendMagicLink(
+      {
+        email,
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+      },
+      reqId,
+    );
+
+    deps.logger.info(
+      "submission.draft.created",
+      {
+        mode: draftResult.mode,
+        submission_ref: draftResult.submission.publicRef,
+        flow_key: draftResult.submission.flowKey,
+        priority: draftResult.submission.priority,
+        email_fp: fingerprintPublicId(email),
+        sent: true,
+      },
+      reqId,
+    );
+
+    return sendJson(
+      res,
+      draftResult.mode === "replayed" ? 200 : 201,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        sent: true,
+        submission_ref: draftResult.submission.publicRef,
+        status: draftResult.submission.status,
+        expires_at: draftResult.submission.expiresAt.toISOString(),
+        expires_in: issued.expiresIn,
+        redirect_to: resumeRedirect,
+        req_id: reqId,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    if (err instanceof SubmissionRepoError || err instanceof AuthServiceError || err instanceof MailServiceError) {
+      if (err.statusCode >= 500) {
+        deps.logger.error("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+      } else {
+        deps.logger.warning("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+      }
+
+      return sendJson(
+        res,
+        err.statusCode,
+        { ok: false, code: err.code, req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    if (err instanceof Error && /(required|invalid)$/i.test(err.message)) {
+      deps.logger.warning("submission.draft.failed", { code: "ML_SUBMISSION_BAD_REQUEST", reason: err.message }, reqId, err);
+      return sendJson(
+        res,
+        400,
+        { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId },
+        signingSecret,
+      );
+    }
+
+    const message = err instanceof Error ? err.message : "submission_draft_failed";
+    deps.logger.error("submission.draft.failed", { reason: message }, reqId, err);
     return sendJson(
       res,
       500,
@@ -1356,7 +1491,7 @@ async function handleAuthVerifyLink(
     const token = normalizeMagicLinkToken(body.token);
     const result = await authService.consumeMagicLink(token, reqId);
 
-    if (!result.valid || result.ownerWpUserId == null || result.ownerRole == null) {
+    if (!result.valid || result.ownerRole == null) {
       deps.logger.info(
         "auth.verify_link.completed",
         {
@@ -1380,12 +1515,16 @@ async function handleAuthVerifyLink(
     }
 
     const publicRole = toPublicMagicLinkRole(result.ownerRole);
+    const draftRef = typeof result.metadata?.draft_ref === "string" ? result.metadata.draft_ref : "";
+    const redirectTo = typeof result.metadata?.redirect_to === "string" ? result.metadata.redirect_to : "";
+
     deps.logger.info(
       "auth.verify_link.completed",
       {
         valid: true,
         owner_role: result.ownerRole,
         owner_wp_user_id: result.ownerWpUserId,
+        has_draft_ref: draftRef !== "",
       },
       reqId,
     );
@@ -1397,8 +1536,11 @@ async function handleAuthVerifyLink(
         ok: true,
         schema_version: CURRENT_SCHEMA_VERSION,
         valid: true,
+        email: result.email,
         wp_user_id: result.ownerWpUserId,
         role: publicRole,
+        draft_ref: draftRef || undefined,
+        redirect_to: redirectTo || undefined,
         req_id: reqId,
       },
       signingSecret,
@@ -3941,11 +4083,11 @@ async function resolveSubmissionForArtifactInit(
   }
 
   if (row.status === SubmissionStatus.EXPIRED || row.expiresAt.getTime() <= Date.now()) {
-    if (row.status === SubmissionStatus.OPEN) {
+    if (row.status === SubmissionStatus.OPEN || row.status === "DRAFT") {
       await prisma.submission.updateMany({
         where: {
           id: row.id,
-          status: SubmissionStatus.OPEN,
+          status: row.status,
         },
         data: {
           status: SubmissionStatus.EXPIRED,
@@ -3968,7 +4110,7 @@ async function resolveSubmissionForArtifactInit(
     throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "Submission has expired");
   }
 
-  if (row.status !== SubmissionStatus.OPEN) {
+  if (row.status !== SubmissionStatus.OPEN && row.status !== "DRAFT") {
     throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "Submission cannot accept new artifacts");
   }
 
@@ -4074,6 +4216,33 @@ function normalizeMagicLinkToken(value: unknown): string {
   }
 
   return normalized;
+}
+
+function normalizeOptionalRedirectTo(value: unknown): string {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("redirect_to is invalid");
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 1024) {
+    throw new Error("redirect_to is invalid");
+  }
+
+  return normalized;
+}
+
+function appendResumeDraftToRedirect(redirectTo: string, draftRef: string): string {
+  if (!redirectTo) {
+    return "";
+  }
+
+  const url = new URL(redirectTo);
+  url.searchParams.set("resume_draft", draftRef);
+  return url.toString();
 }
 
 function toPublicMagicLinkRole(role: ActorRole): "doctor" | "patient" {

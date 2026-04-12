@@ -7,10 +7,12 @@ const MIN_MAGIC_LINK_TTL_MS = 60 * 1000;
 const MAX_MAGIC_LINK_TTL_MS = 24 * 60 * 60 * 1000;
 const MAGIC_LINK_TOKEN_BYTES = 32;
 const MAX_TOKEN_GENERATION_ATTEMPTS = 5;
+const MAX_META_JSON_BYTES = 4_096;
 
 let prismaSingleton: PrismaClient | null = null;
 
 type MagicLinkOwnerRole = "DOCTOR" | "PATIENT";
+type MagicLinkMetadata = Record<string, unknown>;
 
 export interface AuthServiceConfig {
   logger?: NdjsonLogger;
@@ -31,7 +33,8 @@ export interface AuthOwnerLookupResult {
 export interface IssueMagicLinkInput {
   email: string;
   ownerRole: MagicLinkOwnerRole;
-  ownerWpUserId: number;
+  ownerWpUserId?: number | null;
+  metadata?: MagicLinkMetadata | null;
 }
 
 export interface IssueMagicLinkResult {
@@ -45,6 +48,7 @@ export interface ConsumeMagicLinkResult {
   email: string;
   ownerRole: MagicLinkOwnerRole | null;
   ownerWpUserId: number | null;
+  metadata: MagicLinkMetadata | null;
 }
 
 export class AuthServiceError extends Error {
@@ -173,7 +177,8 @@ export class AuthService {
   async issueMagicLink(input: IssueMagicLinkInput, reqId?: string): Promise<IssueMagicLinkResult> {
     const email = normalizeEmail(input.email);
     const ownerRole = normalizeOwnerRole(input.ownerRole);
-    const ownerWpUserId = normalizePositiveInt(input.ownerWpUserId, "ownerWpUserId");
+    const ownerWpUserId = normalizeOwnerWpUserId(input.ownerWpUserId ?? null, ownerRole);
+    const metadata = normalizeMagicLinkMetadata(input.metadata ?? null);
 
     if (email === "") {
       throw new AuthServiceError("ML_MAGIC_LINK_BAD_REQUEST", 400, "email is invalid");
@@ -204,6 +209,7 @@ export class AuthService {
               email,
               ownerRole,
               ownerWpUserId,
+              meta: metadata ? toInputJsonValue(metadata) : undefined,
               expiresAt,
               used: false,
             },
@@ -217,6 +223,7 @@ export class AuthService {
             owner_role: ownerRole,
             owner_wp_user_id: ownerWpUserId,
             ttl_ms: this.ttlMs,
+            has_draft_ref: typeof metadata?.draft_ref === "string" && metadata.draft_ref !== "",
           },
           reqId,
         );
@@ -278,6 +285,7 @@ export class AuthService {
             email: true,
             ownerRole: true,
             ownerWpUserId: true,
+            meta: true,
             expiresAt: true,
             used: true,
           },
@@ -288,13 +296,22 @@ export class AuthService {
         }
 
         const now = new Date();
-        if (row.used || row.expiresAt.getTime() <= now.getTime() || row.ownerWpUserId == null || row.ownerWpUserId <= 0) {
+        const ownerWpUserId = normalizeNullablePositiveInt(row.ownerWpUserId);
+        const allowsPendingPatient = row.ownerRole === ActorRole.PATIENT && ownerWpUserId == null;
+
+        if (row.used || row.expiresAt.getTime() <= now.getTime()) {
           return buildInvalidConsumeResult(row.email);
         }
 
-        const ownerIsActive = await doesAuthTokenOwnerStillExist(tx, row.ownerRole, row.ownerWpUserId);
-        if (!ownerIsActive) {
-          return buildInvalidConsumeResult(row.email);
+        if (!allowsPendingPatient) {
+          if (ownerWpUserId == null || ownerWpUserId <= 0) {
+            return buildInvalidConsumeResult(row.email);
+          }
+
+          const ownerIsActive = await doesAuthTokenOwnerStillExist(tx, row.ownerRole, ownerWpUserId);
+          if (!ownerIsActive) {
+            return buildInvalidConsumeResult(row.email);
+          }
         }
 
         const updated = await tx.authToken.updateMany({
@@ -317,7 +334,8 @@ export class AuthService {
           valid: true,
           email: normalizeEmail(row.email),
           ownerRole,
-          ownerWpUserId: row.ownerWpUserId,
+          ownerWpUserId,
+          metadata: normalizeMagicLinkMetadata(row.meta),
         } satisfies ConsumeMagicLinkResult;
       });
 
@@ -329,6 +347,7 @@ export class AuthService {
           valid: result.valid,
           owner_role: result.ownerRole,
           owner_wp_user_id: result.ownerWpUserId,
+          has_draft_ref: typeof result.metadata?.draft_ref === "string" && result.metadata.draft_ref !== "",
         },
         reqId,
       );
@@ -381,11 +400,146 @@ function normalizeOwnerRole(value: ActorRole): MagicLinkOwnerRole {
   throw new AuthServiceError("ML_MAGIC_LINK_BAD_REQUEST", 400, "ownerRole is invalid");
 }
 
-function normalizePositiveInt(value: number, field: string): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new AuthServiceError("ML_MAGIC_LINK_BAD_REQUEST", 400, `${field} is invalid`);
+function normalizeOwnerWpUserId(value: number | null, ownerRole: MagicLinkOwnerRole): number | null {
+  const normalized = normalizeNullablePositiveInt(value);
+  if (ownerRole === ActorRole.DOCTOR) {
+    if (normalized == null || normalized <= 0) {
+      throw new AuthServiceError("ML_MAGIC_LINK_BAD_REQUEST", 400, "ownerWpUserId is invalid");
+    }
+    return normalized;
   }
-  return Math.trunc(value);
+
+  return normalized;
+}
+
+function normalizeNullablePositiveInt(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.trunc(parsed);
+}
+
+function normalizeMagicLinkMetadata(value: unknown): MagicLinkMetadata | null {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const raw = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  const out: MagicLinkMetadata = {};
+
+  const draftRef = normalizeDraftRef(raw.draft_ref);
+  if (draftRef) {
+    out.draft_ref = draftRef;
+  }
+
+  const redirectTo = normalizeRedirectTo(raw.redirect_to);
+  if (redirectTo) {
+    out.redirect_to = redirectTo;
+  }
+
+  for (const [key, candidate] of Object.entries(raw)) {
+    if (key === "draft_ref" || key === "redirect_to") {
+      continue;
+    }
+
+    if (!isSafeMetaKey(key)) {
+      continue;
+    }
+
+    const sanitized = sanitizeMetaValue(candidate);
+    if (sanitized !== undefined) {
+      out[key] = sanitized;
+    }
+  }
+
+  if (Object.keys(out).length === 0) {
+    return null;
+  }
+
+  const encoded = JSON.stringify(out);
+  if (Buffer.byteLength(encoded, "utf8") > MAX_META_JSON_BYTES) {
+    throw new AuthServiceError("ML_MAGIC_LINK_BAD_REQUEST", 400, "metadata is too large");
+  }
+
+  return out;
+}
+
+function normalizeDraftRef(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 128 || !/^[A-Za-z0-9_-]{8,128}$/.test(normalized)) {
+    return "";
+  }
+
+  return normalized;
+}
+
+function normalizeRedirectTo(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 1024) {
+    return "";
+  }
+
+  return normalized;
+}
+
+function isSafeMetaKey(value: string): boolean {
+  return /^[a-z][a-z0-9_]{1,63}$/i.test(value);
+}
+
+function sanitizeMetaValue(value: unknown): Prisma.JsonValue | undefined {
+  if (
+    value == null
+    || typeof value === "string"
+    || typeof value === "number"
+    || typeof value === "boolean"
+  ) {
+    return value as Prisma.JsonValue;
+  }
+
+  if (Array.isArray(value)) {
+    const next = value
+      .map((entry) => sanitizeMetaValue(entry))
+      .filter((entry) => entry !== undefined) as Prisma.JsonArray;
+    return next;
+  }
+
+  if (typeof value === "object") {
+    const next: Prisma.JsonObject = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (!isSafeMetaKey(key)) {
+        continue;
+      }
+      const sanitized = sanitizeMetaValue(entry);
+      if (sanitized !== undefined) {
+        next[key] = sanitized;
+      }
+    }
+    return next;
+  }
+
+  return undefined;
+}
+
+function toInputJsonValue(value: MagicLinkMetadata): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 function uniquePositiveInts(values: Array<number | null>): number[] {
@@ -419,6 +573,7 @@ function buildInvalidConsumeResult(email = ""): ConsumeMagicLinkResult {
     email: normalizeEmail(email),
     ownerRole: null,
     ownerWpUserId: null,
+    metadata: null,
   };
 }
 

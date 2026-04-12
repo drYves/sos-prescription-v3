@@ -384,6 +384,306 @@ if (!function_exists('sosprescription_v4_proxy_extract_worker_prescription_id'))
     }
 }
 
+
+if (!function_exists('sosprescription_v4_proxy_require_public_draft_access')) {
+    /**
+     * @return true|WP_Error
+     */
+    function sosprescription_v4_proxy_require_public_draft_access(WP_REST_Request $request)
+    {
+        if (class_exists('\SosPrescription\Services\RestGuard')) {
+            return \SosPrescription\Services\RestGuard::throttle($request, 'prescription_create', ['limit' => 5, 'window' => 900]);
+        }
+
+        return true;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_build_draft_transient_key')) {
+    function sosprescription_v4_proxy_build_draft_transient_key(string $submissionRef): string
+    {
+        return 'sosprescription_v4_draft_' . $submissionRef;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_email')) {
+    function sosprescription_v4_proxy_normalize_email($value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $email = sanitize_email((string) $value);
+        return is_email($email) ? strtolower($email) : '';
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_text')) {
+    function sosprescription_v4_proxy_normalize_text($value, int $max = 4000): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $normalized = trim(preg_replace('/\s+/u', ' ', (string) $value) ?? '');
+        if ($normalized === '') {
+            return '';
+        }
+
+        return function_exists('mb_substr')
+            ? mb_substr($normalized, 0, $max)
+            : substr($normalized, 0, $max);
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_slug')) {
+    function sosprescription_v4_proxy_normalize_slug($value, int $max = 64): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $normalized = strtolower(trim((string) $value));
+        if ($normalized === '' || strlen($normalized) > $max || !preg_match('/^[a-z0-9][a-z0-9_-]*$/', $normalized)) {
+            return '';
+        }
+
+        return $normalized;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_redirect_to')) {
+    function sosprescription_v4_proxy_normalize_redirect_to($value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $redirect = trim((string) $value);
+        if ($redirect === '') {
+            return '';
+        }
+
+        $sanitized = esc_url_raw($redirect);
+        if ($sanitized === '' || strlen($sanitized) > 1024) {
+            return '';
+        }
+
+        return $sanitized;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_patient_payload')) {
+    /**
+     * @param array<string,mixed> $params
+     * @return array<string,mixed>
+     */
+    function sosprescription_v4_proxy_normalize_patient_payload(array $params): array
+    {
+        $patient = isset($params['patient']) && is_array($params['patient']) ? $params['patient'] : [];
+
+        $fullName = sosprescription_v4_proxy_normalize_text(
+            $patient['fullname'] ?? ($patient['fullName'] ?? ($params['fullname'] ?? '')),
+            160
+        );
+        $firstName = sosprescription_v4_proxy_normalize_text(
+            $patient['firstName'] ?? ($patient['first_name'] ?? ''),
+            100
+        );
+        $lastName = sosprescription_v4_proxy_normalize_text(
+            $patient['lastName'] ?? ($patient['last_name'] ?? ''),
+            120
+        );
+        $birthdate = sosprescription_v4_proxy_normalize_text(
+            $patient['birthdate'] ?? ($patient['birthDate'] ?? ($params['birthdate'] ?? '')),
+            20
+        );
+        $note = sosprescription_v4_proxy_normalize_text(
+            $patient['note'] ?? ($patient['medical_notes'] ?? ($patient['medicalNotes'] ?? ($params['privateNotes'] ?? ''))),
+            4000
+        );
+
+        $payload = [
+            'fullname' => $fullName,
+            'firstName' => $firstName,
+            'lastName' => $lastName,
+            'birthdate' => $birthdate,
+            'birthDate' => $birthdate,
+        ];
+
+        if ($note !== '') {
+            $payload['note'] = $note;
+            $payload['medical_notes'] = $note;
+            $payload['medicalNotes'] = $note;
+        }
+
+        return $payload;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_items_payload')) {
+    /**
+     * @param mixed $value
+     * @return array<int,array<string,mixed>>
+     */
+    function sosprescription_v4_proxy_normalize_items_payload($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($value as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $label = sosprescription_v4_proxy_normalize_text($entry['label'] ?? '', 200);
+            if ($label === '') {
+                continue;
+            }
+
+            $item = [
+                'label' => $label,
+                'schedule' => isset($entry['schedule']) && is_array($entry['schedule']) ? $entry['schedule'] : [],
+            ];
+
+            if (isset($entry['cis']) && is_scalar($entry['cis'])) {
+                $item['cis'] = trim((string) $entry['cis']);
+            }
+            if (isset($entry['cip13']) && is_scalar($entry['cip13'])) {
+                $item['cip13'] = trim((string) $entry['cip13']);
+            }
+            if (isset($entry['quantite']) && is_scalar($entry['quantite'])) {
+                $item['quantite'] = trim((string) $entry['quantite']);
+            }
+
+            $items[] = $item;
+        }
+
+        return $items;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_normalize_files_manifest')) {
+    /**
+     * @param mixed $value
+     * @return array<int,array<string,mixed>>
+     */
+    function sosprescription_v4_proxy_normalize_files_manifest($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $files = [];
+        foreach ($value as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $originalName = sosprescription_v4_proxy_normalize_text(
+                $entry['original_name'] ?? ($entry['originalName'] ?? ($entry['name'] ?? '')),
+                255
+            );
+            if ($originalName === '') {
+                continue;
+            }
+
+            $sizeBytes = isset($entry['size_bytes']) && is_numeric($entry['size_bytes'])
+                ? max(0, (int) $entry['size_bytes'])
+                : (isset($entry['size']) && is_numeric($entry['size']) ? max(0, (int) $entry['size']) : 0);
+
+            $file = [
+                'original_name' => $originalName,
+                'mime_type' => sosprescription_v4_proxy_normalize_text($entry['mime_type'] ?? ($entry['mime'] ?? 'application/octet-stream'), 120),
+                'size_bytes' => $sizeBytes,
+                'kind' => 'PROOF',
+                'status' => sosprescription_v4_proxy_normalize_text($entry['status'] ?? 'QUEUED', 32) ?: 'QUEUED',
+            ];
+
+            $files[] = $file;
+        }
+
+        return $files;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_compute_draft_ttl')) {
+    /**
+     * @param array<string,mixed> $workerPayload
+     */
+    function sosprescription_v4_proxy_compute_draft_ttl(array $workerPayload): int
+    {
+        $defaultTtl = 2 * HOUR_IN_SECONDS;
+
+        $expiresAt = isset($workerPayload['expires_at']) && is_scalar($workerPayload['expires_at'])
+            ? strtotime((string) $workerPayload['expires_at'])
+            : false;
+        if (is_int($expiresAt) && $expiresAt > time()) {
+            return max(300, min(12 * HOUR_IN_SECONDS, $expiresAt - time()));
+        }
+
+        $expiresIn = isset($workerPayload['expires_in']) && is_numeric($workerPayload['expires_in'])
+            ? (int) $workerPayload['expires_in']
+            : 0;
+        if ($expiresIn > 0) {
+            return max(300, min(12 * HOUR_IN_SECONDS, $expiresIn));
+        }
+
+        return $defaultTtl;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_store_draft_payload')) {
+    /**
+     * @param array<string,mixed> $payload
+     */
+    function sosprescription_v4_proxy_store_draft_payload(string $submissionRef, array $payload, int $ttl): void
+    {
+        set_transient(
+            sosprescription_v4_proxy_build_draft_transient_key($submissionRef),
+            $payload,
+            max(300, $ttl)
+        );
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_load_draft_payload')) {
+    /**
+     * @return array<string,mixed>|null
+     */
+    function sosprescription_v4_proxy_load_draft_payload(string $submissionRef): ?array
+    {
+        $payload = get_transient(sosprescription_v4_proxy_build_draft_transient_key($submissionRef));
+        return is_array($payload) ? $payload : null;
+    }
+}
+
+if (!function_exists('sosprescription_v4_proxy_current_user_matches_draft')) {
+    function sosprescription_v4_proxy_current_user_matches_draft(array $payload): bool
+    {
+        $email = isset($payload['email']) && is_scalar($payload['email'])
+            ? strtolower(trim((string) $payload['email']))
+            : '';
+        if ($email === '') {
+            return current_user_can('manage_options');
+        }
+
+        $user = wp_get_current_user();
+        if (!($user instanceof WP_User)) {
+            return false;
+        }
+
+        $currentEmail = isset($user->user_email) ? strtolower(trim((string) $user->user_email)) : '';
+        if ($currentEmail !== '' && $currentEmail === $email) {
+            return true;
+        }
+
+        return current_user_can('manage_options');
+    }
+}
+
 add_action('rest_api_init', static function (): void {
     register_rest_route('sosprescription/v4', '/medications/search', [
         'methods' => 'GET',
@@ -472,6 +772,152 @@ add_action('rest_api_init', static function (): void {
                     ]
                 );
             }
+        },
+    ]);
+
+
+    register_rest_route('sosprescription/v4', '/submissions/draft', [
+        'methods' => 'POST',
+        'permission_callback' => 'sosprescription_v4_proxy_require_public_draft_access',
+        'callback' => static function (WP_REST_Request $request) {
+            $reqId = sosprescription_v4_proxy_build_req_id();
+            $params = sosprescription_v4_proxy_request_data($request);
+
+            $email = sosprescription_v4_proxy_normalize_email($params['email'] ?? null);
+            $flow = sosprescription_v4_proxy_normalize_slug($params['flow'] ?? null, 64);
+            $priority = sosprescription_v4_proxy_normalize_slug($params['priority'] ?? 'standard', 32);
+            $redirectTo = sosprescription_v4_proxy_normalize_redirect_to($params['redirect_to'] ?? ($params['redirectTo'] ?? ''));
+            $patient = sosprescription_v4_proxy_normalize_patient_payload($params);
+            $items = sosprescription_v4_proxy_normalize_items_payload($params['items'] ?? []);
+            $files = sosprescription_v4_proxy_normalize_files_manifest($params['files'] ?? ($params['files_manifest'] ?? []));
+            $privateNotes = sosprescription_v4_proxy_normalize_text($params['privateNotes'] ?? ($params['private_notes'] ?? ''), 4000);
+            $attestationNoProof = !empty($params['attestation_no_proof']) || !empty($params['attestationNoProof']);
+            $consentRaw = isset($params['consent']) && is_array($params['consent']) ? $params['consent'] : [];
+            $consent = [
+                'telemedicine' => !empty($consentRaw['telemedicine']),
+                'truth' => !empty($consentRaw['truth']),
+                'cgu' => !empty($consentRaw['cgu']),
+                'privacy' => !empty($consentRaw['privacy']),
+                'timestamp' => isset($consentRaw['timestamp']) && is_scalar($consentRaw['timestamp']) ? trim((string) $consentRaw['timestamp']) : '',
+                'cgu_version' => isset($consentRaw['cgu_version']) && is_scalar($consentRaw['cgu_version']) ? trim((string) $consentRaw['cgu_version']) : '',
+                'privacy_version' => isset($consentRaw['privacy_version']) && is_scalar($consentRaw['privacy_version']) ? trim((string) $consentRaw['privacy_version']) : '',
+            ];
+            $idempotencyKey = isset($params['idempotency_key']) && is_scalar($params['idempotency_key'])
+                ? trim((string) $params['idempotency_key'])
+                : '';
+
+            if ($email === '' || $flow === '' || $priority === '') {
+                return new WP_Error(
+                    'sosprescription_bad_body',
+                    'Informations de brouillon invalides.',
+                    ['status' => 400, 'req_id' => $reqId]
+                );
+            }
+
+            try {
+                $workerPayload = sosprescription_v4_proxy_worker_client()->postSignedJson(
+                    '/api/v2/submissions/draft',
+                    [
+                        'email' => $email,
+                        'flow' => $flow,
+                        'priority' => $priority,
+                        'redirect_to' => $redirectTo,
+                        'idempotency_key' => $idempotencyKey !== '' ? $idempotencyKey : null,
+                    ],
+                    $reqId,
+                    'submission_v4_draft_create'
+                );
+
+                $normalizedWorkerPayload = sosprescription_v4_proxy_normalize_payload($workerPayload);
+                $submissionRef = isset($normalizedWorkerPayload['submission_ref']) && is_scalar($normalizedWorkerPayload['submission_ref'])
+                    ? trim((string) $normalizedWorkerPayload['submission_ref'])
+                    : '';
+
+                if ($submissionRef === '') {
+                    return new WP_Error(
+                        'sosprescription_draft_ref_missing',
+                        'Référence de brouillon introuvable.',
+                        ['status' => 502, 'req_id' => $reqId]
+                    );
+                }
+
+                $draftPayload = [
+                    'ok' => true,
+                    'submission_ref' => $submissionRef,
+                    'email' => $email,
+                    'flow' => $flow,
+                    'priority' => $priority,
+                    'patient' => $patient,
+                    'items' => $items,
+                    'private_notes' => $privateNotes,
+                    'files' => $files,
+                    'redirect_to' => $redirectTo,
+                    'attestation_no_proof' => $attestationNoProof,
+                    'consent' => $consent,
+                    'expires_at' => isset($normalizedWorkerPayload['expires_at']) ? $normalizedWorkerPayload['expires_at'] : null,
+                    'created_at' => gmdate('c'),
+                    'req_id' => $reqId,
+                ];
+
+                sosprescription_v4_proxy_store_draft_payload(
+                    $submissionRef,
+                    $draftPayload,
+                    sosprescription_v4_proxy_compute_draft_ttl($normalizedWorkerPayload)
+                );
+
+                return sosprescription_v4_proxy_to_response(
+                    array_merge(
+                        $normalizedWorkerPayload,
+                        [
+                            'submission_ref' => $submissionRef,
+                            'message' => 'Lien de connexion envoyé',
+                        ]
+                    ),
+                    201,
+                    $reqId
+                );
+            } catch (Throwable $e) {
+                return new WP_Error(
+                    'sosprescription_draft_create_failed',
+                    'Le lien de connexion n’a pas pu être envoyé.',
+                    ['status' => 502, 'req_id' => $reqId]
+                );
+            }
+        },
+    ]);
+
+    register_rest_route('sosprescription/v4', '/submissions/draft/(?P<ref>[A-Za-z0-9_-]{8,128})', [
+        'methods' => 'GET',
+        'permission_callback' => 'sosprescription_v4_proxy_require_logged_in_nonce',
+        'callback' => static function (WP_REST_Request $request) {
+            $reqId = sosprescription_v4_proxy_build_req_id();
+            $ref = is_scalar($request->get_param('ref')) ? trim((string) $request->get_param('ref')) : '';
+            if ($ref === '') {
+                return new WP_Error(
+                    'sosprescription_bad_submission_ref',
+                    'Référence de brouillon invalide.',
+                    ['status' => 400, 'req_id' => $reqId]
+                );
+            }
+
+            $payload = sosprescription_v4_proxy_load_draft_payload($ref);
+            if (!is_array($payload)) {
+                return new WP_Error(
+                    'sosprescription_draft_not_found',
+                    'Brouillon introuvable ou expiré.',
+                    ['status' => 404, 'req_id' => $reqId]
+                );
+            }
+
+            if (!sosprescription_v4_proxy_current_user_matches_draft($payload)) {
+                return new WP_Error(
+                    'sosprescription_forbidden',
+                    'Accès refusé.',
+                    ['status' => 403, 'req_id' => $reqId]
+                );
+            }
+
+            return sosprescription_v4_proxy_to_response($payload, 200, $reqId);
         },
     ]);
 

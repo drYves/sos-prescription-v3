@@ -14,6 +14,7 @@ const TX_TIMEOUT_MS = 15_000;
 const UID_LENGTH = 10;
 const VERIFY_TOKEN_BYTES = 24;
 const MAX_PRIVATE_NOTES_LENGTH = 4_000;
+const SUBMISSION_STATUS_DRAFT = "DRAFT" as SubmissionStatus;
 
 let prismaSingleton: PrismaClient | null = null;
 
@@ -29,6 +30,13 @@ export interface SubmissionActorInput {
 
 export interface CreateSubmissionInput {
   actor: SubmissionActorInput;
+  flowKey: string;
+  priority: string;
+  reqId?: string | null;
+  idempotencyKey?: string | null;
+}
+
+export interface CreateDraftSubmissionInput {
   flowKey: string;
   priority: string;
   reqId?: string | null;
@@ -225,25 +233,102 @@ export class SubmissionRepo {
     );
   }
 
+  async createDraftSubmission(input: CreateDraftSubmissionInput): Promise<CreateSubmissionResult> {
+    const normalized = normalizeCreateDraftSubmissionInput(input);
+    const expiresAt = new Date(Date.now() + this.ttlMs);
+    const deterministicPublicRef = normalized.idempotencyKey
+      ? buildDraftPublicRef(normalized)
+      : null;
+
+    if (deterministicPublicRef) {
+      const existing = await this.prisma.submission.findUnique({
+        where: { publicRef: deterministicPublicRef },
+        select: submissionSelect(),
+      });
+
+      if (existing) {
+        return await resolveExistingDraftSubmission(this.prisma, existing, this.logger, normalized.reqId);
+      }
+    }
+
+    let publicRef = deterministicPublicRef ?? generateRandomPublicRef();
+
+    for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt += 1) {
+      try {
+        const created = await this.prisma.submission.create({
+          data: {
+            publicRef,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: null,
+            status: SUBMISSION_STATUS_DRAFT,
+            flowKey: normalized.flowKey,
+            priority: normalized.priority,
+            expiresAt,
+            finalizedPrescriptionId: null,
+          },
+          select: submissionSelect(),
+        });
+
+        return {
+          mode: "created",
+          submission: mapSubmission(created),
+        };
+      } catch (err: unknown) {
+        if (isUniquePublicRefError(err)) {
+          if (deterministicPublicRef) {
+            const existing = await this.prisma.submission.findUnique({
+              where: { publicRef: deterministicPublicRef },
+              select: submissionSelect(),
+            });
+
+            if (existing) {
+              return await resolveExistingDraftSubmission(this.prisma, existing, this.logger, normalized.reqId);
+            }
+          } else {
+            publicRef = generateRandomPublicRef();
+            continue;
+          }
+        }
+
+        this.logger?.error(
+          "submission.finalize.rejected",
+          {
+            phase: "create_draft",
+            code: "ML_SUBMISSION_CREATE_FAILED",
+            reason: err instanceof Error ? err.message : "submission_create_failed",
+          },
+          normalized.reqId ?? undefined,
+          err,
+        );
+
+        throw wrapSubmissionRepoError(err, "ML_SUBMISSION_CREATE_FAILED", 500, "submission_create_failed");
+      }
+    }
+
+    throw new SubmissionRepoError(
+      "ML_SUBMISSION_CREATE_FAILED",
+      500,
+      "Unable to allocate a unique submission reference",
+    );
+  }
+
   async finalizeSubmission(input: FinalizeSubmissionInput): Promise<FinalizeSubmissionResult> {
     const normalized = normalizeFinalizeSubmissionInput(input);
 
     for (let attempt = 1; attempt <= MAX_FINALIZE_ATTEMPTS; attempt += 1) {
       try {
         const outcome = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-          const submission = await lockSubmissionByPublicRef(tx, normalized.submissionRef);
+          let submission = await lockSubmissionByPublicRef(tx, normalized.submissionRef);
           if (!submission) {
             throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "submission not found");
           }
-
-          assertSubmissionOwnership(submission, normalized.actor);
 
           if (submission.status === SubmissionStatus.FINALIZED) {
             return replayFinalizedSubmissionOutcome(submission);
           }
 
           if (submission.status === SubmissionStatus.EXPIRED || submission.expiresAt.getTime() <= Date.now()) {
-            if (submission.status === SubmissionStatus.OPEN) {
+            if (submission.status === SubmissionStatus.OPEN || submission.status === SUBMISSION_STATUS_DRAFT) {
               await tx.submission.update({
                 where: { id: submission.id },
                 data: { status: SubmissionStatus.EXPIRED },
@@ -265,9 +350,25 @@ export class SubmissionRepo {
             throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "submission expired");
           }
 
-          if (submission.status !== SubmissionStatus.OPEN) {
+          if (submission.status !== SubmissionStatus.OPEN && submission.status !== SUBMISSION_STATUS_DRAFT) {
             throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "submission is not open");
           }
+
+          if (canClaimAnonymousDraft(submission, normalized.actor)) {
+            await tx.submission.update({
+              where: { id: submission.id },
+              data: {
+                ownerWpUserId: normalized.actor.wpUserId,
+              },
+            });
+
+            submission = {
+              ...submission,
+              ownerWpUserId: normalized.actor.wpUserId,
+            };
+          }
+
+          assertSubmissionOwnership(submission, normalized.actor);
 
           const patientWpUserId = normalized.actor.role === ActorRole.PATIENT
             ? normalized.actor.wpUserId
@@ -590,6 +691,50 @@ async function resolveExistingCreateSubmission(
   throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "submission is not open");
 }
 
+async function resolveExistingDraftSubmission(
+  prisma: PrismaClient,
+  existing: Prisma.SubmissionGetPayload<{ select: ReturnType<typeof submissionSelect> }>,
+  logger?: NdjsonLogger,
+  reqId?: string | null,
+): Promise<CreateSubmissionResult> {
+  if (existing.status === SUBMISSION_STATUS_DRAFT && existing.expiresAt.getTime() > Date.now()) {
+    return {
+      mode: "replayed",
+      submission: mapSubmission(existing),
+    };
+  }
+
+  if (existing.status === SubmissionStatus.EXPIRED || existing.expiresAt.getTime() <= Date.now()) {
+    if (existing.status === SUBMISSION_STATUS_DRAFT) {
+      await prisma.submission.updateMany({
+        where: {
+          id: existing.id,
+          status: SUBMISSION_STATUS_DRAFT,
+        },
+        data: {
+          status: SubmissionStatus.EXPIRED,
+        },
+      });
+    }
+
+    logger?.warning(
+      "submission.expired",
+      {
+        phase: "create_draft",
+        submission_ref: existing.publicRef,
+        submission_id: existing.id,
+        owner_role: existing.ownerRole,
+        owner_wp_user_id: existing.ownerWpUserId,
+      },
+      reqId ?? undefined,
+    );
+
+    throw new SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "submission expired");
+  }
+
+  throw new SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "submission is not open");
+}
+
 function normalizeCreateSubmissionInput(input: CreateSubmissionInput): {
   actor: { role: ActorRole; wpUserId: number | null };
   flowKey: string;
@@ -603,6 +748,24 @@ function normalizeCreateSubmissionInput(input: CreateSubmissionInput): {
 
   return {
     actor: normalizeActor(input.actor),
+    flowKey: normalizeSlug(input.flowKey, "flowKey", 64),
+    priority: normalizeSlug(input.priority, "priority", 32),
+    reqId: normalizeOptionalRequestId(input.reqId),
+    idempotencyKey: normalizeIdempotencyKey(input.idempotencyKey),
+  };
+}
+
+function normalizeCreateDraftSubmissionInput(input: CreateDraftSubmissionInput): {
+  flowKey: string;
+  priority: string;
+  reqId: string | null;
+  idempotencyKey: string | null;
+} {
+  if (!input || typeof input !== "object") {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, "submission input is required");
+  }
+
+  return {
     flowKey: normalizeSlug(input.flowKey, "flowKey", 64),
     priority: normalizeSlug(input.priority, "priority", 32),
     reqId: normalizeOptionalRequestId(input.reqId),
@@ -795,6 +958,20 @@ function replayFinalizedSubmissionOutcome(submission: LockedSubmissionRow): Fina
   };
 }
 
+function canClaimAnonymousDraft(
+  submission: LockedSubmissionRow,
+  actor: { role: ActorRole; wpUserId: number | null },
+): boolean {
+  return (
+    submission.status === SUBMISSION_STATUS_DRAFT
+    && submission.ownerRole === ActorRole.PATIENT
+    && submission.ownerWpUserId == null
+    && actor.role === ActorRole.PATIENT
+    && actor.wpUserId != null
+    && actor.wpUserId > 0
+  );
+}
+
 function assertSubmissionOwnership(
   submission: LockedSubmissionRow,
   actor: { role: ActorRole; wpUserId: number | null },
@@ -913,6 +1090,24 @@ function buildIdempotentPublicRef(input: {
   return `${RANDOM_PUBLIC_REF_PREFIX}${hash.digest("hex").slice(0, IDEMPOTENT_PUBLIC_REF_HEX_LENGTH)}`;
 }
 
+function buildDraftPublicRef(input: {
+  flowKey: string;
+  priority: string;
+  idempotencyKey: string | null;
+}): string {
+  const hash = crypto.createHash("sha256");
+  hash.update(ActorRole.PATIENT);
+  hash.update(":");
+  hash.update("draft");
+  hash.update(":");
+  hash.update(input.flowKey);
+  hash.update(":");
+  hash.update(input.priority);
+  hash.update(":");
+  hash.update(String(input.idempotencyKey ?? ""));
+  return `${RANDOM_PUBLIC_REF_PREFIX}${hash.digest("hex").slice(0, IDEMPOTENT_PUBLIC_REF_HEX_LENGTH)}`;
+}
+
 function generateRandomPublicRef(): string {
   return `${RANDOM_PUBLIC_REF_PREFIX}${crypto.randomBytes(RANDOM_PUBLIC_REF_BYTES).toString("hex")}`;
 }
@@ -982,18 +1177,20 @@ function normalizeActorRoleValue(value: unknown): ActorRole {
 
 function normalizeSubmissionStatusValue(value: unknown): SubmissionStatus {
   if (
-    value === SubmissionStatus.OPEN
+    value === SUBMISSION_STATUS_DRAFT
+    || value === SubmissionStatus.OPEN
     || value === SubmissionStatus.FINALIZED
     || value === SubmissionStatus.EXPIRED
     || value === SubmissionStatus.CANCELLED
   ) {
-    return value;
+    return value as SubmissionStatus;
   }
 
   if (typeof value === "string") {
     const normalized = value.trim().toUpperCase();
     if (
-      normalized === SubmissionStatus.OPEN
+      normalized === SUBMISSION_STATUS_DRAFT
+      || normalized === SubmissionStatus.OPEN
       || normalized === SubmissionStatus.FINALIZED
       || normalized === SubmissionStatus.EXPIRED
       || normalized === SubmissionStatus.CANCELLED

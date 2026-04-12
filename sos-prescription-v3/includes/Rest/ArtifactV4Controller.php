@@ -25,7 +25,7 @@ final class ArtifactV4Controller extends \WP_REST_Controller
         register_rest_route(self::NAMESPACE_V4, '/form/submissions/(?P<ref>[A-Za-z0-9_-]{8,128})/artifacts', [
             'methods' => 'POST',
             'callback' => [$controller, 'init_submission_artifact'],
-            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+            'permission_callback' => [$controller, 'permissions_check_submission_artifact_access'],
             'args' => [
                 'ref' => [
                     'required' => true,
@@ -37,14 +37,18 @@ final class ArtifactV4Controller extends \WP_REST_Controller
         ]);
     }
 
-    public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
+    public function permissions_check_submission_artifact_access(WP_REST_Request $request): bool|WP_Error
     {
-        $loggedIn = RestGuard::require_logged_in($request);
-        if (is_wp_error($loggedIn)) {
-            return $loggedIn;
+        if (is_user_logged_in()) {
+            $nonce = RestGuard::require_wp_rest_nonce($request);
+            if (is_wp_error($nonce)) {
+                return $nonce;
+            }
+
+            return true;
         }
 
-        return RestGuard::require_wp_rest_nonce($request);
+        return RestGuard::throttle($request, 'prescription_create', ['limit' => 5, 'window' => 900]);
     }
 
     public function init_submission_artifact(WP_REST_Request $request): WP_REST_Response|WP_Error
@@ -122,13 +126,20 @@ final class ArtifactV4Controller extends \WP_REST_Controller
     }
 
     /**
-     * @return array{role:string,wp_user_id:int}
+     * @return array<string,mixed>
      */
     private function build_patient_actor_payload(): array
     {
+        $currentUserId = (int) get_current_user_id();
+        if ($currentUserId > 0) {
+            return [
+                'role' => 'PATIENT',
+                'wp_user_id' => $currentUserId,
+            ];
+        }
+
         return [
-            'role' => 'PATIENT',
-            'wp_user_id' => (int) get_current_user_id(),
+            'role' => 'SYSTEM',
         ];
     }
 

@@ -145,7 +145,17 @@ final class AuthV4Controller extends \WP_REST_Controller
 
         $wpUserId = isset($workerPayload['wp_user_id']) ? (int) $workerPayload['wp_user_id'] : 0;
         $role = isset($workerPayload['role']) && is_scalar($workerPayload['role']) ? strtolower(trim((string) $workerPayload['role'])) : '';
-        if ($wpUserId <= 0 || ($role !== 'doctor' && $role !== 'patient')) {
+        $email = isset($workerPayload['email']) && is_scalar($workerPayload['email'])
+            ? sanitize_email((string) $workerPayload['email'])
+            : '';
+        $draftRef = isset($workerPayload['draft_ref']) && is_scalar($workerPayload['draft_ref'])
+            ? trim((string) $workerPayload['draft_ref'])
+            : '';
+        $redirectTo = isset($workerPayload['redirect_to']) && is_scalar($workerPayload['redirect_to'])
+            ? trim((string) $workerPayload['redirect_to'])
+            : '';
+
+        if ($role !== 'doctor' && $role !== 'patient') {
             return new WP_Error(
                 'sosprescription_auth_worker_payload_invalid',
                 'Réponse d’authentification invalide.',
@@ -156,8 +166,15 @@ final class AuthV4Controller extends \WP_REST_Controller
             );
         }
 
-        $user = get_user_by('id', $wpUserId);
-        if (!($user instanceof WP_User)) {
+        $user = null;
+        if ($wpUserId > 0) {
+            $user = get_user_by('id', $wpUserId);
+        } elseif ($role === 'patient' && $email !== '' && is_email($email)) {
+            $user = $this->resolve_or_create_patient_user($email, $responseReqId);
+            $wpUserId = $user instanceof WP_User ? (int) $user->ID : 0;
+        }
+
+        if (!($user instanceof WP_User) || $wpUserId <= 0) {
             return new WP_Error(
                 'sosprescription_auth_user_not_found',
                 'Compte WordPress introuvable pour ce lien.',
@@ -177,6 +194,9 @@ final class AuthV4Controller extends \WP_REST_Controller
             'valid' => true,
             'wp_user_id' => $wpUserId,
             'role' => $role,
+            'email' => $email,
+            'draft_ref' => $draftRef !== '' ? $draftRef : null,
+            'redirect_to' => $this->normalize_redirect_to($redirectTo, $draftRef),
             'req_id' => $responseReqId,
         ], 200, $responseReqId);
     }
@@ -227,6 +247,95 @@ final class AuthV4Controller extends \WP_REST_Controller
         }
 
         return $token;
+    }
+
+    private function normalize_redirect_to(string $redirectTo, string $draftRef = ''): string
+    {
+        $redirectTo = trim($redirectTo);
+        if ($redirectTo !== '') {
+            $sanitized = wp_sanitize_redirect($redirectTo);
+            if ($sanitized !== '') {
+                return $sanitized;
+            }
+        }
+
+        $base = home_url('/demande-ordonnance/');
+        if ($draftRef !== '') {
+            return add_query_arg('resume_draft', rawurlencode($draftRef), $base);
+        }
+
+        return $base;
+    }
+
+    private function resolve_or_create_patient_user(string $email, string $reqId): ?WP_User
+    {
+        $normalizedEmail = sanitize_email($email);
+        if ($normalizedEmail === '' || !is_email($normalizedEmail)) {
+            return null;
+        }
+
+        $existing = get_user_by('email', $normalizedEmail);
+        if ($existing instanceof WP_User) {
+            return $existing;
+        }
+
+        $login = $this->build_unique_login_from_email($normalizedEmail);
+        $password = wp_generate_password(24, true, true);
+        $userId = wp_insert_user([
+            'user_login' => $login,
+            'user_pass' => $password,
+            'user_email' => $normalizedEmail,
+            'display_name' => $this->default_display_name_from_email($normalizedEmail),
+            'role' => 'subscriber',
+        ]);
+
+        if (is_wp_error($userId)) {
+            Logger::error('auth_v4.verify_link.user_create_failed', [
+                'req_id' => $reqId,
+                'email_hash' => substr(hash('sha256', $normalizedEmail), 0, 12),
+                'message' => $userId->get_error_message(),
+            ]);
+
+            throw new \RuntimeException($userId->get_error_message());
+        }
+
+        $created = get_user_by('id', (int) $userId);
+        if ($created instanceof WP_User) {
+            update_user_meta((int) $created->ID, 'sosprescription_magic_link_created', 1);
+            update_user_meta((int) $created->ID, 'sosprescription_magic_role_hint', 'patient');
+        }
+
+        return $created instanceof WP_User ? $created : null;
+    }
+
+    private function build_unique_login_from_email(string $email): string
+    {
+        $base = preg_replace('/@.*/', '', $email);
+        $login = sanitize_user((string) $base, true);
+        if ($login === '') {
+            $login = 'patient';
+        }
+
+        $try = $login;
+        $attempts = 0;
+        while (username_exists($try)) {
+            $attempts++;
+            $try = $login . (string) wp_rand(1000, 9999);
+            if ($attempts > 5) {
+                $try = $login . '-' . (string) time();
+                break;
+            }
+        }
+
+        return $try;
+    }
+
+    private function default_display_name_from_email(string $email): string
+    {
+        $local = preg_replace('/@.*/', '', $email) ?: 'Patient';
+        $local = str_replace(['.', '_', '-'], ' ', $local);
+        $local = preg_replace('/\s+/', ' ', $local) ?: $local;
+        return ucwords(trim($local));
     }
 
     private function get_worker_api_client(): WorkerApiClient
