@@ -22,6 +22,7 @@ type MessageItem = {
 type Props = {
   messages: MessageItem[];
   viewerRole: ViewerRole;
+  currentUserRoles?: string[] | string;
   fileIndex: Record<number, UploadedFile>;
   onDownloadFile: (attachmentId: number) => void | Promise<void>;
 };
@@ -34,20 +35,59 @@ function normalizeRole(authorRole: string): string {
   return String(authorRole || '').trim().toUpperCase();
 }
 
-function isOwnMessage(authorRole: string, viewerRole: ViewerRole): boolean {
-  return normalizeRole(authorRole) === viewerRole;
-}
+function normalizeCurrentUserRoles(value: string[] | string | undefined, viewerRole: ViewerRole): Set<string> {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string' && value.trim() !== ''
+      ? [value]
+      : [];
 
-function getRoleLabel(authorRole: string, viewerRole: ViewerRole): string {
-  const normalizedAuthorRole = normalizeRole(authorRole);
+  const out = new Set<string>();
 
-  if (viewerRole === 'DOCTOR') {
-    if (normalizedAuthorRole === 'DOCTOR') return 'VOUS';
-    if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
-    return 'INTERLOCUTEUR';
+  source.forEach((entry) => {
+    const normalized = String(entry || '').trim().toLowerCase();
+    if (normalized === '') {
+      return;
+    }
+
+    if (normalized.includes('patient')) {
+      out.add('PATIENT');
+      return;
+    }
+
+    if (
+      normalized.includes('doctor')
+      || normalized.includes('medecin')
+      || normalized.includes('physician')
+      || normalized.includes('praticien')
+      || normalized.includes('admin')
+      || normalized.includes('administrator')
+    ) {
+      out.add('DOCTOR');
+    }
+  });
+
+  if (out.size < 1) {
+    out.add(viewerRole);
   }
 
-  if (normalizedAuthorRole === 'PATIENT') return 'MOI';
+  return out;
+}
+
+function isOwnMessage(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): boolean {
+  const normalizedAuthorRole = normalizeRole(authorRole);
+  const selfRoles = normalizeCurrentUserRoles(currentUserRoles, viewerRole);
+  return selfRoles.has(normalizedAuthorRole);
+}
+
+function getRoleLabel(authorRole: string, viewerRole: ViewerRole, currentUserRoles?: string[] | string): string {
+  const normalizedAuthorRole = normalizeRole(authorRole);
+
+  if (isOwnMessage(authorRole, viewerRole, currentUserRoles)) {
+    return 'VOUS';
+  }
+
+  if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
   if (normalizedAuthorRole === 'DOCTOR') return 'MÉDECIN';
   return 'INTERLOCUTEUR';
 }
@@ -98,12 +138,12 @@ function formatMessageDate(value: string): string {
 }
 
 const MessageList = React.memo(
-  function MessageListComponent({ messages, viewerRole, fileIndex, onDownloadFile }: Props) {
+  function MessageListComponent({ messages, viewerRole, currentUserRoles, fileIndex, onDownloadFile }: Props) {
     return (
       <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
         {messages.map((message, index) => {
-          const mine = isOwnMessage(message.author_role, viewerRole);
-          const roleLabel = getRoleLabel(message.author_role, viewerRole);
+          const mine = isOwnMessage(message.author_role, viewerRole, currentUserRoles);
+          const roleLabel = getRoleLabel(message.author_role, viewerRole, currentUserRoles);
           const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
           const normalizedRole = normalizeRole(message.author_role);
           const formattedDate = formatMessageDate(message.created_at);
@@ -161,6 +201,7 @@ const MessageList = React.memo(
   (prevProps, nextProps) =>
     prevProps.messages === nextProps.messages
     && prevProps.viewerRole === nextProps.viewerRole
+    && prevProps.currentUserRoles === nextProps.currentUserRoles
     && prevProps.fileIndex === nextProps.fileIndex
     && prevProps.onDownloadFile === nextProps.onDownloadFile,
 );

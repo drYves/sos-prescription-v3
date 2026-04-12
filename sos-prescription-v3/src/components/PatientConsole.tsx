@@ -1,7 +1,6 @@
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import MessageInput from './messaging/MessageInput';
-import MessageList from './messaging/MessageList';
+import MessageThread from './messaging/MessageThread';
 
 type Scope = 'patient' | 'form' | 'admin';
 
@@ -12,6 +11,7 @@ type AppConfig = {
     id?: number;
     displayName?: string;
     email?: string;
+    roles?: string[] | string;
   };
 };
 
@@ -172,7 +172,12 @@ function normalizeAttachmentIds(value: unknown): number[] | undefined {
   }
 
   const ids = value
-    .map((entry) => toPositiveInteger(entry))
+    .map((entry) => {
+      if (isRecord(entry)) {
+        return toPositiveInteger(entry.id);
+      }
+      return toPositiveInteger(entry);
+    })
     .filter((entry) => entry > 0);
 
   return ids.length > 0 ? ids : undefined;
@@ -1514,41 +1519,23 @@ export default function PatientConsole() {
                   </div>
 
                   <div className="sp-section">
-                    <div className="sp-section__title">Messagerie</div>
-                    {messagesLoading ? (
-                      <div className="sp-loading-row">
-                        <Spinner />
-                        <span>Chargement…</span>
-                      </div>
-                    ) : messages.length === 0 ? (
-                      <div className="sp-empty-note">
-                        Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment.
-                      </div>
-                    ) : (
-                      <MessageList
-                        messages={messages}
-                        viewerRole="PATIENT"
-                        fileIndex={fileIndex}
-                        onDownloadFile={handleMessageAttachmentDownload}
-                      />
-                    )}
-
-                    {detail.status !== 'approved' && detail.status !== 'rejected' ? (
-                      <div className="sp-top-gap">
-                        <MessageInput
-                          prescriptionId={detail.id}
-                          viewerRole="PATIENT"
-                          postMessage={postPatientMessage}
-                          onMessageCreated={handleMessageCreated}
-                          onSurfaceError={setError}
-                          allowAttachments={false}
-                        />
-                      </div>
-                    ) : (
-                      <div className="sp-top-gap">
-                        <Notice variant="info">La messagerie est en lecture seule pour cette demande.</Notice>
-                      </div>
-                    )}
+                    <MessageThread
+                      prescriptionId={detail.id}
+                      viewerRole="PATIENT"
+                      currentUserRoles={cfg.currentUser?.roles}
+                      title="Échanges avec le médecin"
+                      subtitle="Messagerie sécurisée associée à votre dossier."
+                      loading={messagesLoading}
+                      emptyText="Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment."
+                      messages={messages}
+                      fileIndex={fileIndex}
+                      onDownloadFile={handleMessageAttachmentDownload}
+                      canCompose={detail.status !== 'approved' && detail.status !== 'rejected'}
+                      readOnlyNotice="La messagerie est en lecture seule pour cette demande."
+                      postMessage={postPatientMessage}
+                      onMessageCreated={handleMessageCreated}
+                      onSurfaceError={setError}
+                    />
                   </div>
                 </div>
               ) : null}

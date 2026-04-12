@@ -30,7 +30,8 @@ import { PatientReadRepo } from "../prescriptions/patientReadRepo";
 import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
 import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
 import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
-import { SmartReplyService } from "../services/smartReplyService";
+import { SmartReplyService, type LatestSmartReplyRecord } from "../services/smartReplyService";
+import { CopilotService, type PolishMessageConstraints } from "../services/copilotService";
 import { handleMedicationSearchRequest } from "./medicationSearchController";
 
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
@@ -199,6 +200,25 @@ interface MessageReadRequestBody {
   read_upto_seq?: unknown;
 }
 
+interface MessagePolishRequestBody {
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  draft?: unknown;
+  constraints?: {
+    audience?: unknown;
+    tone?: unknown;
+    language?: unknown;
+    max_characters?: unknown;
+    maxCharacters?: unknown;
+    preserve_decision?: unknown;
+    preserveDecision?: unknown;
+    force_clarification_if_ambiguous?: unknown;
+    forceClarificationIfAmbiguous?: unknown;
+  };
+}
+
 export interface PulseServerDeps {
   port: number;
   siteId: string;
@@ -222,6 +242,7 @@ export interface PulseServerDeps {
   stripeGateway: StripeGateway;
   wpPaymentBridge: WordPressPaymentBridge;
   smartReplyService?: SmartReplyService;
+  copilotService?: CopilotService;
 }
 
 export function startPulseServer(deps: PulseServerDeps): http.Server {
@@ -317,6 +338,22 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/prescriptions/get") {
         return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/messages/polish") {
+        return await handleMessagesPolish(req, res, deps, signingSecret);
+      }
+
+      const smartRepliesGetMatch = method === "GET" ? path.match(/^\/api\/v2\/prescriptions\/([^/]+)\/smart-replies$/) : null;
+      if (smartRepliesGetMatch) {
+        return await handlePrescriptionSmartRepliesGet(
+          req,
+          res,
+          deps,
+          signingSecret,
+          url,
+          decodeURIComponent(smartRepliesGetMatch[1]),
+        );
       }
 
       if (method === "POST" && path === "/api/v1/prescriptions") {
@@ -2577,6 +2614,177 @@ async function handlePrescriptionMessagesRead(
   }
 }
 
+async function handleMessagesPolish(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/messages/polish");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+
+  try {
+    const payload = parsedBody.body as MessagePolishRequestBody;
+    const actor = normalizeDoctorReadActorInput(payload.actor);
+    const draft = normalizePolishDraft(payload.draft);
+    const constraints = normalizePolishConstraints(payload.constraints);
+
+    if (draft === "") {
+      return sendJson(res, 400, { ok: false, code: "ML_MESSAGE_BAD_REQUEST", req_id: reqId }, signingSecret);
+    }
+
+    if (!deps.copilotService) {
+      return sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          schema_version: CURRENT_SCHEMA_VERSION,
+          rewritten_body: draft,
+          changes_summary: ["assistant_unavailable_original_returned"],
+          risk_flags: ["ASSISTANT_UNAVAILABLE"],
+          actor_role: actor.role,
+        },
+        signingSecret,
+      );
+    }
+
+    const result = await deps.copilotService.polishMessage(draft, constraints);
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        rewritten_body: result.rewritten_body,
+        changes_summary: result.changes_summary,
+        risk_flags: result.risk_flags,
+        provider: result.provider ?? null,
+        model: result.model ?? null,
+        actor_role: actor.role,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "copilot_polish_failed";
+    deps.logger.error("copilot.polish_failed", { reason: message }, reqId, err instanceof Error ? err : undefined);
+    return sendJson(res, 500, { ok: false, code: "ML_COPILOT_POLISH_FAILED", req_id: reqId }, signingSecret);
+  }
+}
+
+async function handlePrescriptionSmartRepliesGet(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  url: URL,
+  prescriptionId: string,
+): Promise<void> {
+  if (!deps.smartReplyService) {
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        prescription_id: prescriptionId,
+        smart_replies: null,
+      },
+      signingSecret,
+    );
+  }
+
+  const parsed = validateSignedRequestHeader(req, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: `/api/v2/prescriptions/${prescriptionId}/smart-replies` },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  let actor: { role: ActorRole; wpUserId: number | null };
+  try {
+    actor = normalizeMessagesActorFromQuery(url);
+    if (actor.role !== ActorRole.DOCTOR || actor.wpUserId == null) {
+      throw new MessagesRepoError("ML_READ_FORBIDDEN", 403, "doctor_actor_required");
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "smart_replies_bad_request";
+    deps.logger.warning(
+      "smart_replies.query_rejected",
+      { reason: message, prescription_id: prescriptionId },
+      getResponseReqId(res),
+      err instanceof Error ? err : undefined,
+    );
+    return sendJson(res, 400, { ok: false, code: "ML_MESSAGE_BAD_REQUEST" }, signingSecret);
+  }
+
+  const canon = parseCanonicalGet(parsed.token.payloadBytes);
+  if (!canon) {
+    return sendJson(res, 400, { ok: false, code: "ML_AUTH_BAD_PAYLOAD" }, signingSecret);
+  }
+
+  const expectedPath = buildSmartRepliesCanonicalGetPath(prescriptionId, actor);
+  if (canon.method !== "GET" || canon.path !== expectedPath) {
+    deps.logger.warning(
+      "security.mls1.rejected",
+      {
+        reason: "scope_denied",
+        expected_path: expectedPath,
+        received_path: canon.path,
+      },
+      getResponseReqId(res),
+    );
+    return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
+  }
+
+  const now = Date.now();
+  const skew = Math.abs(now - canon.tsMs);
+  if (skew > deps.skewWindowMs) {
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, getResponseReqId(res));
+    return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
+  }
+
+  const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
+  if (!isNew) {
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, getResponseReqId(res));
+    return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
+  }
+
+  try {
+    const result = await deps.smartReplyService.getLatestReplies(prescriptionId);
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        schema_version: CURRENT_SCHEMA_VERSION,
+        prescription_id: prescriptionId,
+        smart_replies: result ? serializeLatestSmartReply(result) : null,
+      },
+      signingSecret,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "smart_replies_query_failed";
+    deps.logger.error(
+      "smart_replies.query_failed",
+      { reason: message, prescription_id: prescriptionId },
+      getResponseReqId(res),
+      err instanceof Error ? err : undefined,
+    );
+    return sendJson(res, 500, { ok: false, code: "ML_SMART_REPLIES_FAILED" }, signingSecret);
+  }
+}
+
 async function handlePrescriptionApprove(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -3443,6 +3651,35 @@ function buildMessagesCanonicalGetPath(
   return `/api/v1/prescriptions/${encodeURIComponent(prescriptionId)}/messages?${search.toString()}`;
 }
 
+function buildSmartRepliesCanonicalGetPath(
+  prescriptionId: string,
+  actor: { role: ActorRole; wpUserId: number | null },
+): string {
+  const search = new URLSearchParams();
+  search.set("actor_role", actor.role);
+  if (actor.wpUserId != null) {
+    search.set("actor_wp_user_id", String(actor.wpUserId));
+  }
+  return `/api/v2/prescriptions/${encodeURIComponent(prescriptionId)}/smart-replies?${search.toString()}`;
+}
+
+function serializeLatestSmartReply(record: LatestSmartReplyRecord): Record<string, unknown> {
+  return {
+    prescription_id: record.prescriptionId,
+    message_id: record.messageId,
+    replies: record.replies.map((reply) => ({
+      type: reply.type,
+      title: reply.title,
+      body: reply.body,
+    })),
+    risk_flags: record.riskFlags,
+    provider: record.provider,
+    model: record.model,
+    created_at: record.createdAt.toISOString(),
+    updated_at: record.updatedAt.toISOString(),
+  };
+}
+
 function normalizeMessagesActorFromQuery(url: URL): { role: ActorRole; wpUserId: number | null } {
   return normalizeMessagesActorInput({
     role: url.searchParams.get("actor_role"),
@@ -3515,6 +3752,95 @@ function normalizeReadUptoSeq(value: unknown): number | null {
     throw new MessagesRepoError("ML_MESSAGE_BAD_REQUEST", 400, "read_upto_seq is invalid");
   }
   return Math.trunc(parsed);
+}
+
+function normalizePolishDraft(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+function normalizePolishConstraints(value: unknown): PolishMessageConstraints {
+  const row = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+  const audienceRaw = normalizeOptionalString(row.audience);
+  const toneRaw = normalizeOptionalString(row.tone);
+  const languageRaw = normalizeOptionalString(row.language);
+  const maxCharactersRaw = row.max_characters ?? row.maxCharacters;
+  const preserveDecisionRaw = row.preserve_decision ?? row.preserveDecision;
+  const forceClarificationRaw = row.force_clarification_if_ambiguous ?? row.forceClarificationIfAmbiguous;
+
+  const constraints: PolishMessageConstraints = {};
+
+  if (audienceRaw === "patient" || audienceRaw === "doctor" || audienceRaw === "internal") {
+    constraints.audience = audienceRaw;
+  }
+
+  if (
+    toneRaw === "professional"
+    || toneRaw === "warm"
+    || toneRaw === "direct"
+    || toneRaw === "reassuring"
+  ) {
+    constraints.tone = toneRaw;
+  }
+
+  if (languageRaw) {
+    constraints.language = languageRaw;
+  }
+
+  const maxCharacters = normalizeOptionalPositiveInt(maxCharactersRaw);
+  if (maxCharacters != null) {
+    constraints.maxCharacters = maxCharacters;
+  }
+
+  const preserveDecision = normalizeOptionalBoolean(preserveDecisionRaw);
+  if (preserveDecision != null) {
+    constraints.preserveDecision = preserveDecision;
+  }
+
+  const forceClarificationIfAmbiguous = normalizeOptionalBoolean(forceClarificationRaw);
+  if (forceClarificationIfAmbiguous != null) {
+    constraints.forceClarificationIfAmbiguous = forceClarificationIfAmbiguous;
+  }
+
+  return constraints;
+}
+
+function normalizeOptionalPositiveInt(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
 }
 
 function hasSubmissionSignedEnvelope(body: SubmissionCreateRequestBody): boolean {

@@ -1,10 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import MessageInput from './messaging/MessageInput';
-import MessageList from './messaging/MessageList';
+import MessageThread from './messaging/MessageThread';
 
 type AppConfig = {
   restBase: string;
+  restV4Base?: string;
   nonce: string;
+  currentUser?: {
+    id?: number;
+    displayName?: string;
+    email?: string;
+    roles?: string[] | string;
+  };
 };
 
 type ViewerRole = 'DOCTOR';
@@ -46,6 +52,25 @@ type ArtifactAccessPayload = {
   };
 };
 
+type PolishPayload = {
+  rewritten_body?: string;
+  changes_summary?: string[];
+  risk_flags?: string[];
+};
+
+type SmartReplyOption = {
+  type?: string;
+  title?: string;
+  body: string;
+};
+
+type SmartRepliesPayload = {
+  smart_replies?: {
+    replies?: SmartReplyOption[];
+  } | null;
+  replies?: SmartReplyOption[];
+};
+
 type DoctorMessagingWindow = Window & {
   SOSPrescription?: AppConfig;
   SosPrescription?: AppConfig;
@@ -65,6 +90,16 @@ function getAppConfig(): AppConfig {
     throw new Error('Configuration SosPrescription introuvable (window.SosPrescription).');
   }
   return cfg;
+}
+
+function getRestV4Base(): string {
+  const cfg = getAppConfig();
+  const fallbackBase = String(cfg.restBase || '').replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4').trim();
+  const restV4Base = typeof cfg.restV4Base === 'string' && cfg.restV4Base.trim() !== '' ? cfg.restV4Base.trim() : fallbackBase;
+  if (!restV4Base) {
+    throw new Error('Configuration REST V4 absente.');
+  }
+  return restV4Base.replace(/\/$/, '');
 }
 
 function withCacheBuster(path: string, method: string): string {
@@ -123,12 +158,67 @@ async function apiJson<T>(path: string, init: RequestInit, scope = 'admin'): Pro
   return payload as T;
 }
 
+async function v4ApiJson<T>(path: string, init: RequestInit, scope = 'admin'): Promise<T> {
+  const cfg = getAppConfig();
+  const method = String(init.method || 'GET').toUpperCase();
+  const headers = new Headers(init.headers || {});
+  headers.set('X-WP-Nonce', cfg.nonce);
+  headers.set('Accept', 'application/json');
+  headers.set('X-Sos-Scope', scope);
+
+  if (method === 'GET') {
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+  }
+
+  const response = await fetch(getRestV4Base() + withCacheBuster(path, method), {
+    ...init,
+    method,
+    headers,
+    credentials: 'same-origin',
+    cache: method === 'GET' ? 'no-store' : init.cache,
+  });
+
+  const text = await response.text();
+  let payload: unknown = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof (payload as { message?: unknown }).message === 'string'
+        ? String((payload as { message: string }).message)
+        : `Erreur API (${response.status})`;
+    throw new Error(message);
+  }
+
+  return payload as T;
+}
+
 function normalizeMode(value: unknown): 'DOCTOR_ONLY' | 'PATIENT_REPLY' | 'READ_ONLY' | '' {
   const normalized = String(value || '').trim().toUpperCase();
   if (normalized === 'DOCTOR_ONLY' || normalized === 'PATIENT_REPLY' || normalized === 'READ_ONLY') {
     return normalized;
   }
   return '';
+}
+
+function toAttachmentIds(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (entry && typeof entry === 'object' && 'id' in (entry as { id?: unknown })) {
+        return Number((entry as { id?: unknown }).id || 0);
+      }
+      return Number(entry || 0);
+    })
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
 }
 
 function normalizeMessage(input: Partial<MessageItem> | null | undefined): MessageItem {
@@ -143,9 +233,7 @@ function normalizeMessage(input: Partial<MessageItem> | null | undefined): Messa
     author_role: String(input?.author_role || 'DOCTOR'),
     body: String(input?.body || ''),
     created_at: String(input?.created_at || ''),
-    attachments: attachmentsSource
-      .map((value) => Number(value || 0))
-      .filter((value) => Number.isFinite(value) && value > 0),
+    attachments: toAttachmentIds(attachmentsSource),
   };
 }
 
@@ -170,6 +258,34 @@ function dedupeMessages(items: MessageItem[]): MessageItem[] {
     }
     return String(left.created_at || '').localeCompare(String(right.created_at || ''));
   });
+}
+
+function normalizeSmartReplies(payload: unknown): SmartReplyOption[] {
+  const root = payload && typeof payload === 'object' ? (payload as SmartRepliesPayload) : null;
+  const directReplies = Array.isArray(root?.replies) ? root?.replies : [];
+  const nestedReplies = Array.isArray(root?.smart_replies?.replies) ? root?.smart_replies?.replies : [];
+  const source = nestedReplies.length > 0 ? nestedReplies : directReplies;
+
+  return source
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const row = entry as SmartReplyOption;
+      const body = String(row.body || '').trim();
+      if (!body) {
+        return null;
+      }
+
+      return {
+        type: typeof row.type === 'string' ? row.type : undefined,
+        title: typeof row.title === 'string' ? row.title : undefined,
+        body,
+      } satisfies SmartReplyOption;
+    })
+    .filter((entry): entry is SmartReplyOption => entry !== null)
+    .slice(0, 3);
 }
 
 async function getDoctorMessages(prescriptionId: number): Promise<ThreadPayload> {
@@ -211,17 +327,6 @@ async function markDoctorMessagesRead(prescriptionId: number, readUptoSeq: numbe
   );
 }
 
-async function uploadDoctorFile(file: File, purpose: string, prescriptionId?: number): Promise<UploadedFile> {
-  const formData = new FormData();
-  formData.append('purpose', purpose);
-  if (prescriptionId && prescriptionId > 0) {
-    formData.append('prescription_id', String(prescriptionId));
-  }
-  formData.append('file', file);
-
-  return apiJson<UploadedFile>('/files', { method: 'POST', body: formData }, 'admin');
-}
-
 async function requestArtifactAccess(artifactId: number, prescriptionId: number): Promise<ArtifactAccessPayload> {
   return apiJson<ArtifactAccessPayload>(
     `/artifacts/${encodeURIComponent(String(artifactId))}/access`,
@@ -235,6 +340,31 @@ async function requestArtifactAccess(artifactId: number, prescriptionId: number)
     },
     'admin',
   );
+}
+
+async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
+  return v4ApiJson<PolishPayload>(
+    '/messages/polish',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draft,
+        constraints: {
+          audience: 'patient',
+          tone: 'professional',
+          language: 'fr',
+          preserveDecision: true,
+          forceClarificationIfAmbiguous: true,
+        },
+      }),
+    },
+    'admin',
+  );
+}
+
+async function getDoctorSmartReplies(prescriptionId: number): Promise<SmartRepliesPayload> {
+  return v4ApiJson<SmartRepliesPayload>(`/prescriptions/${prescriptionId}/smart-replies`, { method: 'GET' }, 'admin');
 }
 
 function InlineSpinner() {
@@ -262,15 +392,18 @@ function threadModeNotice(mode: 'DOCTOR_ONLY' | 'PATIENT_REPLY' | 'READ_ONLY' | 
 }
 
 export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId: number }) {
+  const cfg = getAppConfig();
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [threadState, setThreadState] = useState<ThreadState>({});
-  const [files, setFiles] = useState<Record<number, UploadedFile>>({});
+  const [files] = useState<Record<number, UploadedFile>>({});
+  const [smartReplies, setSmartReplies] = useState<SmartReplyOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [hidden, setHidden] = useState<boolean>(typeof document !== 'undefined' ? document.hidden : false);
 
   const requestRef = useRef(0);
+  const smartRepliesRequestRef = useRef(0);
   const mountedRef = useRef(true);
   const markReadSeqRef = useRef(0);
 
@@ -279,20 +412,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const modeNotice = useMemo(() => threadModeNotice(mode), [mode]);
 
   const fileIndex = useMemo(() => files, [files]);
-
-  const registerUploadedFiles = useCallback((uploadedFiles: UploadedFile[]) => {
-    if (!uploadedFiles || uploadedFiles.length === 0) {
-      return;
-    }
-
-    setFiles((current) => {
-      const next = { ...current };
-      uploadedFiles.forEach((file) => {
-        next[file.id] = file;
-      });
-      return next;
-    });
-  }, []);
+  const currentUserRoles = cfg.currentUser?.roles;
 
   const markReadIfNeeded = useCallback(async (nextThreadState: ThreadState): Promise<void> => {
     const unreadCount = Number(nextThreadState.unread_count_doctor || 0);
@@ -317,6 +437,24 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
   }, [prescriptionId]);
 
+  const loadSmartReplies = useCallback(async (): Promise<void> => {
+    const requestId = smartRepliesRequestRef.current + 1;
+    smartRepliesRequestRef.current = requestId;
+
+    try {
+      const payload = await getDoctorSmartReplies(prescriptionId);
+      if (!mountedRef.current || smartRepliesRequestRef.current !== requestId) {
+        return;
+      }
+      setSmartReplies(normalizeSmartReplies(payload));
+    } catch {
+      if (!mountedRef.current || smartRepliesRequestRef.current !== requestId) {
+        return;
+      }
+      setSmartReplies([]);
+    }
+  }, [prescriptionId]);
+
   const loadThread = useCallback(async (silent = false): Promise<void> => {
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
@@ -337,6 +475,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       setMessages(nextMessages);
       setThreadState(nextThreadState);
       setError(null);
+      void loadSmartReplies();
 
       if (Number(nextThreadState.unread_count_doctor || 0) > 0) {
         void markReadIfNeeded(nextThreadState);
@@ -351,15 +490,16 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
         setLoading(false);
       }
     }
-  }, [markReadIfNeeded, prescriptionId]);
+  }, [loadSmartReplies, markReadIfNeeded, prescriptionId]);
 
   useEffect(() => {
     mountedRef.current = true;
     requestRef.current = 0;
+    smartRepliesRequestRef.current = 0;
     markReadSeqRef.current = 0;
     setMessages([]);
     setThreadState({});
-    setFiles({});
+    setSmartReplies([]);
     setError(null);
     setFlash(null);
     setLoading(false);
@@ -435,13 +575,12 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, [fileIndex, prescriptionId]);
 
   return (
-    <div className="sp-thread-shell dc-message-react-panel">
-      <div className="sp-thread-shell__header">
-        <div>
-          <div className="sp-thread-shell__title">Messagerie patient</div>
-          <div className="sp-thread-shell__subtitle">Échange sécurisé associé à ce dossier.</div>
-        </div>
+    <div className="sp-card dc-message-react-panel">
+      {flash ? <Notice variant="success">{flash}</Notice> : null}
+      {error ? <Notice variant="error">{error}</Notice> : null}
+      {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
 
+      <div className="sp-inline-actions">
         <button
           type="button"
           className="sp-button sp-button--secondary"
@@ -452,38 +591,28 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
         </button>
       </div>
 
-      {flash ? <Notice variant="success">{flash}</Notice> : null}
-      {error ? <Notice variant="error">{error}</Notice> : null}
-      {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
-
-      {loading && messages.length === 0 ? (
-        <div className="sp-loading-row">
-          <InlineSpinner />
-          <span>Chargement de la messagerie…</span>
-        </div>
-      ) : messages.length === 0 ? (
-        <div className="sp-empty-note">Aucun message pour le moment.</div>
-      ) : (
-        <MessageList
-          messages={messages}
-          viewerRole={viewerRole}
-          fileIndex={fileIndex}
-          onDownloadFile={handleAttachmentDownload}
-        />
-      )}
-
-      {mode !== 'READ_ONLY' ? (
-        <MessageInput
+      <div className="sp-top-gap">
+        <MessageThread
           prescriptionId={prescriptionId}
           viewerRole={viewerRole}
-          uploadFile={uploadDoctorFile}
+          currentUserRoles={currentUserRoles}
+          title="Échanges avec le patient"
+          subtitle="Messagerie sécurisée associée à ce dossier."
+          loading={loading}
+          emptyText="Aucun message pour le moment."
+          messages={messages}
+          fileIndex={fileIndex}
+          onDownloadFile={handleAttachmentDownload}
+          canCompose={mode !== 'READ_ONLY'}
+          readOnlyNotice="La messagerie est en lecture seule pour ce dossier."
           postMessage={postDoctorMessage}
-          onUploadsRegistered={registerUploadedFiles}
           onMessageCreated={handleMessageCreated}
           onSurfaceError={setError}
-          allowAttachments={false}
+          enablePolish
+          onPolishDraft={polishDoctorMessage}
+          smartReplies={smartReplies}
         />
-      ) : null}
+      </div>
     </div>
   );
 }
