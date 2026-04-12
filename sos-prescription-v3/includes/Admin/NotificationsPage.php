@@ -9,9 +9,14 @@ use SosPrescription\Services\Audit;
 
 final class NotificationsPage
 {
-    private const TWILIO_OPTION_KEY = 'sosprescription_twilio_settings';
+    private const LEGACY_TWILIO_SETTINGS_OPTION_KEY = 'sosprescription_twilio_settings';
+    private const TWILIO_NUMBER_OPTION_KEY = 'sosprescription_twilio_number';
     private const TWILIO_SETTINGS_GROUP = 'sosprescription_twilio_settings_group';
     private const TWILIO_SETTINGS_PAGE = 'sosprescription_twilio_settings_page';
+    private const TWILIO_SETTINGS_SECTION = 'sosprescription_twilio_main';
+
+    /** @var bool */
+    private static $twilio_settings_registered = false;
 
     public static function register_actions(): void
     {
@@ -21,84 +26,113 @@ final class NotificationsPage
         add_action('admin_post_sosprescription_notifications_test', [self::class, 'handle_test']);
     }
 
-    public static function twilio_settings_capability(): string
+    public static function twilio_settings_capability(string $capability = ''): string
     {
         return current_user_can('manage_options') ? 'manage_options' : 'sosprescription_manage';
     }
 
     public static function register_settings(): void
     {
+        if (self::$twilio_settings_registered) {
+            return;
+        }
+
+        self::$twilio_settings_registered = true;
+
+        self::migrate_legacy_twilio_number_option();
+
         register_setting(
             self::TWILIO_SETTINGS_GROUP,
-            self::TWILIO_OPTION_KEY,
+            self::TWILIO_NUMBER_OPTION_KEY,
             [
-                'type' => 'array',
-                'sanitize_callback' => [self::class, 'sanitize_twilio_settings'],
-                'default' => self::get_twilio_settings(),
+                'type' => 'string',
+                'sanitize_callback' => [self::class, 'sanitize_twilio_number'],
+                'default' => self::get_twilio_number(),
             ]
         );
 
         add_settings_section(
-            'sosprescription_twilio_main',
+            self::TWILIO_SETTINGS_SECTION,
             'Téléphonie / Twilio',
             [self::class, 'render_twilio_section_intro'],
             self::TWILIO_SETTINGS_PAGE
         );
 
         add_settings_field(
-            'sosprescription_twilio_number',
+            self::TWILIO_NUMBER_OPTION_KEY,
             'Numéro Twilio',
             [self::class, 'render_twilio_number_field'],
             self::TWILIO_SETTINGS_PAGE,
-            'sosprescription_twilio_main',
+            self::TWILIO_SETTINGS_SECTION,
             [
-                'label_for' => 'sosprescription_twilio_number',
-            ]
-        );
-
-        add_settings_field(
-            'sosprescription_transfer_number',
-            'Numéro de transfert',
-            [self::class, 'render_twilio_transfer_number_field'],
-            self::TWILIO_SETTINGS_PAGE,
-            'sosprescription_twilio_main',
-            [
-                'label_for' => 'sosprescription_transfer_number',
+                'label_for' => self::TWILIO_NUMBER_OPTION_KEY,
             ]
         );
     }
 
     /**
      * @param mixed $input
-     * @return array<string, string>
      */
-    public static function sanitize_twilio_settings($input): array
+    public static function sanitize_twilio_number($input): string
     {
-        $payload = is_array($input) ? $input : [];
+        $raw = is_scalar($input) ? trim((string) $input) : '';
+        $normalized = self::normalize_phone_value($raw);
 
-        $twilio_number = self::normalize_phone_value($payload['twilio_number'] ?? '');
-        $transfer_number = self::normalize_phone_value($payload['transfer_number'] ?? '');
+        if ($raw !== '' && $normalized === '') {
+            add_settings_error(
+                self::TWILIO_NUMBER_OPTION_KEY,
+                'sosprescription_twilio_number_invalid',
+                'Le numéro Twilio doit être saisi dans un format téléphonique valide.',
+                'error'
+            );
 
-        return [
-            'twilio_number' => $twilio_number,
-            'transfer_number' => $transfer_number,
-            'updated_at' => current_time('mysql'),
-        ];
+            return self::get_twilio_number();
+        }
+
+        add_settings_error(
+            self::TWILIO_NUMBER_OPTION_KEY,
+            'sosprescription_twilio_number_saved',
+            'Numéro Twilio enregistré.',
+            'updated'
+        );
+
+        return $normalized;
     }
 
-    /**
-     * @return array<string, string>
-     */
-    private static function get_twilio_settings(): array
+    private static function migrate_legacy_twilio_number_option(): void
     {
-        $raw = get_option(self::TWILIO_OPTION_KEY, []);
-        $cfg = is_array($raw) ? $raw : [];
+        $current = get_option(self::TWILIO_NUMBER_OPTION_KEY, null);
+        if (is_string($current) && self::normalize_phone_value($current) !== '') {
+            return;
+        }
 
-        return [
-            'twilio_number' => self::normalize_phone_value($cfg['twilio_number'] ?? ''),
-            'transfer_number' => self::normalize_phone_value($cfg['transfer_number'] ?? ''),
-            'updated_at' => isset($cfg['updated_at']) && is_string($cfg['updated_at']) ? (string) $cfg['updated_at'] : '',
-        ];
+        $legacy = get_option(self::LEGACY_TWILIO_SETTINGS_OPTION_KEY, []);
+        if (!is_array($legacy)) {
+            return;
+        }
+
+        $legacy_number = self::normalize_phone_value($legacy['twilio_number'] ?? '');
+        if ($legacy_number === '') {
+            return;
+        }
+
+        update_option(self::TWILIO_NUMBER_OPTION_KEY, $legacy_number);
+    }
+
+    private static function get_twilio_number(): string
+    {
+        $current = get_option(self::TWILIO_NUMBER_OPTION_KEY, '');
+        $normalized = self::normalize_phone_value($current);
+        if ($normalized !== '') {
+            return $normalized;
+        }
+
+        $legacy = get_option(self::LEGACY_TWILIO_SETTINGS_OPTION_KEY, []);
+        if (!is_array($legacy)) {
+            return '';
+        }
+
+        return self::normalize_phone_value($legacy['twilio_number'] ?? '');
     }
 
     /**
@@ -127,22 +161,16 @@ final class NotificationsPage
 
     public static function render_twilio_section_intro(): void
     {
-        echo '<p class="description">Configurez le numéro standard SOS Prescription affiché aux patients, ainsi que le numéro réel de transfert vers le médecin ou le secrétariat.</p>';
-        echo '<p class="description">Enregistrement via l’API Settings standard de WordPress.</p>';
+        echo '<p class="description">Configurez le numéro Twilio SOS Prescription affiché aux patients.</p>';
+        echo '<p class="description">Les appels entrants sont ensuite routés dynamiquement vers le médecin concerné via le code de délivrance saisi sur la ligne médicale sécurisée.</p>';
     }
 
     public static function render_twilio_number_field(): void
     {
-        $cfg = self::get_twilio_settings();
-        echo '<input class="regular-text" type="text" id="sosprescription_twilio_number" name="' . esc_attr(self::TWILIO_OPTION_KEY) . '[twilio_number]" value="' . esc_attr($cfg['twilio_number']) . '" placeholder="+33..." />';
-        echo '<p class="description">Numéro Twilio attribué par la plateforme et communiqué aux patients. Format international recommandé.</p>';
-    }
+        $value = self::get_twilio_number();
 
-    public static function render_twilio_transfer_number_field(): void
-    {
-        $cfg = self::get_twilio_settings();
-        echo '<input class="regular-text" type="text" id="sosprescription_transfer_number" name="' . esc_attr(self::TWILIO_OPTION_KEY) . '[transfer_number]" value="' . esc_attr($cfg['transfer_number']) . '" placeholder="+33..." />';
-        echo '<p class="description">Numéro réel appelé par Twilio lorsque le patient compose le numéro SOS Prescription.</p>';
+        echo '<input class="regular-text" type="text" id="' . esc_attr(self::TWILIO_NUMBER_OPTION_KEY) . '" name="' . esc_attr(self::TWILIO_NUMBER_OPTION_KEY) . '" value="' . esc_attr($value) . '" placeholder="+33..." />';
+        echo '<p class="description">Numéro attribué par la plateforme et affiché aux patients. Format international recommandé.</p>';
     }
 
     public static function render_page(): void
@@ -151,8 +179,9 @@ final class NotificationsPage
             wp_die('Accès refusé.');
         }
 
-        $cfg = NotificationsConfig::get();
+        self::register_settings();
 
+        $cfg = NotificationsConfig::get();
         $updated = isset($_GET['updated']) && (string) $_GET['updated'] === '1';
 
         echo '<div class="wrap">';
@@ -162,10 +191,10 @@ final class NotificationsPage
         echo '</h1>';
 
         echo '<p style="max-width:980px;">';
-        echo '<strong>Objectif :</strong> informer patient/médecin par email, et configurer la téléphonie Twilio de standard / routage, <strong>sans aucune donnée de santé</strong> dans les notifications.';
+        echo '<strong>Objectif :</strong> informer patient/médecin par email, et configurer la téléphonie Twilio de la ligne médicale sécurisée, <strong>sans aucune donnée de santé</strong> dans les notifications.';
         echo '</p>';
 
-        settings_errors(self::TWILIO_SETTINGS_GROUP);
+        settings_errors(self::TWILIO_NUMBER_OPTION_KEY);
 
         if ($updated) {
             echo '<div class="notice notice-success is-dismissible"><p>Paramètres enregistrés.</p></div>';
@@ -248,7 +277,7 @@ final class NotificationsPage
 
         echo '<div style="max-width:980px;background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
         echo '<h2 style="margin-top:0;">Téléphonie / Twilio</h2>';
-        echo '<p class="description">Le numéro Twilio est affiché aux patients. Le numéro de transfert reste interne et sert uniquement au routage des appels entrants.</p>';
+        echo '<p class="description">Le numéro Twilio est affiché aux patients. Le routage réel des appels est déterminé dynamiquement par le code de délivrance saisi dans l’assistant vocal.</p>';
         echo '<form method="post" action="' . esc_url(admin_url('options.php')) . '">';
         settings_fields(self::TWILIO_SETTINGS_GROUP);
         do_settings_sections(self::TWILIO_SETTINGS_PAGE);
@@ -258,7 +287,6 @@ final class NotificationsPage
         echo '</form>';
         echo '</div>';
 
-        // --- Test notifications
         $test = isset($_GET['test']) ? (string) $_GET['test'] : '';
         $test_channel = isset($_GET['channel']) ? (string) $_GET['channel'] : '';
 
@@ -273,7 +301,7 @@ final class NotificationsPage
 
         echo '<div style="max-width:980px;background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px;margin:14px 0;">';
         echo '<h2 style="margin-top:0;">Tester l’envoi</h2>';
-        echo '<p class="description">Envoie un message de test <strong>sans donnée de santé</strong>. Utile pour valider le canal email existant ; la téléphonie Twilio est configurée séparément ci-dessus.</p>';
+        echo '<p class="description">Envoie un message de test <strong>sans donnée de santé</strong>. Utile pour valider le canal email existant ; la téléphonie Twilio se valide via le webhook d’appel et le code de délivrance.</p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="sosprescription_notifications_test" />';
@@ -285,7 +313,7 @@ final class NotificationsPage
         echo '<div style="min-width:320px;">';
         echo '<label for="sp_test_to" style="display:block; font-weight:600; margin-bottom:6px;">Email destinataire</label>';
         echo '<input id="sp_test_to" class="regular-text" type="email" name="to" value="' . esc_attr($default_email) . '" placeholder="email@domaine.fr" />';
-        echo '<div class="description">Ce test couvre uniquement l’envoi email. Les appels Twilio se valident directement sur le numéro entrant configuré.</div>';
+        echo '<div class="description">Ce test couvre uniquement l’envoi email.</div>';
         echo '</div>';
 
         echo '<div>';
@@ -295,7 +323,6 @@ final class NotificationsPage
         echo '</div>';
         echo '</form>';
         echo '</div>';
-
 
         echo '</div>';
     }
@@ -317,7 +344,6 @@ final class NotificationsPage
         check_admin_referer('sosprescription_notifications_save');
 
         $email_enabled = isset($_POST['email_enabled']);
-        $sms_enabled = isset($_POST['sms_enabled']);
 
         $from_name = isset($_POST['from_name']) ? (string) wp_unslash($_POST['from_name']) : '';
         $from_email = isset($_POST['from_email']) ? (string) wp_unslash($_POST['from_email']) : '';
@@ -325,35 +351,26 @@ final class NotificationsPage
         $patient_page_id = isset($_POST['patient_portal_page_id']) ? (int) $_POST['patient_portal_page_id'] : 0;
         $doctor_page_id = isset($_POST['doctor_console_page_id']) ? (int) $_POST['doctor_console_page_id'] : 0;
 
-        $sms_phone_meta_key = isset($_POST['sms_phone_meta_key']) ? sanitize_key((string) wp_unslash($_POST['sms_phone_meta_key'])) : '';
-        $sms_webhook_url = isset($_POST['sms_webhook_url']) ? esc_url_raw((string) wp_unslash($_POST['sms_webhook_url'])) : '';
-        $sms_webhook_secret = isset($_POST['sms_webhook_secret']) ? trim((string) wp_unslash($_POST['sms_webhook_secret'])) : '';
-
-        $sms_quiet_hours_enabled = isset($_POST['sms_quiet_hours_enabled']);
-        $sms_quiet_start = isset($_POST['sms_quiet_start']) ? (string) wp_unslash($_POST['sms_quiet_start']) : '22:00';
-        $sms_quiet_end = isset($_POST['sms_quiet_end']) ? (string) wp_unslash($_POST['sms_quiet_end']) : '08:00';
-
         $send_on_payment_confirmed = isset($_POST['send_on_payment_confirmed']);
         $send_on_assigned = isset($_POST['send_on_assigned']);
         $send_on_doctor_message = isset($_POST['send_on_doctor_message']);
         $send_on_decision = isset($_POST['send_on_decision']);
-
         $send_doctor_on_patient_message = isset($_POST['send_doctor_on_patient_message']);
 
         NotificationsConfig::update([
             'email_enabled' => $email_enabled,
-            'sms_enabled' => $sms_enabled,
+            'sms_enabled' => false,
             'from_name' => $from_name,
             'from_email' => $from_email,
             'patient_portal_page_id' => $patient_page_id,
             'doctor_console_page_id' => $doctor_page_id,
-            'sms_provider' => 'webhook',
-            'sms_phone_meta_key' => $sms_phone_meta_key,
-            'sms_webhook_url' => $sms_webhook_url,
-            'sms_webhook_secret' => $sms_webhook_secret,
-            'sms_quiet_hours_enabled' => $sms_quiet_hours_enabled,
-            'sms_quiet_start' => $sms_quiet_start,
-            'sms_quiet_end' => $sms_quiet_end,
+            'sms_provider' => '',
+            'sms_phone_meta_key' => '',
+            'sms_webhook_url' => '',
+            'sms_webhook_secret' => '',
+            'sms_quiet_hours_enabled' => false,
+            'sms_quiet_start' => '22:00',
+            'sms_quiet_end' => '08:00',
             'send_on_payment_confirmed' => $send_on_payment_confirmed,
             'send_on_assigned' => $send_on_assigned,
             'send_on_doctor_message' => $send_on_doctor_message,
@@ -363,7 +380,7 @@ final class NotificationsPage
 
         Audit::log('config_notifications_update', 'config', null, null, [
             'email_enabled' => (bool) $email_enabled,
-            'sms_enabled' => (bool) $sms_enabled,
+            'sms_enabled' => false,
         ]);
 
         $url = add_query_arg([
@@ -383,40 +400,21 @@ final class NotificationsPage
 
         check_admin_referer('sosprescription_notifications_test');
 
-        $channel = isset($_POST['channel']) ? (string) wp_unslash($_POST['channel']) : 'email';
         $to = isset($_POST['to']) ? trim((string) wp_unslash($_POST['to'])) : '';
-        $force_now = isset($_POST['force_now']);
-
-        $ok = false;
-        if ($channel === 'sms') {
-            // Format libre (validation minimale).
-            if (strlen($to) < 6) {
-                $ok = false;
-            } else {
-                $ok = Notifications::send_test_sms($to, $force_now);
-            }
-        } else {
-            $channel = 'email';
-            if (!is_email($to)) {
-                $ok = false;
-            } else {
-                $ok = Notifications::send_test_email($to);
-            }
-        }
+        $ok = is_email($to) ? Notifications::send_test_email($to) : false;
 
         Audit::log('notifications_test', 'config', null, null, [
-            'channel' => $channel,
+            'channel' => 'email',
             'ok' => (bool) $ok,
         ]);
 
         $url = add_query_arg([
             'page' => 'sosprescription-notifications',
             'test' => $ok ? 'ok' : 'fail',
-            'channel' => $channel,
+            'channel' => 'email',
         ], admin_url('admin.php'));
 
         wp_safe_redirect($url);
         exit;
     }
-
 }
