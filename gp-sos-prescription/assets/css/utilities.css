@@ -1,0 +1,106 @@
+/*
+ * SOS Prescription : Utilities V2
+ * Helpers légers uniquement.
+ */
+
+.sp-visually-hidden,
+.sp-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.sp-text-center {
+  text-align: center !important;
+}
+
+.sp-text-left {
+  text-align: left !important;
+}
+
+.sp-text-right {
+  text-align: right !important;
+}
+
+.sp-stack-xs,
+.sp-stack-sm,
+.sp-stack-md,
+.sp-stack-lg {
+  display: grid !important;
+}
+
+.sp-stack-xs {
+  gap: var(--sp-space-2) !important;
+}
+
+.sp-stack-sm {
+  gap: var(--sp-space-3) !important;
+}
+
+.sp-stack-md {
+  gap: var(--sp-space-4) !important;
+}
+
+.sp-stack-lg {
+  gap: var(--sp-space-5) !important;
+}
+
+.sp-cluster-xs,
+.sp-cluster-sm,
+.sp-cluster-md {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+}
+
+.sp-cluster-xs {
+  gap: var(--sp-space-2) !important;
+}
+
+.sp-cluster-sm {
+  gap: var(--sp-space-3) !important;
+}
+
+.sp-cluster-md {
+  gap: var(--sp-space-4) !important;
+}
+
+.sp-justify-between {
+  justify-content: space-between !important;
+}
+
+.sp-justify-center {
+  justify-content: center !important;
+}
+
+.sp-w-full {
+  width: 100% !important;
+}
+
+.sp-mb-0 {
+  margin-bottom: 0 !important;
+}
+
+.sp-mt-0 {
+  margin-top: 0 !important;
+}
+
+.sp-hide-desktop {
+  display: none !important;
+}
+
+@media (max-width: 960px) {
+  .sp-hide-mobile {
+    display: none !important;
+  }
+
+  .sp-hide-desktop {
+    display: initial !important;
+  }
+}

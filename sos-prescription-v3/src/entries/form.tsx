@@ -3965,16 +3965,43 @@ type ExternalProfileAccordionOptions = {
   collapsedByDefault: boolean;
 };
 
-function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): void {
-  const collapsedByDefault = !!options.collapsedByDefault;
-  const card = document.querySelector('.sp-profile-card');
-  if (!(card instanceof HTMLElement)) {
+const EXTERNAL_PROFILE_COPY = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
+
+function normalizeExternalProfileWording(card: HTMLElement): void {
+  if (card.dataset.spProfileCopyFixed === '1') {
     return;
   }
 
+  const helpTargets = Array.from(card.querySelectorAll('p, small, span, div'));
+  for (const node of helpTargets) {
+    if (!(node instanceof HTMLElement)) {
+      continue;
+    }
+
+    const text = String(node.textContent || '').trim();
+    if (!text || !/proche/i.test(text)) {
+      continue;
+    }
+
+    node.textContent = EXTERNAL_PROFILE_COPY;
+    card.dataset.spProfileCopyFixed = '1';
+    return;
+  }
+}
+
+function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): boolean {
+  const collapsedByDefault = !!options.collapsedByDefault;
+  const profileRoot = document.getElementById('sp-patient-profile-root');
+  const card = profileRoot?.querySelector('.sp-profile-card');
+  if (!(card instanceof HTMLElement)) {
+    return false;
+  }
+
+  normalizeExternalProfileWording(card);
+
   const header = card.querySelector('.sp-profile-card__header');
   if (!(header instanceof HTMLElement)) {
-    return;
+    return false;
   }
 
   const setCollapsed = (collapsed: boolean): void => {
@@ -4018,10 +4045,31 @@ function installExternalProfileAccordion(options: ExternalProfileAccordionOption
   if (card.dataset.spAccordionReady !== '1') {
     card.dataset.spAccordionReady = '1';
     setCollapsed(collapsedByDefault);
-    return;
+    return true;
   }
 
   setCollapsed(card.dataset.spCollapsed === '1');
+  return true;
+}
+
+function scheduleExternalProfileEnhancements(options: ExternalProfileAccordionOptions): void {
+  if (!document.getElementById('sp-patient-profile-root')) {
+    return;
+  }
+
+  let attempts = 0;
+  const maxAttempts = 40;
+
+  const tryInstall = (): void => {
+    attempts += 1;
+    if (installExternalProfileAccordion(options) || attempts >= maxAttempts) {
+      return;
+    }
+
+    window.setTimeout(tryInstall, 250);
+  };
+
+  tryInstall();
 }
 
 function mountPatientConsole(container: HTMLElement): void {
@@ -4056,7 +4104,7 @@ function mountPublicForm(container: HTMLElement): void {
     : '';
   const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
 
-  installExternalProfileAccordion({ collapsedByDefault: shouldCollapseProfile });
+  scheduleExternalProfileEnhancements({ collapsedByDefault: shouldCollapseProfile });
 
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);

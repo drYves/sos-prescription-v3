@@ -1,0 +1,325 @@
+/*
+ * SOS Prescription - Tokens V4.8.1
+ * Source unique de vérité visuelle Diamond Grade.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --sp-shell-font-body: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --sp-shell-font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --sp-shell-font-ui: var(--sp-shell-font-body);
+  --sp-shell-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sp-shell-letter-spacing-display: -0.02em;
+  --sp-shell-letter-spacing-heading: -0.015em;
+  --sp-shell-letter-spacing-title: -0.01em;
+
+  /* Color system - mapped to GeneratePress globals */
+  --sp-shell-color-canvas: var(--base, #f6f8fb);
+  --sp-shell-color-surface: var(--base-2, #ffffff);
+  --sp-shell-color-surface-alt: color-mix(in srgb, var(--base, #f6f8fb) 76%, var(--base-2, #ffffff) 24%);
+  --sp-shell-color-surface-raised: color-mix(in srgb, var(--base-2, #ffffff) 96%, var(--base, #f6f8fb) 4%);
+  --sp-shell-color-surface-frosted: color-mix(in srgb, var(--base-2, #ffffff) 85%, transparent);
+  --sp-shell-color-surface-frosted-strong: color-mix(in srgb, var(--base-2, #ffffff) 92%, transparent);
+
+  --sp-shell-color-border: color-mix(in srgb, var(--contrast, #0f172a) 9%, transparent);
+  --sp-shell-color-border-strong: color-mix(in srgb, var(--contrast, #0f172a) 16%, transparent);
+  --sp-shell-color-border-hairline: color-mix(in srgb, var(--contrast, #0f172a) 11%, white 8%);
+  --sp-shell-color-border-hairline-strong: color-mix(in srgb, var(--accent, #0f6cbd) 16%, var(--contrast, #0f172a) 8%);
+
+  --sp-shell-color-text-1: var(--contrast, #0f172a);
+  --sp-shell-color-text-2: color-mix(in srgb, var(--contrast, #0f172a) 82%, var(--base-2, #ffffff) 18%);
+  --sp-shell-color-text-3: color-mix(in srgb, var(--contrast, #0f172a) 70%, var(--base-2, #ffffff) 30%);
+  --sp-shell-color-text-4: color-mix(in srgb, var(--contrast, #0f172a) 56%, var(--base-2, #ffffff) 44%);
+
+  --sp-shell-color-accent: var(--accent, #0f6cbd);
+  --sp-shell-color-accent-hover: color-mix(in srgb, var(--accent, #0f6cbd) 84%, var(--contrast, #0f172a) 16%);
+  --sp-shell-color-accent-soft: color-mix(in srgb, var(--accent, #0f6cbd) 12%, var(--base-2, #ffffff));
+  --sp-shell-color-accent-ink: color-mix(in srgb, var(--accent, #0f6cbd) 72%, var(--contrast, #0f172a) 28%);
+
+  --sp-shell-brand-payment: #635bff;
+  --sp-shell-brand-priority: #c5a028;
+
+  --sp-shell-color-success: #159f6e;
+  --sp-shell-color-success-soft: color-mix(in srgb, var(--sp-shell-color-success) 11%, var(--base-2, #ffffff));
+  --sp-shell-color-success-border: color-mix(in srgb, var(--sp-shell-color-success) 24%, transparent);
+  --sp-shell-color-success-ink: color-mix(in srgb, var(--sp-shell-color-success) 70%, var(--contrast, #0f172a) 30%);
+
+  --sp-shell-color-warning: #d68f12;
+  --sp-shell-color-warning-soft: color-mix(in srgb, var(--sp-shell-color-warning) 12%, var(--base-2, #ffffff));
+  --sp-shell-color-warning-border: color-mix(in srgb, var(--sp-shell-color-warning) 28%, transparent);
+  --sp-shell-color-warning-ink: color-mix(in srgb, var(--sp-shell-color-warning) 78%, var(--contrast, #0f172a) 22%);
+
+  --sp-shell-color-danger: #c03a3a;
+  --sp-shell-color-danger-soft: color-mix(in srgb, var(--sp-shell-color-danger) 11%, var(--base-2, #ffffff));
+  --sp-shell-color-danger-border: color-mix(in srgb, var(--sp-shell-color-danger) 24%, transparent);
+  --sp-shell-color-danger-ink: color-mix(in srgb, var(--sp-shell-color-danger) 76%, var(--contrast, #0f172a) 24%);
+
+  --sp-shell-color-info: #0e7490;
+  --sp-shell-color-info-soft: color-mix(in srgb, var(--sp-shell-color-info) 11%, var(--base-2, #ffffff));
+  --sp-shell-color-info-border: color-mix(in srgb, var(--sp-shell-color-info) 24%, transparent);
+  --sp-shell-color-info-ink: color-mix(in srgb, var(--sp-shell-color-info) 74%, var(--contrast, #0f172a) 26%);
+
+  --sp-shell-color-focus-ring: color-mix(in srgb, var(--accent, #0f6cbd) 18%, transparent);
+  --sp-shell-color-shadow: rgba(15, 23, 42, 0.1);
+
+  /* Type scale */
+  --sp-shell-text-xs: 0.8125rem;
+  --sp-shell-text-sm: 0.875rem;
+  --sp-shell-text-md: 1rem;
+  --sp-shell-text-lg: 1.125rem;
+  --sp-shell-text-xl: 1.25rem;
+  --sp-shell-text-2xl: 1.5rem;
+  --sp-shell-text-3xl: 2rem;
+  --sp-shell-text-4xl: 2.75rem;
+  --sp-shell-text-5xl: 3.5rem;
+
+  /* Spacing scale */
+  --sp-shell-space-1: 0.25rem;
+  --sp-shell-space-2: 0.5rem;
+  --sp-shell-space-3: 0.75rem;
+  --sp-shell-space-4: 1rem;
+  --sp-shell-space-5: 1.5rem;
+  --sp-shell-space-6: 2rem;
+  --sp-shell-space-7: 2.5rem;
+  --sp-shell-space-8: 3rem;
+  --sp-shell-space-9: 4rem;
+  --sp-shell-space-10: 5rem;
+  --sp-shell-space-11: 6rem;
+
+  /* Radius */
+  --sp-shell-radius-sm: 14px;
+  --sp-shell-radius-md: 16px;
+  --sp-shell-radius-lg: 20px;
+  --sp-shell-radius-xl: 24px;
+  --sp-shell-radius-pill: 999px;
+
+  /* Elevation */
+  --sp-shell-shadow-contact: 0 1px 1px rgba(15, 23, 42, 0.08);
+  --sp-shell-shadow-1: 0 1px 1px rgba(15, 23, 42, 0.05), 0 12px 28px rgba(15, 23, 42, 0.06), 0 28px 64px rgba(15, 23, 42, 0.04);
+  --sp-shell-shadow-2: 0 1px 1px rgba(15, 23, 42, 0.06), 0 18px 40px rgba(15, 23, 42, 0.08), 0 36px 80px rgba(15, 23, 42, 0.06);
+  --sp-shell-shadow-3: 0 2px 2px rgba(15, 23, 42, 0.08), 0 28px 64px rgba(15, 23, 42, 0.12), 0 56px 120px rgba(15, 23, 42, 0.08);
+  --sp-shell-shadow-premium: 0 1px 1px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.08), 0 34px 84px rgba(15, 23, 42, 0.05);
+  --sp-shell-shadow-premium-lg: 0 2px 2px rgba(15, 23, 42, 0.08), 0 24px 54px rgba(15, 23, 42, 0.1), 0 48px 120px rgba(15, 23, 42, 0.08);
+
+  /* Containers */
+  --sp-shell-container-reading: 47.5rem;
+  --sp-shell-container-public: 75rem;
+  --sp-shell-workspace-max: 75rem;
+  --sp-shell-workspace-gutter: clamp(1.25rem, 3.2vw, 2.5rem);
+  --sp-shell-sidebar-width: 18rem;
+  --sp-shell-container-app: 96rem;
+  --sp-shell-container-app-compact: 75rem;
+  --sp-shell-container-console: 80rem;
+  --sp-shell-container-console-compact: 75rem;
+  --sp-shell-card-padding-block: clamp(1.2rem, 1rem + 0.7vw, 1.65rem);
+  --sp-shell-card-padding-inline: clamp(1.25rem, 1rem + 0.85vw, 1.8rem);
+  --sp-shell-message-bubble-max: 70%;
+
+  /* Motion */
+  --sp-shell-motion-fast: 140ms;
+  --sp-shell-motion-base: 220ms;
+  --sp-shell-motion-slow: 320ms;
+  --sp-shell-motion-shimmer: 2800ms;
+  --sp-shell-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --sp-shell-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sp-shell-ease-press: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Effects */
+  --sp-shell-glass-effect: blur(20px) saturate(170%);
+  --sp-shell-glass-surface: var(--sp-shell-color-surface-frosted);
+  --sp-shell-glass-surface-strong: var(--sp-shell-color-surface-frosted-strong);
+  --sp-shell-border-hairline: 1px solid var(--sp-shell-color-border-hairline);
+  --sp-shell-border-hairline-strong: 1px solid var(--sp-shell-color-border-hairline-strong);
+  --sp-shell-skeleton-shimmer: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sp-shell-color-canvas) 84%, var(--sp-shell-color-surface) 16%) 0%,
+    color-mix(in srgb, var(--sp-shell-color-canvas) 70%, var(--sp-shell-color-surface) 30%) 46%,
+    color-mix(in srgb, var(--sp-shell-color-surface) 78%, white 22%) 52%,
+    color-mix(in srgb, var(--sp-shell-color-canvas) 70%, var(--sp-shell-color-surface) 30%) 58%,
+    color-mix(in srgb, var(--sp-shell-color-canvas) 84%, var(--sp-shell-color-surface) 16%) 100%
+  );
+
+  /* Z-index */
+  --sp-shell-z-header: 100;
+  --sp-shell-z-sticky-sidebar: 120;
+  --sp-shell-z-dropdown: 180;
+  --sp-shell-z-offcanvas: 220;
+  --sp-shell-z-modal: 300;
+
+  /* Convenience aliases */
+  --gb-container-width: var(--sp-shell-container-public);
+  --container-width: var(--sp-shell-container-public);
+  --container-padding: var(--sp-shell-space-6);
+  --sp-shell-header-offset: 6rem;
+
+  --sp-font-body: var(--sp-shell-font-body);
+  --sp-font-display: var(--sp-shell-font-display);
+  --sp-font-ui: var(--sp-shell-font-ui);
+  --sp-font-mono: var(--sp-shell-font-mono);
+  --sp-letter-spacing-display: var(--sp-shell-letter-spacing-display);
+  --sp-letter-spacing-heading: var(--sp-shell-letter-spacing-heading);
+  --sp-letter-spacing-title: var(--sp-shell-letter-spacing-title);
+  --sp-color-canvas: var(--sp-shell-color-canvas);
+  --sp-color-surface: var(--sp-shell-color-surface);
+  --sp-color-surface-alt: var(--sp-shell-color-surface-alt);
+  --sp-color-surface-raised: var(--sp-shell-color-surface-raised);
+  --sp-color-surface-frosted: var(--sp-shell-color-surface-frosted);
+  --sp-color-surface-frosted-strong: var(--sp-shell-color-surface-frosted-strong);
+  --sp-color-border: var(--sp-shell-color-border);
+  --sp-color-border-strong: var(--sp-shell-color-border-strong);
+  --sp-color-border-hairline: var(--sp-shell-color-border-hairline);
+  --sp-color-border-hairline-strong: var(--sp-shell-color-border-hairline-strong);
+  --sp-color-text-1: var(--sp-shell-color-text-1);
+  --sp-color-text-2: var(--sp-shell-color-text-2);
+  --sp-color-text-3: var(--sp-shell-color-text-3);
+  --sp-color-text-4: var(--sp-shell-color-text-4);
+  --sp-color-accent: var(--sp-shell-color-accent);
+  --sp-color-accent-hover: var(--sp-shell-color-accent-hover);
+  --sp-color-accent-soft: var(--sp-shell-color-accent-soft);
+  --sp-color-accent-ink: var(--sp-shell-color-accent-ink);
+  --sp-brand-payment: var(--sp-shell-brand-payment);
+  --sp-brand-priority: var(--sp-shell-brand-priority);
+  --sp-color-success: var(--sp-shell-color-success);
+  --sp-color-success-soft: var(--sp-shell-color-success-soft);
+  --sp-color-success-border: var(--sp-shell-color-success-border);
+  --sp-color-success-ink: var(--sp-shell-color-success-ink);
+  --sp-color-warning: var(--sp-shell-color-warning);
+  --sp-color-warning-soft: var(--sp-shell-color-warning-soft);
+  --sp-color-warning-border: var(--sp-shell-color-warning-border);
+  --sp-color-warning-ink: var(--sp-shell-color-warning-ink);
+  --sp-color-danger: var(--sp-shell-color-danger);
+  --sp-color-danger-soft: var(--sp-shell-color-danger-soft);
+  --sp-color-danger-border: var(--sp-shell-color-danger-border);
+  --sp-color-danger-ink: var(--sp-shell-color-danger-ink);
+  --sp-color-info: var(--sp-shell-color-info);
+  --sp-color-info-soft: var(--sp-shell-color-info-soft);
+  --sp-color-info-border: var(--sp-shell-color-info-border);
+  --sp-color-info-ink: var(--sp-shell-color-info-ink);
+  --sp-color-focus-ring: var(--sp-shell-color-focus-ring);
+  --sp-color-shadow: var(--sp-shell-color-shadow);
+  --sp-text-xs: var(--sp-shell-text-xs);
+  --sp-text-sm: var(--sp-shell-text-sm);
+  --sp-text-md: var(--sp-shell-text-md);
+  --sp-text-lg: var(--sp-shell-text-lg);
+  --sp-text-xl: var(--sp-shell-text-xl);
+  --sp-text-2xl: var(--sp-shell-text-2xl);
+  --sp-text-3xl: var(--sp-shell-text-3xl);
+  --sp-text-4xl: var(--sp-shell-text-4xl);
+  --sp-text-5xl: var(--sp-shell-text-5xl);
+  --sp-space-1: var(--sp-shell-space-1);
+  --sp-space-2: var(--sp-shell-space-2);
+  --sp-space-3: var(--sp-shell-space-3);
+  --sp-space-4: var(--sp-shell-space-4);
+  --sp-space-5: var(--sp-shell-space-5);
+  --sp-space-6: var(--sp-shell-space-6);
+  --sp-space-7: var(--sp-shell-space-7);
+  --sp-space-8: var(--sp-shell-space-8);
+  --sp-space-9: var(--sp-shell-space-9);
+  --sp-space-10: var(--sp-shell-space-10);
+  --sp-space-11: var(--sp-shell-space-11);
+  --sp-radius-sm: var(--sp-shell-radius-sm);
+  --sp-radius-md: var(--sp-shell-radius-md);
+  --sp-radius-lg: var(--sp-shell-radius-lg);
+  --sp-radius-xl: var(--sp-shell-radius-xl);
+  --sp-radius-pill: var(--sp-shell-radius-pill);
+  --sp-shadow-contact: var(--sp-shell-shadow-contact);
+  --sp-shadow-1: var(--sp-shell-shadow-1);
+  --sp-shadow-2: var(--sp-shell-shadow-2);
+  --sp-shadow-3: var(--sp-shell-shadow-3);
+  --sp-shadow-premium: var(--sp-shell-shadow-premium);
+  --sp-shadow-premium-lg: var(--sp-shell-shadow-premium-lg);
+  --sp-container-reading: var(--sp-shell-container-reading);
+  --sp-container-public: var(--sp-shell-container-public);
+  --sp-workspace-max: var(--sp-shell-workspace-max);
+  --sp-workspace-gutter: var(--sp-shell-workspace-gutter);
+  --sp-sidebar-width: var(--sp-shell-sidebar-width);
+  --sp-container-app: var(--sp-shell-container-app);
+  --sp-container-app-compact: var(--sp-shell-container-app-compact);
+  --sp-container-console: var(--sp-shell-container-console);
+  --sp-container-console-compact: var(--sp-shell-container-console-compact);
+  --sp-card-padding-block: var(--sp-shell-card-padding-block);
+  --sp-card-padding-inline: var(--sp-shell-card-padding-inline);
+  --sp-message-bubble-max: var(--sp-shell-message-bubble-max);
+  --sp-motion-fast: var(--sp-shell-motion-fast);
+  --sp-motion-base: var(--sp-shell-motion-base);
+  --sp-motion-slow: var(--sp-shell-motion-slow);
+  --sp-motion-shimmer: var(--sp-shell-motion-shimmer);
+  --sp-ease-standard: var(--sp-shell-ease-standard);
+  --sp-ease-emphasized: var(--sp-shell-ease-emphasized);
+  --sp-ease-press: var(--sp-shell-ease-press);
+  --sp-glass-effect: var(--sp-shell-glass-effect);
+  --sp-glass-surface: var(--sp-shell-glass-surface);
+  --sp-glass-surface-strong: var(--sp-shell-glass-surface-strong);
+  --sp-border-hairline: var(--sp-shell-border-hairline);
+  --sp-border-hairline-strong: var(--sp-shell-border-hairline-strong);
+  --sp-skeleton-shimmer: var(--sp-shell-skeleton-shimmer);
+  --sp-z-header: var(--sp-shell-z-header);
+  --sp-z-sticky-sidebar: var(--sp-shell-z-sticky-sidebar);
+  --sp-z-dropdown: var(--sp-shell-z-dropdown);
+  --sp-z-offcanvas: var(--sp-shell-z-offcanvas);
+  --sp-z-modal: var(--sp-shell-z-modal);
+  --sp-header-offset: var(--sp-shell-header-offset);
+
+}
+
+body {
+  --sp-shell-ink: var(--sp-shell-color-text-1);
+  --sp-shell-muted: var(--sp-shell-color-text-3);
+  --sp-shell-muted-2: var(--sp-shell-color-text-4);
+  --sp-shell-border: var(--sp-shell-color-border);
+  --sp-shell-border-strong: var(--sp-shell-color-border-strong);
+  --sp-shell-bg: var(--sp-shell-color-surface);
+  --sp-shell-primary: var(--sp-shell-color-accent);
+  --sp-shell-primary-ink: var(--sp-shell-color-accent-ink);
+
+  --sp-shell-success-bg: var(--sp-shell-color-success-soft);
+  --sp-shell-success-border: var(--sp-shell-color-success-border);
+  --sp-shell-success-ink: var(--sp-shell-color-success-ink);
+
+  --sp-shell-warn-bg: var(--sp-shell-color-warning-soft);
+  --sp-shell-warn-border: var(--sp-shell-color-warning-border);
+  --sp-shell-warn-ink: var(--sp-shell-color-warning-ink);
+
+  --sp-shell-danger-bg: var(--sp-shell-color-danger-soft);
+  --sp-shell-danger-border: var(--sp-shell-color-danger-border);
+  --sp-shell-danger-ink: var(--sp-shell-color-danger-ink);
+
+  --sp-shell-radius: var(--sp-shell-radius-lg);
+  --sp-shell-radius-card: var(--sp-shell-radius-lg);
+  --sp-shell-shadow: var(--sp-shell-shadow-premium);
+  --sp-shell-shadow-md: var(--sp-shell-shadow-premium);
+  --sp-shell-shadow-lg: var(--sp-shell-shadow-premium-lg);
+
+  --sp-ink: var(--sp-shell-ink);
+  --sp-muted: var(--sp-shell-muted);
+  --sp-muted-2: var(--sp-shell-muted-2);
+  --sp-border: var(--sp-shell-border);
+  --sp-border-strong: var(--sp-shell-border-strong);
+  --sp-bg: var(--sp-shell-bg);
+  --sp-primary: var(--sp-shell-primary);
+  --sp-primary-ink: var(--sp-shell-primary-ink);
+  --sp-success-bg: var(--sp-shell-success-bg);
+  --sp-success-border: var(--sp-shell-success-border);
+  --sp-success-ink: var(--sp-shell-success-ink);
+  --sp-warn-bg: var(--sp-shell-warn-bg);
+  --sp-warn-border: var(--sp-shell-warn-border);
+  --sp-warn-ink: var(--sp-shell-warn-ink);
+  --sp-danger-bg: var(--sp-shell-danger-bg);
+  --sp-danger-border: var(--sp-shell-danger-border);
+  --sp-danger-ink: var(--sp-shell-danger-ink);
+  --sp-radius: var(--sp-shell-radius);
+  --sp-radius-card: var(--sp-shell-radius-card);
+  --sp-shadow: var(--sp-shell-shadow);
+  --sp-shadow-md: var(--sp-shell-shadow-md);
+  --sp-shadow-lg: var(--sp-shell-shadow-lg);
+
+}
+
+body.sp-context-console {
+  --sp-shell-sidebar-width: 0px;
+
+  --sp-sidebar-width: var(--sp-shell-sidebar-width);
+
+}

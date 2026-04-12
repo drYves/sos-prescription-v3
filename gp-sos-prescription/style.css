@@ -1,0 +1,515 @@
+/*
+Theme Name: gp-sos-prescription
+Theme URI: https://sosprescription.fr/
+Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress natif, aura Noble Blue SaaS, header glass universel, menu harmonisé global, version v4.8.1 – Workspace étendu à 1200px, confort pro renforcé et finitions Diamond Grade conservées.
+Author: SOS Prescription
+Author URI: https://sosprescription.fr/
+Template: generatepress
+Version: 4.8.1
+Text Domain: gp-sos-prescription
+*/
+
+/* V4.8.1 · Workspace étendu à 1200px, confort pro et finitions Diamond Grade conservées */
+
+:root {
+  --sp-shell-frame-max: 1200px;
+  --sp-shell-frame-gutter: 24px;
+  --sp-shell-radius: var(--sp-radius-lg, 16px);
+  --sp-shell-header-accent: var(--accent);
+  --sp-shell-footer-bg: var(--base);
+  --sp-shell-border: color-mix(in srgb, var(--contrast) 12%, transparent);
+  --sp-shell-border-strong: color-mix(in srgb, var(--accent) 20%, transparent);
+  --sp-shell-shadow-rest: var(--sp-shadow-1);
+  --sp-shell-shadow-hover: var(--sp-shadow-2);
+  --sp-shell-page-top: color-mix(in srgb, var(--accent) 4%, white);
+  --sp-shell-page-bottom: color-mix(in srgb, var(--accent) 8%, white);
+  --sp-shell-page-glow: color-mix(in srgb, var(--sp-brand-payment, var(--accent)) 12%, transparent);
+  --sp-shell-glass-fill: color-mix(
+    in srgb,
+    white 86%,
+    color-mix(in srgb, var(--accent) 14%, white)
+  );
+  --sp-shell-glass-border: color-mix(in srgb, var(--accent) 14%, transparent);
+  --sp-shell-nav-hover-bg: color-mix(in srgb, white 76%, var(--sp-brand-payment, var(--accent)) 24%);
+  --sp-shell-nav-hover-border: color-mix(in srgb, var(--sp-brand-payment, var(--accent)) 24%, transparent);
+  --sp-shell-nav-hover-ink: color-mix(in srgb, var(--sp-brand-payment, var(--accent)) 42%, var(--contrast) 58%);
+  --sp-shell-nav-current-bg: color-mix(in srgb, white 80%, var(--accent) 20%);
+  --sp-shell-nav-current-ink: color-mix(in srgb, var(--accent) 44%, var(--contrast) 56%);
+  --sp-shell-nav-cta-bg: color-mix(in srgb, white 86%, var(--accent) 14%);
+  --sp-shell-nav-cta-bg-hover: color-mix(in srgb, white 76%, var(--sp-brand-payment, var(--accent)) 24%);
+  --sp-nav-item-gap: 0.46rem;
+  --sp-nav-line-height: 1.08;
+  --sp-nav-anchor-height: 2.28rem;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+body {
+  background: var(--sp-shell-footer-bg);
+}
+
+body.sp-context-public {
+  background:
+    radial-gradient(circle at 84% -6%, var(--sp-shell-page-glow), transparent 34%),
+    linear-gradient(180deg, white 0%, var(--sp-shell-page-top) 42%, var(--sp-shell-page-bottom) 100%);
+}
+
+#page,
+.site,
+.site-content,
+.site-main,
+.site-footer,
+.footer-widgets,
+.site-info,
+.sp-shell--app,
+.sp-shell--console,
+.sp-plugin-shell--app,
+.sp-plugin-shell--console,
+.sp-plugin-shell--request,
+.sp-plugin-shell--patient,
+.sp-plugin-shell--doctor-account,
+.sp-plugin-shell--doctor-catalog {
+  width: 100%;
+  max-width: 100%;
+}
+
+body.sp-context-public .site-content {
+  background: transparent;
+}
+
+.site-header,
+#masthead {
+  border-top: 4px solid var(--sp-shell-header-accent) !important;
+}
+
+#masthead {
+  position: sticky;
+  top: 0;
+  z-index: 1200;
+  background: color-mix(in srgb, var(--sp-shell-glass-fill) 78%, transparent);
+  border-bottom: 1px solid var(--sp-shell-glass-border);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+  box-shadow: 0 18px 40px -32px color-mix(in srgb, var(--contrast) 26%, transparent);
+}
+
+.site-header,
+#masthead,
+#masthead .inside-header,
+#masthead #site-navigation,
+#masthead #site-navigation .inside-navigation {
+  background-color: transparent !important;
+}
+
+body.admin-bar #masthead {
+  top: 32px;
+}
+
+.inside-header,
+#site-navigation .inside-navigation,
+.site-info .inside-site-info {
+  width: 100%;
+  max-width: var(--sp-shell-frame-max) !important;
+  margin-inline: auto !important;
+  padding-inline: var(--sp-shell-frame-gutter) !important;
+  box-sizing: border-box;
+}
+
+#masthead .inside-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  min-height: 46px;
+}
+
+#site-navigation .inside-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-block: 0 !important;
+  min-height: 46px;
+}
+
+.main-navigation {
+  min-width: 0;
+}
+
+.main-navigation .main-nav > ul,
+.main-navigation .main-nav > div > ul,
+.main-navigation .menu {
+  display: flex;
+  align-items: center;
+  gap: 0.18rem;
+  min-height: var(--sp-nav-anchor-height);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.main-navigation .main-nav > ul > li,
+.main-navigation .main-nav > div > ul > li,
+.main-navigation .menu > li {
+  display: flex;
+  align-items: center;
+  min-height: var(--sp-nav-anchor-height);
+  margin: 0;
+}
+
+.main-navigation .main-nav > ul > li > a,
+.main-navigation .main-nav > div > ul > li > a,
+.main-navigation .menu > li > a,
+.main-navigation .main-nav > ul > li.current-menu-item > a,
+.main-navigation .main-nav > div > ul > li.current-menu-item > a,
+.main-navigation .menu > li.current-menu-item > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--sp-nav-anchor-height);
+  padding: 0.4rem 0.84rem !important;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sp-color-text-2, var(--contrast));
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.012em;
+  line-height: var(--sp-nav-line-height) !important;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition:
+    color var(--sp-motion-base) var(--sp-ease-standard),
+    background-color var(--sp-motion-base) var(--sp-ease-standard),
+    border-color var(--sp-motion-base) var(--sp-ease-standard),
+    box-shadow var(--sp-motion-base) var(--sp-ease-standard),
+    transform var(--sp-motion-fast) var(--sp-ease-press);
+}
+
+.main-navigation .main-nav > ul > li > a:hover,
+.main-navigation .main-nav > div > ul > li > a:hover,
+.main-navigation .menu > li > a:hover,
+.main-navigation .main-nav > ul > li > a:focus-visible,
+.main-navigation .main-nav > div > ul > li > a:focus-visible,
+.main-navigation .menu > li > a:focus-visible {
+  color: var(--sp-shell-nav-hover-ink);
+  background: var(--sp-shell-nav-hover-bg);
+  border-color: var(--sp-shell-nav-hover-border);
+  box-shadow: 0 10px 24px -24px color-mix(in srgb, var(--sp-brand-payment, var(--accent)) 40%, transparent);
+}
+
+.main-navigation .main-nav > ul > li.current-menu-item > a,
+.main-navigation .main-nav > div > ul > li.current-menu-item > a,
+.main-navigation .menu > li.current-menu-item > a {
+  color: var(--sp-shell-nav-current-ink);
+  background: var(--sp-shell-nav-current-bg);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.main-navigation .main-nav > ul > li.sp-nav-button,
+.main-navigation .main-nav > div > ul > li.sp-nav-button,
+.main-navigation .menu > li.sp-nav-button {
+  margin-inline-start: 0.1rem;
+}
+
+.main-navigation .main-nav > ul > li.sp-nav-button > a,
+.main-navigation .main-nav > div > ul > li.sp-nav-button > a,
+.main-navigation .menu > li.sp-nav-button > a,
+.main-navigation .main-nav > ul > li.sp-nav-button.current-menu-item > a,
+.main-navigation .main-nav > div > ul > li.sp-nav-button.current-menu-item > a,
+.main-navigation .main-nav > ul > li.current-menu-item.sp-nav-button > a,
+.main-navigation .main-nav > div > ul > li.current-menu-item.sp-nav-button > a,
+.main-navigation .menu > li.sp-nav-button.current-menu-item > a,
+.main-navigation .menu > li.current-menu-item.sp-nav-button > a {
+  min-height: 2.32rem;
+  padding: 0.42rem 0.94rem !important;
+  background: var(--sp-shell-nav-cta-bg);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 12px 28px -26px color-mix(in srgb, var(--contrast) 38%, transparent);
+  color: var(--sp-shell-nav-current-ink);
+}
+
+.main-navigation .main-nav > ul > li.sp-nav-button > a:hover,
+.main-navigation .main-nav > div > ul > li.sp-nav-button > a:hover,
+.main-navigation .menu > li.sp-nav-button > a:hover,
+.main-navigation .main-nav > ul > li.sp-nav-button > a:focus-visible,
+.main-navigation .main-nav > div > ul > li.sp-nav-button > a:focus-visible,
+.main-navigation .menu > li.sp-nav-button > a:focus-visible {
+  background: var(--sp-shell-nav-cta-bg-hover);
+  border-color: var(--sp-shell-nav-hover-border);
+  color: var(--sp-shell-nav-hover-ink);
+  transform: translateY(-1px);
+}
+
+.main-navigation a .sp-nav-item__label,
+.main-navigation .menu a .sp-nav-item__label,
+.sp-app-menu__link .sp-nav-item__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-nav-item-gap);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.main-navigation a .sp-nav-item__text,
+.main-navigation .menu a .sp-nav-item__text,
+.sp-app-menu__link .sp-nav-item__text,
+.main-navigation a .sp-nav-item__icon,
+.main-navigation .menu a .sp-nav-item__icon,
+.sp-app-menu__link .sp-nav-item__icon {
+  line-height: 1;
+}
+
+.main-navigation a .sp-nav-item__icon,
+.main-navigation .menu a .sp-nav-item__icon,
+.sp-app-menu__link .sp-nav-item__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  color: currentColor;
+  flex: 0 0 auto;
+}
+
+.main-navigation a .sp-nav-item__icon svg,
+.main-navigation .menu a .sp-nav-item__icon svg,
+.sp-app-menu__link .sp-nav-item__icon svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+}
+
+body.sp-context-public .inside-header a[rel="home"],
+body.sp-context-public .site-logo a,
+body.sp-context-public .site-title a {
+  color: color-mix(in srgb, var(--accent) 46%, var(--contrast) 54%);
+  text-decoration: none;
+}
+
+body.sp-context-public .inside-header a[rel="home"]:hover,
+body.sp-context-public .site-logo a:hover,
+body.sp-context-public .site-title a:hover,
+body.sp-context-public .inside-header a[rel="home"]:focus-visible,
+body.sp-context-public .site-logo a:focus-visible,
+body.sp-context-public .site-title a:focus-visible {
+  color: var(--sp-shell-nav-hover-ink);
+}
+
+.site-footer,
+#colophon,
+.footer-widgets,
+.site-info {
+  background: transparent;
+}
+
+.site-info {
+  border-top: 1px solid var(--sp-shell-border);
+}
+
+.site-info,
+.site-info a {
+  color: var(--contrast-2, var(--sp-color-text-3));
+}
+
+.site-info .inside-site-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem 0.75rem;
+  min-height: 4rem;
+  text-align: center;
+  font-size: clamp(0.82rem, 0.3vw + 0.76rem, 0.9rem);
+}
+
+.site-info a {
+  text-decoration: none;
+}
+
+.site-info a:hover,
+.site-info a:focus-visible {
+  color: var(--contrast);
+}
+
+.sp-card,
+.sp-price-card,
+.sp-step-card,
+.sp-trust-card,
+.sp-proof-item,
+.sp-widget-card,
+.sp-final-cta-card,
+.sp-faq-item,
+.sp-modal-security__dialog,
+.sp-modal-security__diagram-wrap,
+.sp-button,
+.sp-btn,
+.wp-element-button,
+.button {
+  border-radius: var(--sp-shell-radius);
+}
+
+.sp-card,
+.sp-price-card,
+.sp-step-card,
+.sp-trust-card,
+.sp-proof-item,
+.sp-widget-card,
+.sp-final-cta-card,
+.sp-faq-item {
+  transition:
+    transform var(--sp-motion-base) var(--sp-ease-standard),
+    box-shadow var(--sp-motion-base) var(--sp-ease-standard),
+    border-color var(--sp-motion-base) var(--sp-ease-standard);
+}
+
+.sp-card:hover,
+.sp-price-card:hover,
+.sp-step-card:hover,
+.sp-trust-card:hover,
+.sp-proof-item:hover,
+.sp-widget-card:hover,
+.sp-final-cta-card:hover,
+.sp-faq-item:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--sp-shell-shadow-hover);
+}
+
+.sp-pricing-widget {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.sp-pricing-widget__item {
+  display: grid;
+  gap: 0.2rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--sp-shell-border);
+}
+
+.sp-pricing-widget__item:last-of-type {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.sp-pricing-widget__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sp-pricing-widget__label {
+  color: var(--contrast);
+  font-weight: 700;
+}
+
+.sp-pricing-widget__value {
+  color: var(--contrast);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.sp-pricing-widget__meta {
+  margin: 0;
+  color: var(--sp-color-text-3);
+  font-size: var(--sp-text-sm);
+  line-height: 1.45;
+}
+
+.sp-pricing-widget__meta--muted {
+  color: var(--contrast-2, var(--sp-color-text-3));
+  font-size: 0.82rem;
+}
+
+.sp-pricing-widget__item--priority .sp-pricing-widget__label,
+.sp-pricing-widget__item--priority .sp-pricing-widget__value {
+  color: color-mix(in srgb, var(--sp-brand-priority) 72%, var(--contrast) 28%);
+}
+
+.sp-pricing-widget__foot {
+  margin: 0;
+  padding-top: 0.15rem;
+  color: var(--sp-color-text-3);
+  font-size: var(--sp-text-sm);
+  font-weight: 700;
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  #masthead {
+    background: color-mix(in srgb, white 92%, var(--sp-shell-page-top));
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --sp-shell-frame-gutter: 20px;
+  }
+}
+
+@media (max-width: 782px) {
+  body.admin-bar #masthead {
+    top: 46px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --sp-shell-frame-gutter: 16px;
+  }
+
+  #masthead .inside-header,
+  #site-navigation .inside-navigation {
+    min-height: 48px;
+  }
+
+  .site-info .inside-site-info {
+    min-height: 3.5rem;
+  }
+
+  .main-navigation .main-nav > ul > li.sp-nav-button > a,
+  .main-navigation .main-nav > div > ul > li.sp-nav-button > a,
+  .main-navigation .menu > li.sp-nav-button > a {
+    border-radius: var(--sp-radius-md);
+  }
+}
+
+
+/* --- V2.5.2 · Iconographie sacrée / console = stethoscope · compte médecin = shield-plus --- */
+.sp-nav-item__label--console .sp-nav-item__icon svg,
+.sp-app-menu__link .sp-nav-item__label--console .sp-nav-item__icon svg {
+  transform: translateY(0.01em);
+}
+
+.sp-nav-item__label--doctor-account .sp-nav-item__icon svg,
+.sp-app-menu__link .sp-nav-item__label--doctor-account .sp-nav-item__icon svg {
+  transform: translateY(-0.01em);
+}
+
+/* --- V4.8.1 · Diamond Grade shell chrome, workspace élargi et confort pro --- */
+#masthead {
+  background: var(--sp-glass-surface);
+  border-bottom: var(--sp-border-hairline);
+  -webkit-backdrop-filter: var(--sp-glass-effect);
+  backdrop-filter: var(--sp-glass-effect);
+  box-shadow: var(--sp-shadow-premium);
+}
+
+.main-navigation .main-nav > ul > li > a,
+.main-navigation .main-nav > div > ul > li > a,
+.main-navigation .menu > li > a,
+.main-navigation .main-nav > ul > li.current-menu-item > a,
+.main-navigation .main-nav > div > ul > li.current-menu-item > a,
+.main-navigation .menu > li.current-menu-item > a {
+  border: var(--sp-border-hairline);
+  background: color-mix(in srgb, var(--sp-color-surface) 52%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.main-navigation .main-nav > ul > li > a:active,
+.main-navigation .main-nav > div > ul > li > a:active,
+.main-navigation .menu > li > a:active {
+  transform: scale(0.98);
+}
