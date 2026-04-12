@@ -5,6 +5,7 @@
   const verifyLinkEndpoint = toSafeString(config.verifyLinkEndpoint);
   const draftResendEndpoint = toSafeString(config.draftResendEndpoint);
   const redirects = typeof config.redirects === 'object' && config.redirects ? config.redirects : {};
+  const requestStartUrl = toSafeString(config.requestStartUrl);
 
   function toSafeString(value) {
     return typeof value === 'string' ? value : '';
@@ -102,11 +103,12 @@
       return;
     }
 
-    feedback.classList.remove('sp-alert--info', 'sp-alert--success', 'sp-alert--error');
+    feedback.hidden = false;
+    feedback.classList.remove('sp-alert--info', 'sp-alert--success', 'sp-alert--warning', 'sp-alert--error');
     feedback.classList.add(`sp-alert--${variant}`);
 
-    const titleNode = feedback.querySelector('.sp-alert__title');
-    const bodyNode = feedback.querySelector('.sp-alert__body');
+    const titleNode = feedback.querySelector('.sp-alert__title, .sp-app-notice__title');
+    const bodyNode = feedback.querySelector('.sp-alert__body, [data-sp-auth-feedback-body="1"]');
 
     if (titleNode) {
       titleNode.textContent = title;
@@ -116,13 +118,102 @@
     }
   }
 
-  function findFeedbackForForm(form) {
+  function findRequestSurface(form) {
     if (!form) {
       return null;
     }
 
-    const container = form.closest('.sp-stack');
-    return container ? container.querySelector('[data-sp-auth-feedback]') : null;
+    return form.closest('[data-sp-auth-surface="1"]')
+      || form.closest('.sp-app-stack')
+      || form.closest('.sp-stack')
+      || form.parentElement
+      || null;
+  }
+
+  function findFeedbackForForm(form) {
+    const surface = findRequestSurface(form);
+    return surface ? surface.querySelector('[data-sp-auth-feedback]') : null;
+  }
+
+  function findUnknownEmailBlock(form) {
+    const surface = findRequestSurface(form);
+    return surface ? surface.querySelector('[data-sp-auth-unknown-email="1"]') : null;
+  }
+
+  function showRequestFeedback(form) {
+    const feedback = findFeedbackForForm(form);
+    if (feedback) {
+      feedback.hidden = false;
+    }
+
+    const unknownEmailBlock = findUnknownEmailBlock(form);
+    if (unknownEmailBlock) {
+      unknownEmailBlock.hidden = true;
+    }
+
+    return feedback;
+  }
+
+  function showUnknownEmailFallback(form) {
+    const feedback = findFeedbackForForm(form);
+    if (feedback) {
+      feedback.hidden = true;
+    }
+
+    const unknownEmailBlock = findUnknownEmailBlock(form);
+    if (!unknownEmailBlock) {
+      return;
+    }
+
+    const titleNode = unknownEmailBlock.querySelector('.sp-app-notice__title');
+    const bodyNode = unknownEmailBlock.querySelector('p:not(.sp-app-notice__title)');
+    const actionNode = unknownEmailBlock.querySelector('a, button');
+
+    if (titleNode) {
+      titleNode.textContent = getString('requestNotFoundTitle', 'E-mail non reconnu ?');
+    }
+    if (bodyNode) {
+      bodyNode.textContent = getString('requestNotFoundBody', "Si vous n'avez pas encore passé de commande, commencez par ici.");
+    }
+    if (actionNode && actionNode.tagName === 'A' && requestStartUrl) {
+      actionNode.setAttribute('href', requestStartUrl);
+      actionNode.textContent = getString('requestNotFoundAction', 'Commencer une demande');
+    }
+
+    unknownEmailBlock.hidden = false;
+
+    const focusTarget = unknownEmailBlock.querySelector('a, button');
+    if (focusTarget && typeof focusTarget.focus === 'function') {
+      focusTarget.focus();
+    }
+  }
+
+  function isPatientEntryForm(form) {
+    return Boolean(form && form.dataset && form.dataset.spAuthVariant === 'patient-entry');
+  }
+
+  function isNotFoundPayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return false;
+    }
+
+    const code = toSafeString(payload.code).trim().toLowerCase();
+    return payload.not_found === true
+      || payload.sent === false
+      || code === 'sosprescription_auth_email_not_found'
+      || code === 'ml_auth_email_not_found';
+  }
+
+  function isNotFoundError(error) {
+    if (!error) {
+      return false;
+    }
+
+    if (typeof error.status === 'number' && error.status === 404) {
+      return true;
+    }
+
+    return isNotFoundPayload(error.payload);
   }
 
   function setButtonBusy(button, busy, idleLabel) {
@@ -158,8 +249,8 @@
 
         const emailInput = form.querySelector('input[name="email"]');
         const submitButton = form.querySelector('[data-sp-auth-submit="1"]');
-        const feedback = findFeedbackForForm(form);
         const email = emailInput ? String(emailInput.value || '').trim().toLowerCase() : '';
+        const feedback = showRequestFeedback(form);
 
         if (!isEmailLike(email)) {
           updateAlert(
@@ -183,7 +274,13 @@
         );
 
         try {
-          await postJson(requestLinkEndpoint, { email });
+          const payload = await postJson(requestLinkEndpoint, { email });
+
+          if (isPatientEntryForm(form) && isNotFoundPayload(payload)) {
+            showUnknownEmailFallback(form);
+            return;
+          }
+
           updateAlert(
             feedback,
             'success',
@@ -192,6 +289,11 @@
           );
           form.reset();
         } catch (error) {
+          if (isPatientEntryForm(form) && isNotFoundError(error)) {
+            showUnknownEmailFallback(form);
+            return;
+          }
+
           updateAlert(
             feedback,
             'error',

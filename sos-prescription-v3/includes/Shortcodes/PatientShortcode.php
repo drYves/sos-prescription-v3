@@ -29,11 +29,7 @@ final class PatientShortcode
         if (!is_user_logged_in()) {
             AuthMagicLinkUi::enqueue_assets();
 
-            return AuthMagicLinkUi::render_request_screen(
-                'patient',
-                'Connexion patient',
-                'Saisissez votre adresse e-mail pour recevoir un lien de connexion sécurisé vers votre espace patient.'
-            );
+            return AuthMagicLinkUi::render_patient_request_screen();
         }
 
         Assets::enqueue_form_app();

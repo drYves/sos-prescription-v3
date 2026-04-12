@@ -37,7 +37,6 @@ import { handleMedicationSearchRequest } from "./medicationSearchController";
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
-const MAX_TWILIO_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 const RESPONSE_REQ_ID_SYMBOL = Symbol("sosprescription.response_req_id");
 
@@ -50,16 +49,6 @@ type ErrorResponseBody = {
   message?: string;
   req_id?: string;
   schema_version?: string;
-};
-
-type TwilioFormValue = string | string[];
-type TwilioFormParams = Record<string, TwilioFormValue>;
-
-type TwilioDialTarget = {
-  prescriptionId: string;
-  doctorId: string;
-  phoneNumber: string;
-  codeFingerprint: string;
 };
 
 type PostgresApprovalRepo = JobsRepo;
@@ -302,10 +291,6 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
         return await handleStripeWebhook(req, res, deps);
       }
 
-      if (method === "POST" && path === "/webhooks/twilio/incoming") {
-        return await handleTwilioIncomingWebhook(req, res, deps);
-      }
-
       if (method === "POST" && path === "/api/v2/auth/request-link") {
         return await handleAuthRequestLink(req, res, deps, signingSecret, authService, mailService);
       }
@@ -486,22 +471,15 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
       return sendJson(res, 404, { ok: false, code: "NOT_FOUND" }, signingSecret);
     } catch (err: unknown) {
       const reqId = getResponseReqId(res);
-      const method = req.method ?? "GET";
-      const path = getRequestPathname(req.url);
       deps.logger.error(
         "pulse.unhandled_error",
         {
-          method,
+          method: req.method ?? "GET",
           path: req.url ?? "/",
         },
         reqId,
         err,
       );
-
-      if (isTwilioIncomingWebhookRequest(method, path)) {
-        return sendUnsignedXml(res, 500, buildTwilioTechnicalErrorTwiml());
-      }
-
       return sendJson(res, 500, { ok: false, code: "INTERNAL_ERROR", req_id: reqId }, signingSecret);
     }
   });
@@ -1437,8 +1415,11 @@ async function handleAuthRequestLink(
         {
           ok: true,
           schema_version: CURRENT_SCHEMA_VERSION,
-          sent: true,
-          expires_in: 900,
+          sent: false,
+          not_found: true,
+          code: "ML_AUTH_EMAIL_NOT_FOUND",
+          message: "Adresse e-mail inconnue.",
+          owner_match: lookup.status,
           req_id: reqId,
         },
         signingSecret,
@@ -3119,302 +3100,6 @@ async function handlePrescriptionReject(
     deps.logger.error("ingest.reject_failed", { reason: message }, reqId, err);
     return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
   }
-}
-
-async function handleTwilioIncomingWebhook(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  deps: PulseServerDeps,
-): Promise<void> {
-  const reqId = getResponseReqId(res);
-
-  try {
-    let rawBody: Buffer;
-    try {
-      rawBody = await readRawBody(req, MAX_TWILIO_WEBHOOK_BODY_BYTES);
-    } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : "ML_BODY_READ_FAILED";
-      deps.logger.warning("twilio.webhook.bad_body", { reason }, reqId, err);
-      return sendUnsignedXml(res, 500, buildTwilioTechnicalErrorTwiml());
-    }
-
-    const formParams = parseTwilioFormParams(rawBody);
-    const requestUrl = buildTwilioRequestUrl(req, deps.workerPublicBaseUrl);
-    const signatureHeader = normalizeOptionalString(getHeaderValue(req.headers["x-twilio-signature"])) ?? "";
-    const authToken = normalizeOptionalString(process.env.TWILIO_AUTH_TOKEN);
-
-    if (authToken) {
-      const signatureOk = validateTwilioFormSignature(authToken, signatureHeader, requestUrl, formParams);
-      if (!signatureOk) {
-        deps.logger.warning("twilio.webhook.rejected", { reason: "bad_signature" }, reqId);
-        return sendPlainText(res, 403, "Forbidden");
-      }
-    } else {
-      // TODO(v5.7.2): stocker le token Twilio en configuration applicative lorsqu'il ne sera plus uniquement fourni par l'environnement.
-      deps.logger.warning("twilio.webhook.signature_skipped", { reason: "missing_auth_token_todo" }, reqId);
-    }
-
-    const callSid = flattenTwilioParam(formParams.CallSid) ?? "";
-    const caller = flattenTwilioParam(formParams.From) ?? "";
-    const digits = normalizeTwilioDigits(flattenTwilioParam(formParams.Digits));
-
-    if (digits === "") {
-      deps.logger.info(
-        "twilio.webhook.gather",
-        {
-          call_sid: callSid,
-          caller: maskPhoneForLog(caller),
-        },
-        reqId,
-      );
-      return sendUnsignedXml(res, 200, buildTwilioGatherTwiml(requestUrl));
-    }
-
-    if (!/^\d{6}$/.test(digits)) {
-      deps.logger.warning(
-        "twilio.webhook.unavailable",
-        {
-          reason: "invalid_digits",
-          call_sid: callSid,
-          caller: maskPhoneForLog(caller),
-          code_fingerprint: fingerprintPublicId(digits),
-        },
-        reqId,
-      );
-      return sendUnsignedXml(res, 200, buildTwilioUnavailableTwiml());
-    }
-
-    const target = await resolveTwilioDialTargetByCode(digits);
-    if (!target) {
-      deps.logger.warning(
-        "twilio.webhook.unavailable",
-        {
-          reason: "doctor_not_reachable",
-          call_sid: callSid,
-          caller: maskPhoneForLog(caller),
-          code_fingerprint: fingerprintPublicId(digits),
-        },
-        reqId,
-      );
-      return sendUnsignedXml(res, 200, buildTwilioUnavailableTwiml());
-    }
-
-    deps.logger.info(
-      "twilio.webhook.dial",
-      {
-        call_sid: callSid,
-        caller: maskPhoneForLog(caller),
-        prescription_id: target.prescriptionId,
-        doctor_id: target.doctorId,
-        target: maskPhoneForLog(target.phoneNumber),
-        code_fingerprint: target.codeFingerprint,
-      },
-      reqId,
-    );
-
-    return sendUnsignedXml(res, 200, buildTwilioDialTwiml(target.phoneNumber));
-  } catch (err: unknown) {
-    const reason = err instanceof Error ? err.message : "ML_TWILIO_WEBHOOK_FAILED";
-    deps.logger.error("twilio.webhook.failed", { reason }, reqId, err);
-    return sendUnsignedXml(res, 500, buildTwilioTechnicalErrorTwiml());
-  }
-}
-
-function parseTwilioFormParams(rawBody: Buffer): TwilioFormParams {
-  const params = new URLSearchParams(rawBody.toString("utf8"));
-  const out: TwilioFormParams = {};
-
-  for (const [key, value] of params) {
-    const current = out[key];
-    if (current === undefined) {
-      out[key] = value;
-      continue;
-    }
-
-    if (Array.isArray(current)) {
-      current.push(value);
-      continue;
-    }
-
-    out[key] = [current, value];
-  }
-
-  return out;
-}
-
-function flattenTwilioParam(value: TwilioFormValue | undefined): string | null {
-  if (Array.isArray(value)) {
-    return value[0] ?? null;
-  }
-
-  return typeof value === "string" ? value : null;
-}
-
-function validateTwilioFormSignature(
-  authToken: string,
-  signatureHeader: string,
-  requestUrl: string,
-  params: TwilioFormParams,
-): boolean {
-  if (signatureHeader.trim() === "") {
-    return false;
-  }
-
-  const expected = buildTwilioFormSignature(authToken, requestUrl, params);
-  return timingSafeEqualText(expected, signatureHeader.trim());
-}
-
-function buildTwilioFormSignature(
-  authToken: string,
-  requestUrl: string,
-  params: TwilioFormParams,
-): string {
-  let payload = requestUrl;
-  const keys = Object.keys(params).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-
-  for (const key of keys) {
-    const rawValue = params[key];
-    const values = Array.isArray(rawValue)
-      ? [...rawValue].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-      : [rawValue];
-
-    for (const value of values) {
-      payload += `${key}${value}`;
-    }
-  }
-
-  return crypto.createHmac("sha1", authToken).update(payload, "utf8").digest("base64");
-}
-
-function buildTwilioRequestUrl(req: http.IncomingMessage, configuredBaseUrl?: string): string {
-  const rawUrl = typeof req.url === "string" && req.url.trim() !== ""
-    ? req.url
-    : "/webhooks/twilio/incoming";
-  if (/^https?:\/\//i.test(rawUrl)) {
-    return rawUrl;
-  }
-
-  const baseUrl = resolvePublicBaseUrl(req, configuredBaseUrl).replace(/\/+$/g, "");
-  const suffix = rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
-  return `${baseUrl}${suffix}`;
-}
-
-function normalizeTwilioDigits(value: string | null): string {
-  if (!value) {
-    return "";
-  }
-
-  return value.replace(/\D+/g, "").trim();
-}
-
-async function resolveTwilioDialTargetByCode(
-  code: string,
-): Promise<TwilioDialTarget | null> {
-  const prisma = getPulsePrismaClient();
-
-  // Le code de délivrance métier est actuellement stocké dans Prescription.verifyCode.
-  // Le numéro personnel du médecin est actuellement stocké dans Doctor.phone.
-  const prescription = await prisma.prescription.findFirst({
-    where: {
-      verifyCode: code,
-      doctorId: { not: null },
-    },
-    orderBy: [
-      { updatedAt: "desc" },
-      { createdAt: "desc" },
-    ],
-    include: {
-      doctor: {
-        select: {
-          id: true,
-          phone: true,
-          deletedAt: true,
-        },
-      },
-    },
-  });
-
-  if (!prescription?.doctor || prescription.doctor.deletedAt) {
-    return null;
-  }
-
-  const phoneNumber = normalizeTwilioPhoneValue(prescription.doctor.phone ?? "");
-  if (!isTwilioCallablePhoneNumber(phoneNumber)) {
-    return null;
-  }
-
-  return {
-    prescriptionId: prescription.id,
-    doctorId: prescription.doctor.id,
-    phoneNumber,
-    codeFingerprint: fingerprintPublicId(code),
-  };
-}
-
-function isTwilioCallablePhoneNumber(value: string): boolean {
-  return /^[+]?\d{6,15}$/.test(value);
-}
-
-function normalizeTwilioPhoneValue(value: unknown): string {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) {
-    return "";
-  }
-
-  let phone = normalized.replace(/[\s\-\.\(\)]+/g, "");
-  if (phone.startsWith("00")) {
-    phone = `+${phone.slice(2)}`;
-  }
-
-  phone = phone.replace(/(?!^\+)[^0-9]/g, "");
-  return phone.trim();
-}
-
-function buildTwilioGatherTwiml(actionUrl: string): string {
-  const prompt = "Bienvenue sur la ligne médicale sécurisée. Veuillez saisir le code de délivrance à 6 chiffres présent sur votre ordonnance, suivi de la touche dièse.";
-  const fallbackMessage = "Désolé, nous ne parvenons pas à joindre le médecin pour ce dossier. Veuillez utiliser la messagerie sécurisée de votre espace patient.";
-
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="dtmf" numDigits="6" finishOnKey="#" timeout="10" method="POST" action="${escapeXml(actionUrl)}"><Say>${escapeXml(prompt)}</Say></Gather><Say>${escapeXml(fallbackMessage)}</Say></Response>`;
-}
-
-function buildTwilioDialTwiml(phoneNumber: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial>${escapeXml(phoneNumber)}</Dial></Response>`;
-}
-
-function buildTwilioUnavailableTwiml(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml("Désolé, nous ne parvenons pas à joindre le médecin pour ce dossier. Veuillez utiliser la messagerie sécurisée de votre espace patient.")}</Say></Response>`;
-}
-
-function buildTwilioTechnicalErrorTwiml(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml("La ligne médicale sécurisée est momentanément indisponible. Veuillez réessayer plus tard.")}</Say></Response>`;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function timingSafeEqualText(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(left, right);
-}
-
-function maskPhoneForLog(value: string): string {
-  const digits = value.replace(/\D+/g, "");
-  if (digits.length <= 4) {
-    return digits;
-  }
-
-  return `${digits.slice(0, 2)}***${digits.slice(-2)}`;
 }
 
 async function handleStripeWebhook(
@@ -5300,48 +4985,6 @@ function sendUnsignedJson(
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", data.length);
   res.end(data);
-}
-
-function sendUnsignedXml(
-  res: http.ServerResponse,
-  status: number,
-  body: string,
-  extraHeaders?: Record<string, string>,
-): void {
-  const data = Buffer.from(body, "utf8");
-
-  res.statusCode = status;
-  applyApiResponseHeaders(res, extraHeaders);
-  res.setHeader("Content-Type", "text/xml; charset=utf-8");
-  res.setHeader("Content-Length", data.length);
-  res.end(data);
-}
-
-function sendPlainText(
-  res: http.ServerResponse,
-  status: number,
-  body: string,
-  extraHeaders?: Record<string, string>,
-): void {
-  const data = Buffer.from(body, "utf8");
-
-  res.statusCode = status;
-  applyApiResponseHeaders(res, extraHeaders);
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Content-Length", data.length);
-  res.end(data);
-}
-
-function getRequestPathname(rawUrl: string | undefined): string {
-  try {
-    return new URL(rawUrl ?? "/", "http://localhost").pathname;
-  } catch {
-    return rawUrl ?? "/";
-  }
-}
-
-function isTwilioIncomingWebhookRequest(method: string, path: string): boolean {
-  return method === "POST" && path === "/webhooks/twilio/incoming";
 }
 
 function buildResponseSignature(payloadBytes: Buffer, secret: string): string {

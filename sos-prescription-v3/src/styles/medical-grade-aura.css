@@ -1973,3 +1973,70 @@ a.sp-app-button.sp-app-button--primary:hover {
     white-space: normal;
   }
 }
+
+.sp-auth-entry {
+  gap: 20px;
+}
+
+.sp-auth-entry__grid {
+  align-items: stretch;
+}
+
+.sp-auth-entry__panel {
+  height: 100%;
+  padding: clamp(1.25rem, 1.1rem + 0.6vw, 1.75rem);
+}
+
+.sp-auth-entry__panel--new {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-color-accent-soft, #eff6ff) 42%, #ffffff 58%), var(--sp-color-surface, #ffffff));
+  border-color: var(--sp-app-accent-border);
+}
+
+.sp-auth-entry__panel-body {
+  height: 100%;
+  justify-content: flex-start;
+}
+
+.sp-auth-entry__eyebrow {
+  margin: 0;
+}
+
+.sp-auth-entry__text {
+  margin: 0;
+  color: var(--sp-app-text-soft);
+  line-height: 1.7;
+}
+
+.sp-auth-entry__form {
+  margin: 0;
+}
+
+.sp-auth-entry__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sp-auth-entry__status,
+.sp-auth-entry__fallback {
+  margin: 0;
+}
+
+.sp-auth-entry__fallback p {
+  margin: 0;
+}
+
+.sp-auth-entry__fallback .sp-auth-entry__actions {
+  margin-top: 4px;
+}
+
+.sp-auth-entry__status[hidden],
+.sp-auth-entry__fallback[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .sp-auth-entry__panel {
+    padding: 1.25rem;
+  }
+}

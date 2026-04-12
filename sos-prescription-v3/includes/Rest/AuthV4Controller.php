@@ -75,7 +75,27 @@ final class AuthV4Controller extends \WP_REST_Controller
                 'auth_v4_request_link'
             );
 
-            return $this->to_rest_response($workerPayload, 200, $reqId);
+            $responseReqId = $reqId;
+            if (isset($workerPayload['req_id']) && is_scalar($workerPayload['req_id']) && trim((string) $workerPayload['req_id']) !== '') {
+                $responseReqId = trim((string) $workerPayload['req_id']);
+            }
+
+            $notFound = (isset($workerPayload['not_found']) && $workerPayload['not_found'] === true)
+                || (array_key_exists('sent', $workerPayload) && $workerPayload['sent'] === false);
+
+            if ($notFound) {
+                return new WP_Error(
+                    'sosprescription_auth_email_not_found',
+                    'Adresse e-mail inconnue.',
+                    [
+                        'status' => 404,
+                        'req_id' => $responseReqId,
+                        'not_found' => true,
+                    ]
+                );
+            }
+
+            return $this->to_rest_response($workerPayload, 200, $responseReqId);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
