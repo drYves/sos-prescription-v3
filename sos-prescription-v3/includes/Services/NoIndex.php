@@ -22,6 +22,7 @@ final class NoIndex
         'sosprescription_patient',
         'sosprescription_admin',
         'sosprescription_doctor_account',
+        'sosprescription_magic_redirect',
     ];
 
     public static function register_hooks(): void

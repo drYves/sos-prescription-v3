@@ -1,22 +1,112 @@
 (() => {
-  const cfg = window.SOSPrescriptionAuthMagicLink || {};
-  const strings = cfg.strings || {};
-  const redirects = cfg.redirects || {};
+  const config = window.SOSPrescriptionAuthMagicLink || {};
+  const strings = config.strings || {};
+  const requestLinkEndpoint = toSafeString(config.requestLinkEndpoint);
+  const verifyLinkEndpoint = toSafeString(config.verifyLinkEndpoint);
+  const draftResendEndpoint = toSafeString(config.draftResendEndpoint);
+  const redirects = typeof config.redirects === 'object' && config.redirects ? config.redirects : {};
 
-  function text(value, fallback) {
-    return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
+  function toSafeString(value) {
+    return typeof value === 'string' ? value : '';
   }
 
-  function setFeedback(node, title, body, variant) {
-    if (!(node instanceof HTMLElement)) {
+  function getString(key, fallback) {
+    const value = strings[key];
+    return typeof value === 'string' && value.trim() !== '' ? value : fallback;
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function isEmailLike(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim().toLowerCase());
+  }
+
+  async function readJson(response) {
+    const text = await response.text();
+    if (!text) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { message: text };
+    }
+  }
+
+  async function postJson(url, payload) {
+    if (!url) {
+      throw new Error('endpoint_missing');
+    }
+
+    const response = await window.fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    });
+
+    const data = await readJson(response);
+    if (!response.ok) {
+      const error = new Error(
+        typeof data.message === 'string' && data.message.trim() !== ''
+          ? data.message.trim()
+          : `http_${response.status}`
+      );
+      error.payload = data;
+      error.status = response.status;
+      throw error;
+    }
+
+    return data && typeof data === 'object' ? data : {};
+  }
+
+  function getTokenFromUrl() {
+    try {
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get('token');
+      return typeof token === 'string' ? token.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function resolveRedirectUrl(payload) {
+    const redirectTo = toSafeString(payload && payload.redirect_to).trim();
+    if (redirectTo) {
+      return redirectTo;
+    }
+
+    const role = toSafeString(payload && payload.role).trim().toLowerCase();
+    if (role === 'doctor' && toSafeString(redirects.doctor)) {
+      return toSafeString(redirects.doctor);
+    }
+    if (role === 'patient' && toSafeString(redirects.patient)) {
+      return toSafeString(redirects.patient);
+    }
+
+    return toSafeString(redirects.default) || '/';
+  }
+
+  function updateAlert(feedback, variant, title, body) {
+    if (!feedback) {
       return;
     }
 
-    node.classList.remove('sp-alert--info', 'sp-alert--success', 'sp-alert--warning', 'sp-alert--error');
-    node.classList.add(`sp-alert--${variant || 'info'}`);
+    feedback.classList.remove('sp-alert--info', 'sp-alert--success', 'sp-alert--error');
+    feedback.classList.add(`sp-alert--${variant}`);
 
-    const titleNode = node.querySelector('.sp-alert__title');
-    const bodyNode = node.querySelector('.sp-alert__body');
+    const titleNode = feedback.querySelector('.sp-alert__title');
+    const bodyNode = feedback.querySelector('.sp-alert__body');
 
     if (titleNode) {
       titleNode.textContent = title;
@@ -26,169 +116,443 @@
     }
   }
 
-  async function postJson(url, payload) {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify(payload || {}),
-    });
-
-    let data = null;
-    try {
-      data = await response.json();
-    } catch (_err) {
-      data = null;
+  function findFeedbackForForm(form) {
+    if (!form) {
+      return null;
     }
 
-    if (!response.ok) {
-      const message = data && typeof data.message === 'string' ? data.message : 'Erreur de connexion.';
-      throw new Error(message);
-    }
-
-    return data || {};
+    const container = form.closest('.sp-stack');
+    return container ? container.querySelector('[data-sp-auth-feedback]') : null;
   }
 
-  function bindRequestForms() {
+  function setButtonBusy(button, busy, idleLabel) {
+    if (!button) {
+      return;
+    }
+
+    if (!button.dataset.spIdleLabel) {
+      button.dataset.spIdleLabel = idleLabel || button.textContent || '';
+    }
+
+    button.disabled = Boolean(busy);
+    if (busy) {
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = getString('submitLabelBusy', 'Envoi…');
+      return;
+    }
+
+    button.removeAttribute('aria-busy');
+    button.textContent = button.dataset.spIdleLabel || idleLabel || '';
+  }
+
+  function initRequestForms() {
     const forms = document.querySelectorAll('[data-sp-auth-request-form="1"]');
     forms.forEach((form) => {
-      if (!(form instanceof HTMLFormElement) || form.dataset.spBound === '1') {
+      if (form.dataset.spMagicReady === '1') {
         return;
       }
-
-      form.dataset.spBound = '1';
-      const submitButton = form.querySelector('[data-sp-auth-submit="1"]');
-      const feedback = form.parentElement ? form.parentElement.querySelector('[data-sp-auth-feedback]') : null;
-      const emailInput = form.querySelector('input[name="email"]');
+      form.dataset.spMagicReady = '1';
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
 
-        const email = emailInput instanceof HTMLInputElement ? emailInput.value.trim() : '';
-        if (!email) {
-          setFeedback(
+        const emailInput = form.querySelector('input[name="email"]');
+        const submitButton = form.querySelector('[data-sp-auth-submit="1"]');
+        const feedback = findFeedbackForForm(form);
+        const email = emailInput ? String(emailInput.value || '').trim().toLowerCase() : '';
+
+        if (!isEmailLike(email)) {
+          updateAlert(
             feedback,
-            text(strings.requestErrorTitle, 'Envoi impossible'),
-            'Merci de renseigner une adresse e-mail valide.',
             'error',
+            getString('requestErrorTitle', 'Envoi impossible'),
+            getString('magicEmailInvalid', 'Merci de renseigner une adresse e-mail valide.')
           );
+          if (emailInput) {
+            emailInput.focus();
+          }
           return;
         }
 
-        if (submitButton instanceof HTMLButtonElement) {
-          submitButton.disabled = true;
-          submitButton.dataset.originalLabel = submitButton.textContent || '';
-          submitButton.textContent = text(strings.submitLabelBusy, 'Envoi…');
-        }
-
-        setFeedback(
+        setButtonBusy(submitButton, true, submitButton ? submitButton.textContent : '');
+        updateAlert(
           feedback,
-          text(strings.requestSendingTitle, 'Envoi en cours…'),
-          text(strings.requestSendingBody, 'Nous préparons votre lien de connexion sécurisé.'),
           'info',
+          getString('requestSendingTitle', 'Envoi en cours…'),
+          getString('requestSendingBody', 'Nous préparons votre lien de connexion sécurisé.')
         );
 
         try {
-          await postJson(cfg.requestLinkEndpoint, { email });
-          setFeedback(
+          await postJson(requestLinkEndpoint, { email });
+          updateAlert(
             feedback,
-            text(strings.requestSuccessTitle, 'Lien de connexion envoyé'),
-            text(strings.requestSuccessBody, 'Un lien de connexion vous a été envoyé par e-mail.'),
             'success',
+            getString('requestSuccessTitle', 'Lien de connexion envoyé'),
+            getString('requestSuccessBody', 'Un lien de connexion vous a été envoyé par e-mail.')
           );
+          form.reset();
         } catch (error) {
-          setFeedback(
+          updateAlert(
             feedback,
-            text(strings.requestErrorTitle, 'Envoi impossible'),
-            error instanceof Error && error.message ? error.message : text(strings.requestErrorBody, 'Le lien de connexion n’a pas pu être envoyé pour le moment.'),
             'error',
+            getString('requestErrorTitle', 'Envoi impossible'),
+            extractErrorMessage(error, getString('requestErrorBody', 'Le lien de connexion n’a pas pu être envoyé pour le moment.'))
           );
         } finally {
-          if (submitButton instanceof HTMLButtonElement) {
-            submitButton.disabled = false;
-            submitButton.textContent = submitButton.dataset.originalLabel || submitButton.textContent || 'Recevoir un lien de connexion';
-          }
+          setButtonBusy(submitButton, false, submitButton ? submitButton.textContent : '');
         }
       });
     });
   }
 
-  async function bindVerifyScreen() {
-    const verifyRoot = document.querySelector('[data-sp-auth-verify="1"]');
-    if (!(verifyRoot instanceof HTMLElement) || verifyRoot.dataset.spBound === '1') {
-      return;
-    }
+  function initLegacyVerifyScreens() {
+    const roots = document.querySelectorAll('[data-sp-auth-verify="1"]');
+    roots.forEach((root) => {
+      if (root.dataset.spMagicReady === '1') {
+        return;
+      }
+      root.dataset.spMagicReady = '1';
 
-    verifyRoot.dataset.spBound = '1';
-    const feedback = verifyRoot.querySelector('[data-sp-auth-feedback="verify"]');
-    const params = new URLSearchParams(window.location.search);
-    const token = (params.get('token') || '').trim();
-
-    if (!token) {
-      setFeedback(
-        feedback,
-        text(strings.missingTokenTitle, 'Lien incomplet'),
-        text(strings.missingTokenBody, 'Le token de connexion est manquant dans l’URL.'),
-        'error',
-      );
-      return;
-    }
-
-    setFeedback(
-      feedback,
-      text(strings.verifyLoadingTitle, 'Vérification du lien'),
-      text(strings.verifyLoadingBody, 'Connexion sécurisée en cours…'),
-      'info',
-    );
-
-    try {
-      const payload = await postJson(cfg.verifyLinkEndpoint, { token });
-      if (!payload || payload.valid !== true) {
-        setFeedback(
+      const feedback = root.querySelector('[data-sp-auth-feedback="verify"]');
+      const token = getTokenFromUrl();
+      if (!token) {
+        updateAlert(
           feedback,
-          text(strings.verifyInvalidTitle, 'Lien invalide ou expiré'),
-          text(strings.verifyInvalidBody, 'Le lien de connexion est invalide, expiré ou déjà utilisé.'),
           'error',
+          getString('missingTokenTitle', 'Lien incomplet'),
+          getString('missingTokenBody', 'Le token de connexion est manquant dans l’URL.')
         );
         return;
       }
 
-      setFeedback(
-        feedback,
-        text(strings.verifySuccessTitle, 'Connexion établie'),
-        text(strings.verifySuccessBody, 'Votre session sécurisée est prête. Redirection en cours…'),
-        'success',
-      );
+      verifyMagicLink(token)
+        .then((payload) => {
+          if (payload && payload.valid === true) {
+            updateAlert(
+              feedback,
+              'success',
+              getString('verifySuccessTitle', 'Connexion établie'),
+              getString('verifySuccessBody', 'Votre session sécurisée est prête. Redirection en cours…')
+            );
+            window.location.replace(resolveRedirectUrl(payload));
+            return;
+          }
 
-      const target = (typeof payload.redirect_to === 'string' && payload.redirect_to.trim() !== '')
-        ? payload.redirect_to.trim()
-        : (typeof redirects[payload.role] === 'string' && redirects[payload.role].trim() !== ''
-          ? redirects[payload.role].trim()
-          : text(redirects.default, '/'));
-
-      window.setTimeout(() => {
-        window.location.assign(target);
-      }, 300);
-    } catch (_error) {
-      setFeedback(
-        feedback,
-        text(strings.verifyErrorTitle, 'Vérification impossible'),
-        text(strings.verifyErrorBody, 'La connexion sécurisée est temporairement indisponible.'),
-        'error',
-      );
-    }
+          updateAlert(
+            feedback,
+            'error',
+            getString('verifyInvalidTitle', 'Lien invalide ou expiré'),
+            getString('verifyInvalidBody', 'Le lien de connexion est invalide, expiré ou déjà utilisé.')
+          );
+        })
+        .catch(() => {
+          updateAlert(
+            feedback,
+            'error',
+            getString('verifyErrorTitle', 'Vérification impossible'),
+            getString('verifyErrorBody', 'La connexion sécurisée est temporairement indisponible.')
+          );
+        });
+    });
   }
 
-  function boot() {
-    bindRequestForms();
-    void bindVerifyScreen();
+  async function verifyMagicLink(token) {
+    return postJson(verifyLinkEndpoint, { token });
+  }
+
+  function renderMagicCard(card, options) {
+    const title = escapeHtml(options.title || '');
+    const text = escapeHtml(options.text || '');
+    const hint = escapeHtml(options.hint || '');
+    const spinnerHtml = options.spinner
+      ? '<div class="sp-magic-redirect__spinner" aria-hidden="true"></div>'
+      : `<div class="sp-magic-redirect__icon${options.error ? ' sp-magic-redirect__icon--error' : ''}" aria-hidden="true">${escapeHtml(options.icon || '•')}</div>`;
+    const bodyHtml = options.bodyHtml || '';
+    const actionsHtml = options.actionsHtml || '';
+
+    card.innerHTML = [
+      spinnerHtml,
+      `<h1 class="sp-magic-redirect__title">${title}</h1>`,
+      `<p class="sp-magic-redirect__text">${text}</p>`,
+      bodyHtml,
+      actionsHtml,
+      hint ? `<p class="sp-magic-redirect__hint">${hint}</p>` : ''
+    ].join('');
+  }
+
+  function renderMagicLoading(card, title, text, hint) {
+    renderMagicCard(card, {
+      spinner: true,
+      title,
+      text,
+      hint,
+    });
+  }
+
+  function renderMagicMessage(card, title, text, hint, extra) {
+    renderMagicCard(card, {
+      spinner: false,
+      icon: extra && extra.icon ? extra.icon : '•',
+      error: Boolean(extra && extra.error),
+      title,
+      text,
+      hint,
+      actionsHtml: extra && extra.actionsHtml ? extra.actionsHtml : '',
+      bodyHtml: extra && extra.bodyHtml ? extra.bodyHtml : '',
+    });
+  }
+
+  function baseActionsHtml(includeReturnHome) {
+    if (!includeReturnHome) {
+      return '';
+    }
+
+    return `<div class="sp-magic-redirect__actions"><a class="sp-magic-redirect__button sp-magic-redirect__button--secondary" href="${escapeHtml(toSafeString(redirects.default) || '/')}">${escapeHtml(getString('magicReturnHomeLabel', 'Retour à l’accueil'))}</a></div>`;
+  }
+
+  function buildInvalidActionsHtml() {
+    return [
+      '<div class="sp-magic-redirect__actions">',
+      `<button type="button" class="sp-magic-redirect__button" data-sp-magic-resend="1">${escapeHtml(getString('magicResendButton', 'Demander un nouveau lien'))}</button>`,
+      `<a class="sp-magic-redirect__button sp-magic-redirect__button--secondary" href="${escapeHtml(toSafeString(redirects.default) || '/')}">${escapeHtml(getString('magicReturnHomeLabel', 'Retour à l’accueil'))}</a>`,
+      '</div>'
+    ].join('');
+  }
+
+  function buildEmailCaptureBodyHtml() {
+    return [
+      '<div class="sp-magic-redirect__field">',
+      `<label class="sp-magic-redirect__label" for="sp-magic-email">${escapeHtml(getString('magicEmailLabel', 'Adresse e-mail'))}</label>`,
+      `<input class="sp-magic-redirect__input" id="sp-magic-email" type="email" inputmode="email" autocomplete="email" placeholder="${escapeHtml(getString('magicEmailPlaceholder', 'vous@exemple.fr'))}" data-sp-magic-email-input="1" />`,
+      '</div>',
+      '<div class="sp-magic-redirect__actions">',
+      `<button type="button" class="sp-magic-redirect__button" data-sp-magic-submit-email="1">${escapeHtml(getString('magicEmailSubmit', 'Recevoir un nouveau lien'))}</button>`,
+      `<button type="button" class="sp-magic-redirect__button sp-magic-redirect__button--secondary" data-sp-magic-cancel-email="1">${escapeHtml(getString('magicReturnHomeLabel', 'Retour à l’accueil'))}</button>`,
+      '</div>'
+    ].join('');
+  }
+
+  function extractErrorMessage(error, fallback) {
+    if (error && typeof error.message === 'string' && error.message.trim() !== '') {
+      return error.message.trim();
+    }
+    return fallback;
+  }
+
+  function initMagicRedirectScreens() {
+    const roots = document.querySelectorAll('[data-sp-magic-redirect="1"]');
+    roots.forEach((root) => {
+      if (root.dataset.spMagicReady === '1') {
+        return;
+      }
+      root.dataset.spMagicReady = '1';
+
+      const card = root.querySelector('.sp-magic-redirect__card');
+      if (!card) {
+        return;
+      }
+
+      const token = getTokenFromUrl();
+      let knownEmail = '';
+      let knownDraftRef = '';
+      let slowTimer = null;
+
+      const clearSlowTimer = () => {
+        if (slowTimer) {
+          window.clearTimeout(slowTimer);
+          slowTimer = null;
+        }
+      };
+
+      const showTechnicalError = (message) => {
+        clearSlowTimer();
+        renderMagicMessage(
+          card,
+          getString('magicTechnicalTitle', 'Connexion temporairement indisponible'),
+          message || getString('magicTechnicalBody', 'Merci de réessayer dans quelques instants.'),
+          '',
+          {
+            error: true,
+            icon: '!',
+            actionsHtml: baseActionsHtml(true),
+          }
+        );
+      };
+
+      const showResendSuccess = () => {
+        renderMagicMessage(
+          card,
+          getString('magicResendSuccessTitle', 'Lien de connexion envoyé'),
+          getString('magicResendSuccessBody', 'Un nouveau lien vient de vous être envoyé. Vérifiez votre e-mail pour reprendre votre dossier.'),
+          '',
+          {
+            icon: '✓',
+            actionsHtml: baseActionsHtml(true),
+          }
+        );
+      };
+
+      const sendNewLink = async (email, draftRef) => {
+        const normalizedEmail = String(email || '').trim().toLowerCase();
+        if (!isEmailLike(normalizedEmail)) {
+          showTechnicalError(getString('magicEmailInvalid', 'Merci de renseigner une adresse e-mail valide.'));
+          return;
+        }
+
+        renderMagicLoading(
+          card,
+          getString('magicResendSending', 'Nouvel envoi en cours…'),
+          getString('requestSendingBody', 'Nous préparons votre lien de connexion sécurisé.'),
+          ''
+        );
+
+        try {
+          if (String(draftRef || '').trim() && draftResendEndpoint) {
+            await postJson(draftResendEndpoint, {
+              draft_ref: String(draftRef).trim(),
+              email: normalizedEmail,
+            });
+          } else {
+            await postJson(requestLinkEndpoint, { email: normalizedEmail });
+          }
+
+          showResendSuccess();
+        } catch (error) {
+          renderMagicMessage(
+            card,
+            getString('magicResendErrorTitle', 'Envoi impossible'),
+            extractErrorMessage(error, getString('magicResendErrorBody', 'Le nouveau lien n’a pas pu être envoyé pour le moment.')),
+            '',
+            {
+              error: true,
+              icon: '!',
+              actionsHtml: buildInvalidActionsHtml(),
+            }
+          );
+          bindInvalidActions();
+        }
+      };
+
+      const showEmailCapture = () => {
+        renderMagicMessage(
+          card,
+          getString('magicMissingEmailTitle', 'Adresse e-mail nécessaire'),
+          getString('magicMissingEmailBody', 'Merci de saisir votre adresse e-mail pour recevoir un nouveau lien.'),
+          '',
+          {
+            icon: '@',
+            bodyHtml: buildEmailCaptureBodyHtml(),
+          }
+        );
+
+        const emailInput = card.querySelector('[data-sp-magic-email-input="1"]');
+        const submitButton = card.querySelector('[data-sp-magic-submit-email="1"]');
+        const cancelButton = card.querySelector('[data-sp-magic-cancel-email="1"]');
+
+        if (emailInput && knownEmail) {
+          emailInput.value = knownEmail;
+        }
+
+        if (cancelButton) {
+          cancelButton.addEventListener('click', () => {
+            window.location.assign(toSafeString(redirects.default) || '/');
+          });
+        }
+
+        if (submitButton) {
+          submitButton.addEventListener('click', () => {
+            const emailValue = emailInput ? String(emailInput.value || '').trim().toLowerCase() : '';
+            knownEmail = emailValue;
+            void sendNewLink(emailValue, knownDraftRef);
+          });
+        }
+      };
+
+      const bindInvalidActions = () => {
+        const resendButton = card.querySelector('[data-sp-magic-resend="1"]');
+        if (!resendButton) {
+          return;
+        }
+
+        resendButton.addEventListener('click', () => {
+          if (knownEmail) {
+            void sendNewLink(knownEmail, knownDraftRef);
+            return;
+          }
+
+          showEmailCapture();
+        });
+      };
+
+      const showInvalidState = () => {
+        renderMagicMessage(
+          card,
+          getString('magicInvalidTitle', 'Lien invalide'),
+          getString('magicInvalidBody', 'Ce lien n’est plus valide ou a expiré. Vous pouvez demander un nouveau lien pour reprendre votre dossier.'),
+          getString('magicInvalidHint', 'Le nouveau lien sera envoyé à la même adresse e-mail lorsqu’elle est disponible.'),
+          {
+            error: true,
+            icon: '!',
+            actionsHtml: buildInvalidActionsHtml(),
+          }
+        );
+        bindInvalidActions();
+      };
+
+      if (!token) {
+        showInvalidState();
+        return;
+      }
+
+      slowTimer = window.setTimeout(() => {
+        const hint = card.querySelector('.sp-magic-redirect__hint');
+        if (hint) {
+          hint.textContent = getString('magicSlowHint', 'Merci de patienter, la connexion sécurisée prend un peu plus de temps que prévu.');
+        }
+      }, 5000);
+
+      verifyMagicLink(token)
+        .then((payload) => {
+          clearSlowTimer();
+
+          if (payload && payload.valid === true) {
+            renderMagicMessage(
+              card,
+              getString('verifySuccessTitle', 'Connexion établie'),
+              getString('verifySuccessBody', 'Votre session sécurisée est prête. Redirection en cours…'),
+              '',
+              {
+                icon: '✓',
+              }
+            );
+            window.location.replace(resolveRedirectUrl(payload));
+            return;
+          }
+
+          knownEmail = toSafeString(payload && payload.email).trim().toLowerCase();
+          knownDraftRef = toSafeString(payload && payload.draft_ref).trim();
+          showInvalidState();
+        })
+        .catch(() => {
+          clearSlowTimer();
+          showTechnicalError(getString('magicTechnicalBody', 'Merci de réessayer dans quelques instants.'));
+        });
+    });
+  }
+
+  function init() {
+    if (!window.fetch) {
+      return;
+    }
+
+    initRequestForms();
+    initLegacyVerifyScreens();
+    initMagicRedirectScreens();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot, { once: true });
+    document.addEventListener('DOMContentLoaded', init, { once: true });
   } else {
-    boot();
+    init();
   }
 })();

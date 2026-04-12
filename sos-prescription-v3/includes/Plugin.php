@@ -35,6 +35,7 @@ use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
 use SosPrescription\Shortcodes\DoctorAccountShortcode;
 use SosPrescription\Shortcodes\FormShortcode;
+use SosPrescription\Shortcodes\MagicRedirectShortcode;
 use SosPrescription\Shortcodes\PatientShortcode;
 use SosPrescription\Shortcodes\PricingShortcode;
 use SosPrescription\Frontend\VerificationPage;
@@ -292,6 +293,7 @@ final class Plugin
         DoctorAccountShortcode::register();
         BdpmTableShortcode::register();
         PricingShortcode::register();
+        MagicRedirectShortcode::register();
     }
 
     private static function is_sosprescription_rest_route($route): bool

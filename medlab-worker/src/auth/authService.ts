@@ -300,17 +300,17 @@ export class AuthService {
         const allowsPendingPatient = row.ownerRole === ActorRole.PATIENT && ownerWpUserId == null;
 
         if (row.used || row.expiresAt.getTime() <= now.getTime()) {
-          return buildInvalidConsumeResult(row.email);
+          return buildInvalidConsumeResult(row.email, normalizeMagicLinkMetadata(row.meta));
         }
 
         if (!allowsPendingPatient) {
           if (ownerWpUserId == null || ownerWpUserId <= 0) {
-            return buildInvalidConsumeResult(row.email);
+            return buildInvalidConsumeResult(row.email, normalizeMagicLinkMetadata(row.meta));
           }
 
           const ownerIsActive = await doesAuthTokenOwnerStillExist(tx, row.ownerRole, ownerWpUserId);
           if (!ownerIsActive) {
-            return buildInvalidConsumeResult(row.email);
+            return buildInvalidConsumeResult(row.email, normalizeMagicLinkMetadata(row.meta));
           }
         }
 
@@ -326,7 +326,7 @@ export class AuthService {
         });
 
         if (updated.count !== 1) {
-          return buildInvalidConsumeResult(row.email);
+          return buildInvalidConsumeResult(row.email, normalizeMagicLinkMetadata(row.meta));
         }
 
         const ownerRole = row.ownerRole === ActorRole.DOCTOR ? ActorRole.DOCTOR : ActorRole.PATIENT;
@@ -567,13 +567,13 @@ function fingerprint(value: string): string {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, 12);
 }
 
-function buildInvalidConsumeResult(email = ""): ConsumeMagicLinkResult {
+function buildInvalidConsumeResult(email = "", metadata: MagicLinkMetadata | null = null): ConsumeMagicLinkResult {
   return {
     valid: false,
     email: normalizeEmail(email),
     ownerRole: null,
     ownerWpUserId: null,
-    metadata: null,
+    metadata,
   };
 }
 

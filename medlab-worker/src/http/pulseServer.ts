@@ -91,6 +91,7 @@ interface SubmissionDraftRequestBody {
   flow?: unknown;
   priority?: unknown;
   redirect_to?: unknown;
+  verify_url?: unknown;
   idempotency_key?: unknown;
 }
 
@@ -139,6 +140,7 @@ interface AuthRequestLinkRequestBody {
   site_id?: unknown;
   nonce?: unknown;
   email?: unknown;
+  verify_url?: unknown;
 }
 
 interface AuthVerifyLinkRequestBody {
@@ -754,6 +756,7 @@ async function handleSubmissionDraftCreate(
     const flowKey = normalizeSubmissionFlow(body.flow);
     const priority = normalizeSubmissionPriority(body.priority);
     const redirectTo = normalizeOptionalRedirectTo(body.redirect_to);
+    const verifyUrl = normalizeOptionalMagicLinkVerifyUrl(body.verify_url);
     const idempotencyKey = normalizeSubmissionIdempotencyKey(body.idempotency_key);
 
     const draftResult = await submissionRepo.createDraftSubmission({
@@ -790,6 +793,7 @@ async function handleSubmissionDraftCreate(
         email,
         token: issued.token,
         expiresAt: issued.expiresAt,
+        verifyBaseUrl: verifyUrl || undefined,
       },
       reqId,
     );
@@ -1391,6 +1395,7 @@ async function handleAuthRequestLink(
   try {
     const body = parsedBody.body as AuthRequestLinkRequestBody;
     const email = normalizeMagicLinkRequestEmail(body.email);
+    const verifyUrl = normalizeOptionalMagicLinkVerifyUrl(body.verify_url);
     const lookup = await authService.lookupOwnerByEmail(email, reqId);
 
     if (lookup.status !== "matched" || !lookup.candidate) {
@@ -1429,6 +1434,7 @@ async function handleAuthRequestLink(
         email: lookup.candidate.email,
         token: issued.token,
         expiresAt: issued.expiresAt,
+        verifyBaseUrl: verifyUrl || undefined,
       },
       reqId,
     );
@@ -1482,6 +1488,16 @@ async function handleAuthRequestLink(
       );
     }
 
+    if (err instanceof Error && /(required|invalid)$/i.test(err.message)) {
+      deps.logger.warning("auth.request_link.failed", { code: "ML_MAGIC_LINK_BAD_REQUEST", reason: err.message }, reqId, err);
+      return sendJson(
+        res,
+        400,
+        { ok: false, code: "ML_MAGIC_LINK_BAD_REQUEST", req_id: reqId },
+        signingSecret,
+      );
+    }
+
     const message = err instanceof Error ? err.message : "auth_request_link_failed";
     deps.logger.error("auth.request_link.failed", { reason: message }, reqId, err);
     return sendJson(
@@ -1512,12 +1528,16 @@ async function handleAuthVerifyLink(
     const token = normalizeMagicLinkToken(body.token);
     const result = await authService.consumeMagicLink(token, reqId);
 
+    const draftRef = typeof result.metadata?.draft_ref === "string" ? result.metadata.draft_ref : "";
+    const redirectTo = typeof result.metadata?.redirect_to === "string" ? result.metadata.redirect_to : "";
+
     if (!result.valid || result.ownerRole == null) {
       deps.logger.info(
         "auth.verify_link.completed",
         {
           valid: false,
           token_fp: token !== "" ? fingerprintPublicId(token) : null,
+          has_draft_ref: draftRef !== "",
         },
         reqId,
       );
@@ -1529,6 +1549,9 @@ async function handleAuthVerifyLink(
           ok: true,
           schema_version: CURRENT_SCHEMA_VERSION,
           valid: false,
+          email: result.email || undefined,
+          draft_ref: draftRef || undefined,
+          redirect_to: redirectTo || undefined,
           req_id: reqId,
         },
         signingSecret,
@@ -1536,8 +1559,6 @@ async function handleAuthVerifyLink(
     }
 
     const publicRole = toPublicMagicLinkRole(result.ownerRole);
-    const draftRef = typeof result.metadata?.draft_ref === "string" ? result.metadata.draft_ref : "";
-    const redirectTo = typeof result.metadata?.redirect_to === "string" ? result.metadata.redirect_to : "";
 
     deps.logger.info(
       "auth.verify_link.completed",
@@ -4254,6 +4275,28 @@ function normalizeOptionalRedirectTo(value: unknown): string {
   }
 
   return normalized;
+}
+
+function normalizeOptionalMagicLinkVerifyUrl(value: unknown): string {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("verify_url is invalid");
+  }
+
+  const normalized = value.trim();
+  if (normalized === "" || normalized.length > 1024) {
+    throw new Error("verify_url is invalid");
+  }
+
+  const url = new URL(normalized);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("verify_url is invalid");
+  }
+
+  return url.toString();
 }
 
 function appendResumeDraftToRedirect(redirectTo: string, draftRef: string): string {

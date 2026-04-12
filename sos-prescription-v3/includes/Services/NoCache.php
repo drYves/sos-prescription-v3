@@ -22,6 +22,7 @@ final class NoCache {
         'sosprescription_form',
         'sosprescription_patient',
         'sosprescription_doctor_account',
+        'sosprescription_magic_redirect',
         'sosprescription_admin',
     ];
 

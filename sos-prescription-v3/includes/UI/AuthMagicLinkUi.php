@@ -39,6 +39,8 @@ final class AuthMagicLinkUi
         $config = [
             'requestLinkEndpoint' => esc_url_raw(rest_url('sosprescription/v4/auth/request-link')),
             'verifyLinkEndpoint' => esc_url_raw(rest_url('sosprescription/v4/auth/verify-link')),
+            'draftResendEndpoint' => esc_url_raw(rest_url('sosprescription/v4/submissions/draft/resend')),
+            'magicRedirectPageUrl' => esc_url_raw(home_url('/connexion-securisee/')),
             'redirects' => [
                 'patient' => esc_url_raw(home_url('/espace-patient/')),
                 'doctor' => esc_url_raw(home_url('/compte-medecin/')),
@@ -63,6 +65,25 @@ final class AuthMagicLinkUi
                 'missingTokenTitle' => 'Lien incomplet',
                 'missingTokenBody' => 'Le token de connexion est manquant dans l’URL.',
                 'submitLabelBusy' => 'Envoi…',
+                'magicSlowHint' => 'Merci de patienter, la connexion sécurisée prend un peu plus de temps que prévu.',
+                'magicInvalidTitle' => 'Lien invalide',
+                'magicInvalidBody' => 'Ce lien n’est plus valide ou a expiré. Vous pouvez demander un nouveau lien pour reprendre votre dossier.',
+                'magicInvalidHint' => 'Le nouveau lien sera envoyé à la même adresse e-mail lorsqu’elle est disponible.',
+                'magicResendButton' => 'Demander un nouveau lien',
+                'magicResendSending' => 'Nouvel envoi en cours…',
+                'magicResendSuccessTitle' => 'Lien de connexion envoyé',
+                'magicResendSuccessBody' => 'Un nouveau lien vient de vous être envoyé. Vérifiez votre e-mail pour reprendre votre dossier.',
+                'magicResendErrorTitle' => 'Envoi impossible',
+                'magicResendErrorBody' => 'Le nouveau lien n’a pas pu être envoyé pour le moment.',
+                'magicTechnicalTitle' => 'Connexion temporairement indisponible',
+                'magicTechnicalBody' => 'Merci de réessayer dans quelques instants.',
+                'magicReturnHomeLabel' => 'Retour à l’accueil',
+                'magicMissingEmailTitle' => 'Adresse e-mail nécessaire',
+                'magicMissingEmailBody' => 'Merci de saisir votre adresse e-mail pour recevoir un nouveau lien.',
+                'magicEmailLabel' => 'Adresse e-mail',
+                'magicEmailPlaceholder' => 'vous@exemple.fr',
+                'magicEmailSubmit' => 'Recevoir un nouveau lien',
+                'magicEmailInvalid' => 'Merci de renseigner une adresse e-mail valide.',
             ],
         ];
 
@@ -113,7 +134,7 @@ final class AuthMagicLinkUi
         $content .= '<div class="sp-stack" data-sp-auth-verify="1">';
         $content .= '<div class="sp-stack">';
         $content .= '<h1>Connexion sécurisée</h1>';
-        $content .= '<p>Nous vérifions votre lien magique et ouvrons votre session WordPress sécurisée.</p>';
+        $content .= '<p>Nous vérifions votre lien de connexion et ouvrons votre session sécurisée.</p>';
         $content .= '</div>';
         $content .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="verify">';
         $content .= '<p class="sp-alert__title">Vérification du lien</p>';

@@ -67,7 +67,10 @@ final class AuthV4Controller extends \WP_REST_Controller
         try {
             $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v2/auth/request-link',
-                ['email' => $email],
+                [
+                    'email' => $email,
+                    'verify_url' => $this->magic_redirect_url(),
+                ],
                 $reqId,
                 'auth_v4_request_link'
             );
@@ -134,17 +137,6 @@ final class AuthV4Controller extends \WP_REST_Controller
         }
 
         $valid = isset($workerPayload['valid']) && $workerPayload['valid'] === true;
-        if (!$valid) {
-            return $this->to_rest_response([
-                'ok' => true,
-                'valid' => false,
-                'message' => 'Lien de connexion invalide ou expiré.',
-                'req_id' => $responseReqId,
-            ], 200, $responseReqId);
-        }
-
-        $wpUserId = isset($workerPayload['wp_user_id']) ? (int) $workerPayload['wp_user_id'] : 0;
-        $role = isset($workerPayload['role']) && is_scalar($workerPayload['role']) ? strtolower(trim((string) $workerPayload['role'])) : '';
         $email = isset($workerPayload['email']) && is_scalar($workerPayload['email'])
             ? sanitize_email((string) $workerPayload['email'])
             : '';
@@ -154,6 +146,22 @@ final class AuthV4Controller extends \WP_REST_Controller
         $redirectTo = isset($workerPayload['redirect_to']) && is_scalar($workerPayload['redirect_to'])
             ? trim((string) $workerPayload['redirect_to'])
             : '';
+
+        if (!$valid) {
+            return $this->to_rest_response([
+                'ok' => true,
+                'valid' => false,
+                'message' => 'Lien de connexion invalide ou expiré.',
+                'email' => $email !== '' ? $email : null,
+                'draft_ref' => $draftRef !== '' ? $draftRef : null,
+                'redirect_to' => $redirectTo !== '' ? $this->normalize_redirect_to($redirectTo, $draftRef) : null,
+                'can_resend_draft' => $email !== '' && $draftRef !== '',
+                'req_id' => $responseReqId,
+            ], 200, $responseReqId);
+        }
+
+        $wpUserId = isset($workerPayload['wp_user_id']) ? (int) $workerPayload['wp_user_id'] : 0;
+        $role = isset($workerPayload['role']) && is_scalar($workerPayload['role']) ? strtolower(trim((string) $workerPayload['role'])) : '';
 
         if ($role !== 'doctor' && $role !== 'patient') {
             return new WP_Error(
@@ -336,6 +344,12 @@ final class AuthV4Controller extends \WP_REST_Controller
         $local = str_replace(['.', '_', '-'], ' ', $local);
         $local = preg_replace('/\s+/', ' ', $local) ?: $local;
         return ucwords(trim($local));
+    }
+
+    private function magic_redirect_url(): string
+    {
+        $url = esc_url_raw(home_url('/connexion-securisee/'));
+        return is_string($url) && trim($url) !== '' ? trim($url) : home_url('/connexion-securisee/');
     }
 
     private function get_worker_api_client(): WorkerApiClient

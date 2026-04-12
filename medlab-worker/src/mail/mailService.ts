@@ -65,6 +65,7 @@ export interface SendMagicLinkMailInput {
   email: string;
   token: string;
   expiresAt: Date;
+  verifyBaseUrl?: string;
 }
 
 export interface SendNewMessageNotificationInput {
@@ -171,7 +172,11 @@ export class MailService {
       throw new MailServiceError("ML_MAGIC_LINK_MAIL_BAD_REQUEST", 400, "magic_link_mail_input_invalid");
     }
 
-    const magicUrl = buildMagicUrl(this.verifyBaseUrl, token);
+    const verifyBaseUrl = normalizeBaseUrl(
+      normalizeOptionalString(input.verifyBaseUrl) || this.verifyBaseUrl,
+      this.verifyBaseUrl,
+    );
+    const magicUrl = buildMagicUrl(verifyBaseUrl, token);
     const ttlMinutes = Math.max(1, Math.ceil(Math.max(1, input.expiresAt.getTime() - Date.now()) / 60_000));
 
     return this.dispatchMail(
@@ -188,7 +193,7 @@ export class MailService {
         mockLogEvent: "mail.magic_link.mock_dispatched",
         errorLogEvent: "mail.magic_link.dispatch_failed",
         successLogContext: {
-          verify_host: safeHost(this.verifyBaseUrl),
+          verify_host: safeHost(verifyBaseUrl),
           ttl_minutes: ttlMinutes,
         },
       },
