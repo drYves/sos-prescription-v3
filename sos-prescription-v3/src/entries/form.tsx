@@ -192,6 +192,10 @@ type ArtifactAnalysis = {
   };
 };
 
+type SubmissionRefState = {
+  ref: string | null;
+};
+
 type FormWindow = Window & {
   SosPrescription?: AppConfig;
   SOSPrescription?: AppConfig;
@@ -680,7 +684,7 @@ async function analyzeArtifactApi(artifactId: string): Promise<ArtifactAnalysis>
         ? String((data as { message?: string }).message)
         : data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
           ? String((data as { code?: string }).code)
-          : 'Analyse IA impossible.';
+          : 'Lecture du document impossible.';
       throw new Error(message);
     }
 
@@ -694,7 +698,7 @@ async function analyzeArtifactApi(artifactId: string): Promise<ArtifactAnalysis>
     return (data || {}) as ArtifactAnalysis;
   } catch (error) {
     if (error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError') {
-      throw new Error('L’analyse automatique du document a expiré. Veuillez réessayer ou fournir un document plus net.');
+      throw new Error('Lecture du document impossible. Merci de réessayer avec un document plus lisible.');
     }
     throw error;
   } finally {
@@ -1352,6 +1356,52 @@ function toPatientSafeSubmissionErrorMessage(error: unknown): string {
   return 'Nous n’avons pas pu préparer votre demande pour le moment. Merci de réessayer.';
 }
 
+function toPatientSafeArtifactErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const message = raw.trim().toLowerCase();
+
+  if (!message) {
+    return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
+  }
+
+  if (
+    message.includes('upload')
+    || message.includes('ticket')
+    || message.includes('artefact')
+    || message.includes('cors')
+  ) {
+    return 'Le document n’a pas pu être envoyé. Merci de réessayer.';
+  }
+
+  if (
+    message.includes('lecture')
+    || message.includes('analyse')
+    || message.includes('document')
+    || message.includes('prescription')
+    || message.includes('expir')
+  ) {
+    return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
+  }
+
+  return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
+}
+
+function mergeRejectedFiles(current: File[], incoming: File[]): File[] {
+  const next = Array.isArray(current) ? current.slice() : [];
+  const seen = new Set(next.map((file) => `${file.name}::${file.size}::${file.lastModified}`));
+
+  for (const file of Array.isArray(incoming) ? incoming : []) {
+    const key = `${file.name}::${file.size}::${file.lastModified}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(file);
+  }
+
+  return next;
+}
+
 function buildSubmitBlockInfo(input: {
   loggedIn: boolean;
   flow: FlowType | null;
@@ -1416,6 +1466,13 @@ function buildSubmitBlockInfo(input: {
     });
   }
 
+  if (flow === 'ro_proof' && fileCount > 0 && itemCount < 1 && !input.analysisInProgress) {
+    reasons.push({
+      code: 'medication_detection_missing',
+      message: 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.',
+    });
+  }
+
   if (flow === 'depannage_no_proof' && itemCount < 1) {
     reasons.push({
       code: 'medication_missing',
@@ -1448,7 +1505,7 @@ function buildSubmitBlockInfo(input: {
   if (input.analysisInProgress) {
     reasons.push({
       code: 'analysis_in_progress',
-      message: 'Veuillez patienter pendant l’analyse du document.',
+      message: 'Analyse du document en cours...',
     });
   }
 
@@ -2114,6 +2171,9 @@ function StepClinicalData({
   onConsentPrivacyChange,
   onContinue,
 }: StepClinicalDataProps) {
+  const showMedicationSection = flow === 'depannage_no_proof'
+    || (flow === 'ro_proof' && files.length > 0 && !analysisInProgress && items.length > 0);
+
   return (
     <div className="sp-app-stack">
       <section className="sp-app-card">
@@ -2250,13 +2310,13 @@ function StepClinicalData({
                   document.getElementById('sp-evidence-input')?.click();
                 }}
               >
-                {analysisInProgress ? 'Import en cours…' : 'Ajouter un document'}
+                Ajouter un document
               </Button>
 
               {analysisInProgress ? (
                 <div className="sp-app-inline-status">
                   <Spinner />
-                  <span>Analyse automatique…</span>
+                  <span>Lecture du document en cours...</span>
                 </div>
               ) : null}
             </div>
@@ -2304,7 +2364,7 @@ function StepClinicalData({
               <Notice variant="warning">
                 <div className="sp-app-notice__title">Documents à vérifier</div>
                 <div className="sp-app-notice__text">
-                  Certains fichiers n’ont pas pu être exploités automatiquement.
+                  Certains documents n’ont pas pu être lus.
                 </div>
                 <div className="sp-app-tag-list">
                   {rejectedFiles.map((file, index) => (
@@ -2317,58 +2377,60 @@ function StepClinicalData({
         </section>
       ) : null}
 
-      <section className="sp-app-card">
-        <div className="sp-app-section__header">
-          <div>
-            <h2 className="sp-app-section__title">Traitement demandé</h2>
-            <p className="sp-app-section__hint">
-              Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
-            </p>
+      {showMedicationSection ? (
+        <section className="sp-app-card">
+          <div className="sp-app-section__header">
+            <div>
+              <h2 className="sp-app-section__title">Traitement demandé</h2>
+              <p className="sp-app-section__hint">
+                Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="sp-app-field sp-app-field--search">
-          <label className="sp-app-field__label">Médicament concerné</label>
-          <MedicationSearch onSelect={onAddMedication} disabled={!isLoggedIn} />
-        </div>
+          <div className="sp-app-field sp-app-field--search">
+            <label className="sp-app-field__label">Médicament concerné</label>
+            <MedicationSearch onSelect={onAddMedication} disabled={!isLoggedIn} />
+          </div>
 
-        {items.length > 0 ? (
-          <div className="sp-app-medication-list">
-            {items.map((item, index) => (
-              <div key={`${item.label}-${index}`} className="sp-app-medication-card sp-app-medication-card--stacked">
-                <div className="sp-app-medication-card__head">
-                  <div className="sp-app-medication-card__content">
-                    <div className="sp-app-medication-card__title">{item.label}</div>
-                    <div className="sp-app-medication-card__meta">
-                      {item.cis ? `CIS ${item.cis}` : ''}
-                      {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
+          {items.length > 0 ? (
+            <div className="sp-app-medication-list">
+              {items.map((item, index) => (
+                <div key={`${item.label}-${index}`} className="sp-app-medication-card sp-app-medication-card--stacked">
+                  <div className="sp-app-medication-card__head">
+                    <div className="sp-app-medication-card__content">
+                      <div className="sp-app-medication-card__title">{item.label}</div>
+                      <div className="sp-app-medication-card__meta">
+                        {item.cis ? `CIS ${item.cis}` : ''}
+                        {item.cip13 ? ` • CIP13 ${item.cip13}` : ''}
+                      </div>
+                    </div>
+
+                    <Button type="button" variant="secondary" onClick={() => onRemoveMedication(index)}>
+                      Retirer
+                    </Button>
+                  </div>
+
+                  <div className="sp-app-block">
+                    <div className="sp-app-field__label">Posologie</div>
+                    <ScheduleEditor
+                      value={item.schedule || {}}
+                      onChange={(nextSchedule) => {
+                        onUpdateMedication(index, { schedule: nextSchedule });
+                      }}
+                    />
+                    <div className="sp-app-field__hint">
+                      Les références du médicament sont conservées pour la vérification médicale et pharmaceutique.
                     </div>
                   </div>
-
-                  <Button type="button" variant="secondary" onClick={() => onRemoveMedication(index)}>
-                    Retirer
-                  </Button>
                 </div>
-
-                <div className="sp-app-block">
-                  <div className="sp-app-field__label">Posologie</div>
-                  <ScheduleEditor
-                    value={item.schedule || {}}
-                    onChange={(nextSchedule) => {
-                      onUpdateMedication(index, { schedule: nextSchedule });
-                    }}
-                  />
-                  <div className="sp-app-field__hint">
-                    Les références du médicament sont conservées pour la vérification médicale et pharmaceutique.
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="sp-app-empty">Aucun médicament ajouté pour le moment.</div>
-        )}
-      </section>
+              ))}
+            </div>
+          ) : (
+            <div className="sp-app-empty">Aucun médicament ajouté pour le moment.</div>
+          )}
+        </section>
+      ) : null}
 
       {flow === 'depannage_no_proof' ? (
         <section className="sp-app-card sp-app-card--attestation">
@@ -3135,6 +3197,7 @@ function PublicFormApp() {
   const [preparedSubmission, setPreparedSubmission] = useState<SubmissionResult | null>(null);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [copiedUid, setCopiedUid] = useState(false);
+  const submissionRefStateRef = useRef<SubmissionRefState>({ ref: null });
 
   const compliance = config.compliance || {};
   const consentRequired = Boolean(compliance.consent_required);
@@ -3305,16 +3368,111 @@ function PublicFormApp() {
     setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
-  const handleFilesSelected = useCallback((list: FileList | null) => {
-    if (!list || list.length === 0) {
+  const ensureSubmissionRef = useCallback(async (): Promise<string> => {
+    const currentRef = String(submissionRefStateRef.current.ref || '').trim();
+    if (currentRef) {
+      return currentRef;
+    }
+
+    if (!flow) {
+      throw new Error('Référence de soumission manquante.');
+    }
+
+    const initResponse = await createSubmissionApi({
+      flow,
+      priority,
+    });
+    const nextRef = String(initResponse?.submission_ref || '').trim();
+    if (!nextRef) {
+      throw new Error('Référence de soumission manquante.');
+    }
+
+    submissionRefStateRef.current = { ref: nextRef };
+    return nextRef;
+  }, [flow, priority]);
+
+  const handleFilesSelected = useCallback(async (list: FileList | null) => {
+    if (!list || list.length === 0 || flow !== 'ro_proof') {
       return;
     }
+
+    const nextUploads = Array.from(list).map(createLocalUpload);
+    if (nextUploads.length === 0) {
+      return;
+    }
+
     setSubmitError(null);
     setRejectedFiles([]);
-    setAnalysisMessage('Documents ajoutés. L’analyse automatique sera lancée lors de la soumission.');
-    const nextUploads = Array.from(list).map(createLocalUpload);
+    setAnalysisMessage(null);
     setFiles((current) => [...current, ...nextUploads]);
-  }, []);
+    setAnalysisInProgress(true);
+
+    const rejected: File[] = [];
+    let firstError: string | null = null;
+    let mergedInfo = false;
+
+    try {
+      const submissionRef = await ensureSubmissionRef();
+
+      for (const entry of nextUploads) {
+        try {
+          const uploaded = await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
+          const analysis = await analyzeArtifactApi(uploaded.id);
+          const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
+
+          if (Boolean(analysis && analysis.ok === false) || aiItems.length < 1) {
+            rejected.push(entry.file);
+            if (!firstError) {
+              firstError = toPatientSafeArtifactErrorMessage(
+                typeof analysis?.message === 'string' && analysis.message.trim() !== ''
+                  ? new Error(analysis.message.trim())
+                  : new Error('Lecture du document impossible.'),
+              );
+            }
+            continue;
+          }
+
+          mergedInfo = true;
+          setItems((current) => mergeMedicationItems(current, aiItems));
+          setFiles((current) => current.map((file) => (
+            file.id === entry.id
+              ? {
+                ...file,
+                status: 'READY',
+              }
+              : file
+          )));
+        } catch (error) {
+          rejected.push(entry.file);
+          if (!firstError) {
+            firstError = toPatientSafeArtifactErrorMessage(error);
+          }
+        }
+      }
+
+      setRejectedFiles((current) => mergeRejectedFiles(current, rejected));
+      if (mergedInfo) {
+        setAnalysisMessage('Traitement détecté et pré-rempli.');
+      } else {
+        setAnalysisMessage(null);
+      }
+
+      if (firstError) {
+        setSubmitError(firstError);
+      }
+    } catch (error) {
+      setRejectedFiles((current) => mergeRejectedFiles(current, nextUploads.map((entry) => entry.file)));
+      setAnalysisMessage(null);
+      const message = toPatientSafeSubmissionErrorMessage(error);
+      setSubmitError(
+        message.includes('connecter')
+          ? message
+          : 'Nous n’avons pas pu enregistrer votre document pour le moment. Merci de réessayer.',
+      );
+    } finally {
+      setAnalysisInProgress(false);
+    }
+  }, [ensureSubmissionRef, flow]);
 
   const resetToChoose = useCallback(() => {
     setStage('choose');
@@ -3336,6 +3494,7 @@ function PublicFormApp() {
     setPreparedSubmission(null);
     setSubmissionResult(null);
     setCopiedUid(false);
+    submissionRefStateRef.current = { ref: null };
     setAttestationNoProof(false);
     setConsentTelemedicine(false);
     setConsentTruth(false);
@@ -3364,6 +3523,7 @@ function PublicFormApp() {
     setSubmitError(null);
     setPreparedSubmission(null);
     setSubmissionResult(null);
+    submissionRefStateRef.current = { ref: null };
     setStage('form');
   }, []);
 
@@ -3427,124 +3587,9 @@ function PublicFormApp() {
     setSubmitLoading(true);
 
     try {
-      frontendLog('submission_init_start', 'info', {
-        flow,
-        priority,
-        meds_count: items.length,
-        files_count: files.length,
-      });
-
-      const initResponse = await createSubmissionApi({
-        flow,
-        priority,
-      });
-      const submissionRef = String(initResponse?.submission_ref || '').trim();
-      if (!submissionRef) {
-        throw new Error('Référence de soumission manquante.');
-      }
-
-      frontendLog('submission_init_ok', 'info', {
-        flow,
-        submission_ref_present: true,
-      });
+      const submissionRef = await ensureSubmissionRef();
 
       let finalItems = Array.isArray(items) ? items.slice() : [];
-
-      if (flow === 'ro_proof') {
-        const proofs = Array.isArray(files) ? files.filter((entry) => entry && entry.file instanceof File) : [];
-        const rejected: File[] = [];
-        const analysisErrors: string[] = [];
-        let recognizedCount = 0;
-        let mergedInfo = false;
-
-        setAnalysisInProgress(true);
-        setAnalysisMessage(null);
-        setRejectedFiles([]);
-        setSubmitError(null);
-
-        try {
-          for (const entry of proofs) {
-            try {
-              frontendLog('submission_artifact_start', 'debug', {
-                flow,
-                original_name: entry.file?.name ? String(entry.file.name) : 'upload.bin',
-              });
-
-              const uploaded = await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
-
-              frontendLog('submission_artifact_uploaded', 'info', {
-                flow,
-                artifact_id: uploaded.id,
-              });
-
-              const analysis = await analyzeArtifactApi(uploaded.id);
-              const analysisFailed = Boolean(analysis && analysis.ok === false);
-              const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
-              const recognized = Boolean(analysis && (analysis.is_prescription === true || aiItems.length > 0));
-
-              frontendLog('submission_artifact_analyzed', 'info', {
-                flow,
-                artifact_id: uploaded.id,
-                is_prescription: Boolean(analysis?.is_prescription === true),
-                medications_count: Array.isArray(analysis?.medications) ? analysis.medications.length : 0,
-              });
-
-              if (analysisFailed) {
-                rejected.push(entry.file);
-                analysisErrors.push(typeof analysis?.message === 'string' && analysis.message.trim()
-                  ? analysis.message.trim()
-                  : 'L’analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.');
-                continue;
-              }
-
-              if (recognized) {
-                recognizedCount += 1;
-                if (aiItems.length > 0) {
-                  finalItems = mergeMedicationItems(finalItems, aiItems);
-                  mergedInfo = true;
-                }
-              } else {
-                rejected.push(entry.file);
-              }
-            } catch (error) {
-              rejected.push(entry.file);
-              analysisErrors.push(error instanceof Error ? error.message : 'L’analyse automatique du document a échoué. Veuillez réessayer ou fournir un document plus net.');
-              frontendLog('submission_artifact_error', 'warning', {
-                flow,
-                message: error instanceof Error ? error.message : 'artifact_error',
-              });
-            }
-          }
-        } finally {
-          setAnalysisInProgress(false);
-        }
-
-        setRejectedFiles(rejected);
-        if (mergedInfo) {
-          setAnalysisMessage('✅ Document reconnu. Les médicaments ont été ajoutés automatiquement.');
-        } else if (recognizedCount > 0) {
-          setAnalysisMessage('✅ Document reconnu.');
-        }
-
-        if (analysisErrors.length > 0 && !submitError) {
-          setSubmitError(analysisErrors[0]);
-        }
-
-        if (finalItems.length > 0) {
-          setItems(finalItems);
-        }
-
-        if (recognizedCount < 1) {
-          frontendLog('submit_blocked', 'warning', {
-            flow,
-            stage,
-            reason_code: 'proof_upload_missing',
-            message: analysisErrors[0] || 'Aucun document exploitable n’a été accepté.',
-            files_count: files.length,
-          });
-          throw new Error(analysisErrors[0] || 'Aucun document exploitable n’a été accepté.');
-        }
-      }
 
       const finalizePayload = {
         flow,
@@ -3593,7 +3638,7 @@ function PublicFormApp() {
       if (!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) {
         throw new Error(
           flow === 'ro_proof'
-            ? 'Aucun médicament n’a pu être identifié. Merci d’importer un document plus net ou d’utiliser la saisie manuelle.'
+            ? 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.'
             : 'Merci d’ajouter au moins un médicament.',
         );
       }
@@ -3660,7 +3705,7 @@ function PublicFormApp() {
     priority,
     stage,
     submitBlockInfo,
-    submitError,
+    ensureSubmissionRef,
   ]);
 
   const handleContinueToPaymentAuth = useCallback(async () => {
