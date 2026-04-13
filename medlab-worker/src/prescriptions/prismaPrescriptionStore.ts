@@ -10,6 +10,9 @@ export interface RenderDoctor {
   lastName: string | null;
   email: string | null;
   phone: string | null;
+  twilioPhone: string | null;
+  university: string | null;
+  distinctions: string | null;
   title: string | null;
   specialty: string | null;
   rpps: string | null;
@@ -113,6 +116,9 @@ export class PrismaPrescriptionStore {
         lastName: row.doctor.lastName,
         email: row.doctor.email,
         phone: row.doctor.phone,
+        twilioPhone: row.doctor.twilioPhone,
+        university: row.doctor.university,
+        distinctions: row.doctor.distinctions,
         title: row.doctor.title,
         specialty: row.doctor.specialty,
         rpps: row.doctor.rpps,

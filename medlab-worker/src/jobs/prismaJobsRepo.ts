@@ -1340,6 +1340,9 @@ function buildDoctorCreate(input: IngestDoctorInput) {
     lastName: normalizeNullableString(input.lastName),
     email: normalizeNullableString(input.email),
     phone: normalizeNullableString(input.phone),
+    twilioPhone: normalizeNullableString(input.twilioPhone),
+    university: normalizeNullableString(input.university),
+    distinctions: normalizeNullableString(input.distinctions),
     title: normalizeNullableString(input.title),
     specialty: normalizeNullableString(input.specialty),
     rpps: normalizeNullableString(input.rpps),
@@ -1357,6 +1360,9 @@ function buildDoctorUpdate(input: IngestDoctorInput) {
     lastName: normalizeNullableString(input.lastName),
     email: normalizeNullableString(input.email),
     phone: normalizeNullableString(input.phone),
+    twilioPhone: normalizeNullableString(input.twilioPhone),
+    university: normalizeNullableString(input.university),
+    distinctions: normalizeNullableString(input.distinctions),
     title: normalizeNullableString(input.title),
     specialty: normalizeNullableString(input.specialty),
     rpps: normalizeNullableString(input.rpps),
@@ -1882,23 +1888,36 @@ function normalizeOptionalDoctorInput(value: unknown): IngestDoctorInput | null 
 
   const row = value as Record<string, unknown>;
   const normalized: IngestDoctorInput = {
-    wpUserId: parsePositiveIntOrNull(row.wpUserId),
-    firstName: normalizeNullableString(row.firstName),
-    lastName: normalizeNullableString(row.lastName),
-    email: normalizeNullableString(row.email),
-    phone: normalizeNullableString(row.phone),
-    title: normalizeNullableString(row.title),
-    specialty: normalizeNullableString(row.specialty),
-    rpps: normalizeNullableString(row.rpps),
-    amNumber: normalizeNullableString(row.amNumber),
-    address: normalizeNullableString(row.address),
-    city: normalizeNullableString(row.city),
-    zipCode: normalizeNullableString(row.zipCode),
-    signatureS3Key: normalizeNullableString(row.signatureS3Key),
+    wpUserId: parsePositiveIntOrNull(pickAlias(row, ["wpUserId", "wp_user_id"])),
+    firstName: normalizeNullableString(pickAlias(row, ["firstName", "first_name"])),
+    lastName: normalizeNullableString(pickAlias(row, ["lastName", "last_name"])),
+    email: normalizeNullableString(pickAlias(row, ["email"])),
+    phone: normalizeNullableString(pickAlias(row, ["phone", "professionalPhone", "professional_phone", "telephone", "tel"])),
+    twilioPhone: normalizeNullableString(pickAlias(row, ["twilioPhone", "twilio_phone", "publicPhone", "public_phone", "sosprescription_twilio_number"])),
+    university: normalizeNullableString(pickAlias(row, ["university", "diplomaUniversityLocation", "diploma_university_location"])),
+    distinctions: normalizeNullableString(pickAlias(row, ["distinctions", "diplomaHonors", "diploma_honors"])),
+    title: normalizeNullableString(pickAlias(row, ["title"])),
+    specialty: normalizeNullableString(pickAlias(row, ["specialty", "speciality"])),
+    rpps: normalizeNullableString(pickAlias(row, ["rpps"])),
+    amNumber: normalizeNullableString(pickAlias(row, ["amNumber", "am_number"])),
+    address: normalizeNullableString(pickAlias(row, ["address", "addressLine1", "address_line_1"])),
+    city: normalizeNullableString(pickAlias(row, ["city"])),
+    zipCode: normalizeNullableString(pickAlias(row, ["zipCode", "zip_code", "postalCode", "postal_code"])),
+    signatureS3Key: normalizeNullableString(pickAlias(row, ["signatureS3Key", "signature_s3_key", "signatureUrl", "signature_url", "signatureS3Url", "signature_s3_url"])),
   };
 
   const hasAnyValue = Object.values(normalized).some((entry) => entry != null && entry !== "");
   return hasAnyValue ? normalized : null;
+}
+
+
+function pickAlias(row: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] != null) {
+      return row[key];
+    }
+  }
+  return undefined;
 }
 
 function extractPrismaCode(err: unknown): string | null {

@@ -169,6 +169,7 @@ final class WorkerApiClient
         $body['ts_ms'] = (int) floor(microtime(true) * 1000);
         $body['nonce'] = $this->generateUrlSafeRandom(16);
         $body['req_id'] = $reqId;
+        $body = $this->augmentDoctorPdfPayload($body);
 
         return $body;
     }
@@ -464,6 +465,58 @@ final class WorkerApiClient
 
         return null;
     }
+
+
+/**
+ * @param array<string, mixed> $payload
+ * @return array<string, mixed>
+ */
+private function augmentDoctorPdfPayload(array $payload): array
+{
+    if (!isset($payload['doctor']) || !is_array($payload['doctor'])) {
+        return $payload;
+    }
+
+    $doctor = $payload['doctor'];
+    $twilioNumber = self::readWpOptionString('sosprescription_twilio_number');
+
+    if (!isset($doctor['twilioPhone']) || !is_scalar($doctor['twilioPhone']) || trim((string) $doctor['twilioPhone']) === '') {
+        if ($twilioNumber !== '') {
+            $doctor['twilioPhone'] = $twilioNumber;
+        }
+    }
+
+    if ((!isset($doctor['university']) || !is_scalar($doctor['university']) || trim((string) $doctor['university']) === '')
+        && isset($doctor['diploma_university_location']) && is_scalar($doctor['diploma_university_location']) && trim((string) $doctor['diploma_university_location']) !== '') {
+        $doctor['university'] = trim((string) $doctor['diploma_university_location']);
+    }
+
+    if ((!isset($doctor['distinctions']) || !is_scalar($doctor['distinctions']) || trim((string) $doctor['distinctions']) === '')
+        && isset($doctor['diploma_honors']) && is_scalar($doctor['diploma_honors']) && trim((string) $doctor['diploma_honors']) !== '') {
+        $doctor['distinctions'] = trim((string) $doctor['diploma_honors']);
+    }
+
+    $payload['doctor'] = $doctor;
+
+    return $payload;
+}
+
+private static function readWpOptionString(string $name, string $default = ''): string
+{
+    if (!function_exists('get_option')) {
+        return $default;
+    }
+
+    $value = \get_option($name, $default);
+    if (is_string($value)) {
+        return trim($value);
+    }
+    if (is_scalar($value)) {
+        return trim((string) $value);
+    }
+
+    return $default;
+}
 
     private static function normalizeApiPath(string $path): string
     {

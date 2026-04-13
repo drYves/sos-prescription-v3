@@ -40,6 +40,9 @@ model Doctor {
   lastName          String?
   email             String?               @unique
   phone             String?
+  twilioPhone       String?               // Numéro public de télé-prescription (Twilio) affichable sur le PDF
+  university        String?               // Faculté / université de médecine
+  distinctions      String?               // Distinctions / honors du prescripteur
   title             String?
   specialty         String?
   rpps              String?               @unique

@@ -75,8 +75,9 @@ async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?:
       queue_mode: deps.jobsRepo.mode,
       render_mode: "inline-html",
       template_variant: templateVariant ?? process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
+      doctor_id: aggregate.doctor.id,
       doctor_rpps_present: normalizeString(aggregate.doctor.rpps) !== "",
-      signature_present: normalizeString(aggregate.doctor.signatureS3Key) !== "",
+      sig_present: normalizeString(aggregate.doctor.signatureS3Key) !== "",
       patient_birthdate_present: normalizeString(aggregate.patient.birthDate) !== "",
       items_count: countPrescriptionItems(aggregate.prescription.items),
     },
@@ -94,6 +95,7 @@ async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?:
     mode: "inline-html",
     workerId: deps.workerId,
     jobId: job.job_id,
+    doctorId: aggregate.doctor.id,
     reqId,
     chromeExecutablePath: deps.chromeExecutablePath,
     renderTimeoutMs: deps.pdfRenderTimeoutMs,
@@ -104,7 +106,7 @@ async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?:
     templateName: built.templateName,
   });
 
-  await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName);
+  await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName, aggregate.doctor.id);
 }
 
 async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: string): Promise<void> {
@@ -116,6 +118,21 @@ async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: st
   }
 
   const aggregate = await deps.prescriptionStore.getRenderablePrescription(job.job_id);
+
+  deps.logger.info(
+    "job.local_payload_ready",
+    {
+      job_id: job.job_id,
+      queue_mode: deps.jobsRepo.mode,
+      render_mode: "inline-html",
+      doctor_id: aggregate.doctor.id,
+      doctor_rpps_present: normalizeString(aggregate.doctor.rpps) !== "",
+      sig_present: normalizeString(aggregate.doctor.signatureS3Key) !== "",
+      patient_birthdate_present: normalizeString(aggregate.patient.birthDate) !== "",
+      items_count: countPrescriptionItems(aggregate.prescription.items),
+    },
+    reqId,
+  );
   const built = await deps.htmlBuilder.buildHtml({
     aggregate,
     jobId: job.job_id,
@@ -127,6 +144,7 @@ async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: st
     mode: "inline-html",
     workerId: deps.workerId,
     jobId: job.job_id,
+    doctorId: aggregate.doctor.id,
     reqId,
     chromeExecutablePath: deps.chromeExecutablePath,
     renderTimeoutMs: deps.pdfRenderTimeoutMs,
@@ -137,7 +155,7 @@ async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: st
     templateName: built.templateName,
   });
 
-  await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName);
+  await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName, aggregate.doctor.id);
 }
 
 async function finalizeSuccessfulRender(
@@ -147,6 +165,7 @@ async function finalizeSuccessfulRender(
   reqId: string | undefined,
   renderMode: "remote-wordpress" | "inline-html",
   templateName?: string,
+  doctorId?: string,
 ): Promise<void> {
   const s3Key = buildPdfS3Key(deps.siteId, job.job_id, new Date());
   const artifactSchemaVersion = renderMode === "inline-html" ? "2026.6" : "2026.5";
@@ -197,6 +216,7 @@ async function finalizeSuccessfulRender(
       queue_mode: deps.jobsRepo.mode,
       render_mode: renderMode,
       template: templateName ?? undefined,
+      doctor_id: doctorId ?? job.doctor_id ?? undefined,
       s3_key_ref: s3Key,
       artifact_size_bytes: render.sizeBytes,
     },
@@ -350,7 +370,10 @@ function buildRestAggregate(job: JobRow): PrescriptionRenderAggregate {
       firstName: nullableString(pickUnknown(doctor, ["firstName", "first_name"])),
       lastName: nullableString(pickUnknown(doctor, ["lastName", "last_name"])),
       email: nullableString(pickUnknown(doctor, ["email"])),
-      phone: nullableString(pickUnknown(doctor, ["phone", "telephone", "tel"])),
+      phone: nullableString(pickUnknown(doctor, ["phone", "professionalPhone", "professional_phone", "telephone", "tel"])),
+      twilioPhone: nullableString(pickUnknown(doctor, ["twilioPhone", "twilio_phone", "publicPhone", "public_phone", "sosprescription_twilio_number"])),
+      university: nullableString(pickUnknown(doctor, ["university", "diplomaUniversityLocation", "diploma_university_location"])),
+      distinctions: nullableString(pickUnknown(doctor, ["distinctions", "diplomaHonors", "diploma_honors"])),
       title: nullableString(pickUnknown(doctor, ["title"])),
       specialty: nullableString(pickUnknown(doctor, ["specialty", "speciality"])),
       rpps: nullableString(pickUnknown(doctor, ["rpps"])),
@@ -358,7 +381,7 @@ function buildRestAggregate(job: JobRow): PrescriptionRenderAggregate {
       address: nullableString(pickUnknown(doctor, ["address", "addressLine1", "address_line_1"])),
       city: nullableString(pickUnknown(doctor, ["city"])),
       zipCode: nullableString(pickUnknown(doctor, ["zipCode", "zip_code", "postalCode", "postal_code"])),
-      signatureS3Key: nullableString(pickUnknown(doctor, ["signatureS3Key", "signature_s3_key"])),
+      signatureS3Key: nullableString(pickUnknown(doctor, ["signatureS3Key", "signature_s3_key", "signatureUrl", "signature_url", "signatureS3Url", "signature_s3_url"])),
       createdAt: fallbackDate(pickString(doctor, ["createdAt", "created_at"]), rootDate),
       updatedAt: fallbackDate(pickString(doctor, ["updatedAt", "updated_at"]), rootDate),
     },

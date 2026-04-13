@@ -19,6 +19,7 @@ export interface PdfRenderInput {
   hmacSecret?: string;
   workerId: string;
   jobId: string;
+  doctorId?: string;
   rxId?: number;
   reqId?: string;
   chromeExecutablePath: string;
@@ -83,6 +84,7 @@ export class PdfRenderer {
           job_id: input.jobId,
           rx_id: input.rxId,
           worker_id: input.workerId,
+          doctor_id: input.doctorId,
           render_mode: input.mode,
         },
         input.reqId,
@@ -175,6 +177,7 @@ export class PdfRenderer {
         {
           job_id: input.jobId,
           rx_id: input.rxId,
+          doctor_id: input.doctorId,
           size_bytes: sizeBytes,
           duration_ms: Date.now() - startedAt,
         },
@@ -194,6 +197,7 @@ export class PdfRenderer {
           {
             job_id: input.jobId,
             rx_id: input.rxId,
+            doctor_id: input.doctorId,
             rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
           },
           input.reqId,
@@ -208,6 +212,7 @@ export class PdfRenderer {
         {
           job_id: input.jobId,
           rx_id: input.rxId,
+          doctor_id: input.doctorId,
           error_message: err instanceof Error ? err.message : String(err),
           error_stack: err instanceof Error ? err.stack : undefined,
         },

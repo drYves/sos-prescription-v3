@@ -98,6 +98,9 @@ export interface IngestDoctorInput {
   lastName?: string | null;
   email?: string | null;
   phone?: string | null;
+  twilioPhone?: string | null;
+  university?: string | null;
+  distinctions?: string | null;
   title?: string | null;
   specialty?: string | null;
   rpps?: string | null;
