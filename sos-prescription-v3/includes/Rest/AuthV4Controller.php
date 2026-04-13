@@ -39,12 +39,12 @@ final class AuthV4Controller extends \WP_REST_Controller
 
     public function permissions_check_request_link(WP_REST_Request $request): bool|WP_Error
     {
-        return RestGuard::throttle($request, 'prescription_create', ['limit' => 5, 'window' => 900]);
+        return RestGuard::throttle($request, 'auth_request', ['limit' => 15, 'window' => 900]);
     }
 
     public function permissions_check_verify_link(WP_REST_Request $request): bool|WP_Error
     {
-        return RestGuard::throttle($request, 'prescription_create', ['limit' => 12, 'window' => 900]);
+        return RestGuard::throttle($request, 'auth_verify', ['limit' => 20, 'window' => 900]);
     }
 
     public function request_link(WP_REST_Request $request): WP_REST_Response|WP_Error
