@@ -177,24 +177,19 @@ export class AuthService {
           email: { equals: email, mode: "insensitive" },
         },
         orderBy: {
-          updatedAt: "desc",
+          createdAt: "desc",
         },
-        take: 10,
+        take: 5,
         select: {
           publicRef: true,
           ownerWpUserId: true,
           status: true,
-          expiresAt: true,
-          updatedAt: true,
+          createdAt: true,
         },
       });
 
       if (submissionRows.length > 0) {
-        const now = Date.now();
-        const activeDraft = submissionRows.find((row) => (
-          row.status === SubmissionStatus.DRAFT
-          && row.expiresAt.getTime() > now
-        )) ?? null;
+        const latestSubmission = submissionRows[0];
         const submissionWpUserIds = uniquePositiveInts(submissionRows.map((row) => row.ownerWpUserId));
 
         if (submissionWpUserIds.length > 1) {
@@ -231,38 +226,39 @@ export class AuthService {
               {
                 email_fp: fingerprint(email),
                 owner_wp_user_id: submissionWpUserIds[0],
+                submission_ref: latestSubmission.publicRef,
               },
               reqId,
             );
           }
         }
 
-        if (linkedPatientWpUserId != null || activeDraft) {
-          const metadata = activeDraft
-            ? { draft_ref: activeDraft.publicRef }
-            : null;
+        const metadata = latestSubmission.status === SubmissionStatus.DRAFT
+          ? { draft_ref: latestSubmission.publicRef }
+          : null;
 
-          this.logger?.info(
-            activeDraft ? "auth.magic_link.lookup_matched_draft" : "auth.magic_link.lookup_matched_submission",
-            {
-              email_fp: fingerprint(email),
-              owner_wp_user_id: linkedPatientWpUserId,
-              submission_ref: activeDraft?.publicRef ?? submissionRows[0]?.publicRef ?? null,
-              has_active_draft: activeDraft != null,
-            },
-            reqId,
-          );
+        this.logger?.info(
+          latestSubmission.status === SubmissionStatus.DRAFT
+            ? "auth.magic_link.lookup_matched_draft"
+            : "auth.magic_link.lookup_matched_submission",
+          {
+            email_fp: fingerprint(email),
+            owner_wp_user_id: linkedPatientWpUserId,
+            submission_ref: latestSubmission.publicRef,
+            has_active_draft: latestSubmission.status === SubmissionStatus.DRAFT,
+          },
+          reqId,
+        );
 
-          return {
-            status: "matched",
-            candidate: {
-              email,
-              ownerRole: ActorRole.PATIENT,
-              ownerWpUserId: linkedPatientWpUserId,
-              metadata,
-            },
-          };
-        }
+        return {
+          status: "matched",
+          candidate: {
+            email,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: linkedPatientWpUserId,
+            metadata,
+          },
+        };
       }
 
       return { status: "not_found" };

@@ -390,23 +390,10 @@ export class SubmissionRepo {
             email: normalized.patient.email == null ? (submissionEmail ?? undefined) : normalized.patient.email,
           } satisfies NormalizedFinalizePatientInput;
 
-          const patient = patientWpUserId != null
-            ? await tx.patient.upsert({
-              where: { wpUserId: patientWpUserId },
-              update: buildPatientUpdateData(effectivePatient),
-              create: {
-                wpUserId: patientWpUserId,
-                ...buildPatientCreateData(effectivePatient),
-              },
-              select: { id: true },
-            })
-            : await tx.patient.create({
-              data: {
-                wpUserId: null,
-                ...buildPatientCreateData(effectivePatient),
-              },
-              select: { id: true },
-            });
+          const patient = await ensurePatientForFinalize(tx, {
+            wpUserId: patientWpUserId,
+            patient: effectivePatient,
+          });
 
           const createdPrescription = await tx.prescription.create({
             data: {
@@ -923,6 +910,77 @@ function buildPatientUpdateData(patient: NormalizedFinalizePatientInput): Prisma
   }
 
   return data;
+}
+
+async function ensurePatientForFinalize(
+  tx: Prisma.TransactionClient,
+  input: {
+    wpUserId: number | null;
+    patient: NormalizedFinalizePatientInput;
+  },
+): Promise<{ id: string }> {
+  const updateData = buildPatientUpdateData(input.patient);
+
+  if (input.wpUserId != null) {
+    const existingByWpUserId = await tx.patient.findFirst({
+      where: {
+        wpUserId: input.wpUserId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingByWpUserId) {
+      return tx.patient.update({
+        where: { id: existingByWpUserId.id },
+        data: updateData,
+        select: { id: true },
+      });
+    }
+  }
+
+  const patientEmail = input.patient.email ?? null;
+  if (patientEmail) {
+    const existingByEmail = await tx.patient.findFirst({
+      where: {
+        email: { equals: patientEmail, mode: "insensitive" },
+        deletedAt: null,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      select: {
+        id: true,
+        wpUserId: true,
+      },
+    });
+
+    if (existingByEmail) {
+      const data: Prisma.PatientUpdateInput = {
+        ...updateData,
+      };
+
+      if (input.wpUserId != null && existingByEmail.wpUserId !== input.wpUserId) {
+        data.wpUserId = input.wpUserId;
+      }
+
+      return tx.patient.update({
+        where: { id: existingByEmail.id },
+        data,
+        select: { id: true },
+      });
+    }
+  }
+
+  return tx.patient.create({
+    data: {
+      wpUserId: input.wpUserId,
+      ...buildPatientCreateData(input.patient),
+    },
+    select: { id: true },
+  });
 }
 
 async function lockSubmissionByPublicRef(
