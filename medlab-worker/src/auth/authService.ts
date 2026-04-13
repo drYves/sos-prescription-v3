@@ -82,7 +82,7 @@ export class AuthService {
     }
 
     try {
-      const [doctor, patientRows] = await Promise.all([
+      const [doctor, patientRows, submissionRows] = await Promise.all([
         this.prisma.doctor.findFirst({
           where: {
             email: { equals: email, mode: "insensitive" },
@@ -99,41 +99,51 @@ export class AuthService {
             deletedAt: null,
           },
           select: {
+            id: true,
             wpUserId: true,
           },
-          take: 5,
+          orderBy: {
+            updatedAt: "desc",
+          },
+          take: 10,
+        }),
+        this.prisma.submission.findMany({
+          where: {
+            ownerRole: ActorRole.PATIENT,
+            email: { equals: email, mode: "insensitive" },
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 10,
+          select: {
+            publicRef: true,
+            ownerWpUserId: true,
+            status: true,
+            createdAt: true,
+            expiresAt: true,
+            finalizedPrescriptionId: true,
+          },
         }),
       ]);
 
+      const doctorWpUserId = doctor?.wpUserId ?? null;
       const patientWpUserIds = uniquePositiveInts(patientRows.map((row) => row.wpUserId));
       const hasPendingPatientMatch = patientRows.some((row) => normalizeNullablePositiveInt(row.wpUserId) == null);
-      const doctorWpUserId = doctor?.wpUserId ?? null;
-
-      if (doctorWpUserId != null && doctorWpUserId > 0) {
-        const conflictingPatients = patientWpUserIds.filter((wpUserId) => wpUserId !== doctorWpUserId);
-        if (conflictingPatients.length > 0) {
-          this.logger?.warning(
-            "auth.magic_link.lookup_ambiguous",
-            {
-              email_fp: fingerprint(email),
-              match_type: "doctor_and_patient_conflict",
-              doctor_wp_user_id: doctorWpUserId,
-              patient_match_count: patientWpUserIds.length,
-            },
-            reqId,
-          );
-          return { status: "ambiguous" };
-        }
-
-        return {
-          status: "matched",
-          candidate: {
-            email,
-            ownerRole: ActorRole.DOCTOR,
-            ownerWpUserId: doctorWpUserId,
-          },
-        };
-      }
+      const submissionWpUserIds = uniquePositiveInts(submissionRows.map((row) => row.ownerWpUserId));
+      const latestSubmission = submissionRows[0] ?? null;
+      const latestOwnedSubmission = submissionRows.find((row) => normalizeNullablePositiveInt(row.ownerWpUserId) != null) ?? null;
+      const activeDraftSubmission = submissionRows.find((row) => (
+        row.status === SubmissionStatus.DRAFT
+        && row.finalizedPrescriptionId == null
+        && row.expiresAt.getTime() > Date.now()
+      )) ?? null;
+      const activeDraftMetadata = activeDraftSubmission
+        ? { draft_ref: activeDraftSubmission.publicRef }
+        : null;
+      const resolvedSubmissionOwnerWpUserId = latestOwnedSubmission
+        ? normalizeNullablePositiveInt(latestOwnedSubmission.ownerWpUserId)
+        : null;
 
       if (patientWpUserIds.length > 1) {
         this.logger?.warning(
@@ -148,6 +158,39 @@ export class AuthService {
         return { status: "ambiguous" };
       }
 
+      if (submissionWpUserIds.length > 1) {
+        this.logger?.warning(
+          "auth.magic_link.lookup_ambiguous",
+          {
+            email_fp: fingerprint(email),
+            match_type: "multiple_submission_owners",
+            submission_match_count: submissionRows.length,
+            submission_owner_match_count: submissionWpUserIds.length,
+          },
+          reqId,
+        );
+        return { status: "ambiguous" };
+      }
+
+      if (doctorWpUserId != null && doctorWpUserId > 0) {
+        const conflictingPatientWpUserIds = patientWpUserIds.filter((wpUserId) => wpUserId !== doctorWpUserId);
+        const conflictingSubmissionWpUserIds = submissionWpUserIds.filter((wpUserId) => wpUserId !== doctorWpUserId);
+        if (conflictingPatientWpUserIds.length > 0 || conflictingSubmissionWpUserIds.length > 0 || hasPendingPatientMatch || submissionRows.length > 0) {
+          this.logger?.warning(
+            "auth.magic_link.lookup_ambiguous",
+            {
+              email_fp: fingerprint(email),
+              match_type: "doctor_and_patient_conflict",
+              doctor_wp_user_id: doctorWpUserId,
+              patient_match_count: patientRows.length,
+              submission_match_count: submissionRows.length,
+            },
+            reqId,
+          );
+          return { status: "ambiguous" };
+        }
+      }
+
       if (patientWpUserIds.length === 1) {
         return {
           status: "matched",
@@ -155,6 +198,32 @@ export class AuthService {
             email,
             ownerRole: ActorRole.PATIENT,
             ownerWpUserId: patientWpUserIds[0],
+            metadata: activeDraftMetadata,
+          },
+        };
+      }
+
+      if (submissionRows.length > 0) {
+        this.logger?.info(
+          activeDraftSubmission
+            ? "auth.magic_link.lookup_matched_draft"
+            : "auth.magic_link.lookup_matched_submission",
+          {
+            email_fp: fingerprint(email),
+            owner_wp_user_id: resolvedSubmissionOwnerWpUserId,
+            submission_ref: activeDraftSubmission?.publicRef ?? latestSubmission?.publicRef ?? null,
+            has_active_draft: activeDraftSubmission != null,
+          },
+          reqId,
+        );
+
+        return {
+          status: "matched",
+          candidate: {
+            email,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: resolvedSubmissionOwnerWpUserId,
+            metadata: activeDraftMetadata,
           },
         };
       }
@@ -171,92 +240,13 @@ export class AuthService {
         };
       }
 
-      const submissionRows = await this.prisma.submission.findMany({
-        where: {
-          ownerRole: ActorRole.PATIENT,
-          email: { equals: email, mode: "insensitive" },
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 5,
-        select: {
-          publicRef: true,
-          ownerWpUserId: true,
-          status: true,
-          createdAt: true,
-        },
-      });
-
-      if (submissionRows.length > 0) {
-        const latestSubmission = submissionRows[0];
-        const submissionWpUserIds = uniquePositiveInts(submissionRows.map((row) => row.ownerWpUserId));
-
-        if (submissionWpUserIds.length > 1) {
-          this.logger?.warning(
-            "auth.magic_link.lookup_ambiguous",
-            {
-              email_fp: fingerprint(email),
-              match_type: "multiple_submission_owners",
-              submission_match_count: submissionRows.length,
-              submission_owner_match_count: submissionWpUserIds.length,
-            },
-            reqId,
-          );
-          return { status: "ambiguous" };
-        }
-
-        let linkedPatientWpUserId: number | null = null;
-        if (submissionWpUserIds.length === 1) {
-          const linkedPatient = await this.prisma.patient.findFirst({
-            where: {
-              wpUserId: submissionWpUserIds[0],
-              deletedAt: null,
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          if (linkedPatient) {
-            linkedPatientWpUserId = submissionWpUserIds[0];
-          } else {
-            this.logger?.warning(
-              "auth.magic_link.lookup_submission_unlinked",
-              {
-                email_fp: fingerprint(email),
-                owner_wp_user_id: submissionWpUserIds[0],
-                submission_ref: latestSubmission.publicRef,
-              },
-              reqId,
-            );
-          }
-        }
-
-        const metadata = latestSubmission.status === SubmissionStatus.DRAFT
-          ? { draft_ref: latestSubmission.publicRef }
-          : null;
-
-        this.logger?.info(
-          latestSubmission.status === SubmissionStatus.DRAFT
-            ? "auth.magic_link.lookup_matched_draft"
-            : "auth.magic_link.lookup_matched_submission",
-          {
-            email_fp: fingerprint(email),
-            owner_wp_user_id: linkedPatientWpUserId,
-            submission_ref: latestSubmission.publicRef,
-            has_active_draft: latestSubmission.status === SubmissionStatus.DRAFT,
-          },
-          reqId,
-        );
-
+      if (doctorWpUserId != null && doctorWpUserId > 0) {
         return {
           status: "matched",
           candidate: {
             email,
-            ownerRole: ActorRole.PATIENT,
-            ownerWpUserId: linkedPatientWpUserId,
-            metadata,
+            ownerRole: ActorRole.DOCTOR,
+            ownerWpUserId: doctorWpUserId,
           },
         };
       }

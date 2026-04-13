@@ -3736,10 +3736,10 @@ function PublicFormApp() {
   const [draftEmail, setDraftEmail] = useState<string>(() => (
     resumeDraftRefFromUrl
       ? ''
-      : (normalizeKnownEmailValue(config.currentUser?.email) || '')
+      : (resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email) || '')
   ));
   const [draftEmailLocked, setDraftEmailLocked] = useState<boolean>(() => (
-    !resumeDraftRefFromUrl && Boolean(normalizeKnownEmailValue(config.currentUser?.email))
+    !resumeDraftRefFromUrl && Boolean(resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email))
   ));
   const [draftSending, setDraftSending] = useState(false);
   const [draftSent, setDraftSent] = useState(false);
@@ -3961,8 +3961,10 @@ function PublicFormApp() {
         setPreparedSubmission(null);
         setSubmissionResult(null);
         const resumedEmail = normalizeKnownEmailValue(
-          typeof payload.email === 'string' ? payload.email : String(config.currentUser?.email || '').trim(),
-        ) || '';
+          typeof payload.email === 'string'
+            ? payload.email
+            : firstNonEmptyString(patient.email, patient.email_address),
+        ) || resolveKnownPatientEmail(config) || normalizeKnownEmailValue(String(config.currentUser?.email || '').trim()) || '';
         setDraftEmail(resumedEmail);
         setDraftEmailLocked(Boolean(resumedEmail));
         setDraftSent(false);
@@ -4911,7 +4913,6 @@ function renderFatal(container: HTMLElement, message: string): void {
 
 type ExternalProfileAccordionOptions = {
   collapsedByDefault: boolean;
-  hiddenByDefault?: boolean;
 };
 
 const EXTERNAL_PROFILE_COPY = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
@@ -4940,15 +4941,10 @@ function normalizeExternalProfileWording(card: HTMLElement): void {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): boolean {
   const collapsedByDefault = !!options.collapsedByDefault;
-  const hiddenByDefault = !!options.hiddenByDefault;
   const profileRoot = document.getElementById('sp-patient-profile-root');
   const card = profileRoot?.querySelector('.sp-profile-card');
   if (!(card instanceof HTMLElement)) {
     return false;
-  }
-
-  if (profileRoot instanceof HTMLElement) {
-    profileRoot.hidden = hiddenByDefault;
   }
 
   normalizeExternalProfileWording(card);
@@ -5058,10 +5054,7 @@ function mountPublicForm(container: HTMLElement): void {
     : '';
   const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
 
-  scheduleExternalProfileEnhancements({
-    collapsedByDefault: shouldCollapseProfile,
-    hiddenByDefault: shouldCollapseProfile,
-  });
+  scheduleExternalProfileEnhancements({ collapsedByDefault: shouldCollapseProfile });
 
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);

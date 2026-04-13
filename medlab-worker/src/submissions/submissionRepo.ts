@@ -385,9 +385,12 @@ export class SubmissionRepo {
             ? normalized.actor.wpUserId
             : null;
           const submissionEmail = normalizeOptionalEmail(submission.email);
+          const sealedPatientEmail = normalized.patient.email == null
+            ? (submissionEmail ?? null)
+            : normalized.patient.email;
           const effectivePatient = {
             ...normalized.patient,
-            email: normalized.patient.email == null ? (submissionEmail ?? undefined) : normalized.patient.email,
+            email: sealedPatientEmail ?? undefined,
           } satisfies NormalizedFinalizePatientInput;
 
           const patient = await ensurePatientForFinalize(tx, {
@@ -435,10 +438,19 @@ export class SubmissionRepo {
           await tx.submission.update({
             where: { id: submission.id },
             data: {
-              email: effectivePatient.email ?? submissionEmail ?? null,
+              ownerWpUserId: patientWpUserId ?? submission.ownerWpUserId ?? null,
+              email: sealedPatientEmail,
               status: SubmissionStatus.FINALIZED,
               finalizedPrescriptionId: createdPrescription.id,
             },
+          });
+
+          await sealPatientIdentityAfterFinalize(tx, {
+            patientId: patient.id,
+            submissionId: submission.id,
+            wpUserId: patientWpUserId,
+            email: sealedPatientEmail,
+            patient: effectivePatient,
           });
 
           return {
@@ -910,6 +922,126 @@ function buildPatientUpdateData(patient: NormalizedFinalizePatientInput): Prisma
   }
 
   return data;
+}
+
+async function sealPatientIdentityAfterFinalize(
+  tx: Prisma.TransactionClient,
+  input: {
+    patientId: string;
+    submissionId: string;
+    wpUserId: number | null;
+    email: string | null;
+    patient: NormalizedFinalizePatientInput;
+  },
+): Promise<void> {
+  const normalizedPatient = {
+    ...input.patient,
+    email: input.email ?? input.patient.email ?? undefined,
+  } satisfies NormalizedFinalizePatientInput;
+
+  const data: Prisma.PatientUpdateInput = {
+    ...buildPatientUpdateData(normalizedPatient),
+  };
+
+  if (input.wpUserId != null) {
+    data.wpUserId = input.wpUserId;
+  }
+  if (input.email !== null) {
+    data.email = input.email;
+  }
+
+  const existingById = await tx.patient.findUnique({
+    where: { id: input.patientId },
+    select: { id: true },
+  });
+
+  if (existingById) {
+    await tx.patient.update({
+      where: { id: existingById.id },
+      data,
+      select: { id: true },
+    });
+  } else {
+    const existingByWpUserId = input.wpUserId != null
+      ? await tx.patient.findFirst({
+        where: {
+          wpUserId: input.wpUserId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      })
+      : null;
+
+    if (existingByWpUserId) {
+      await tx.patient.update({
+        where: { id: existingByWpUserId.id },
+        data,
+        select: { id: true },
+      });
+    } else if (input.email) {
+      const existingByEmail = await tx.patient.findFirst({
+        where: {
+          email: { equals: input.email, mode: "insensitive" },
+          deletedAt: null,
+        },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+
+      if (existingByEmail) {
+        await tx.patient.update({
+          where: { id: existingByEmail.id },
+          data,
+          select: { id: true },
+        });
+      } else {
+        await tx.patient.create({
+          data: {
+            wpUserId: input.wpUserId,
+            ...buildPatientCreateData(normalizedPatient),
+          },
+          select: { id: true },
+        });
+      }
+    } else {
+      await tx.patient.create({
+        data: {
+          wpUserId: input.wpUserId,
+          ...buildPatientCreateData(normalizedPatient),
+        },
+        select: { id: true },
+      });
+    }
+  }
+
+  const submissionIdentityData: Prisma.SubmissionUpdateManyMutationInput = {};
+  if (input.wpUserId != null) {
+    submissionIdentityData.ownerWpUserId = input.wpUserId;
+  }
+  if (input.email) {
+    submissionIdentityData.email = input.email;
+  }
+
+  if (Object.keys(submissionIdentityData).length > 0) {
+    const submissionIdentityClauses: Prisma.SubmissionWhereInput[] = [
+      { id: input.submissionId },
+    ];
+
+    if (input.wpUserId != null) {
+      submissionIdentityClauses.push({ ownerWpUserId: input.wpUserId });
+    }
+    if (input.email) {
+      submissionIdentityClauses.push({ email: { equals: input.email, mode: "insensitive" } });
+    }
+
+    await tx.submission.updateMany({
+      where: {
+        ownerRole: ActorRole.PATIENT,
+        OR: submissionIdentityClauses,
+      },
+      data: submissionIdentityData,
+    });
+  }
 }
 
 async function ensurePatientForFinalize(

@@ -21,7 +21,7 @@ import { processPaymentActionJob } from "./payments/paymentProcessor";
 import { StripeGateway } from "./payments/stripeClient";
 import { WordPressPaymentBridge } from "./payments/wordpressPaymentBridge";
 import { CopilotService } from "./services/copilotService";
-import { SmartReplyService } from "./services/smartReplyService";
+import type { SmartReplyService } from "./services/smartReplyService";
 
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 
@@ -121,16 +121,24 @@ async function main(): Promise<void> {
   });
 
   const smartRepliesEnabled = resolveBooleanFlag(process.env.SMART_REPLIES_ENABLED, false);
-  const smartReplyService = smartRepliesEnabled
-    ? new SmartReplyService({
+  let smartReplyService: SmartReplyService | undefined;
+
+  if (smartRepliesEnabled) {
+    const { SmartReplyService: SmartReplyServiceCtor } = await import("./services/smartReplyService");
+    smartReplyService = new SmartReplyServiceCtor({
       siteId: cfg.siteId,
       copilot: copilotService,
       logger,
-    })
-    : undefined;
-
-  if (smartReplyService) {
+    });
     await smartReplyService.ensureSchema();
+  } else {
+    logger.info(
+      "smart_replies.disabled",
+      {
+        smart_replies_enabled: false,
+      },
+      undefined,
+    );
   }
 
   if (prismaJobsRepo) {
@@ -201,7 +209,7 @@ async function main(): Promise<void> {
       // noop
     }
 
-    if (smartReplyService) {
+    if (smartRepliesEnabled && smartReplyService) {
       try {
         await smartReplyService.close();
       } catch {
@@ -378,7 +386,7 @@ async function main(): Promise<void> {
       }
     }
 
-    if (smartReplyService) {
+    if (smartRepliesEnabled && smartReplyService) {
       let smartReplyJob = null;
       try {
         smartReplyJob = await smartReplyService.claimNextPendingJob({
