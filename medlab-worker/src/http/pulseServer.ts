@@ -11,13 +11,14 @@ import { OpenRouterService } from "../ai/openRouterService";
 import { ArtifactRepo, type ArtifactRecord } from "../artifacts/artifactRepo";
 import { MailService, MailServiceError } from "../mail/mailService";
 import { MessagesRepo, MessagesRepoError, type ThreadMessageRecord, type ThreadState } from "../messages/messagesRepo";
-import type {
-  ApprovePrescriptionRequest,
-  IngestDoctorInput,
-  IngestPrescriptionRequest,
-  JobsRepo,
-  QueueMetrics,
-  RejectPrescriptionRequest,
+import {
+  JobsRepoActionError,
+  type ApprovePrescriptionRequest,
+  type IngestDoctorInput,
+  type IngestPrescriptionRequest,
+  type JobsRepo,
+  type QueueMetrics,
+  type RejectPrescriptionRequest,
 } from "../jobs/jobsRepo";
 import { NdjsonLogger } from "../logger";
 import { parseCanonicalGet, parseMls1Token, verifyMls1Payload } from "../security/mls1";
@@ -841,11 +842,10 @@ async function handleSubmissionDraftCreate(
     );
   } catch (err: unknown) {
     if (err instanceof SubmissionRepoError || err instanceof AuthServiceError || err instanceof MailServiceError) {
-      const logContext = buildSubmissionDraftFailureLogContext(err);
       if (err.statusCode >= 500) {
-        deps.logger.error("submission.draft.failed", logContext, reqId, err);
+        deps.logger.error("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
       } else {
-        deps.logger.warning("submission.draft.failed", logContext, reqId, err);
+        deps.logger.warning("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
       }
 
       return sendJson(
@@ -866,7 +866,8 @@ async function handleSubmissionDraftCreate(
       );
     }
 
-    deps.logger.error("submission.draft.failed", buildSubmissionDraftFailureLogContext(err), reqId, err);
+    const message = err instanceof Error ? err.message : "submission_draft_failed";
+    deps.logger.error("submission.draft.failed", { reason: message }, reqId, err);
     return sendJson(
       res,
       500,
@@ -1431,7 +1432,6 @@ async function handleAuthRequestLink(
       email: lookup.candidate.email,
       ownerRole: lookup.candidate.ownerRole,
       ownerWpUserId: lookup.candidate.ownerWpUserId,
-      metadata: lookup.candidate.metadata ?? null,
     }, reqId);
 
     await mailService.sendMagicLink(
@@ -1450,7 +1450,6 @@ async function handleAuthRequestLink(
         email_fp: fingerprintPublicId(lookup.candidate.email),
         owner_role: lookup.candidate.ownerRole,
         owner_wp_user_id: lookup.candidate.ownerWpUserId,
-        has_draft_ref: typeof lookup.candidate.metadata?.draft_ref === "string" && lookup.candidate.metadata.draft_ref !== "",
         sent: true,
       },
       reqId,
@@ -2993,6 +2992,10 @@ async function handlePrescriptionApprove(
   }
 
   const reqId = parsedBody.reqId;
+  let doctorWpUserId: number | null = null;
+  let itemsCount = 0;
+  let paymentPresent = false;
+
   try {
     const body = parsedBody.body;
     const doctor = body.doctor && typeof body.doctor === "object" ? (body.doctor as IngestDoctorInput) : null;
@@ -3000,15 +3003,21 @@ async function handlePrescriptionApprove(
       throw new Error("doctor block is required");
     }
 
+    doctorWpUserId = typeof doctor.wpUserId === "number" && Number.isFinite(doctor.wpUserId)
+      ? doctor.wpUserId
+      : null;
+
     const rawItems = Object.prototype.hasOwnProperty.call(body, "items") ? body.items : undefined;
     if (rawItems != null && !Array.isArray(rawItems)) {
       return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_REQUEST", message: "items must be an array" }, signingSecret);
     }
 
+    itemsCount = Array.isArray(rawItems) ? rawItems.length : 0;
     const items = Array.isArray(rawItems) && rawItems.length > 0 ? rawItems : undefined;
     const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
       ? (body.payment as ApprovePrescriptionRequest["payment"])
       : undefined;
+    paymentPresent = payment !== undefined;
     const input: ApprovePrescriptionRequest = {
       schema_version: CURRENT_SCHEMA_VERSION,
       site_id: deps.siteId,
@@ -3040,9 +3049,32 @@ async function handlePrescriptionApprove(
       signingSecret,
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "approve_failed";
-    deps.logger.error("ingest.approve_failed", { reason: message }, reqId, err);
-    return sendJson(res, 500, { ok: false, code: "ML_APPROVE_FAILED" }, signingSecret);
+    const failure = classifyPrescriptionActionFailure(err, "approve");
+    deps.logger.error(
+      "ingest.approve_failed",
+      {
+        prescription_id: prescriptionId,
+        doctor_wp_user_id: doctorWpUserId,
+        items_count: itemsCount,
+        payment_present: paymentPresent,
+        failure_code: failure.code,
+        failure_status: failure.statusCode,
+        failure_stage: failure.stage,
+        prisma_code: failure.prismaCode,
+        system_code: failure.systemCode,
+        system_errno: failure.systemErrno,
+        system_syscall: failure.systemSyscall,
+        system_path: failure.systemPath,
+        raw_error_name: failure.rawName,
+        raw_error_message: failure.rawMessage,
+        raw_error_stack: failure.rawStack,
+        raw_error_cause: failure.rawCauseMessage,
+        repo_details: failure.repoDetails,
+      },
+      reqId,
+      err,
+    );
+    return sendJson(res, failure.statusCode, { ok: false, code: failure.code, req_id: reqId }, signingSecret);
   }
 }
 
@@ -3064,12 +3096,16 @@ async function handlePrescriptionReject(
   }
 
   const reqId = parsedBody.reqId;
+  let paymentPresent = false;
+  let reasonPresent = false;
   try {
     const body = parsedBody.body;
     const reason = typeof body.reason === "string" ? body.reason : null;
+    reasonPresent = typeof reason === "string" && reason.trim() !== "";
     const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
       ? (body.payment as RejectPrescriptionRequest["payment"])
       : undefined;
+    paymentPresent = payment !== undefined;
     const input: RejectPrescriptionRequest = {
       schema_version: CURRENT_SCHEMA_VERSION,
       site_id: deps.siteId,
@@ -3099,9 +3135,31 @@ async function handlePrescriptionReject(
       signingSecret,
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "reject_failed";
-    deps.logger.error("ingest.reject_failed", { reason: message }, reqId, err);
-    return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
+    const failure = classifyPrescriptionActionFailure(err, "reject");
+    deps.logger.error(
+      "ingest.reject_failed",
+      {
+        prescription_id: prescriptionId,
+        payment_present: paymentPresent,
+        reason_present: reasonPresent,
+        failure_code: failure.code,
+        failure_status: failure.statusCode,
+        failure_stage: failure.stage,
+        prisma_code: failure.prismaCode,
+        system_code: failure.systemCode,
+        system_errno: failure.systemErrno,
+        system_syscall: failure.systemSyscall,
+        system_path: failure.systemPath,
+        raw_error_name: failure.rawName,
+        raw_error_message: failure.rawMessage,
+        raw_error_stack: failure.rawStack,
+        raw_error_cause: failure.rawCauseMessage,
+        repo_details: failure.repoDetails,
+      },
+      reqId,
+      err,
+    );
+    return sendJson(res, failure.statusCode, { ok: false, code: failure.code, req_id: reqId }, signingSecret);
   }
 }
 
@@ -4248,97 +4306,6 @@ function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpU
   });
 }
 
-function collectErrorChain(err: unknown, maxDepth = 5): unknown[] {
-  const chain: unknown[] = [];
-  let current: unknown = err;
-
-  for (let depth = 0; depth < maxDepth && current != null; depth += 1) {
-    chain.push(current);
-    if (!(current instanceof Error)) {
-      break;
-    }
-
-    const next = (current as Error & { cause?: unknown }).cause;
-    if (next == null || next === current) {
-      break;
-    }
-    current = next;
-  }
-
-  return chain;
-}
-
-function normalizePrismaMetaForLog(meta: unknown): Record<string, unknown> | null {
-  if (meta == null) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(JSON.stringify(meta)) as Record<string, unknown>;
-  } catch {
-    return {
-      raw: String(meta),
-    };
-  }
-}
-
-function extractPrismaErrorDetails(err: unknown): Record<string, unknown> | null {
-  const chain = collectErrorChain(err);
-
-  for (const entry of chain) {
-    if (entry instanceof Prisma.PrismaClientKnownRequestError) {
-      const details: Record<string, unknown> = {
-        prisma_error_name: entry.name,
-        prisma_error_code: entry.code,
-        prisma_error_message: entry.message,
-      };
-      const meta = normalizePrismaMetaForLog(entry.meta);
-      if (meta) {
-        details.prisma_error_meta = meta;
-      }
-      return details;
-    }
-
-    if (
-      entry instanceof Prisma.PrismaClientUnknownRequestError
-      || entry instanceof Prisma.PrismaClientValidationError
-      || entry instanceof Prisma.PrismaClientInitializationError
-      || entry instanceof Prisma.PrismaClientRustPanicError
-    ) {
-      return {
-        prisma_error_name: entry.name,
-        prisma_error_message: entry.message,
-      };
-    }
-  }
-
-  for (const entry of chain) {
-    if (!(entry instanceof Error)) {
-      continue;
-    }
-
-    const codeMatch = entry.message.match(/\b(P\d{4})\b/u);
-    if (codeMatch) {
-      return {
-        prisma_error_code: codeMatch[1],
-        prisma_error_message: entry.message,
-      };
-    }
-  }
-
-  return null;
-}
-
-function buildSubmissionDraftFailureLogContext(err: unknown): Record<string, unknown> {
-  const message = err instanceof Error ? err.message : "submission_draft_failed";
-  const base: Record<string, unknown> = err instanceof SubmissionRepoError || err instanceof AuthServiceError || err instanceof MailServiceError
-    ? { code: err.code, reason: err.message }
-    : { reason: message };
-
-  const prismaDetails = extractPrismaErrorDetails(err);
-  return prismaDetails ? { ...base, ...prismaDetails } : base;
-}
-
 function normalizeMagicLinkRequestEmail(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("email is required");
@@ -4916,6 +4883,8 @@ function normalizePublicErrorMessage(code: string, status: number, providedMessa
       return "Le service de messagerie est temporairement indisponible.";
     case "ML_APPROVE_FAILED":
       return "La validation du dossier a échoué. Réessayez ultérieurement.";
+    case "ML_PDF_GENERATION_FAILED":
+      return "La génération du document a échoué. Réessayez ultérieurement.";
     case "ML_REJECT_FAILED":
       return "La mise à jour du dossier a échoué. Réessayez ultérieurement.";
     case "ML_AI_DISABLED":
@@ -5094,6 +5063,190 @@ function sendUnsignedJson(
 
 function buildResponseSignature(payloadBytes: Buffer, secret: string): string {
   return `sha256=${crypto.createHmac("sha256", secret).update(payloadBytes).digest("hex")}`;
+}
+
+interface PrescriptionActionFailureDetails {
+  code: string;
+  statusCode: number;
+  stage: "validation" | "approval" | "rejection" | "pdf_generation" | "payment" | "database" | "unknown";
+  rawName: string;
+  rawMessage: string;
+  rawStack: string | null;
+  rawCauseMessage: string | null;
+  prismaCode: string | null;
+  systemCode: string | null;
+  systemErrno: number | string | null;
+  systemSyscall: string | null;
+  systemPath: string | null;
+  repoDetails: Record<string, unknown> | null;
+}
+
+function classifyPrescriptionActionFailure(
+  err: unknown,
+  action: "approve" | "reject",
+): PrescriptionActionFailureDetails {
+  const snapshot = buildPrescriptionActionFailureSnapshot(err);
+  const fallbackCode = action === "approve" ? "ML_APPROVE_FAILED" : "ML_REJECT_FAILED";
+  const actionStage = action === "approve" ? "approval" : "rejection";
+
+  if (err instanceof JobsRepoActionError) {
+    return {
+      ...snapshot,
+      code: err.code,
+      statusCode: err.statusCode,
+      stage: err.stage,
+      repoDetails: err.details && typeof err.details === "object" ? err.details : null,
+    };
+  }
+
+  if (isPdfGenerationFailureMessage(snapshot.rawMessage)) {
+    return {
+      ...snapshot,
+      code: "ML_PDF_GENERATION_FAILED",
+      statusCode: 500,
+      stage: "pdf_generation",
+    };
+  }
+
+  if (isClientIngestError(snapshot.rawMessage)) {
+    return {
+      ...snapshot,
+      code: "ML_INGEST_BAD_REQUEST",
+      statusCode: 400,
+      stage: "validation",
+    };
+  }
+
+  return {
+    ...snapshot,
+    code: fallbackCode,
+    statusCode: 500,
+    stage: snapshot.prismaCode ? "database" : actionStage,
+  };
+}
+
+function buildPrescriptionActionFailureSnapshot(err: unknown): PrescriptionActionFailureDetails {
+  return {
+    code: "ML_APPROVE_FAILED",
+    statusCode: 500,
+    stage: "unknown",
+    rawName: extractActionErrorName(err),
+    rawMessage: extractActionErrorMessage(err),
+    rawStack: extractActionErrorStack(err),
+    rawCauseMessage: extractActionCauseMessage(err),
+    prismaCode: extractActionPrismaCode(err),
+    systemCode: extractActionSystemCode(err),
+    systemErrno: extractActionSystemErrno(err),
+    systemSyscall: extractActionSystemStringField(err, "syscall"),
+    systemPath: extractActionSystemStringField(err, "path"),
+    repoDetails: null,
+  };
+}
+
+function isPdfGenerationFailureMessage(message: string): boolean {
+  const haystack = String(message || "").toLowerCase();
+  return [
+    "ml_pdf_",
+    "pdf generation",
+    "pdf render",
+    "pdf.render",
+    "puppeteer",
+    "invalid pdf",
+    "failed to read pdf",
+  ].some((needle) => haystack.includes(needle));
+}
+
+function extractActionErrorName(err: unknown): string {
+  if (err instanceof Error && typeof err.name === "string" && err.name.trim() !== "") {
+    return err.name.trim();
+  }
+  return typeof err === "object" && err !== null ? "Object" : typeof err;
+}
+
+function extractActionErrorMessage(err: unknown): string {
+  if (err instanceof Error && typeof err.message === "string") {
+    return err.message.trim();
+  }
+  return typeof err === "string" ? err.trim() : "";
+}
+
+function extractActionErrorStack(err: unknown): string | null {
+  return err instanceof Error && typeof err.stack === "string" && err.stack.trim() !== ""
+    ? err.stack
+    : null;
+}
+
+function extractActionCauseMessage(err: unknown): string | null {
+  if (!(err instanceof Error)) {
+    return null;
+  }
+
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (cause instanceof Error && typeof cause.message === "string" && cause.message.trim() !== "") {
+    return cause.message.trim();
+  }
+
+  return typeof cause === "string" && cause.trim() !== "" ? cause.trim() : null;
+}
+
+function extractActionPrismaCode(err: unknown): string | null {
+  for (const candidate of iterateActionErrorCandidates(err)) {
+    const code = candidate.code;
+    if (typeof code === "string" && /^P\d{4}$/u.test(code.trim())) {
+      return code.trim();
+    }
+  }
+
+  return null;
+}
+
+function extractActionSystemCode(err: unknown): string | null {
+  for (const candidate of iterateActionErrorCandidates(err)) {
+    const code = candidate.code;
+    if (typeof code !== "string" || code.trim() === "") {
+      continue;
+    }
+    if (/^P\d{4}$/u.test(code.trim())) {
+      continue;
+    }
+    return code.trim();
+  }
+
+  return null;
+}
+
+function extractActionSystemErrno(err: unknown): number | string | null {
+  for (const candidate of iterateActionErrorCandidates(err)) {
+    const errno = candidate.errno;
+    if (typeof errno === "number" || typeof errno === "string") {
+      return errno;
+    }
+  }
+
+  return null;
+}
+
+function extractActionSystemStringField(err: unknown, field: "syscall" | "path"): string | null {
+  for (const candidate of iterateActionErrorCandidates(err)) {
+    const value = candidate[field];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function* iterateActionErrorCandidates(err: unknown): Generator<Record<string, unknown>> {
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    yield current as Record<string, unknown>;
+    if (current instanceof Error) {
+      current = (current as Error & { cause?: unknown }).cause;
+      continue;
+    }
+    break;
+  }
 }
 
 function isClientIngestError(message: string): boolean {

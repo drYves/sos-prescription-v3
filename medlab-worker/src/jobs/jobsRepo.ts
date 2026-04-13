@@ -36,6 +36,44 @@ export interface QueueMetrics {
   claimed: number;
 }
 
+export type JobsRepoActionFailureStage =
+  | "validation"
+  | "approval"
+  | "rejection"
+  | "pdf_generation"
+  | "payment"
+  | "database"
+  | "unknown";
+
+export interface JobsRepoActionErrorInit {
+  code: string;
+  message: string;
+  statusCode?: number;
+  stage?: JobsRepoActionFailureStage;
+  details?: Record<string, unknown>;
+  cause?: unknown;
+}
+
+export class JobsRepoActionError extends Error {
+  readonly code: string;
+  readonly statusCode: number;
+  readonly stage: JobsRepoActionFailureStage;
+  readonly details?: Record<string, unknown>;
+
+  constructor(init: JobsRepoActionErrorInit) {
+    super(init.message);
+    this.name = "JobsRepoActionError";
+    this.code = init.code;
+    this.statusCode = init.statusCode ?? 500;
+    this.stage = init.stage ?? "unknown";
+    this.details = init.details;
+
+    if (init.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = init.cause;
+    }
+  }
+}
+
 export interface ClaimJobOptions {
   siteId: string;
   workerId: string;

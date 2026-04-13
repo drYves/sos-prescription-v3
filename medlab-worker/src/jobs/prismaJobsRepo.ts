@@ -4,24 +4,25 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
-import type {
-  ApprovePrescriptionRequest,
-  ApprovePrescriptionResult,
-  ClaimJobOptions,
-  IngestDoctorInput,
-  IngestPatientInput,
-  IngestPrescriptionRequest,
-  IngestPrescriptionResult,
-  JobRow,
-  JobsRepo,
-  MarkDoneOptions,
-  MarkFailedOptions,
-  PaymentActionPayload,
-  QueueMetrics,
-  RequeueWithBackoffOptions,
-  RejectPrescriptionRequest,
-  RejectPrescriptionResult,
-  SweepZombiesResult,
+import {
+  JobsRepoActionError,
+  type ApprovePrescriptionRequest,
+  type ApprovePrescriptionResult,
+  type ClaimJobOptions,
+  type IngestDoctorInput,
+  type IngestPatientInput,
+  type IngestPrescriptionRequest,
+  type IngestPrescriptionResult,
+  type JobRow,
+  type JobsRepo,
+  type MarkDoneOptions,
+  type MarkFailedOptions,
+  type PaymentActionPayload,
+  type QueueMetrics,
+  type RequeueWithBackoffOptions,
+  type RejectPrescriptionRequest,
+  type RejectPrescriptionResult,
+  type SweepZombiesResult,
 } from "./jobsRepo";
 
 const CURRENT_INGEST_SCHEMA_VERSION = "2026.6";
@@ -505,97 +506,152 @@ export class PrismaJobsRepo implements JobsRepo {
     prescriptionId: string,
     input: ApprovePrescriptionRequest,
   ): Promise<ApprovePrescriptionResult> {
-    const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
-    const doctor = input.doctor;
     const reqId = input.req_id;
-    const canonicalItems = Array.isArray(input.items) && input.items.length > 0
-      ? canonicalizePrescriptionItems(input.items)
-      : null;
-    const payment = normalizePaymentActionPayload(input.payment);
-    if (payment) {
-      await this.ensurePaymentActionQueueSchema();
-    }
+    const doctor = input.doctor;
+    const requestedItemsCount = Array.isArray(input.items) ? input.items.length : 0;
+    let safePrescriptionId = typeof prescriptionId === "string" ? prescriptionId.trim() : String(prescriptionId ?? "");
+    let canonicalItems: ReturnType<typeof canonicalizePrescriptionItems> | null = null;
+    let payment: NormalizedPaymentActionPayload | null = null;
 
-    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const existing = await tx.prescription.findUnique({
-        where: { id: safePrescriptionId },
-        select: {
-          ...ingestSelect(),
-          doctorId: true,
-        },
-      });
-
-      if (!existing) {
-        throw new Error("Prescription not found");
+    try {
+      safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
+      canonicalItems = Array.isArray(input.items) && input.items.length > 0
+        ? canonicalizePrescriptionItems(input.items)
+        : null;
+      payment = normalizePaymentActionPayload(input.payment);
+      if (payment) {
+        await this.ensurePaymentActionQueueSchema();
       }
 
-      let finalDoctorId = existing.doctorId;
-
-      if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
-        const upsertedDoctor = await tx.doctor.upsert({
-          where: { wpUserId: normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") },
-          create: buildDoctorCreate(doctor),
-          update: buildDoctorUpdate(doctor),
-          select: { id: true },
+      const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const existing = await tx.prescription.findUnique({
+          where: { id: safePrescriptionId },
+          select: {
+            ...ingestSelect(),
+            doctorId: true,
+          },
         });
-        finalDoctorId = upsertedDoctor.id;
-      }
 
-      const now = new Date();
+        if (!existing) {
+          throw new Error("Prescription not found");
+        }
 
-      if (canonicalItems) {
-        await tx.prescription.update({
+        let finalDoctorId = existing.doctorId;
+
+        if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
+          const upsertedDoctor = await tx.doctor.upsert({
+            where: { wpUserId: normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") },
+            create: buildDoctorCreate(doctor),
+            update: buildDoctorUpdate(doctor),
+            select: { id: true },
+          });
+          finalDoctorId = upsertedDoctor.id;
+        }
+
+        const now = new Date();
+
+        if (canonicalItems) {
+          await tx.prescription.update({
+            where: { id: safePrescriptionId },
+            data: {
+              items: toInputJsonArray(canonicalItems),
+              updatedAt: now,
+            },
+            select: { id: true },
+          });
+        }
+
+        const updatedPrescription = await tx.prescription.update({
           where: { id: safePrescriptionId },
           data: {
-            items: toInputJsonArray(canonicalItems),
+            status: "APPROVED",
+            processingStatus: "PENDING",
+            availableAt: now,
+            claimedAt: null,
+            lockExpiresAt: null,
+            workerRef: null,
+            doctorId: finalDoctorId,
+            lastErrorCode: null,
+            lastErrorMessageSafe: null,
             updatedAt: now,
           },
-          select: { id: true },
+          select: ingestSelect(),
         });
-      }
 
-      const updatedPrescription = await tx.prescription.update({
-        where: { id: safePrescriptionId },
-        data: {
-          status: "APPROVED",
-          processingStatus: "PENDING",
-          availableAt: now,
-          claimedAt: null,
-          lockExpiresAt: null,
-          workerRef: null,
-          doctorId: finalDoctorId,
-          lastErrorCode: null,
-          lastErrorMessageSafe: null,
-          updatedAt: now,
-        },
-        select: ingestSelect(),
+        if (payment) {
+          await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+        }
+
+        return updatedPrescription;
+      }, {
+        maxWait: TX_MAX_WAIT_MS,
+        timeout: TX_TIMEOUT_MS,
       });
 
-      if (payment) {
-        await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+      const result = mapApproveResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
+      this.logger?.info(
+        "ingest.approved",
+        {
+          job_id: result.job_id,
+          prescription_uid: result.uid,
+          processing_status: result.processing_status,
+          source_req_id: result.source_req_id,
+          doctor_wp_user_id: doctor?.wpUserId ?? null,
+          items_count: canonicalItems ? canonicalItems.length : null,
+        },
+        reqId ?? updated.sourceReqId ?? undefined,
+      );
+
+      return result;
+    } catch (err: unknown) {
+      const failure = classifyApproveRepoFailure(err);
+      this.logger?.error(
+        "ingest.approve_failed.repo",
+        {
+          prescription_id: safePrescriptionId !== "" ? safePrescriptionId : null,
+          source_req_id: reqId ?? null,
+          doctor_wp_user_id: doctor?.wpUserId ?? null,
+          items_count: canonicalItems ? canonicalItems.length : requestedItemsCount,
+          payment_present: payment !== null || input.payment != null,
+          failure_stage: failure.stage,
+          failure_code: failure.code,
+          failure_status: failure.statusCode,
+          prisma_code: failure.prismaCode,
+          system_code: failure.systemCode,
+          system_errno: failure.systemErrno,
+          system_syscall: failure.systemSyscall,
+          system_path: failure.systemPath,
+          raw_error_name: failure.rawName,
+          raw_error_message: failure.rawMessage,
+          raw_error_stack: failure.rawStack,
+          raw_error_cause: failure.rawCauseMessage,
+        },
+        reqId ?? undefined,
+        err,
+      );
+
+      if (err instanceof JobsRepoActionError) {
+        throw err;
       }
 
-      return updatedPrescription;
-    }, {
-      maxWait: TX_MAX_WAIT_MS,
-      timeout: TX_TIMEOUT_MS,
-    });
-
-    const result = mapApproveResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
-    this.logger?.info(
-      "ingest.approved",
-      {
-        job_id: result.job_id,
-        prescription_uid: result.uid,
-        processing_status: result.processing_status,
-        source_req_id: result.source_req_id,
-        doctor_wp_user_id: doctor?.wpUserId ?? null,
-        items_count: canonicalItems ? canonicalItems.length : null,
-      },
-      reqId ?? updated.sourceReqId ?? undefined,
-    );
-
-    return result;
+      throw new JobsRepoActionError({
+        code: failure.code,
+        message: failure.rawMessage !== "" ? failure.rawMessage : "approve_failed",
+        statusCode: failure.statusCode,
+        stage: failure.stage,
+        details: {
+          prisma_code: failure.prismaCode,
+          system_code: failure.systemCode,
+          system_errno: failure.systemErrno,
+          system_syscall: failure.systemSyscall,
+          system_path: failure.systemPath,
+          raw_error_name: failure.rawName,
+          raw_error_stack: failure.rawStack,
+          raw_error_cause: failure.rawCauseMessage,
+        },
+        cause: err,
+      });
+    }
   }
 
   async rejectPrescription(
@@ -1340,9 +1396,6 @@ function buildDoctorCreate(input: IngestDoctorInput) {
     lastName: normalizeNullableString(input.lastName),
     email: normalizeNullableString(input.email),
     phone: normalizeNullableString(input.phone),
-    twilioPhone: normalizeNullableString(input.twilioPhone),
-    university: normalizeNullableString(input.university),
-    distinctions: normalizeNullableString(input.distinctions),
     title: normalizeNullableString(input.title),
     specialty: normalizeNullableString(input.specialty),
     rpps: normalizeNullableString(input.rpps),
@@ -1360,9 +1413,6 @@ function buildDoctorUpdate(input: IngestDoctorInput) {
     lastName: normalizeNullableString(input.lastName),
     email: normalizeNullableString(input.email),
     phone: normalizeNullableString(input.phone),
-    twilioPhone: normalizeNullableString(input.twilioPhone),
-    university: normalizeNullableString(input.university),
-    distinctions: normalizeNullableString(input.distinctions),
     title: normalizeNullableString(input.title),
     specialty: normalizeNullableString(input.specialty),
     rpps: normalizeNullableString(input.rpps),
@@ -1888,36 +1938,23 @@ function normalizeOptionalDoctorInput(value: unknown): IngestDoctorInput | null 
 
   const row = value as Record<string, unknown>;
   const normalized: IngestDoctorInput = {
-    wpUserId: parsePositiveIntOrNull(pickAlias(row, ["wpUserId", "wp_user_id"])),
-    firstName: normalizeNullableString(pickAlias(row, ["firstName", "first_name"])),
-    lastName: normalizeNullableString(pickAlias(row, ["lastName", "last_name"])),
-    email: normalizeNullableString(pickAlias(row, ["email"])),
-    phone: normalizeNullableString(pickAlias(row, ["phone", "professionalPhone", "professional_phone", "telephone", "tel"])),
-    twilioPhone: normalizeNullableString(pickAlias(row, ["twilioPhone", "twilio_phone", "publicPhone", "public_phone", "sosprescription_twilio_number"])),
-    university: normalizeNullableString(pickAlias(row, ["university", "diplomaUniversityLocation", "diploma_university_location"])),
-    distinctions: normalizeNullableString(pickAlias(row, ["distinctions", "diplomaHonors", "diploma_honors"])),
-    title: normalizeNullableString(pickAlias(row, ["title"])),
-    specialty: normalizeNullableString(pickAlias(row, ["specialty", "speciality"])),
-    rpps: normalizeNullableString(pickAlias(row, ["rpps"])),
-    amNumber: normalizeNullableString(pickAlias(row, ["amNumber", "am_number"])),
-    address: normalizeNullableString(pickAlias(row, ["address", "addressLine1", "address_line_1"])),
-    city: normalizeNullableString(pickAlias(row, ["city"])),
-    zipCode: normalizeNullableString(pickAlias(row, ["zipCode", "zip_code", "postalCode", "postal_code"])),
-    signatureS3Key: normalizeNullableString(pickAlias(row, ["signatureS3Key", "signature_s3_key", "signatureUrl", "signature_url", "signatureS3Url", "signature_s3_url"])),
+    wpUserId: parsePositiveIntOrNull(row.wpUserId),
+    firstName: normalizeNullableString(row.firstName),
+    lastName: normalizeNullableString(row.lastName),
+    email: normalizeNullableString(row.email),
+    phone: normalizeNullableString(row.phone),
+    title: normalizeNullableString(row.title),
+    specialty: normalizeNullableString(row.specialty),
+    rpps: normalizeNullableString(row.rpps),
+    amNumber: normalizeNullableString(row.amNumber),
+    address: normalizeNullableString(row.address),
+    city: normalizeNullableString(row.city),
+    zipCode: normalizeNullableString(row.zipCode),
+    signatureS3Key: normalizeNullableString(row.signatureS3Key),
   };
 
   const hasAnyValue = Object.values(normalized).some((entry) => entry != null && entry !== "");
   return hasAnyValue ? normalized : null;
-}
-
-
-function pickAlias(row: Record<string, unknown>, keys: string[]): unknown {
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] != null) {
-      return row[key];
-    }
-  }
-  return undefined;
 }
 
 function extractPrismaCode(err: unknown): string | null {
@@ -1927,6 +1964,207 @@ function extractPrismaCode(err: unknown): string | null {
 
   const code = (err as { code?: unknown }).code;
   return typeof code === "string" && code !== "" ? code : null;
+}
+
+interface RepoActionFailureDetails {
+  code: string;
+  statusCode: number;
+  stage: "validation" | "approval" | "pdf_generation" | "payment" | "database" | "unknown";
+  prismaCode: string | null;
+  rawName: string;
+  rawMessage: string;
+  rawStack: string | null;
+  rawCauseMessage: string | null;
+  systemCode: string | null;
+  systemErrno: number | string | null;
+  systemSyscall: string | null;
+  systemPath: string | null;
+}
+
+function classifyApproveRepoFailure(err: unknown): RepoActionFailureDetails {
+  const snapshot = buildRepoFailureSnapshot(err);
+
+  if (err instanceof JobsRepoActionError) {
+    return {
+      ...snapshot,
+      code: err.code,
+      statusCode: err.statusCode,
+      stage: err.stage === "rejection" ? "approval" : err.stage,
+    };
+  }
+
+  const lowerMessage = snapshot.rawMessage.toLowerCase();
+  if (isRepoPdfGenerationError(snapshot.rawMessage)) {
+    return {
+      ...snapshot,
+      code: "ML_PDF_GENERATION_FAILED",
+      statusCode: 500,
+      stage: "pdf_generation",
+    };
+  }
+
+  if (snapshot.prismaCode === "P2025" || lowerMessage.includes("prescription not found")) {
+    return {
+      ...snapshot,
+      code: "ML_PRESCRIPTION_NOT_FOUND",
+      statusCode: 404,
+      stage: "database",
+    };
+  }
+
+  if (isRepoValidationError(snapshot.rawMessage)) {
+    return {
+      ...snapshot,
+      code: "ML_INGEST_BAD_REQUEST",
+      statusCode: 400,
+      stage: "validation",
+    };
+  }
+
+  if (lowerMessage.includes("payment") || lowerMessage.includes("stripe") || lowerMessage.includes("capture") || lowerMessage.includes("cancel")) {
+    return {
+      ...snapshot,
+      code: "ML_APPROVE_FAILED",
+      statusCode: 500,
+      stage: "payment",
+    };
+  }
+
+  return {
+    ...snapshot,
+    code: "ML_APPROVE_FAILED",
+    statusCode: 500,
+    stage: snapshot.prismaCode ? "database" : "approval",
+  };
+}
+
+function buildRepoFailureSnapshot(err: unknown): RepoActionFailureDetails {
+  return {
+    code: "ML_APPROVE_FAILED",
+    statusCode: 500,
+    stage: "unknown",
+    prismaCode: extractPrismaCode(err),
+    rawName: extractRepoErrorName(err),
+    rawMessage: extractRepoErrorMessage(err),
+    rawStack: extractRepoErrorStack(err),
+    rawCauseMessage: extractRepoCauseMessage(err),
+    systemCode: extractRepoSystemCode(err),
+    systemErrno: extractRepoSystemErrno(err),
+    systemSyscall: extractRepoSystemStringField(err, "syscall"),
+    systemPath: extractRepoSystemStringField(err, "path"),
+  };
+}
+
+function isRepoValidationError(message: string): boolean {
+  const haystack = message.toLowerCase();
+  return [
+    "required",
+    "must be",
+    "invalid",
+    "schema_version mismatch",
+    "site_id mismatch",
+    "doctor block is required",
+    "doctor block must be an object if provided",
+    "patient block is required",
+    "prescription block is required",
+    "prescription.items must be an array",
+    "ingress payload is missing",
+  ].some((needle) => haystack.includes(needle));
+}
+
+function isRepoPdfGenerationError(message: string): boolean {
+  const haystack = message.toLowerCase();
+  return [
+    "ml_pdf_",
+    "pdf generation",
+    "pdf render",
+    "pdf.render",
+    "puppeteer",
+    "invalid pdf",
+    "failed to read pdf",
+  ].some((needle) => haystack.includes(needle));
+}
+
+function extractRepoErrorName(err: unknown): string {
+  if (err instanceof Error && typeof err.name === "string" && err.name.trim() !== "") {
+    return err.name.trim();
+  }
+  return typeof err === "object" && err !== null ? "Object" : typeof err;
+}
+
+function extractRepoErrorMessage(err: unknown): string {
+  if (err instanceof Error && typeof err.message === "string") {
+    return err.message.trim();
+  }
+  return typeof err === "string" ? err.trim() : "";
+}
+
+function extractRepoErrorStack(err: unknown): string | null {
+  return err instanceof Error && typeof err.stack === "string" && err.stack.trim() !== ""
+    ? err.stack
+    : null;
+}
+
+function extractRepoCauseMessage(err: unknown): string | null {
+  if (!(err instanceof Error)) {
+    return null;
+  }
+
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (cause instanceof Error && typeof cause.message === "string" && cause.message.trim() !== "") {
+    return cause.message.trim();
+  }
+
+  return typeof cause === "string" && cause.trim() !== "" ? cause.trim() : null;
+}
+
+function extractRepoSystemCode(err: unknown): string | null {
+  for (const candidate of iterateRepoErrorCandidates(err)) {
+    const code = candidate.code;
+    if (typeof code !== "string" || code.trim() === "") {
+      continue;
+    }
+    if (/^P\d{4}$/u.test(code.trim())) {
+      continue;
+    }
+    return code.trim();
+  }
+
+  return null;
+}
+
+function extractRepoSystemErrno(err: unknown): number | string | null {
+  for (const candidate of iterateRepoErrorCandidates(err)) {
+    const errno = candidate.errno;
+    if (typeof errno === "number" || typeof errno === "string") {
+      return errno;
+    }
+  }
+
+  return null;
+}
+
+function extractRepoSystemStringField(err: unknown, field: "syscall" | "path"): string | null {
+  for (const candidate of iterateRepoErrorCandidates(err)) {
+    const value = candidate[field];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function* iterateRepoErrorCandidates(err: unknown): Generator<Record<string, unknown>> {
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    yield current as Record<string, unknown>;
+    if (current instanceof Error) {
+      current = (current as Error & { cause?: unknown }).cause;
+      continue;
+    }
+    break;
+  }
 }
 
 function normalizeBaseUrl(value: string): string {

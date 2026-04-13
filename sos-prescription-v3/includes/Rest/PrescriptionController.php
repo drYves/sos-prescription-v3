@@ -313,6 +313,8 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_worker_reference_missing', 'Référence Worker introuvable.', ['status' => 409]);
         }
 
+        $paymentPayload = $this->build_payment_action_payload($id, $decision);
+
         try {
             $dispatcher = $this->get_job_dispatcher();
             if ($decision === 'approved') {
@@ -322,14 +324,14 @@ class PrescriptionController extends \WP_REST_Controller
                     $doctorPayload,
                     $req_id,
                     $items,
-                    $this->build_payment_action_payload($id, 'approved')
+                    $paymentPayload
                 );
             } else {
                 $workerResult = $dispatcher->rejectPrescription(
                     $workerPrescriptionId,
                     $reason,
                     $req_id,
-                    $this->build_payment_action_payload($id, 'rejected')
+                    $paymentPayload
                 );
             }
             $workerResult = $this->force_decision_worker_shadow_state(
@@ -339,9 +341,17 @@ class PrescriptionController extends \WP_REST_Controller
                 $req_id
             );
         } catch (\Throwable $e) {
-            return $this->raw_exact_unprocessable_response(
-                'Échec de validation HDS (Veuillez faire un screen) : ' . (string) $e->getMessage(),
-                $req_id
+            return $this->build_decision_worker_error_response(
+                $e,
+                $req_id,
+                [
+                    'decision' => $decision,
+                    'local_prescription_id' => $id,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                    'doctor_id' => $doctor_id,
+                    'items_count' => is_array($items) ? count($items) : 0,
+                    'payment_present' => is_array($paymentPayload),
+                ]
             );
         }
 
@@ -2867,6 +2877,107 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return 'Erreur lors de la synchronisation du shadow record.';
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    protected function build_decision_worker_error_response(\Throwable $error, string $req_id, array $context = []): WP_REST_Response
+    {
+        $parsed = $this->extract_worker_bridge_error_context($error);
+        $workerStatus = isset($parsed['worker_http_status']) ? (int) $parsed['worker_http_status'] : null;
+        $workerCode = isset($parsed['worker_code']) && is_scalar($parsed['worker_code']) ? trim((string) $parsed['worker_code']) : '';
+        $workerRawResponse = trim((string) $error->getMessage());
+
+        $publicStatus = 500;
+        $publicCode = 'sosprescription_worker_transition_failed';
+        $publicMessage = 'La mise à jour du dossier a échoué. Réessayez ultérieurement.';
+
+        if ($workerCode === 'ML_PDF_GENERATION_FAILED') {
+            $publicCode = 'sosprescription_pdf_generation_failed';
+            $publicMessage = 'La génération du document est temporairement indisponible.';
+            $publicStatus = 500;
+        } elseif (($workerStatus !== null && $workerStatus >= 400 && $workerStatus < 500) || $this->is_invalid_worker_request_error($workerRawResponse)) {
+            $publicCode = 'sosprescription_worker_invalid_request';
+            $publicMessage = 'Les données transmises au service sécurisé sont invalides.';
+            $publicStatus = 400;
+        }
+
+        $logger = new NdjsonLogger('web', $this->get_worker_site_id(), $this->get_env_or_constant('SOSPRESCRIPTION_ENV', 'prod'));
+        $logger->error(
+            'prescription.decision_worker_failed',
+            array_merge(
+                [
+                    'public_code' => $publicCode,
+                    'public_status' => $publicStatus,
+                    'worker_http_status' => $workerStatus,
+                    'worker_code' => $workerCode !== '' ? $workerCode : null,
+                    'worker_raw_response' => $workerRawResponse,
+                ],
+                $context
+            ),
+            $req_id,
+            $error
+        );
+
+        return new WP_REST_Response([
+            'ok' => false,
+            'code' => $publicCode,
+            'message' => $publicMessage,
+            'req_id' => $req_id,
+            'error_data' => [
+                'worker_http_status' => $workerStatus,
+                'worker_code' => $workerCode !== '' ? $workerCode : null,
+                'worker_raw_response' => $workerRawResponse,
+            ],
+        ], $publicStatus);
+    }
+
+    /**
+     * @return array{worker_http_status:?int,worker_code:?string,worker_message:string}
+     */
+    protected function extract_worker_bridge_error_context(\Throwable $error): array
+    {
+        $message = trim((string) $error->getMessage());
+        if (preg_match('/^Worker HTTP\s+(\d{3})\s*:\s*(.*?)\s*\(([A-Z0-9_]+)\)$/u', $message, $matches)) {
+            return [
+                'worker_http_status' => max(400, min(599, (int) $matches[1])),
+                'worker_code' => trim((string) $matches[3]),
+                'worker_message' => trim((string) $matches[2]),
+            ];
+        }
+
+        return [
+            'worker_http_status' => null,
+            'worker_code' => null,
+            'worker_message' => $message,
+        ];
+    }
+
+    protected function is_invalid_worker_request_error(string $message): bool
+    {
+        $haystack = strtolower(trim($message));
+        if ($haystack === '') {
+            return false;
+        }
+
+        foreach ([
+            'ml_ingest_bad_request',
+            'required',
+            'must be',
+            'invalid',
+            'not found',
+            'schema_version mismatch',
+            'site_id mismatch',
+            'doctor block is required',
+            'items must be an array',
+        ] as $needle) {
+            if (str_contains($haystack, strtolower($needle))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function raw_unprocessable_response(string $message, string $req_id): WP_REST_Response

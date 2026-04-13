@@ -40,16 +40,7 @@ final class NotificationsPage
         self::$twilio_settings_registered = true;
 
         self::migrate_legacy_twilio_number_option();
-
-        register_setting(
-            self::TWILIO_SETTINGS_GROUP,
-            self::TWILIO_NUMBER_OPTION_KEY,
-            [
-                'type' => 'string',
-                'sanitize_callback' => [self::class, 'sanitize_twilio_number'],
-                'default' => self::get_twilio_number(),
-            ]
-        );
+        self::register_twilio_number_setting();
 
         add_settings_section(
             self::TWILIO_SETTINGS_SECTION,
@@ -66,6 +57,20 @@ final class NotificationsPage
             self::TWILIO_SETTINGS_SECTION,
             [
                 'label_for' => self::TWILIO_NUMBER_OPTION_KEY,
+            ]
+        );
+    }
+
+    private static function register_twilio_number_setting(): void
+    {
+        // options.php n’accepte le POST que si ce groupe/nom d’option a été enregistré sur admin_init.
+        register_setting(
+            self::TWILIO_SETTINGS_GROUP,
+            self::TWILIO_NUMBER_OPTION_KEY,
+            [
+                'type' => 'string',
+                'sanitize_callback' => [self::class, 'sanitize_twilio_number'],
+                'default' => self::get_twilio_number(),
             ]
         );
     }
@@ -279,6 +284,7 @@ final class NotificationsPage
         echo '<h2 style="margin-top:0;">Téléphonie / Twilio</h2>';
         echo '<p class="description">Le numéro Twilio est affiché aux patients. Le routage réel des appels est déterminé dynamiquement par le code de délivrance saisi dans l’assistant vocal.</p>';
         echo '<form method="post" action="' . esc_url(admin_url('options.php')) . '">';
+        // Doit rester strictement aligné avec le groupe passé à register_setting().
         settings_fields(self::TWILIO_SETTINGS_GROUP);
         do_settings_sections(self::TWILIO_SETTINGS_PAGE);
         echo '<p style="margin-top:16px;">';
