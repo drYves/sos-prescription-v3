@@ -171,42 +171,98 @@ export class AuthService {
         };
       }
 
-      const draftSubmission = await this.prisma.submission.findFirst({
+      const submissionRows = await this.prisma.submission.findMany({
         where: {
           ownerRole: ActorRole.PATIENT,
-          status: SubmissionStatus.DRAFT,
-          expiresAt: { gt: new Date() },
-          email,
+          email: { equals: email, mode: "insensitive" },
         },
         orderBy: {
           updatedAt: "desc",
         },
+        take: 10,
         select: {
           publicRef: true,
+          ownerWpUserId: true,
+          status: true,
+          expiresAt: true,
+          updatedAt: true,
         },
       });
 
-      if (draftSubmission) {
-        this.logger?.info(
-          "auth.magic_link.lookup_matched_draft",
-          {
-            email_fp: fingerprint(email),
-            submission_ref: draftSubmission.publicRef,
-          },
-          reqId,
-        );
+      if (submissionRows.length > 0) {
+        const now = Date.now();
+        const activeDraft = submissionRows.find((row) => (
+          row.status === SubmissionStatus.DRAFT
+          && row.expiresAt.getTime() > now
+        )) ?? null;
+        const submissionWpUserIds = uniquePositiveInts(submissionRows.map((row) => row.ownerWpUserId));
 
-        return {
-          status: "matched",
-          candidate: {
-            email,
-            ownerRole: ActorRole.PATIENT,
-            ownerWpUserId: null,
-            metadata: {
-              draft_ref: draftSubmission.publicRef,
+        if (submissionWpUserIds.length > 1) {
+          this.logger?.warning(
+            "auth.magic_link.lookup_ambiguous",
+            {
+              email_fp: fingerprint(email),
+              match_type: "multiple_submission_owners",
+              submission_match_count: submissionRows.length,
+              submission_owner_match_count: submissionWpUserIds.length,
             },
-          },
-        };
+            reqId,
+          );
+          return { status: "ambiguous" };
+        }
+
+        let linkedPatientWpUserId: number | null = null;
+        if (submissionWpUserIds.length === 1) {
+          const linkedPatient = await this.prisma.patient.findFirst({
+            where: {
+              wpUserId: submissionWpUserIds[0],
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          if (linkedPatient) {
+            linkedPatientWpUserId = submissionWpUserIds[0];
+          } else {
+            this.logger?.warning(
+              "auth.magic_link.lookup_submission_unlinked",
+              {
+                email_fp: fingerprint(email),
+                owner_wp_user_id: submissionWpUserIds[0],
+              },
+              reqId,
+            );
+          }
+        }
+
+        if (linkedPatientWpUserId != null || activeDraft) {
+          const metadata = activeDraft
+            ? { draft_ref: activeDraft.publicRef }
+            : null;
+
+          this.logger?.info(
+            activeDraft ? "auth.magic_link.lookup_matched_draft" : "auth.magic_link.lookup_matched_submission",
+            {
+              email_fp: fingerprint(email),
+              owner_wp_user_id: linkedPatientWpUserId,
+              submission_ref: activeDraft?.publicRef ?? submissionRows[0]?.publicRef ?? null,
+              has_active_draft: activeDraft != null,
+            },
+            reqId,
+          );
+
+          return {
+            status: "matched",
+            candidate: {
+              email,
+              ownerRole: ActorRole.PATIENT,
+              ownerWpUserId: linkedPatientWpUserId,
+              metadata,
+            },
+          };
+        }
       }
 
       return { status: "not_found" };

@@ -168,6 +168,7 @@ model Submission {
   @@index([status, expiresAt])
   @@index([ownerRole, ownerWpUserId, status, expiresAt])
   @@index([ownerRole, email, status, expiresAt])
+  @@index([ownerRole, email, updatedAt])
   @@index([flowKey, status, createdAt])
   @@index([createdAt])
 }

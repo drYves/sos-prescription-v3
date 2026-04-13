@@ -117,6 +117,7 @@ interface LockedSubmissionRow {
   publicRef: string;
   ownerRole: ActorRole;
   ownerWpUserId: number | null;
+  email: string | null;
   status: SubmissionStatus;
   flowKey: string;
   priority: string;
@@ -383,21 +384,26 @@ export class SubmissionRepo {
           const patientWpUserId = normalized.actor.role === ActorRole.PATIENT
             ? normalized.actor.wpUserId
             : null;
+          const submissionEmail = normalizeOptionalEmail(submission.email);
+          const effectivePatient = {
+            ...normalized.patient,
+            email: normalized.patient.email == null ? (submissionEmail ?? undefined) : normalized.patient.email,
+          } satisfies NormalizedFinalizePatientInput;
 
           const patient = patientWpUserId != null
             ? await tx.patient.upsert({
               where: { wpUserId: patientWpUserId },
-              update: buildPatientUpdateData(normalized.patient),
+              update: buildPatientUpdateData(effectivePatient),
               create: {
                 wpUserId: patientWpUserId,
-                ...buildPatientCreateData(normalized.patient),
+                ...buildPatientCreateData(effectivePatient),
               },
               select: { id: true },
             })
             : await tx.patient.create({
               data: {
                 wpUserId: null,
-                ...buildPatientCreateData(normalized.patient),
+                ...buildPatientCreateData(effectivePatient),
               },
               select: { id: true },
             });
@@ -442,6 +448,7 @@ export class SubmissionRepo {
           await tx.submission.update({
             where: { id: submission.id },
             data: {
+              email: effectivePatient.email ?? submissionEmail ?? null,
               status: SubmissionStatus.FINALIZED,
               finalizedPrescriptionId: createdPrescription.id,
             },
@@ -928,6 +935,7 @@ async function lockSubmissionByPublicRef(
       "publicRef",
       "ownerRole",
       "ownerWpUserId",
+      "email",
       "status",
       "flowKey",
       "priority",
@@ -957,6 +965,7 @@ function mapLockedSubmissionRow(row: Record<string, unknown>): LockedSubmissionR
     publicRef: normalizeRequiredString(row.publicRef, "submission.publicRef"),
     ownerRole,
     ownerWpUserId: normalizeNullablePositiveInt(row.ownerWpUserId),
+    email: normalizeOptionalEmail(row.email),
     status,
     flowKey: normalizeRequiredString(row.flowKey, "submission.flowKey"),
     priority: normalizeRequiredString(row.priority, "submission.priority"),

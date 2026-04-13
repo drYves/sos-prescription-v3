@@ -156,7 +156,7 @@ final class AuthV4Controller extends \WP_REST_Controller
 
         $valid = isset($workerPayload['valid']) && $workerPayload['valid'] === true;
         $email = isset($workerPayload['email']) && is_scalar($workerPayload['email'])
-            ? sanitize_email((string) $workerPayload['email'])
+            ? strtolower(sanitize_email((string) $workerPayload['email']))
             : '';
         $draftRef = isset($workerPayload['draft_ref']) && is_scalar($workerPayload['draft_ref'])
             ? trim((string) $workerPayload['draft_ref'])
@@ -296,7 +296,7 @@ final class AuthV4Controller extends \WP_REST_Controller
 
     private function resolve_or_create_patient_user(string $email, string $reqId): ?WP_User
     {
-        $normalizedEmail = sanitize_email($email);
+        $normalizedEmail = strtolower(sanitize_email($email));
         if ($normalizedEmail === '' || !is_email($normalizedEmail)) {
             return null;
         }

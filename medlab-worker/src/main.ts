@@ -120,13 +120,18 @@ async function main(): Promise<void> {
     logger,
   });
 
-  const smartReplyService = new SmartReplyService({
-    siteId: cfg.siteId,
-    copilot: copilotService,
-    logger,
-  });
+  const smartRepliesEnabled = resolveBooleanFlag(process.env.SMART_REPLIES_ENABLED, false);
+  const smartReplyService = smartRepliesEnabled
+    ? new SmartReplyService({
+      siteId: cfg.siteId,
+      copilot: copilotService,
+      logger,
+    })
+    : undefined;
 
-  await smartReplyService.ensureSchema();
+  if (smartReplyService) {
+    await smartReplyService.ensureSchema();
+  }
 
   if (prismaJobsRepo) {
     await prismaJobsRepo.ensurePaymentActionQueueSchema();
@@ -196,10 +201,12 @@ async function main(): Promise<void> {
       // noop
     }
 
-    try {
-      await smartReplyService.close();
-    } catch {
-      // noop
+    if (smartReplyService) {
+      try {
+        await smartReplyService.close();
+      } catch {
+        // noop
+      }
     }
 
     try {
@@ -242,6 +249,7 @@ async function main(): Promise<void> {
       artifact_ticket_ttl_ms: cfg.upload.ticketTtlMs,
       openrouter_enabled: openRouter.isEnabled(),
       openrouter_model: cfg.openRouter.model,
+      smart_replies_enabled: smartReplyService != null,
     },
     undefined,
   );
@@ -370,27 +378,29 @@ async function main(): Promise<void> {
       }
     }
 
-    let smartReplyJob = null;
-    try {
-      smartReplyJob = await smartReplyService.claimNextPendingJob({
-        workerId: cfg.workerId,
-        leaseMinutes: cfg.leaseMinutes,
-      });
-    } catch (err: unknown) {
-      logger.error(
-        "smart_replies.job.claim_failed",
-        {
-          message: err instanceof Error ? err.message : "Failed to claim smart reply job",
-        },
-        undefined,
-      );
-      await sleep(withJitter(claimFailureBackoffMs, 1_000));
-      continue;
-    }
+    if (smartReplyService) {
+      let smartReplyJob = null;
+      try {
+        smartReplyJob = await smartReplyService.claimNextPendingJob({
+          workerId: cfg.workerId,
+          leaseMinutes: cfg.leaseMinutes,
+        });
+      } catch (err: unknown) {
+        logger.error(
+          "smart_replies.job.claim_failed",
+          {
+            message: err instanceof Error ? err.message : "Failed to claim smart reply job",
+          },
+          undefined,
+        );
+        await sleep(withJitter(claimFailureBackoffMs, 1_000));
+        continue;
+      }
 
-    if (smartReplyJob) {
-      await smartReplyService.processJob(smartReplyJob);
-      continue;
+      if (smartReplyJob) {
+        await smartReplyService.processJob(smartReplyJob);
+        continue;
+      }
     }
 
     await sleep(withJitter(idlePollMs, 1_000));
@@ -400,6 +410,15 @@ async function main(): Promise<void> {
 function resolveQueueMode(value: string | undefined): string {
   const normalized = String(value ?? "postgres").trim().toLowerCase();
   return normalized === "rest" ? "rest" : "postgres";
+}
+
+function resolveBooleanFlag(value: string | undefined, fallback: boolean): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(normalized);
 }
 
 function withJitter(baseMs: number, spreadMs: number): number {
