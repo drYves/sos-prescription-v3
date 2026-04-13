@@ -22,7 +22,7 @@ export interface AuthServiceConfig {
 export interface AuthOwnerCandidate {
   email: string;
   ownerRole: MagicLinkOwnerRole;
-  ownerWpUserId: number;
+  ownerWpUserId: number | null;
 }
 
 export interface AuthOwnerLookupResult {
@@ -96,7 +96,6 @@ export class AuthService {
           where: {
             email: { equals: email, mode: "insensitive" },
             deletedAt: null,
-            wpUserId: { not: null },
           },
           select: {
             wpUserId: true,
@@ -106,6 +105,7 @@ export class AuthService {
       ]);
 
       const patientWpUserIds = uniquePositiveInts(patientRows.map((row) => row.wpUserId));
+      const hasPendingPatientMatch = patientRows.some((row) => normalizeNullablePositiveInt(row.wpUserId) == null);
       const doctorWpUserId = doctor?.wpUserId ?? null;
 
       if (doctorWpUserId != null && doctorWpUserId > 0) {
@@ -134,17 +134,6 @@ export class AuthService {
         };
       }
 
-      if (patientWpUserIds.length === 1) {
-        return {
-          status: "matched",
-          candidate: {
-            email,
-            ownerRole: ActorRole.PATIENT,
-            ownerWpUserId: patientWpUserIds[0],
-          },
-        };
-      }
-
       if (patientWpUserIds.length > 1) {
         this.logger?.warning(
           "auth.magic_link.lookup_ambiguous",
@@ -156,6 +145,28 @@ export class AuthService {
           reqId,
         );
         return { status: "ambiguous" };
+      }
+
+      if (patientWpUserIds.length === 1) {
+        return {
+          status: "matched",
+          candidate: {
+            email,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: patientWpUserIds[0],
+          },
+        };
+      }
+
+      if (hasPendingPatientMatch) {
+        return {
+          status: "matched",
+          candidate: {
+            email,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: null,
+          },
+        };
       }
 
       return { status: "not_found" };
