@@ -865,6 +865,73 @@ function resolveResumeDraftRefFromUrl(): string | null {
   }
 }
 
+
+function shouldClearAppStorageKey(key: string): boolean {
+  const normalized = String(key || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.startsWith('sp_')
+    || normalized.startsWith('sp-')
+    || normalized.startsWith('sp:')
+    || normalized.startsWith('sosprescription')
+    || normalized.startsWith('sos-prescription')
+    || normalized.startsWith('medlab')
+    || normalized.startsWith('ml_')
+    || normalized.includes('prescription')
+    || normalized.includes('submission')
+    || normalized.includes('draft');
+}
+
+function clearBrowserStorageArea(storage: Storage | null | undefined): void {
+  if (!storage) {
+    return;
+  }
+
+  const keysToRemove: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (typeof key === 'string' && shouldClearAppStorageKey(key)) {
+      keysToRemove.push(key);
+    }
+  }
+
+  keysToRemove.forEach((key) => {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // noop
+    }
+  });
+}
+
+function clearAppBrowserStateStorage(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    clearBrowserStorageArea(window.localStorage);
+  } catch {
+    // noop
+  }
+
+  try {
+    clearBrowserStorageArea(window.sessionStorage);
+  } catch {
+    // noop
+  }
+
+  try {
+    if (typeof window.name === 'string' && shouldClearAppStorageKey(window.name)) {
+      window.name = '';
+    }
+  } catch {
+    // noop
+  }
+}
+
 function createPlaceholderFile(name: string, mimeType: string): File {
   try {
     return new File([''], name || 'document', { type: mimeType || 'application/octet-stream' });
@@ -3470,21 +3537,30 @@ function PublicFormApp() {
     .map((item) => item.trim())
     .filter(Boolean);
 
+  const resumeDraftRefFromUrl = useMemo(() => resolveResumeDraftRefFromUrl(), []);
   const initialFlow = useMemo<FlowType | null>(() => resolveFlowFromUrl(), []);
-  const [stage, setStage] = useState<Stage>(initialFlow ? 'form' : 'choose');
+  const [stage, setStage] = useState<Stage>(() => (resumeDraftRefFromUrl ? 'priority_selection' : (initialFlow ? 'form' : 'choose')));
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [paymentsConfig, setPaymentsConfig] = useState<PaymentsConfig | null>(null);
   const [pricingLoading, setPricingLoading] = useState(true);
 
-  const [flow, setFlow] = useState<FlowType | null>(initialFlow);
+  const [flow, setFlow] = useState<FlowType | null>(() => (resumeDraftRefFromUrl ? null : initialFlow));
   const [priority, setPriority] = useState<'standard' | 'express'>('standard');
 
-  const [fullName, setFullName] = useState<string>(() => safePatientNameValue(config.patientProfile?.fullname || ''));
+  const [fullName, setFullName] = useState<string>(() => (
+    resumeDraftRefFromUrl ? '' : safePatientNameValue(config.patientProfile?.fullname || '')
+  ));
   const [birthdate, setBirthdate] = useState<string>(() => {
+    if (resumeDraftRefFromUrl) {
+      return '';
+    }
     const value = config.patientProfile?.birthdate_fr;
     return value ? String(value) : '';
   });
   const [medicalNotes, setMedicalNotes] = useState<string>(() => {
+    if (resumeDraftRefFromUrl) {
+      return '';
+    }
     return String(
       config.patientProfile?.note
       || config.patientProfile?.medical_notes
@@ -3504,13 +3580,18 @@ function PublicFormApp() {
   const [preparedSubmission, setPreparedSubmission] = useState<SubmissionResult | null>(null);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [copiedUid, setCopiedUid] = useState(false);
-  const [draftEmail, setDraftEmail] = useState<string>(() => String(config.currentUser?.email || '').trim());
+  const [draftEmail, setDraftEmail] = useState<string>(() => (
+    resumeDraftRefFromUrl
+      ? ''
+      : String(config.currentUser?.email || '').trim()
+  ));
   const [draftSending, setDraftSending] = useState(false);
   const [draftSent, setDraftSent] = useState(false);
   const [draftSuccessMessage, setDraftSuccessMessage] = useState<string | null>(null);
-  const [draftResumeLoading, setDraftResumeLoading] = useState(false);
+  const [draftResumeLoading, setDraftResumeLoading] = useState(Boolean(resumeDraftRefFromUrl));
   const [resumedDraftRef, setResumedDraftRef] = useState<string | null>(null);
   const submissionRefStateRef = useRef<SubmissionRefState>({ ref: null });
+  const resumeDraftConsumedRef = useRef(false);
 
   const compliance = config.compliance || {};
   const consentRequired = Boolean(compliance.consent_required);
@@ -3596,6 +3677,14 @@ function PublicFormApp() {
 
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
   const isDraftMode = !isLoggedIn;
+
+  useEffect(() => {
+    if (!resumeDraftRefFromUrl) {
+      return;
+    }
+
+    clearAppBrowserStateStorage();
+  }, [resumeDraftRefFromUrl]);
   const selectedAmount = useMemo(() => {
     if (!pricing) {
       return null;
@@ -3609,14 +3698,40 @@ function PublicFormApp() {
   const ageLabel = useMemo(() => ageLabelFromBirthdate(birthdate), [birthdate]);
 
   useEffect(() => {
-    const draftRef = resolveResumeDraftRefFromUrl();
-    if (!isLoggedIn || !draftRef) {
+    const draftRef = resumeDraftRefFromUrl;
+    if (!isLoggedIn || !draftRef || resumeDraftConsumedRef.current) {
       return;
     }
 
+    resumeDraftConsumedRef.current = true;
     let cancelled = false;
 
     async function resumeDraft(): Promise<void> {
+      clearAppBrowserStateStorage();
+      submissionRefStateRef.current = { ref: draftRef };
+      setFlow(null);
+      setPriority('standard');
+      setFullName('');
+      setBirthdate('');
+      setMedicalNotes('');
+      setItems([]);
+      setFiles([]);
+      setRejectedFiles([]);
+      setAnalysisInProgress(false);
+      setAnalysisMessage(null);
+      setPreparedSubmission(null);
+      setSubmissionResult(null);
+      setCopiedUid(false);
+      setDraftEmail('');
+      setDraftSending(false);
+      setDraftSent(false);
+      setDraftSuccessMessage(null);
+      setResumedDraftRef(draftRef);
+      setAttestationNoProof(false);
+      setConsentTelemedicine(false);
+      setConsentTruth(false);
+      setConsentCgu(false);
+      setConsentPrivacy(false);
       setDraftResumeLoading(true);
       setSubmitError(null);
 
@@ -3694,6 +3809,7 @@ function PublicFormApp() {
         }
       } catch (error) {
         if (!cancelled) {
+          resumeDraftConsumedRef.current = false;
           setSubmitError('Nous n’avons pas pu reprendre votre brouillon. Merci de demander un nouveau lien de connexion.');
         }
       } finally {
@@ -3708,7 +3824,7 @@ function PublicFormApp() {
     return () => {
       cancelled = true;
     };
-  }, [config.currentUser?.email, isLoggedIn]);
+  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
     loggedIn: isLoggedIn,

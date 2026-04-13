@@ -211,6 +211,7 @@ final class AuthV4Controller extends \WP_REST_Controller
             );
         }
 
+        wp_logout();
         wp_set_current_user($wpUserId);
         wp_set_auth_cookie($wpUserId, true, false);
         do_action('wp_login', (string) $user->user_login, $user);

@@ -29,6 +29,69 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim().toLowerCase());
   }
 
+
+  function shouldResetStorageKey(key) {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+
+    return normalized.startsWith('sp_')
+      || normalized.startsWith('sp-')
+      || normalized.startsWith('sp:')
+      || normalized.startsWith('sosprescription')
+      || normalized.startsWith('sos-prescription')
+      || normalized.startsWith('medlab')
+      || normalized.startsWith('ml_')
+      || normalized.includes('prescription')
+      || normalized.includes('submission')
+      || normalized.includes('draft');
+  }
+
+  function resetStorageArea(storage) {
+    if (!storage) {
+      return;
+    }
+
+    const keysToRemove = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (typeof key === 'string' && shouldResetStorageKey(key)) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => {
+      try {
+        storage.removeItem(key);
+      } catch {
+        // noop
+      }
+    });
+  }
+
+  function resetApplicationStorage() {
+    try {
+      resetStorageArea(window.localStorage);
+    } catch {
+      // noop
+    }
+
+    try {
+      resetStorageArea(window.sessionStorage);
+    } catch {
+      // noop
+    }
+
+    try {
+      if (typeof window.name === 'string' && shouldResetStorageKey(window.name)) {
+        window.name = '';
+      }
+    } catch {
+      // noop
+    }
+  }
+
   async function readJson(response) {
     const text = await response.text();
     if (!text) {
@@ -351,6 +414,7 @@
               getString('verifySuccessTitle', 'Connexion établie'),
               getString('verifySuccessBody', 'Votre session sécurisée est prête. Redirection en cours…')
             );
+            resetApplicationStorage();
             window.location.replace(resolveRedirectUrl(payload));
             return;
           }
@@ -642,6 +706,7 @@
                 icon: '✓',
               }
             );
+            resetApplicationStorage();
             window.location.replace(resolveRedirectUrl(payload));
             return;
           }

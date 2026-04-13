@@ -4117,7 +4117,18 @@ async function resolveSubmissionForArtifactInit(
     },
   });
 
-  if (!row) {
+  if (row == null || row.ownerRole == null) {
+    logger?.warning(
+      "submission.artifact_init.missing",
+      {
+        phase: "artifact_init",
+        submission_ref: normalizedSubmissionRef,
+        actor_role: actor.role,
+        actor_wp_user_id: actor.wpUserId,
+      },
+      reqId,
+    );
+
     throw new SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "Submission not found");
   }
 
