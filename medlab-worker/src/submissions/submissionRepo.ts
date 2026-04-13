@@ -37,6 +37,7 @@ export interface CreateSubmissionInput {
 }
 
 export interface CreateDraftSubmissionInput {
+  email: string;
   flowKey: string;
   priority: string;
   reqId?: string | null;
@@ -247,7 +248,7 @@ export class SubmissionRepo {
       });
 
       if (existing) {
-        return await resolveExistingDraftSubmission(this.prisma, existing, this.logger, normalized.reqId);
+        return await resolveExistingDraftSubmission(this.prisma, existing, normalized.email, this.logger, normalized.reqId);
       }
     }
 
@@ -260,6 +261,7 @@ export class SubmissionRepo {
             publicRef,
             ownerRole: ActorRole.PATIENT,
             ownerWpUserId: null,
+            email: normalized.email,
             status: SUBMISSION_STATUS_DRAFT,
             flowKey: normalized.flowKey,
             priority: normalized.priority,
@@ -282,7 +284,7 @@ export class SubmissionRepo {
             });
 
             if (existing) {
-              return await resolveExistingDraftSubmission(this.prisma, existing, this.logger, normalized.reqId);
+              return await resolveExistingDraftSubmission(this.prisma, existing, normalized.email, this.logger, normalized.reqId);
             }
           } else {
             publicRef = generateRandomPublicRef();
@@ -496,6 +498,7 @@ function submissionSelect() {
     publicRef: true,
     ownerRole: true,
     ownerWpUserId: true,
+    email: true,
     status: true,
     flowKey: true,
     priority: true,
@@ -694,10 +697,23 @@ async function resolveExistingCreateSubmission(
 async function resolveExistingDraftSubmission(
   prisma: PrismaClient,
   existing: Prisma.SubmissionGetPayload<{ select: ReturnType<typeof submissionSelect> }>,
+  email: string,
   logger?: NdjsonLogger,
   reqId?: string | null,
 ): Promise<CreateSubmissionResult> {
   if (existing.status === SUBMISSION_STATUS_DRAFT && existing.expiresAt.getTime() > Date.now()) {
+    if (existing.email !== email) {
+      await prisma.submission.updateMany({
+        where: {
+          id: existing.id,
+          status: SUBMISSION_STATUS_DRAFT,
+        },
+        data: {
+          email,
+        },
+      });
+    }
+
     return {
       mode: "replayed",
       submission: mapSubmission(existing),
@@ -756,6 +772,7 @@ function normalizeCreateSubmissionInput(input: CreateSubmissionInput): {
 }
 
 function normalizeCreateDraftSubmissionInput(input: CreateDraftSubmissionInput): {
+  email: string;
   flowKey: string;
   priority: string;
   reqId: string | null;
@@ -766,6 +783,7 @@ function normalizeCreateDraftSubmissionInput(input: CreateDraftSubmissionInput):
   }
 
   return {
+    email: normalizeRequiredEmail(input.email, "email"),
     flowKey: normalizeSlug(input.flowKey, "flowKey", 64),
     priority: normalizeSlug(input.priority, "priority", 32),
     reqId: normalizeOptionalRequestId(input.reqId),
@@ -1243,6 +1261,15 @@ function normalizeOptionalPlainTextUpdate(value: unknown, maxLength: number): st
   }
 
   return normalizeOptionalPlainText(value, maxLength);
+}
+
+function normalizeRequiredEmail(value: unknown, field: string): string {
+  const normalized = normalizeOptionalEmail(value);
+  if (normalized == null || normalized === "") {
+    throw new SubmissionRepoError("ML_SUBMISSION_BAD_REQUEST", 400, `${field} is required`);
+  }
+
+  return normalized;
 }
 
 function normalizeOptionalEmail(value: unknown): string | null {

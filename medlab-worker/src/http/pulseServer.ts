@@ -760,6 +760,7 @@ async function handleSubmissionDraftCreate(
     const idempotencyKey = normalizeSubmissionIdempotencyKey(body.idempotency_key);
 
     const draftResult = await submissionRepo.createDraftSubmission({
+      email,
       flowKey,
       priority,
       reqId,
@@ -1430,6 +1431,7 @@ async function handleAuthRequestLink(
       email: lookup.candidate.email,
       ownerRole: lookup.candidate.ownerRole,
       ownerWpUserId: lookup.candidate.ownerWpUserId,
+      metadata: lookup.candidate.metadata ?? null,
     }, reqId);
 
     await mailService.sendMagicLink(
@@ -1448,6 +1450,7 @@ async function handleAuthRequestLink(
         email_fp: fingerprintPublicId(lookup.candidate.email),
         owner_role: lookup.candidate.ownerRole,
         owner_wp_user_id: lookup.candidate.ownerWpUserId,
+        has_draft_ref: typeof lookup.candidate.metadata?.draft_ref === "string" && lookup.candidate.metadata.draft_ref !== "",
         sent: true,
       },
       reqId,

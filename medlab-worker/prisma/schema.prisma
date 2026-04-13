@@ -154,6 +154,7 @@ model Submission {
   publicRef              String           @unique @default(cuid())
   ownerRole              ActorRole
   ownerWpUserId          Int?
+  email                  String?
   status                 SubmissionStatus @default(OPEN)
   flowKey                String
   priority               String           @default("standard")
@@ -166,6 +167,7 @@ model Submission {
 
   @@index([status, expiresAt])
   @@index([ownerRole, ownerWpUserId, status, expiresAt])
+  @@index([ownerRole, email, status, expiresAt])
   @@index([flowKey, status, createdAt])
   @@index([createdAt])
 }

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { ActorRole, Prisma, PrismaClient } from "@prisma/client";
+import { ActorRole, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
 
 const DEFAULT_MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
@@ -23,6 +23,7 @@ export interface AuthOwnerCandidate {
   email: string;
   ownerRole: MagicLinkOwnerRole;
   ownerWpUserId: number | null;
+  metadata?: MagicLinkMetadata | null;
 }
 
 export interface AuthOwnerLookupResult {
@@ -165,6 +166,45 @@ export class AuthService {
             email,
             ownerRole: ActorRole.PATIENT,
             ownerWpUserId: null,
+            metadata: null,
+          },
+        };
+      }
+
+      const draftSubmission = await this.prisma.submission.findFirst({
+        where: {
+          ownerRole: ActorRole.PATIENT,
+          status: SubmissionStatus.DRAFT,
+          expiresAt: { gt: new Date() },
+          email,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+        select: {
+          publicRef: true,
+        },
+      });
+
+      if (draftSubmission) {
+        this.logger?.info(
+          "auth.magic_link.lookup_matched_draft",
+          {
+            email_fp: fingerprint(email),
+            submission_ref: draftSubmission.publicRef,
+          },
+          reqId,
+        );
+
+        return {
+          status: "matched",
+          candidate: {
+            email,
+            ownerRole: ActorRole.PATIENT,
+            ownerWpUserId: null,
+            metadata: {
+              draft_ref: draftSubmission.publicRef,
+            },
           },
         };
       }
