@@ -16,6 +16,7 @@ type MessageItem = {
   seq?: number;
   author_role: string;
   author_wp_user_id?: number;
+  author_name?: string;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -91,6 +92,23 @@ function isOwnMessage(message: MessageItem): boolean {
   return normalizeWpUserId(message.author_wp_user_id) === currentUserId;
 }
 
+function formatDoctorLabel(authorName: string | undefined): string {
+  const normalized = String(authorName || '').trim().replace(/\s+/g, ' ');
+  if (normalized === '') {
+    return 'Dr. médecin';
+  }
+
+  const withoutPrefix = normalized
+    .replace(/^(dr|docteur|doctor)\.?\s+/i, '')
+    .trim();
+
+  if (withoutPrefix === '') {
+    return 'Dr. médecin';
+  }
+
+  return `Dr. ${withoutPrefix}`;
+}
+
 function getRoleLabel(message: MessageItem): string {
   const normalizedAuthorRole = normalizeRole(message.author_role);
 
@@ -99,7 +117,7 @@ function getRoleLabel(message: MessageItem): string {
   }
 
   if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
-  if (normalizedAuthorRole === 'DOCTOR') return 'MÉDECIN';
+  if (normalizedAuthorRole === 'DOCTOR') return formatDoctorLabel(message.author_name);
   return 'INTERLOCUTEUR';
 }
 
@@ -179,7 +197,14 @@ const MessageList = React.memo(
               )}
             >
               <article className="sp-thread-item__bubble">
-                <div className="sp-thread-item__author">{roleLabel}</div>
+                <div
+                  className={cx(
+                    'sp-thread-item__author',
+                    normalizedRole === 'DOCTOR' && 'sp-thread-item__author--doctor',
+                  )}
+                >
+                  {roleLabel}
+                </div>
 
                 <div className="sp-thread-item__body">{message.body}</div>
 

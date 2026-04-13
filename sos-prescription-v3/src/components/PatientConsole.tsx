@@ -13,6 +13,23 @@ type AppConfig = {
     email?: string;
     roles?: string[] | string;
   };
+  patientProfile?: {
+    fullname?: string;
+    birthdate_fr?: string;
+    birthdate_iso?: string;
+    first_name?: string;
+    last_name?: string;
+    note?: string;
+    medical_notes?: string;
+    medicalNotes?: string;
+    weight_kg?: string;
+    height_cm?: string;
+  };
+};
+
+type RequestDetailField = {
+  label: string;
+  value: string;
 };
 
 type PrescriptionSummary = {
@@ -21,6 +38,7 @@ type PrescriptionSummary = {
   status: string;
   created_at: string;
   priority?: string;
+  primary_reason?: string;
 };
 
 type PrescriptionFile = {
@@ -42,8 +60,11 @@ type PrescriptionDetail = {
   id: number;
   uid: string;
   status: string;
+  created_at: string;
   priority?: string;
   decision_reason?: string;
+  primary_reason?: string;
+  request_details?: RequestDetailField[];
   files?: PrescriptionFile[];
   items: PrescriptionItem[];
 };
@@ -53,6 +74,7 @@ type MessageItem = {
   seq?: number;
   author_role: string;
   author_wp_user_id?: number;
+  author_name?: string;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -172,6 +194,313 @@ function toOptionalNumber(value: unknown): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
+function normalizeMultilineText(value: string): string {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function isEmailLike(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function isTechnicalIdentifier(value: string): boolean {
+  const normalized = String(value || '').trim();
+  if (normalized === '') {
+    return true;
+  }
+
+  return (
+    /^req[_-]/i.test(normalized)
+    || /^uid[_-]/i.test(normalized)
+    || /^pi_[a-z0-9_]+$/i.test(normalized)
+    || /^[a-f0-9]{16,}$/i.test(normalized)
+    || /^\d{4}-\d{2}-\d{2}(t|\s)\d{2}:\d{2}/i.test(normalized)
+  );
+}
+
+function cleanHumanText(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = normalizeMultilineText(value);
+  if (normalized === '' || isTechnicalIdentifier(normalized)) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function flattenUnknownText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return cleanHumanText(value);
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : undefined;
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Oui' : 'Non';
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => flattenUnknownText(entry))
+      .filter((entry): entry is string => Boolean(entry));
+
+    if (parts.length < 1) {
+      return undefined;
+    }
+
+    return normalizeMultilineText(Array.from(new Set(parts)).join('\n'));
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const directKeys = ['value', 'text', 'body', 'description', 'name', 'label', 'title'] as const;
+  for (const key of directKeys) {
+    const candidate = flattenUnknownText(value[key]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function buildPayloadContainers(payload: ApiPayloadRecord): ApiPayloadRecord[] {
+  const containers: ApiPayloadRecord[] = [payload];
+  const nestedKeys = ['patient', 'request', 'form', 'summary', 'metadata', 'context', 'payload', 'submission'];
+
+  nestedKeys.forEach((key) => {
+    const candidate = payload[key];
+    if (isRecord(candidate)) {
+      containers.push(candidate);
+    }
+  });
+
+  return containers;
+}
+
+function readPayloadText(payload: ApiPayloadRecord, keys: string[]): string | undefined {
+  const containers = buildPayloadContainers(payload);
+
+  for (const container of containers) {
+    for (const key of keys) {
+      if (!(key in container)) {
+        continue;
+      }
+
+      const candidate = flattenUnknownText(container[key]);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function dedupeRequestDetails(fields: RequestDetailField[]): RequestDetailField[] {
+  const seen = new Set<string>();
+
+  return fields.filter((field) => {
+    const label = normalizeMultilineText(field.label);
+    const value = normalizeMultilineText(field.value);
+    if (label === '' || value === '') {
+      return false;
+    }
+
+    const key = `${label.toLowerCase()}::${value.toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractPrimaryReasonFromPayload(payload: ApiPayloadRecord): string | undefined {
+  const candidate = readPayloadText(payload, [
+    'motif_principal',
+    'motif',
+    'main_reason',
+    'reason',
+    'request_reason',
+    'consultation_reason',
+    'chief_complaint',
+    'request_title',
+    'title',
+    'label',
+    'summary',
+  ]);
+
+  return candidate && !isEmailLike(candidate) ? candidate : undefined;
+}
+
+function extractRequestDetailsFromPayload(payload: ApiPayloadRecord): RequestDetailField[] {
+  const primaryReason = extractPrimaryReasonFromPayload(payload);
+  const fields: RequestDetailField[] = [];
+
+  const specs: Array<{ label: string; keys: string[] }> = [
+    {
+      label: 'Motif principal',
+      keys: ['motif_principal', 'motif', 'main_reason', 'reason', 'consultation_reason', 'chief_complaint', 'summary'],
+    },
+    {
+      label: 'Symptômes ou contexte',
+      keys: ['symptoms', 'symptom_summary', 'symptoms_summary', 'symptomes', 'symptômes', 'context', 'request_context'],
+    },
+    {
+      label: 'Historique médical',
+      keys: ['medical_history', 'history', 'historique', 'antecedents', 'antécédents'],
+    },
+    {
+      label: 'Informations communiquées',
+      keys: ['private_notes', 'patient_note', 'patient_notes', 'medical_notes', 'medicalNotes', 'note', 'notes', 'comments', 'commentaire', 'description'],
+    },
+  ];
+
+  specs.forEach((spec) => {
+    const value = readPayloadText(payload, spec.keys);
+    if (!value) {
+      return;
+    }
+
+    if (primaryReason && spec.label === 'Motif principal' && value.toLowerCase() === primaryReason.toLowerCase()) {
+      return;
+    }
+
+    fields.push({ label: spec.label, value });
+  });
+
+  return dedupeRequestDetails(fields);
+}
+
+function parseDisplayDate(value: string): Date | null {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const date = new Date(raw);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function formatDateShort(value: string): string {
+  const date = parseDisplayDate(value);
+  if (!date) {
+    return String(value || '').trim();
+  }
+
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+function formatDateLong(value: string): string {
+  const date = parseDisplayDate(value);
+  if (!date) {
+    return String(value || '').trim();
+  }
+
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return formatDateShort(value);
+  }
+}
+
+function formatHumanDate(value: string): string {
+  const date = parseDisplayDate(value);
+  if (!date) {
+    return String(value || '').trim();
+  }
+
+  const today = new Date();
+  const currentDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((targetDay - currentDay) / 86400000);
+
+  if (diffDays === 0) {
+    return 'Aujourd’hui';
+  }
+
+  if (diffDays === -1) {
+    return 'Hier';
+  }
+
+  return formatDateShort(value);
+}
+
+function formatHumanDateTime(value: string): string {
+  const date = parseDisplayDate(value);
+  if (!date) {
+    return String(value || '').trim();
+  }
+
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  } catch {
+    return formatDateShort(value);
+  }
+}
+
+function buildPrescriptionTitle(primaryReason: string | undefined, createdAt: string): string {
+  if (primaryReason) {
+    return primaryReason;
+  }
+
+  const shortDate = formatDateShort(createdAt);
+  return shortDate ? `Ordonnance du ${shortDate}` : 'Ordonnance';
+}
+
+function formatFileSize(sizeBytes: number | undefined): string {
+  const size = Number(sizeBytes || 0);
+  if (!Number.isFinite(size) || size <= 0) {
+    return 'Taille inconnue';
+  }
+
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
+  }
+
+  return `${Math.max(1, Math.round(size / 1024))} Ko`;
+}
+
+function isPatientProfileComplete(profile: AppConfig['patientProfile'] | undefined, currentUser: AppConfig['currentUser'] | undefined): boolean {
+  const fullName = cleanHumanText(profile?.fullname)
+    || cleanHumanText([profile?.first_name, profile?.last_name].filter(Boolean).join(' '))
+    || (currentUser?.displayName && !isEmailLike(String(currentUser.displayName)) ? cleanHumanText(currentUser.displayName) : undefined);
+
+  const birthdate = cleanHumanText(profile?.birthdate_fr) || cleanHumanText(profile?.birthdate_iso);
+  return Boolean(fullName && birthdate);
+}
+
 function normalizeAttachmentIds(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
@@ -253,6 +582,7 @@ function normalizePrescriptionSummaryArray(payload: unknown): PrescriptionSummar
         status: toRequiredString(entry.status, ''),
         created_at: toRequiredString(entry.created_at, ''),
         priority: toOptionalString(entry.priority),
+        primary_reason: extractPrimaryReasonFromPayload(entry),
       };
     })
     .filter((entry): entry is PrescriptionSummary => entry !== null);
@@ -345,8 +675,11 @@ function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | nul
     id,
     uid: toRequiredString(payload.uid, `#${id}`),
     status: toRequiredString(payload.status, ''),
+    created_at: toRequiredString(payload.created_at ?? payload.createdAt, ''),
     priority: toOptionalString(payload.priority),
     decision_reason: toOptionalString(payload.decision_reason),
+    primary_reason: extractPrimaryReasonFromPayload(payload),
+    request_details: extractRequestDetailsFromPayload(payload),
     files: normalizePrescriptionFileArray(payload.files),
     items: normalizePrescriptionItemArray(payload.items),
   };
@@ -421,11 +754,21 @@ function normalizeMessageRecord(payload: unknown): MessageItem | null {
     ?? payload.authorUserId
   );
 
+  const authorName = cleanHumanText(
+    payload.author_name
+    ?? payload.authorName
+    ?? payload.author_display_name
+    ?? payload.authorDisplayName
+    ?? payload.doctor_name
+    ?? payload.doctorName
+  );
+
   return {
     id,
     seq: seq > 0 ? seq : undefined,
     author_role: normalizeMessageAuthorRole(rawAuthorRole),
     author_wp_user_id: authorWpUserId > 0 ? authorWpUserId : undefined,
+    author_name: authorName,
     body: toRequiredString(payload.body, ''),
     created_at: toRequiredString(rawCreatedAt, ''),
     attachments: normalizeAttachmentIds(rawAttachments),
@@ -669,27 +1012,67 @@ function openPresignedPdf(url: string): void {
   anchor.remove();
 }
 
+function normalizeStatusValue(status: string): string {
+  return String(status || '').trim().toLowerCase();
+}
+
+function isPaymentPendingStatus(status: string): boolean {
+  return normalizeStatusValue(status) === 'payment_pending';
+}
+
+function isWaitingStatus(status: string): boolean {
+  return ['pending', 'in_review', 'needs_info'].includes(normalizeStatusValue(status));
+}
+
+function isApprovedStatus(status: string): boolean {
+  return normalizeStatusValue(status) === 'approved';
+}
+
+function isRejectedStatus(status: string): boolean {
+  return normalizeStatusValue(status) === 'rejected';
+}
+
+function isClosedStatus(status: string): boolean {
+  return ['archived', 'closed', 'completed', 'done', 'terminated', 'cancelled', 'expired'].includes(normalizeStatusValue(status));
+}
+
+function isReadOnlyThreadStatus(status: string): boolean {
+  return isClosedStatus(status);
+}
+
+function statusTone(status: string): 'success' | 'warning' | 'neutral' {
+  if (isApprovedStatus(status)) {
+    return 'success';
+  }
+
+  if (isPaymentPendingStatus(status) || isWaitingStatus(status)) {
+    return 'warning';
+  }
+
+  return 'neutral';
+}
+
 function statusInfo(status: string): { variant: 'info' | 'success' | 'warning' | 'error'; label: string; hint: string } {
-  const normalized = String(status || '').toLowerCase();
+  const normalized = normalizeStatusValue(status);
   if (normalized === 'payment_pending') {
     return {
       variant: 'warning',
-      label: 'Paiement à autoriser',
-      hint: 'Votre demande est créée. Autorisez le paiement pour l’envoyer en analyse médicale.',
+      label: 'Paiement requis',
+      hint: 'Finalisez le paiement sécurisé pour lancer l’analyse médicale de votre dossier.',
     };
   }
   if (normalized === 'pending' || normalized === 'in_review' || normalized === 'needs_info') {
     return {
       variant: 'info',
-      label: 'En cours d’analyse',
-      hint: 'Un médecin examine votre dossier. Vous serez notifié ici si une précision est nécessaire.',
+      label: 'En attente médicale',
+      hint: 'Aucune action n’est requise pour le moment. Un médecin examine votre dossier.',
     };
   }
   if (normalized === 'approved') {
     return {
       variant: 'success',
       label: 'Validée',
-      hint: 'Votre ordonnance sera disponible dans le bloc ci-dessous dès que le PDF sera prêt.',
+      hint: 'Votre ordonnance validée est disponible ici dès que le PDF sécurisé est prêt.',
     };
   }
   if (normalized === 'rejected') {
@@ -697,6 +1080,13 @@ function statusInfo(status: string): { variant: 'info' | 'success' | 'warning' |
       variant: 'error',
       label: 'Refusée',
       hint: 'La demande a été refusée. Le motif (si renseigné) apparaît ci-dessous.',
+    };
+  }
+  if (isClosedStatus(status)) {
+    return {
+      variant: 'info',
+      label: 'Clôturée',
+      hint: 'Ce dossier est clôturé. Veuillez initier une nouvelle demande si nécessaire.',
     };
   }
   return {
@@ -716,8 +1106,8 @@ function filePurposeLabel(purpose: string | undefined): string {
 }
 
 function getDecisionStep(status: string): number {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'approved' || normalized === 'rejected') return 2;
+  const normalized = normalizeStatusValue(status);
+  if (normalized === 'approved' || normalized === 'rejected' || isClosedStatus(status)) return 2;
   if (normalized === 'pending' || normalized === 'in_review' || normalized === 'needs_info') return 1;
   return 0;
 }
@@ -725,7 +1115,17 @@ function getDecisionStep(status: string): number {
 function formatMoney(amountCents: number | null | undefined, currency: string | null | undefined): string {
   const cents = typeof amountCents === 'number' ? amountCents : 0;
   const code = String(currency || 'EUR').toUpperCase();
-  return `${(cents / 100).toFixed(2)} ${code}`;
+
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${code}`;
+  }
 }
 
 let stripeScriptPromise: Promise<void> | null = null;
@@ -870,14 +1270,157 @@ function StatusTimeline({ status }: { status: string }) {
   );
 }
 
+function StatusPill({ status }: { status: string }) {
+  const info = statusInfo(status);
+  const tone = statusTone(status);
+
+  return (
+    <span className={cx('sp-status-pill', `is-${tone}`)}>
+      <span className="sp-status-pill__dot" aria-hidden="true" />
+      <span>{info.label}</span>
+    </span>
+  );
+}
+
+function HeroBanner({
+  title,
+  status,
+  createdAt,
+  pdf,
+  paymentPreview,
+  decisionReason,
+  onDownloadPrescription,
+  onScrollToPayment,
+}: {
+  title: string;
+  status: string;
+  createdAt: string;
+  pdf: PdfState | null;
+  paymentPreview: { amountCents: number; currency: string } | null;
+  decisionReason?: string;
+  onDownloadPrescription: () => void;
+  onScrollToPayment: () => void;
+}) {
+  const info = statusInfo(status);
+  const normalizedStatus = normalizeStatusValue(status);
+  const pdfStatus = normalizeStatusValue(String(pdf?.status || ''));
+  const downloadUrl = String(pdf?.download_url || '');
+  const canDownload = Boolean(pdf?.can_download && downloadUrl);
+
+  let lead = info.hint;
+  let support = createdAt ? `Demande déposée le ${formatHumanDateTime(createdAt)}.` : '';
+  let action: React.ReactNode = null;
+
+  if (isPaymentPendingStatus(normalizedStatus)) {
+    lead = 'Une seule étape reste à compléter pour lancer l’analyse médicale de votre demande.';
+    support = 'Aucun prélèvement n’est effectué en cas de refus médical.';
+    action = (
+      <Button type="button" onClick={onScrollToPayment} className="sp-patient-hero__button">
+        {paymentPreview ? `Payer ${formatMoney(paymentPreview.amountCents, paymentPreview.currency)}` : 'Payer ma demande'}
+      </Button>
+    );
+  } else if (isWaitingStatus(normalizedStatus)) {
+    lead = 'Aucune action n’est requise pour le moment. Un médecin analyse votre dossier.';
+    support = 'Vous serez averti ici si une précision ou un document complémentaire est nécessaire.';
+    action = <div className="sp-patient-hero__note">Nous vous tenons informé de chaque évolution.</div>;
+  } else if (isApprovedStatus(normalizedStatus)) {
+    if (canDownload) {
+      lead = 'Votre ordonnance est prête. Vous pouvez la télécharger en un seul geste.';
+      support = 'Le lien de téléchargement est sécurisé et régénéré automatiquement.';
+      action = (
+        <Button type="button" onClick={onDownloadPrescription} className="sp-patient-hero__button">
+          Télécharger l’ordonnance
+        </Button>
+      );
+    } else if (pdfStatus === 'failed') {
+      lead = pdf?.last_error_message || pdf?.message || 'Votre ordonnance est validée, mais le document n’est pas encore téléchargeable.';
+      support = 'Le téléchargement réapparaîtra automatiquement dès que le PDF sécurisé sera prêt.';
+      action = (
+        <Button type="button" disabled className="sp-patient-hero__button">
+          Préparation du PDF…
+        </Button>
+      );
+    } else {
+      lead = pdf?.message || 'Votre ordonnance est validée. Le PDF sécurisé est en cours de préparation.';
+      support = 'Le bouton de téléchargement s’activera automatiquement dès que le document sera prêt.';
+      action = (
+        <Button type="button" disabled className="sp-patient-hero__button">
+          <Spinner className="sp-patient-hero__spinner" />
+          Préparation du PDF…
+        </Button>
+      );
+    }
+  } else if (isRejectedStatus(normalizedStatus)) {
+    lead = 'Votre demande n’a pas pu être validée à l’issue de l’analyse médicale.';
+    support = 'Le motif médical, lorsqu’il est renseigné, apparaît ci-dessous.';
+    action = <div className="sp-patient-hero__note">Aucune action requise</div>;
+  } else if (isClosedStatus(normalizedStatus)) {
+    lead = 'Ce dossier est clôturé. Veuillez initier une nouvelle demande si nécessaire.';
+    support = 'La messagerie associée à ce dossier est désormais en lecture seule.';
+    action = <div className="sp-patient-hero__note">Dossier clôturé</div>;
+  }
+
+  return (
+    <section className="sp-card sp-patient-hero" data-tone={statusTone(status)}>
+      <div className="sp-patient-hero__eyebrow">
+        <StatusPill status={status} />
+        {createdAt ? <span className="sp-patient-hero__date">{formatHumanDate(createdAt)}</span> : null}
+      </div>
+
+      <div className="sp-patient-hero__body">
+        <div className="sp-patient-hero__content">
+          <h2 className="sp-patient-hero__title">{title}</h2>
+          <p className="sp-patient-hero__lead">{lead}</p>
+          {support ? <p className="sp-patient-hero__support">{support}</p> : null}
+
+          {decisionReason && isRejectedStatus(normalizedStatus) ? (
+            <div className="sp-patient-hero__decision">
+              <div className="sp-patient-hero__decision-label">Motif médical</div>
+              <div className="sp-prewrap">{decisionReason}</div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="sp-patient-hero__actions">{action}</div>
+      </div>
+
+      <div className="sp-patient-hero__footer">
+        <StatusTimeline status={status} />
+      </div>
+    </section>
+  );
+}
+
+function RequestDetailsDisclosure({ fields }: { fields: RequestDetailField[] }) {
+  if (!fields.length) {
+    return null;
+  }
+
+  return (
+    <details className="sp-disclosure">
+      <summary>Voir les détails de ma demande</summary>
+      <div className="sp-disclosure__content">
+        {fields.map((field) => (
+          <div key={`${field.label}-${field.value}`} className="sp-disclosure__row">
+            <div className="sp-disclosure__label">{field.label}</div>
+            <div className="sp-disclosure__value sp-prewrap">{field.value}</div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function PaymentCard({
   prescriptionId,
   priority,
   onPaid,
+  onIntentReady,
 }: {
   prescriptionId: number;
   priority: 'express' | 'standard';
   onPaid: () => void;
+  onIntentReady?: (intent: { amountCents: number; currency: string }) => void;
 }) {
   const cfg = getAppConfig();
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -907,6 +1450,10 @@ function PaymentCard({
         setPaymentIntentId(intent.payment_intent_id);
         setAmountCents(intent.amount_cents);
         setCurrency(intent.currency);
+        onIntentReady?.({
+          amountCents: intent.amount_cents,
+          currency: intent.currency,
+        });
 
         if (!intent.publishable_key) {
           throw new Error('Stripe n’est pas configuré (clé publique manquante).');
@@ -961,7 +1508,7 @@ function PaymentCard({
         cardRef.current = null;
       }
     };
-  }, [prescriptionId, priority]);
+  }, [onIntentReady, prescriptionId, priority]);
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);
@@ -1034,9 +1581,8 @@ function PaymentCard({
 
       <div className="sp-payment-card__footer">
         <Button type="button" onClick={handleSubmit} disabled={initializing || submitting}>
-          {submitting ? <Spinner /> : 'Autoriser le paiement'}
+          {submitting ? <Spinner /> : amountCents ? `Payer ${formatMoney(amountCents, currency)}` : 'Payer la demande'}
         </Button>
-        {paymentIntentId ? <div className="sp-payment-card__intent">Intent : {paymentIntentId}</div> : null}
       </div>
     </div>
   );
@@ -1109,6 +1655,13 @@ export default function PatientConsole() {
   const [error, setError] = useState<string | null>(null);
   const [apiBanner, setApiBanner] = useState<string | null>(null);
   const [pdfStates, setPdfStates] = useState<Record<number, PdfState>>({});
+  const [workspace, setWorkspace] = useState<'requests' | 'profile'>('requests');
+  const [paymentPreview, setPaymentPreview] = useState<{ amountCents: number; currency: string } | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+
+  const paymentSectionRef = useRef<HTMLDivElement | null>(null);
+  const profileHostRef = useRef<HTMLDivElement | null>(null);
+  const profileRestoreRef = useRef<{ parent: HTMLElement | null; nextSibling: Node | null } | null>(null);
 
 
   const requestedId = useMemo(() => {
@@ -1126,8 +1679,19 @@ export default function PatientConsole() {
     [prescriptions, selectedId]
   );
 
-  const selectedStatus = String(detail?.status || selectedSummary?.status || '').toLowerCase();
+  const profileComplete = useMemo(
+    () => isPatientProfileComplete(cfg.patientProfile, cfg.currentUser),
+    [cfg.currentUser, cfg.patientProfile]
+  );
+
+  const selectedStatus = normalizeStatusValue(detail?.status || selectedSummary?.status || '');
   const selectedPdf = selectedId ? pdfStates[selectedId] || null : null;
+  const requestTitle = useMemo(
+    () => buildPrescriptionTitle(detail?.primary_reason || selectedSummary?.primary_reason, detail?.created_at || selectedSummary?.created_at || ''),
+    [detail?.created_at, detail?.primary_reason, selectedSummary?.created_at, selectedSummary?.primary_reason]
+  );
+  const requestDetails = detail?.request_details || [];
+  const messagingLocked = detail ? isReadOnlyThreadStatus(detail.status) : false;
 
   const fileIndex = useMemo(() => {
     const index: Record<number, PrescriptionFile> = {};
@@ -1161,7 +1725,13 @@ export default function PatientConsole() {
       }
 
       const rows = normalizePrescriptionSummaryArray(payload);
-      setPrescriptions(rows);
+      setPrescriptions((current) => rows.map((row) => {
+        const existing = current.find((item) => Number(item.id) === Number(row.id));
+        return {
+          ...row,
+          primary_reason: row.primary_reason || existing?.primary_reason,
+        };
+      }));
       setSelectedId((current) => {
         if (current && rows.some((row) => Number(row.id) === Number(current))) {
           return current;
@@ -1212,6 +1782,17 @@ export default function PatientConsole() {
       }
 
       setDetail(normalized);
+      setPrescriptions((current) => current.map((row) => {
+        if (Number(row.id) !== Number(normalized.id)) {
+          return row;
+        }
+
+        return {
+          ...row,
+          created_at: normalized.created_at || row.created_at,
+          primary_reason: normalized.primary_reason || row.primary_reason,
+        };
+      }));
     } catch (err) {
       const banner = resolveBannerFromError(err);
       if (banner) {
@@ -1374,6 +1955,107 @@ export default function PatientConsole() {
     };
   }, [isLoggedIn, loadPdfStatus, selectedId, selectedPdf?.can_download, selectedPdf?.download_url, selectedPdf?.status, selectedStatus]);
 
+  useEffect(() => {
+    if (!selectedId || !isPaymentPendingStatus(selectedStatus)) {
+      setPaymentPreview(null);
+    }
+  }, [selectedId, selectedStatus]);
+
+  const openSelectedPrescriptionPdf = useCallback(() => {
+    const downloadUrl = String(selectedPdf?.download_url || '');
+    if (!downloadUrl) {
+      return;
+    }
+
+    openPresignedPdf(downloadUrl);
+  }, [selectedPdf?.download_url]);
+
+  const scrollToPayment = useCallback(() => {
+    paymentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const syncExternalProfileRoot = useCallback((): boolean => {
+    const profileRoot = document.getElementById('sp-patient-profile-root');
+    if (!(profileRoot instanceof HTMLElement)) {
+      setProfileReady(false);
+      return false;
+    }
+
+    if (!profileRestoreRef.current) {
+      profileRestoreRef.current = {
+        parent: profileRoot.parentElement,
+        nextSibling: profileRoot.nextSibling,
+      };
+    }
+
+    if (workspace === 'profile' && profileHostRef.current) {
+      if (profileRoot.parentElement !== profileHostRef.current) {
+        profileHostRef.current.appendChild(profileRoot);
+      }
+      profileRoot.hidden = false;
+      setProfileReady(true);
+      return true;
+    }
+
+    const restoreTarget = profileRestoreRef.current;
+    if (restoreTarget?.parent && profileRoot.parentElement !== restoreTarget.parent) {
+      if (restoreTarget.nextSibling && restoreTarget.nextSibling.parentNode === restoreTarget.parent) {
+        restoreTarget.parent.insertBefore(profileRoot, restoreTarget.nextSibling);
+      } else {
+        restoreTarget.parent.appendChild(profileRoot);
+      }
+    }
+
+    profileRoot.hidden = true;
+    setProfileReady(true);
+    return true;
+  }, [workspace]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer = 0;
+
+    setProfileReady(false);
+
+    const attemptSync = (remainingAttempts: number): void => {
+      if (disposed) {
+        return;
+      }
+
+      if (syncExternalProfileRoot() || remainingAttempts <= 0) {
+        return;
+      }
+
+      timer = window.setTimeout(() => attemptSync(remainingAttempts - 1), 250);
+    };
+
+    attemptSync(40);
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [syncExternalProfileRoot]);
+
+  useEffect(() => () => {
+    const profileRoot = document.getElementById('sp-patient-profile-root');
+    const restoreTarget = profileRestoreRef.current;
+
+    if (!(profileRoot instanceof HTMLElement)) {
+      return;
+    }
+
+    if (restoreTarget?.parent && profileRoot.parentElement !== restoreTarget.parent) {
+      if (restoreTarget.nextSibling && restoreTarget.nextSibling.parentNode === restoreTarget.parent) {
+        restoreTarget.parent.insertBefore(profileRoot, restoreTarget.nextSibling);
+      } else {
+        restoreTarget.parent.appendChild(profileRoot);
+      }
+    }
+
+    profileRoot.hidden = false;
+  }, []);
+
   const registerUploadedFiles = useCallback((uploadedFiles: UploadedFile[]) => {
     if (!uploadedFiles || uploadedFiles.length === 0) return;
 
@@ -1422,7 +2104,7 @@ export default function PatientConsole() {
   }
 
   return (
-    <div className="sp-page-shell sp-app-theme sp-app-container">
+    <div className="sp-page-shell sp-app-theme sp-app-container sp-patient-console">
       <div className="sp-page-header sp-app-header sp-app-header--compact">
         <div className="sp-page-heading">
           <div className="sp-page-title">Espace patient</div>
@@ -1441,6 +2123,33 @@ export default function PatientConsole() {
         </div>
       </div>
 
+      <div className="sp-patient-console__workspace-nav" role="tablist" aria-label="Navigation de l’espace patient">
+        <button
+          id="sp-workspace-tab-requests"
+          type="button"
+          role="tab"
+          aria-selected={workspace === 'requests'}
+          aria-controls="sp-workspace-panel-requests"
+          className={cx('sp-patient-console__workspace-tab', workspace === 'requests' && 'is-active')}
+          onClick={() => setWorkspace('requests')}
+        >
+          Mes dossiers médicaux
+        </button>
+
+        <button
+          id="sp-workspace-tab-profile"
+          type="button"
+          role="tab"
+          aria-selected={workspace === 'profile'}
+          aria-controls="sp-workspace-panel-profile"
+          className={cx('sp-patient-console__workspace-tab', workspace === 'profile' && 'is-active')}
+          onClick={() => setWorkspace('profile')}
+        >
+          Profil patient
+          {!profileComplete ? <span className="sp-patient-console__workspace-badge">À compléter</span> : null}
+        </button>
+      </div>
+
       {apiBanner ? (
         <div className="sp-inline-note">
           <Notice variant="error" title="Incident API patient">{apiBanner}</Notice>
@@ -1453,157 +2162,178 @@ export default function PatientConsole() {
         </div>
       ) : null}
 
-      <div className="sp-console-grid">
-        <aside className="sp-console-grid__sidebar">
-          <div className="sp-panel">
-            <div className="sp-panel__header">
-              <div className="sp-panel__title">Mes demandes</div>
-            </div>
-            <div className="sp-panel__body">
-              {prescriptions.length === 0 ? (
-                <div className="sp-panel__empty">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
-              ) : (
-                <div className="sp-list">
-                  {prescriptions.map((row) => {
-                    const info = statusInfo(row.status);
-                    const selected = Number(row.id) === Number(selectedId);
-
-                    return (
-                      <button
-                        key={row.id}
-                        type="button"
-                        className={cx('sp-list-item', 'sp-list-item--button', selected && 'is-selected')}
-                        onClick={() => setSelectedId(Number(row.id))}
-                      >
-                        <div className="sp-list-item__title">{row.uid}</div>
-                        <div className="sp-list-item__meta">{info.label}</div>
-                        <div className="sp-list-item__submeta">{row.created_at}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+      {workspace === 'profile' ? (
+        <section
+          id="sp-workspace-panel-profile"
+          className="sp-panel sp-patient-console__profile-panel"
+          role="tabpanel"
+          aria-labelledby="sp-workspace-tab-profile"
+        >
+          <div className="sp-panel__header">
+            <div>
+              <div className="sp-panel__title">Profil patient</div>
+              <div className="sp-text-subtle">Mettez à jour votre profil sans bloquer l’accès à vos dossiers médicaux.</div>
             </div>
           </div>
-        </aside>
 
-        <section className="sp-console-grid__content">
-          <div className="sp-panel">
-            <div className="sp-panel__body">
-              {!selectedId ? <div className="sp-panel__empty">Sélectionnez une demande à gauche.</div> : null}
-
-              {selectedId && detailLoading ? (
-                <div className="sp-loading-row">
-                  <Spinner />
-                  <span>Chargement…</span>
-                </div>
-              ) : null}
-
-              {selectedId && detail ? (
-                <div className="sp-detail-stack">
-                  <div className="sp-page-heading">
-                    <div className="sp-page-title sp-page-title--section">Demande {detail.uid}</div>
-                  </div>
-
-                  <Notice variant={statusInfo(detail.status).variant}>
-                    <div className="sp-stack">
-                      <StatusTimeline status={detail.status} />
-                      <div>
-                        <div className="sp-text-strong">{statusInfo(detail.status).label}</div>
-                        {statusInfo(detail.status).hint ? (
-                          <div className="sp-text-subtle sp-top-gap-xs">{statusInfo(detail.status).hint}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </Notice>
-
-                  <PdfCard status={detail.status} pdf={selectedPdf} />
-
-                  {detail.status === 'payment_pending' ? (
-                    <PaymentCard
-                      prescriptionId={detail.id}
-                      priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
-                      onPaid={() => {
-                        void loadDetail(detail.id);
-                        void refreshList();
-                      }}
-                    />
-                  ) : null}
-
-                  {detail.status === 'rejected' && detail.decision_reason ? (
-                    <Notice variant="error" title="Motif">
-                      <div className="sp-prewrap">{detail.decision_reason}</div>
-                    </Notice>
-                  ) : null}
-
-                  <div className="sp-section">
-                    <div className="sp-section__title">Documents</div>
-                    {(detail.files || []).length === 0 ? (
-                      <div className="sp-empty-note">Aucun document pour le moment.</div>
-                    ) : (
-                      <div className="sp-stack sp-stack--compact">
-                        {(detail.files || []).map((file) => (
-                          <div key={file.id} className="sp-inline-card">
-                            <div className="sp-inline-card__row">
-                              <div className="sp-inline-card__content">
-                                <div className="sp-inline-card__title sp-truncate">{file.original_name}</div>
-                                <div className="sp-inline-card__meta">
-                                  {filePurposeLabel(file.purpose)} • {file.mime || 'application/octet-stream'} • {Math.round((file.size_bytes || 0) / 1024)} Ko
-                                </div>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}
-                              >
-                                Télécharger
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="sp-section">
-                    <div className="sp-section__title">Médicaments</div>
-                    <div className="sp-stack sp-stack--compact">
-                      {detail.items.map((item, index) => (
-                        <div key={`${item.denomination}-${index}`} className="sp-inline-card">
-                          <div className="sp-inline-card__title">{item.denomination}</div>
-                          {item.posologie ? <div className="sp-inline-card__meta">Posologie : {item.posologie}</div> : null}
-                          {item.quantite ? <div className="sp-inline-card__meta">Quantité : {item.quantite}</div> : null}
-                        </div>
-                      ))}
-                      {detail.items.length === 0 ? <div className="sp-empty-note">—</div> : null}
-                    </div>
-                  </div>
-
-                  <div className="sp-section">
-                    <MessageThread
-                      prescriptionId={detail.id}
-                      viewerRole="PATIENT"
-                      currentUserRoles={cfg.currentUser?.roles}
-                      title="Échanges avec le médecin"
-                      subtitle="Messagerie sécurisée associée à votre dossier."
-                      loading={messagesLoading}
-                      emptyText="Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment."
-                      messages={messages}
-                      fileIndex={fileIndex}
-                      onDownloadFile={handleMessageAttachmentDownload}
-                      canCompose={detail.status !== 'approved' && detail.status !== 'rejected'}
-                      readOnlyNotice="La messagerie est en lecture seule pour cette demande."
-                      postMessage={postPatientMessage}
-                      onMessageCreated={handleMessageCreated}
-                      onSurfaceError={setError}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </div>
+          <div className="sp-panel__body">
+            <div ref={profileHostRef} className="sp-patient-console__profile-host" />
+            {!profileReady ? <div className="sp-empty-note">Chargement du profil…</div> : null}
           </div>
         </section>
-      </div>
+      ) : (
+        <div
+          id="sp-workspace-panel-requests"
+          className="sp-console-grid"
+          role="tabpanel"
+          aria-labelledby="sp-workspace-tab-requests"
+        >
+          <aside className="sp-console-grid__sidebar">
+            <div className="sp-panel">
+              <div className="sp-panel__header">
+                <div className="sp-panel__title">Mes demandes</div>
+              </div>
+              <div className="sp-panel__body">
+                {prescriptions.length === 0 ? (
+                  <div className="sp-panel__empty">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
+                ) : (
+                  <div className="sp-list">
+                    {prescriptions.map((row) => {
+                      const info = statusInfo(row.status);
+                      const selected = Number(row.id) === Number(selectedId);
+
+                      return (
+                        <button
+                          key={row.id}
+                          type="button"
+                          className={cx('sp-list-item', 'sp-list-item--button', 'sp-list-item--request', selected && 'is-selected')}
+                          onClick={() => setSelectedId(Number(row.id))}
+                        >
+                          <div className="sp-list-item__status-row">
+                            <span className={cx('sp-status-dot', `is-${statusTone(row.status)}`)} aria-hidden="true" />
+                            <div className="sp-list-item__meta">{info.label}</div>
+                          </div>
+                          <div className="sp-list-item__title">{buildPrescriptionTitle(row.primary_reason, row.created_at)}</div>
+                          <div className="sp-list-item__submeta">{formatHumanDate(row.created_at)}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+
+          <section className="sp-console-grid__content">
+            <div className="sp-panel">
+              <div className="sp-panel__body">
+                {!selectedId ? <div className="sp-panel__empty">Sélectionnez une demande à gauche.</div> : null}
+
+                {selectedId && detailLoading ? (
+                  <div className="sp-loading-row">
+                    <Spinner />
+                    <span>Chargement…</span>
+                  </div>
+                ) : null}
+
+                {selectedId && detail ? (
+                  <div className="sp-detail-stack">
+                    <HeroBanner
+                      title={requestTitle}
+                      status={detail.status}
+                      createdAt={detail.created_at || selectedSummary?.created_at || ''}
+                      pdf={selectedPdf}
+                      paymentPreview={paymentPreview}
+                      decisionReason={detail.decision_reason}
+                      onDownloadPrescription={openSelectedPrescriptionPdf}
+                      onScrollToPayment={scrollToPayment}
+                    />
+
+                    <RequestDetailsDisclosure fields={requestDetails} />
+
+                    {isPaymentPendingStatus(detail.status) ? (
+                      <div ref={paymentSectionRef} className="sp-section">
+                        <PaymentCard
+                          prescriptionId={detail.id}
+                          priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
+                          onIntentReady={setPaymentPreview}
+                          onPaid={() => {
+                            setPaymentPreview(null);
+                            void loadDetail(detail.id);
+                            void refreshList();
+                          }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {(detail.files || []).length > 0 ? (
+                      <div className="sp-section">
+                        <div className="sp-section__title">Documents</div>
+                        <div className="sp-stack sp-stack--compact">
+                          {(detail.files || []).map((file) => (
+                            <div key={file.id} className="sp-inline-card">
+                              <div className="sp-inline-card__row">
+                                <div className="sp-inline-card__content">
+                                  <div className="sp-inline-card__title sp-truncate">{file.original_name}</div>
+                                  <div className="sp-inline-card__meta">
+                                    {filePurposeLabel(file.purpose)} • {formatFileSize(file.size_bytes)}
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}
+                                >
+                                  Télécharger
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {detail.items.length > 0 ? (
+                      <div className="sp-section">
+                        <div className="sp-section__title">Médicaments</div>
+                        <div className="sp-stack sp-stack--compact">
+                          {detail.items.map((item, index) => (
+                            <div key={`${item.denomination}-${index}`} className="sp-inline-card">
+                              <div className="sp-inline-card__title">{item.denomination}</div>
+                              {item.posologie ? <div className="sp-inline-card__meta">Posologie : {item.posologie}</div> : null}
+                              {item.quantite ? <div className="sp-inline-card__meta">Quantité : {item.quantite}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="sp-section">
+                      <MessageThread
+                        prescriptionId={detail.id}
+                        viewerRole="PATIENT"
+                        currentUserRoles={cfg.currentUser?.roles}
+                        title="Échanges avec le médecin"
+                        subtitle="Messagerie sécurisée associée à votre dossier."
+                        loading={messagesLoading}
+                        emptyText="Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment."
+                        messages={messages}
+                        fileIndex={fileIndex}
+                        onDownloadFile={handleMessageAttachmentDownload}
+                        canCompose={!messagingLocked}
+                        readOnlyNotice="Ce dossier est clôturé. Veuillez initier une nouvelle demande."
+                        postMessage={postPatientMessage}
+                        onMessageCreated={handleMessageCreated}
+                        onSurfaceError={setError}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

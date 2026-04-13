@@ -4911,6 +4911,7 @@ function renderFatal(container: HTMLElement, message: string): void {
 
 type ExternalProfileAccordionOptions = {
   collapsedByDefault: boolean;
+  hiddenByDefault?: boolean;
 };
 
 const EXTERNAL_PROFILE_COPY = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
@@ -4939,10 +4940,15 @@ function normalizeExternalProfileWording(card: HTMLElement): void {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): boolean {
   const collapsedByDefault = !!options.collapsedByDefault;
+  const hiddenByDefault = !!options.hiddenByDefault;
   const profileRoot = document.getElementById('sp-patient-profile-root');
   const card = profileRoot?.querySelector('.sp-profile-card');
   if (!(card instanceof HTMLElement)) {
     return false;
+  }
+
+  if (profileRoot instanceof HTMLElement) {
+    profileRoot.hidden = hiddenByDefault;
   }
 
   normalizeExternalProfileWording(card);
@@ -5052,7 +5058,10 @@ function mountPublicForm(container: HTMLElement): void {
     : '';
   const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
 
-  scheduleExternalProfileEnhancements({ collapsedByDefault: shouldCollapseProfile });
+  scheduleExternalProfileEnhancements({
+    collapsedByDefault: shouldCollapseProfile,
+    hiddenByDefault: shouldCollapseProfile,
+  });
 
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);

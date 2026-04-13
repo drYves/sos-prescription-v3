@@ -14,7 +14,10 @@ type UploadedFile = {
 
 type MessageItem = {
   id: number;
+  seq?: number;
   author_role: string;
+  author_wp_user_id?: number;
+  author_name?: string;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -112,6 +115,7 @@ export default function MessageThread({
   onPolishDraft,
   smartReplies = [],
 }: Props) {
+  const isReadOnly = !canCompose;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [draftBody, setDraftBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -131,7 +135,7 @@ export default function MessageThread({
 
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
-    if (!prescriptionId || !body || sending) {
+    if (!prescriptionId || !body || sending || isReadOnly) {
       return;
     }
 
@@ -155,7 +159,7 @@ export default function MessageThread({
 
   const handlePolish = async (): Promise<void> => {
     const sourceDraft = draftBody.trim();
-    if (!enablePolish || !onPolishDraft || polishing || sending || sourceDraft === '') {
+    if (!enablePolish || !onPolishDraft || polishing || sending || isReadOnly || sourceDraft === '') {
       return;
     }
 
@@ -239,75 +243,74 @@ export default function MessageThread({
         />
       )}
 
-      {canCompose ? (
-        <div className="sp-card sp-thread-composer sp-thread-composer--text-only">
-          {localError ? <Notice variant="error">{localError}</Notice> : null}
+      <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
+        {localError ? <Notice variant="error">{localError}</Notice> : null}
+        {isReadOnly ? <Notice variant="info">{readOnlyNotice}</Notice> : null}
 
-          <div className="sp-thread-composer__row">
-            <div className="sp-thread-composer__field">
-              <textarea
-                ref={textareaRef}
-                value={draftBody}
-                onChange={(event) => setDraftBody(event.target.value)}
-                rows={2}
-                placeholder={composerPlaceholder(viewerRole)}
-                className="sp-textarea sp-thread-composer__textarea"
-              />
-            </div>
-
-            <div className="sp-thread-composer__actions">
-              {enablePolish && onPolishDraft ? (
-                <button
-                  type="button"
-                  className="sp-app-icon-button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handlePolish();
-                  }}
-                  disabled={polishing || sending || draftBody.trim().length < 1}
-                  title="Aide à la rédaction"
-                  aria-label="Aide à la rédaction"
-                >
-                  {polishing ? <InlineSpinner /> : <BotAssistIcon />}
-                </button>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={sending || draftBody.trim().length < 1}
-                className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-              >
-                {sending ? <InlineSpinner /> : 'Envoyer'}
-              </button>
-            </div>
+        <div className="sp-thread-composer__row">
+          <div className="sp-thread-composer__field">
+            <textarea
+              ref={textareaRef}
+              value={draftBody}
+              onChange={(event) => setDraftBody(event.target.value)}
+              rows={2}
+              placeholder={isReadOnly ? readOnlyNotice : composerPlaceholder(viewerRole)}
+              className="sp-textarea sp-thread-composer__textarea"
+              disabled={isReadOnly}
+              aria-disabled={isReadOnly}
+            />
           </div>
 
-          {viewerRole === 'DOCTOR' && visibleReplies.length > 0 ? (
-            <>
-              <div className="sp-thread-composer__hint">Suggestions de réponse</div>
-              <div className="sp-inline-actions">
-                {visibleReplies.map((reply, index) => {
-                  const label = String(reply.title || reply.body || '').trim() || `Suggestion ${index + 1}`;
-                  return (
-                    <button
-                      key={`${reply.type || 'reply'}-${index}`}
-                      type="button"
-                      className="sp-button sp-button--secondary"
-                      onClick={() => applySmartReply(reply.body)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
+          <div className="sp-thread-composer__actions">
+            {enablePolish && onPolishDraft && !isReadOnly ? (
+              <button
+                type="button"
+                className="sp-app-icon-button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void handlePolish();
+                }}
+                disabled={polishing || sending || draftBody.trim().length < 1}
+                title="Aide à la rédaction"
+                aria-label="Aide à la rédaction"
+              >
+                {polishing ? <InlineSpinner /> : <BotAssistIcon />}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={isReadOnly || sending || draftBody.trim().length < 1}
+              className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+            >
+              {sending ? <InlineSpinner /> : 'Envoyer'}
+            </button>
+          </div>
         </div>
-      ) : (
-        <Notice variant="info">{readOnlyNotice}</Notice>
-      )}
+
+        {viewerRole === 'DOCTOR' && visibleReplies.length > 0 && !isReadOnly ? (
+          <>
+            <div className="sp-thread-composer__hint">Suggestions de réponse</div>
+            <div className="sp-inline-actions">
+              {visibleReplies.map((reply, index) => {
+                const label = String(reply.title || reply.body || '').trim() || `Suggestion ${index + 1}`;
+                return (
+                  <button
+                    key={`${reply.type || 'reply'}-${index}`}
+                    type="button"
+                    className="sp-button sp-button--secondary"
+                    onClick={() => applySmartReply(reply.body)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
