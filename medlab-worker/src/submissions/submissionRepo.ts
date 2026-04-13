@@ -132,15 +132,23 @@ interface FinalizeTransactionOutcome {
   prescriptionId: string;
 }
 
+type SubmissionRepoErrorOptions = {
+  cause?: unknown;
+};
+
 export class SubmissionRepoError extends Error {
   public readonly code: string;
   public readonly statusCode: number;
 
-  constructor(code: string, statusCode: number, message: string) {
+  constructor(code: string, statusCode: number, message: string, options: SubmissionRepoErrorOptions = {}) {
     super(message);
     this.name = "SubmissionRepoError";
     this.code = code;
     this.statusCode = statusCode;
+
+    if (options.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
   }
 }
 
@@ -1502,5 +1510,6 @@ function wrapSubmissionRepoError(
     code,
     statusCode,
     err instanceof Error ? err.message : fallbackMessage,
+    { cause: err instanceof Error ? err : undefined },
   );
 }

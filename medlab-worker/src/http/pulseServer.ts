@@ -841,10 +841,11 @@ async function handleSubmissionDraftCreate(
     );
   } catch (err: unknown) {
     if (err instanceof SubmissionRepoError || err instanceof AuthServiceError || err instanceof MailServiceError) {
+      const logContext = buildSubmissionDraftFailureLogContext(err);
       if (err.statusCode >= 500) {
-        deps.logger.error("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+        deps.logger.error("submission.draft.failed", logContext, reqId, err);
       } else {
-        deps.logger.warning("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+        deps.logger.warning("submission.draft.failed", logContext, reqId, err);
       }
 
       return sendJson(
@@ -865,8 +866,7 @@ async function handleSubmissionDraftCreate(
       );
     }
 
-    const message = err instanceof Error ? err.message : "submission_draft_failed";
-    deps.logger.error("submission.draft.failed", { reason: message }, reqId, err);
+    deps.logger.error("submission.draft.failed", buildSubmissionDraftFailureLogContext(err), reqId, err);
     return sendJson(
       res,
       500,
@@ -4246,6 +4246,97 @@ function normalizePatientProfileActorFromQuery(url: URL): { role: "PATIENT"; wpU
     role: url.searchParams.get("role"),
     wp_user_id: url.searchParams.get("wp_user_id"),
   });
+}
+
+function collectErrorChain(err: unknown, maxDepth = 5): unknown[] {
+  const chain: unknown[] = [];
+  let current: unknown = err;
+
+  for (let depth = 0; depth < maxDepth && current != null; depth += 1) {
+    chain.push(current);
+    if (!(current instanceof Error)) {
+      break;
+    }
+
+    const next = (current as Error & { cause?: unknown }).cause;
+    if (next == null || next === current) {
+      break;
+    }
+    current = next;
+  }
+
+  return chain;
+}
+
+function normalizePrismaMetaForLog(meta: unknown): Record<string, unknown> | null {
+  if (meta == null) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(meta)) as Record<string, unknown>;
+  } catch {
+    return {
+      raw: String(meta),
+    };
+  }
+}
+
+function extractPrismaErrorDetails(err: unknown): Record<string, unknown> | null {
+  const chain = collectErrorChain(err);
+
+  for (const entry of chain) {
+    if (entry instanceof Prisma.PrismaClientKnownRequestError) {
+      const details: Record<string, unknown> = {
+        prisma_error_name: entry.name,
+        prisma_error_code: entry.code,
+        prisma_error_message: entry.message,
+      };
+      const meta = normalizePrismaMetaForLog(entry.meta);
+      if (meta) {
+        details.prisma_error_meta = meta;
+      }
+      return details;
+    }
+
+    if (
+      entry instanceof Prisma.PrismaClientUnknownRequestError
+      || entry instanceof Prisma.PrismaClientValidationError
+      || entry instanceof Prisma.PrismaClientInitializationError
+      || entry instanceof Prisma.PrismaClientRustPanicError
+    ) {
+      return {
+        prisma_error_name: entry.name,
+        prisma_error_message: entry.message,
+      };
+    }
+  }
+
+  for (const entry of chain) {
+    if (!(entry instanceof Error)) {
+      continue;
+    }
+
+    const codeMatch = entry.message.match(/\b(P\d{4})\b/u);
+    if (codeMatch) {
+      return {
+        prisma_error_code: codeMatch[1],
+        prisma_error_message: entry.message,
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildSubmissionDraftFailureLogContext(err: unknown): Record<string, unknown> {
+  const message = err instanceof Error ? err.message : "submission_draft_failed";
+  const base: Record<string, unknown> = err instanceof SubmissionRepoError || err instanceof AuthServiceError || err instanceof MailServiceError
+    ? { code: err.code, reason: err.message }
+    : { reason: message };
+
+  const prismaDetails = extractPrismaErrorDetails(err);
+  return prismaDetails ? { ...base, ...prismaDetails } : base;
 }
 
 function normalizeMagicLinkRequestEmail(value: unknown): string {

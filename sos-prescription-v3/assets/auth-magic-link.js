@@ -6,6 +6,7 @@
   const draftResendEndpoint = toSafeString(config.draftResendEndpoint);
   const redirects = typeof config.redirects === 'object' && config.redirects ? config.redirects : {};
   const requestStartUrl = toSafeString(config.requestStartUrl);
+  const stickyEmailStorageKey = 'sospatient_email_cache';
 
   function toSafeString(value) {
     return typeof value === 'string' ? value : '';
@@ -27,6 +28,30 @@
 
   function isEmailLike(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim().toLowerCase());
+  }
+
+  function normalizeStickyEmail(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return isEmailLike(normalized) ? normalized : '';
+  }
+
+  function rememberStickyEmail(value) {
+    const normalized = normalizeStickyEmail(value);
+    if (!normalized) {
+      return;
+    }
+
+    try {
+      window.localStorage?.setItem(stickyEmailStorageKey, normalized);
+    } catch {
+      // noop
+    }
+
+    try {
+      window.sessionStorage?.setItem(stickyEmailStorageKey, normalized);
+    } catch {
+      // noop
+    }
   }
 
 
@@ -359,6 +384,7 @@
             return;
           }
 
+          rememberStickyEmail(email);
           updateAlert(
             feedback,
             'success',
@@ -707,6 +733,7 @@
               }
             );
             resetApplicationStorage();
+            rememberStickyEmail(toSafeString(payload && payload.email) || knownEmail);
             window.location.replace(resolveRedirectUrl(payload));
             return;
           }
