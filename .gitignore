@@ -3,3 +3,17 @@ node_modules/
 *.zip
 *.tar.gz
 .env
+
+# --- RÈGLES DE PURGE V6.3.1 ---
+# Ignorer le code compilé du Worker
+medlab-worker/dist/
+
+# Ignorer les résidus de l'ancien thème WordPress à la racine
+assets/
+inc/
+functions.php
+page-sos-*.php
+style.css
+screenshot.png
+*.txt
+NOTE-INTEGRATION-*.md
