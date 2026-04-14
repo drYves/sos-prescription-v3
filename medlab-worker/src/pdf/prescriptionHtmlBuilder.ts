@@ -166,6 +166,7 @@ export class PrescriptionHtmlBuilder {
         job_id: input.jobId,
         template: template.templateName,
         template_variant: template.variant,
+        sig_key_present: normalizedSignatureKey !== "",
         sig_present: signatureDataUri !== "",
         verify_enabled: verifyUrl !== "",
         items_count: countMedicationItems(aggregate.prescription.items),
@@ -797,10 +798,8 @@ function normalizeSignatureS3Key(value: string | null): string {
   }
 
   if (raw.startsWith("s3://")) {
-    const withoutScheme = raw.slice("s3://".length);
-    const slashIndex = withoutScheme.indexOf("/");
-    const key = slashIndex >= 0 ? withoutScheme.slice(slashIndex + 1) : "";
-    return decodeURIComponent(key).replace(/^\/+/, "");
+    const normalized = raw.replace(/^s3:\/\//i, "").replace(/^\/+/, "").trim();
+    return normalized !== "" ? `s3://${normalized}` : "";
   }
 
   try {
@@ -809,10 +808,22 @@ function normalizeSignatureS3Key(value: string | null): string {
     const pathSegments = parsed.pathname.split("/").filter(Boolean);
 
     if (host.includes("amazonaws.com")) {
+      const hostedBucket = extractVirtualHostedS3Bucket(host);
+      if (hostedBucket !== "") {
+        const key = decodeURIComponent(pathSegments.join("/")).replace(/^\/+/, "");
+        return key !== "" ? `s3://${hostedBucket}/${key}` : "";
+      }
+
       const isPathStyleHost = host === "s3.amazonaws.com" || host.startsWith("s3.") || host.startsWith("s3-");
       if (isPathStyleHost && pathSegments.length > 1) {
-        return decodeURIComponent(pathSegments.slice(1).join("/")).replace(/^\/+/, "");
+        const bucket = decodeURIComponent(pathSegments[0] ?? "").trim();
+        const key = decodeURIComponent(pathSegments.slice(1).join("/")).replace(/^\/+/, "");
+        if (bucket !== "" && key !== "") {
+          return `s3://${bucket}/${key}`;
+        }
+        return key;
       }
+
       return decodeURIComponent(pathSegments.join("/")).replace(/^\/+/, "");
     }
 
@@ -822,6 +833,20 @@ function normalizeSignatureS3Key(value: string | null): string {
   }
 
   return decodeURIComponent(raw).replace(/^\/+/, "");
+}
+
+function extractVirtualHostedS3Bucket(host: string): string {
+  const normalizedHost = normalizeString(host).toLowerCase();
+  if (normalizedHost === "") {
+    return "";
+  }
+
+  const separator = normalizedHost.indexOf(".s3.");
+  if (separator > 0) {
+    return normalizedHost.slice(0, separator).trim();
+  }
+
+  return "";
 }
 
 function signatureKeyTail(value: string): string {

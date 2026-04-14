@@ -359,6 +359,18 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
         return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
       }
 
+      const prescriptionDownloadMatch = method === "GET" ? path.match(/^\/api\/v2\/prescriptions\/([^/]+)\/download$/) : null;
+      if (prescriptionDownloadMatch) {
+        return await handlePrescriptionDownload(
+          req,
+          res,
+          deps,
+          signingSecret,
+          url,
+          decodeURIComponent(prescriptionDownloadMatch[1]),
+        );
+      }
+
       if (method === "POST" && path === "/api/v2/messages/polish") {
         return await handleMessagesPolish(req, res, deps, signingSecret);
       }
@@ -1875,6 +1887,135 @@ async function handlePrescriptionGet(
         route: "/api/v2/prescriptions/get",
       },
       "ML_PRESCRIPTION_GET_FAILED",
+    );
+  }
+}
+
+async function handlePrescriptionDownload(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  url: URL,
+  prescriptionId: string,
+): Promise<void> {
+  const parsed = validateSignedRequestHeader(req, deps.secrets);
+  if (parsed.ok !== true) {
+    if (parsed.logReason) {
+      deps.logger.warning(
+        "security.mls1.rejected",
+        { reason: parsed.logReason, path: `/api/v2/prescriptions/${prescriptionId}/download` },
+        getResponseReqId(res),
+      );
+    }
+    return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+  }
+
+  const reqId = getResponseReqId(res);
+
+  let actor: { role: "DOCTOR" | "PATIENT"; wpUserId: number };
+  try {
+    actor = normalizePrescriptionDownloadActorFromQuery(url);
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "prescription.download.failed",
+      {
+        route: `/api/v2/prescriptions/${prescriptionId}/download`,
+      },
+      "ML_PRESCRIPTION_DOWNLOAD_FAILED",
+    );
+  }
+
+  const canon = parseCanonicalGet(parsed.token.payloadBytes);
+  if (!canon) {
+    return sendJson(res, 400, { ok: false, code: "ML_AUTH_BAD_PAYLOAD" }, signingSecret);
+  }
+
+  const expectedPath = buildPrescriptionDownloadCanonicalGetPath(prescriptionId, actor);
+  if (canon.method !== "GET" || canon.path !== expectedPath) {
+    deps.logger.warning(
+      "security.mls1.rejected",
+      {
+        reason: "scope_denied",
+        expected_path: expectedPath,
+        received_path: canon.path,
+      },
+      reqId,
+    );
+    return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
+  }
+
+  const now = Date.now();
+  const skew = Math.abs(now - canon.tsMs);
+  if (skew > deps.skewWindowMs) {
+    deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, reqId);
+    return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
+  }
+
+  const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
+  if (!isNew) {
+    deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, reqId);
+    return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
+  }
+
+  try {
+    const record = await resolvePrescriptionDownloadRecord(prescriptionId);
+    if (!record) {
+      return sendJson(res, 404, { ok: false, code: "ML_PRESCRIPTION_NOT_FOUND" }, signingSecret);
+    }
+
+    if (!canActorDownloadPrescription(record, actor)) {
+      return sendJson(res, 403, { ok: false, code: "ML_READ_FORBIDDEN" }, signingSecret);
+    }
+
+    const target = normalizeS3ObjectLocation(record.s3PdfKey, resolvePdfBucketForDownload(deps));
+    if (!target) {
+      return sendJson(res, 409, { ok: false, code: "ML_PDF_NOT_READY" }, signingSecret);
+    }
+
+    const presignedUrl = await deps.s3.createPresignedAccessUrl({
+      bucket: target.bucket,
+      key: target.key,
+      expiresInSeconds: 300,
+      contentDisposition: buildArtifactContentDisposition("attachment", buildPrescriptionPdfFilename(record.uid)),
+      contentType: "application/pdf",
+    });
+
+    deps.logger.info(
+      "prescription.download.redirected",
+      {
+        actor_role: actor.role,
+        actor_wp_user_id: actor.wpUserId,
+        prescription_id: record.id,
+        prescription_uid: record.uid,
+        ttl_seconds: 300,
+      },
+      reqId,
+    );
+
+    res.statusCode = 302;
+    res.setHeader("Location", presignedUrl);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.end();
+    return;
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "prescription.download.failed",
+      {
+        route: `/api/v2/prescriptions/${prescriptionId}/download`,
+      },
+      "ML_PRESCRIPTION_DOWNLOAD_FAILED",
     );
   }
 }
@@ -3911,6 +4052,113 @@ function buildSmartRepliesCanonicalGetPath(
   return `/api/v2/prescriptions/${encodeURIComponent(prescriptionId)}/smart-replies?${search.toString()}`;
 }
 
+function buildPrescriptionDownloadCanonicalGetPath(
+  prescriptionId: string,
+  actor: { role: "DOCTOR" | "PATIENT"; wpUserId: number },
+): string {
+  const search = new URLSearchParams();
+  search.set("actor_role", actor.role);
+  search.set("actor_wp_user_id", String(actor.wpUserId));
+  return `/api/v2/prescriptions/${encodeURIComponent(prescriptionId)}/download?${search.toString()}`;
+}
+
+type PrescriptionDownloadRecord = {
+  id: string;
+  uid: string;
+  status: string;
+  s3PdfKey: string | null;
+  doctor: { wpUserId: number | null } | null;
+  patient: { wpUserId: number | null };
+};
+
+async function resolvePrescriptionDownloadRecord(prescriptionId: string): Promise<PrescriptionDownloadRecord | null> {
+  const normalizedPrescriptionId = normalizeReadPrescriptionId(prescriptionId);
+  const prisma = getPulsePrismaClient();
+  return prisma.prescription.findFirst({
+    where: {
+      OR: [
+        { id: normalizedPrescriptionId },
+        { uid: normalizedPrescriptionId },
+      ],
+    },
+    select: {
+      id: true,
+      uid: true,
+      status: true,
+      s3PdfKey: true,
+      doctor: {
+        select: {
+          wpUserId: true,
+        },
+      },
+      patient: {
+        select: {
+          wpUserId: true,
+        },
+      },
+    },
+  });
+}
+
+function canActorDownloadPrescription(
+  record: PrescriptionDownloadRecord,
+  actor: { role: "DOCTOR" | "PATIENT"; wpUserId: number },
+): boolean {
+  if (actor.role === "DOCTOR") {
+    if (record.doctor == null) {
+      return true;
+    }
+    return record.doctor.wpUserId === actor.wpUserId;
+  }
+
+  return record.patient.wpUserId === actor.wpUserId;
+}
+
+function resolvePdfBucketForDownload(deps: PulseServerDeps): string {
+  return normalizeOptionalString(process.env.S3_BUCKET_PDF)
+    ?? normalizeOptionalString(process.env.S3_BUCKET_ARTIFACTS)
+    ?? deps.artifactsBucket;
+}
+
+function normalizeS3ObjectLocation(
+  rawValue: string | null,
+  fallbackBucket: string,
+): { bucket: string; key: string } | null {
+  const value = normalizeOptionalString(rawValue);
+  if (!value) {
+    return null;
+  }
+
+  if (value.startsWith("s3://")) {
+    const withoutScheme = value.slice("s3://".length);
+    const slashIndex = withoutScheme.indexOf("/");
+    if (slashIndex <= 0) {
+      return null;
+    }
+
+    const bucket = withoutScheme.slice(0, slashIndex).trim();
+    const key = withoutScheme.slice(slashIndex + 1).replace(/^\/+/, "").trim();
+    if (bucket === "" || key === "") {
+      return null;
+    }
+
+    return { bucket, key };
+  }
+
+  const bucket = normalizeOptionalString(fallbackBucket);
+  const key = value.replace(/^\/+/, "");
+  if (!bucket || key === "") {
+    return null;
+  }
+
+  return { bucket, key };
+}
+
+function buildPrescriptionPdfFilename(uid: string): string {
+  const normalizedUid = sanitizeDispositionFilename(uid).replace(/\.pdf$/i, "").trim();
+  return normalizedUid !== "" ? `ordonnance-${normalizedUid}.pdf` : "ordonnance.pdf";
+}
+
 function serializeLatestSmartReply(record: LatestSmartReplyRecord): Record<string, unknown> {
   return {
     prescription_id: record.prescriptionId,
@@ -3930,6 +4178,13 @@ function serializeLatestSmartReply(record: LatestSmartReplyRecord): Record<strin
 
 function normalizeMessagesActorFromQuery(url: URL): { role: ActorRole; wpUserId: number | null } {
   return normalizeMessagesActorInput({
+    role: url.searchParams.get("actor_role"),
+    wp_user_id: url.searchParams.get("actor_wp_user_id"),
+  });
+}
+
+function normalizePrescriptionDownloadActorFromQuery(url: URL): { role: "DOCTOR" | "PATIENT"; wpUserId: number } {
+  return normalizePrescriptionReadActorInput({
     role: url.searchParams.get("actor_role"),
     wp_user_id: url.searchParams.get("actor_wp_user_id"),
   });
