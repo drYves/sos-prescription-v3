@@ -74,8 +74,51 @@ function Notice({
   return <div className={cx('sp-alert', `sp-alert--${variant}`)}>{children}</div>;
 }
 
-function composerPlaceholder(viewerRole: ViewerRole): string {
-  return viewerRole === 'DOCTOR' ? 'Écrire au patient...' : 'Écrire au médecin...';
+function composerPlaceholder(_viewerRole: ViewerRole): string {
+  return 'Rédiger un message sécurisé...';
+}
+
+function normalizeRoleToken(value: string): ViewerRole | '' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === '') {
+    return '';
+  }
+
+  if (normalized.includes('patient')) {
+    return 'PATIENT';
+  }
+
+  if (
+    normalized.includes('doctor')
+    || normalized.includes('medecin')
+    || normalized.includes('médecin')
+    || normalized.includes('physician')
+    || normalized.includes('praticien')
+    || normalized.includes('admin')
+    || normalized.includes('administrator')
+  ) {
+    return 'DOCTOR';
+  }
+
+  return '';
+}
+
+function normalizeCurrentUserRoles(value: string[] | string | undefined): ViewerRole[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+    ? value.split(/[\s,|]+/g)
+    : [];
+
+  const roles: ViewerRole[] = [];
+  source.forEach((entry) => {
+    const normalized = normalizeRoleToken(entry);
+    if (normalized && !roles.includes(normalized)) {
+      roles.push(normalized);
+    }
+  });
+
+  return roles;
 }
 
 function BotAssistIcon() {
@@ -107,7 +150,7 @@ export default function MessageThread({
   fileIndex,
   onDownloadFile,
   canCompose,
-  readOnlyNotice = 'La messagerie est en lecture seule pour ce dossier.',
+  readOnlyNotice = 'Cet espace d’échange sécurisé est actuellement en lecture seule.',
   postMessage,
   onMessageCreated,
   onSurfaceError,
@@ -131,7 +174,42 @@ export default function MessageThread({
     polishRequestRef.current = 0;
   }, [prescriptionId]);
 
-  const visibleReplies = useMemo(() => smartReplies.slice(0, 3).filter((item) => String(item.body || '').trim() !== ''), [smartReplies]);
+  const normalizedCurrentUserRoles = useMemo(() => normalizeCurrentUserRoles(currentUserRoles), [currentUserRoles]);
+  const isDoctorCurrentUser = useMemo(
+    () => viewerRole === 'DOCTOR' || normalizedCurrentUserRoles.includes('DOCTOR'),
+    [normalizedCurrentUserRoles, viewerRole],
+  );
+
+  const visibleReplies = useMemo(
+    () => (isDoctorCurrentUser ? smartReplies.slice(0, 3).filter((item) => String(item.body || '').trim() !== '') : []),
+    [isDoctorCurrentUser, smartReplies],
+  );
+
+  const normalizedMessages = useMemo(
+    () => messages.map((message) => ({
+      ...message,
+      author_name: typeof message.author_name === 'string' ? message.author_name.trim() : message.author_name,
+    })),
+    [messages],
+  );
+
+  const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
+
+  const composerBaseId = useMemo(() => `sp-thread-composer-${String(prescriptionId || 'draft')}`, [prescriptionId]);
+  const composerTextareaId = `${composerBaseId}-textarea`;
+  const composerNoticeId = `${composerBaseId}-notice`;
+  const composerErrorId = `${composerBaseId}-error`;
+  const composerStatusId = `${composerBaseId}-status`;
+  const composerDescription = [
+    isReadOnly ? composerNoticeId : null,
+    localError ? composerErrorId : null,
+    composerStatusId,
+  ].filter(Boolean).join(' ') || undefined;
+  const composerStatusMessage = sending
+    ? 'Envoi du message en cours.'
+    : polishing
+      ? 'Aide à la rédaction en cours.'
+      : '';
 
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
@@ -159,7 +237,7 @@ export default function MessageThread({
 
   const handlePolish = async (): Promise<void> => {
     const sourceDraft = draftBody.trim();
-    if (!enablePolish || !onPolishDraft || polishing || sending || isReadOnly || sourceDraft === '') {
+    if (!showWritingAssistant || !onPolishDraft || polishing || sending || isReadOnly || sourceDraft === '') {
       return;
     }
 
@@ -227,15 +305,15 @@ export default function MessageThread({
       </div>
 
       {loading && messages.length === 0 ? (
-        <div className="sp-loading-row">
+        <div className="sp-loading-row" role="status" aria-live="polite">
           <InlineSpinner />
           <span>Chargement…</span>
         </div>
       ) : messages.length === 0 ? (
-        <div className="sp-empty-note">{emptyText}</div>
+        <div className="sp-empty-note" role="status" aria-live="polite">{emptyText}</div>
       ) : (
         <MessageList
-          messages={messages}
+          messages={normalizedMessages}
           viewerRole={viewerRole}
           currentUserRoles={currentUserRoles}
           fileIndex={fileIndex}
@@ -244,12 +322,24 @@ export default function MessageThread({
       )}
 
       <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
-        {localError ? <Notice variant="error">{localError}</Notice> : null}
-        {isReadOnly ? <Notice variant="info">{readOnlyNotice}</Notice> : null}
+        <div id={composerStatusId} className="sp-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+          {composerStatusMessage}
+        </div>
+        {localError ? (
+          <div id={composerErrorId}>
+            <Notice variant="error">{localError}</Notice>
+          </div>
+        ) : null}
+        {isReadOnly ? (
+          <div id={composerNoticeId}>
+            <Notice variant="info">{readOnlyNotice}</Notice>
+          </div>
+        ) : null}
 
         <div className="sp-thread-composer__row">
           <div className="sp-thread-composer__field">
             <textarea
+              id={composerTextareaId}
               ref={textareaRef}
               value={draftBody}
               onChange={(event) => setDraftBody(event.target.value)}
@@ -258,11 +348,13 @@ export default function MessageThread({
               className="sp-textarea sp-thread-composer__textarea"
               disabled={isReadOnly}
               aria-disabled={isReadOnly}
+              aria-invalid={localError ? true : undefined}
+              aria-describedby={composerDescription}
             />
           </div>
 
           <div className="sp-thread-composer__actions">
-            {enablePolish && onPolishDraft && !isReadOnly ? (
+            {showWritingAssistant ? (
               <button
                 type="button"
                 className="sp-app-icon-button"
@@ -274,6 +366,7 @@ export default function MessageThread({
                 disabled={polishing || sending || draftBody.trim().length < 1}
                 title="Aide à la rédaction"
                 aria-label="Aide à la rédaction"
+                aria-controls={composerTextareaId}
               >
                 {polishing ? <InlineSpinner /> : <BotAssistIcon />}
               </button>
@@ -284,13 +377,15 @@ export default function MessageThread({
               onClick={() => void handleSend()}
               disabled={isReadOnly || sending || draftBody.trim().length < 1}
               className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+              aria-controls={composerTextareaId}
+              aria-label="Envoyer le message sécurisé"
             >
               {sending ? <InlineSpinner /> : 'Envoyer'}
             </button>
           </div>
         </div>
 
-        {viewerRole === 'DOCTOR' && visibleReplies.length > 0 && !isReadOnly ? (
+        {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
           <>
             <div className="sp-thread-composer__hint">Suggestions de réponse</div>
             <div className="sp-inline-actions">

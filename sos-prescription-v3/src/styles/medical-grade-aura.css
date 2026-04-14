@@ -1,3 +1,16 @@
+.sp-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 #sosprescription-root-form,
 #sosprescription-root-patient,
 .sp-app-root,
@@ -191,6 +204,14 @@
   border: var(--sp-app-border);
   border-radius: var(--sp-app-radius);
   box-shadow: var(--sp-app-shadow);
+}
+
+#sosprescription-root-form .sp-app-card,
+#sosprescription-root-form .sp-panel,
+#sosprescription-root-form .sp-inline-card,
+#sosprescription-root-form .sp-card {
+  border-left: var(--sp-app-border);
+  border-inline-start: var(--sp-app-border);
 }
 
 .sp-app-card {
@@ -2481,5 +2502,331 @@ a.sp-app-button.sp-app-button--primary:hover {
   .sp-patient-console .sp-patient-hero__actions {
     min-width: 100%;
     flex-basis: auto;
+  }
+}
+
+
+/* --- V6.4.0 · Systemic Medical-Grade bridge, motion, mobile-first and a11y --- */
+#sosprescription-root-form,
+#sosprescription-root-patient,
+.sp-app-root,
+.sp-app-theme,
+.sp-page-shell,
+.sp-profile-card,
+.sp-panel,
+.sp-card,
+.sp-inline-card,
+.sp-auth-hint {
+  --sp-app-font-family: var(--sp-font-body, var(--sp-gp-font-body, "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif));
+  --sp-app-font-title: var(--sp-font-display, var(--sp-gp-font-display, "Plus Jakarta Sans", var(--sp-app-font-family)));
+  --sp-app-text: var(--sp-color-text-1, var(--sp-gp-color-text, #0f172a));
+  --sp-app-text-soft: var(--sp-color-text-3, var(--sp-gp-color-text-soft, color-mix(in srgb, #0f172a 70%, #ffffff 30%)));
+  --sp-app-text-muted: var(--sp-color-text-4, color-mix(in srgb, var(--sp-gp-color-text, #0f172a) 56%, #ffffff 44%));
+  --sp-app-border: var(--sp-border-hairline, 1px solid var(--sp-gp-color-border, rgba(15, 23, 42, 0.12)));
+  --sp-app-border-strong: var(--sp-border-hairline-strong, 1px solid color-mix(in srgb, var(--sp-color-accent, var(--sp-gp-color-accent, #0f6cbd)) 18%, var(--sp-gp-color-text, #0f172a) 8%));
+  --sp-app-radius: var(--sp-radius-lg, var(--sp-gp-radius-card, 20px));
+  --sp-app-radius-sm: var(--sp-radius-md, var(--sp-gp-radius-card-sm, 16px));
+  --sp-app-surface: var(--sp-glass-surface-strong, var(--sp-gp-color-surface, rgba(255, 255, 255, 0.94)));
+  --sp-app-surface-soft: color-mix(in srgb, var(--sp-color-surface-alt, var(--sp-gp-color-canvas, #f6f8fb)) 88%, var(--sp-color-surface, var(--sp-gp-color-surface, #ffffff)) 12%);
+  --sp-app-shadow: var(--sp-shadow-premium, 0 1px 1px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.08), 0 34px 84px rgba(15, 23, 42, 0.05));
+  --sp-app-shadow-lg: var(--sp-shadow-premium-lg, 0 2px 2px rgba(15, 23, 42, 0.08), 0 24px 54px rgba(15, 23, 42, 0.10), 0 48px 120px rgba(15, 23, 42, 0.08));
+  --sp-app-focus-ring: var(--sp-color-focus-ring, var(--sp-gp-color-focus-ring, rgba(15, 108, 189, 0.18)));
+  --sp-app-accent-border: color-mix(in srgb, var(--sp-color-accent, var(--sp-gp-color-accent, #0f6cbd)) 24%, transparent);
+  --sp-app-accent-border-strong: color-mix(in srgb, var(--sp-color-accent, var(--sp-gp-color-accent, #0f6cbd)) 36%, transparent);
+  --sp-app-transition-fast: var(--sp-motion-fast, 140ms);
+  --sp-app-transition-base: var(--sp-motion-base, 220ms);
+  --sp-app-transition-slow: var(--sp-motion-slow, 320ms);
+}
+
+.sp-app-root,
+.sp-page-shell.sp-app-container,
+.sp-app-card,
+.sp-panel,
+.sp-inline-card,
+.sp-card,
+.sp-app-stagebar__item,
+.sp-thread-item__bubble,
+.sp-app-search__results,
+.sp-app-search__item {
+  transition:
+    background-color var(--sp-app-transition-base) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-app-transition-base) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-app-transition-base) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-app-transition-fast) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-app-transition-fast) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1)),
+    opacity var(--sp-app-transition-fast) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.sp-app-root .sp-app-container,
+.sp-page-shell.sp-app-container {
+  padding: clamp(1rem, 0.72rem + 1vw, 1.65rem);
+}
+
+.sp-app-card,
+.sp-panel,
+.sp-inline-card,
+.sp-card {
+  background: var(--sp-app-surface);
+  border: var(--sp-app-border);
+  border-left-width: 1px !important;
+  border-inline-start-width: 1px !important;
+  border-radius: var(--sp-app-radius);
+  box-shadow: var(--sp-app-shadow);
+}
+
+#sosprescription-root-form :is(.sp-app-card, .sp-panel, .sp-inline-card, .sp-card),
+#sosprescription-root-patient :is(.sp-app-card, .sp-panel, .sp-inline-card, .sp-card) {
+  border-left-width: 1px !important;
+  border-inline-start-width: 1px !important;
+}
+
+.sp-app-stage-viewport {
+  position: relative;
+  min-block-size: clamp(22rem, 44vh, 36rem);
+  isolation: isolate;
+}
+
+.sp-app-stage-surface {
+  width: 100%;
+}
+
+.sp-app-stage-viewport.is-transitioning {
+  pointer-events: none;
+}
+
+.sp-app-stage-viewport.is-exiting {
+  animation: spAppStageExit var(--sp-app-transition-fast) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)) both;
+}
+
+.sp-app-stage-viewport.is-entering {
+  animation: spAppStageEnter var(--sp-app-transition-base) var(--sp-ease-emphasized, cubic-bezier(0.2, 0.8, 0.2, 1)) both;
+}
+
+@keyframes spAppStageEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+    filter: saturate(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: none;
+  }
+}
+
+@keyframes spAppStageExit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0);
+  }
+}
+
+.sp-app-search {
+  display: grid;
+  gap: 12px;
+}
+
+.sp-app-search__results {
+  overflow: clip;
+  border-radius: calc(var(--sp-app-radius) - 2px);
+  overscroll-behavior: contain;
+}
+
+.sp-app-search__body {
+  overscroll-behavior: contain;
+}
+
+.sp-app-search__item,
+button.sp-app-search__item {
+  min-height: 60px;
+}
+
+.sp-app-search__item.is-active,
+.sp-app-search__item.is-selectable.is-active,
+.sp-app-search__item.is-selectable:focus-visible {
+  background: color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 10%, #ffffff 90%);
+  box-shadow: inset 0 0 0 1px var(--sp-app-accent-border);
+}
+
+.sp-app-search__item.is-selectable:hover {
+  background: color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 7%, #ffffff 93%);
+}
+
+.sp-app-search__item-title strong {
+  font-weight: 800;
+}
+
+.sp-app-input:focus-visible,
+.sp-app-select:focus-visible,
+.sp-app-textarea:focus-visible,
+.sp-textarea:focus-visible,
+.sp-app-button:focus-visible,
+.sp-button:focus-visible,
+.sp-app-choice-card:focus-visible,
+.sp-app-search__item:focus-visible,
+.sp-app-icon-button:focus-visible,
+.sp-app-link:focus-visible,
+.sp-thread-item__attachment:focus-visible,
+.sp-patient-console__workspace-tab:focus-visible,
+.sp-patient-console .sp-disclosure > summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--sp-app-focus-ring);
+}
+
+.sp-app-input:focus-visible,
+.sp-app-select:focus-visible,
+.sp-app-textarea:focus-visible,
+.sp-textarea:focus-visible {
+  border-color: var(--sp-app-accent-border-strong);
+  box-shadow:
+    0 0 0 4px var(--sp-app-focus-ring),
+    0 0 0 1px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 24%, transparent) inset;
+}
+
+.sp-app-input:focus:not(:focus-visible),
+.sp-app-select:focus:not(:focus-visible),
+.sp-app-textarea:focus:not(:focus-visible),
+.sp-textarea:focus:not(:focus-visible),
+.sp-app-button:focus:not(:focus-visible),
+.sp-button:focus:not(:focus-visible),
+.sp-app-icon-button:focus:not(:focus-visible),
+.sp-thread-item__attachment:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+
+.sp-thread-list {
+  gap: 16px;
+}
+
+.sp-thread-item__bubble {
+  max-width: min(100%, var(--sp-message-bubble-max, 70%));
+}
+
+.sp-thread-composer {
+  gap: 14px;
+}
+
+.sp-thread-composer__row {
+  align-items: stretch;
+}
+
+.sp-thread-composer__actions {
+  align-items: stretch;
+}
+
+.sp-thread-composer__actions > * {
+  min-height: 48px;
+}
+
+@media (max-width: 1024px) {
+  .sp-console-grid,
+  .sp-app-choice-grid,
+  .sp-app-summary-grid,
+  .sp-app-grid--two,
+  .sp-app-grid--three {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-app-stage-viewport {
+    min-block-size: clamp(18rem, 38vh, 28rem);
+  }
+}
+
+@media (max-width: 768px) {
+  .sp-app-stage-viewport {
+    min-block-size: 0;
+  }
+
+  .sp-app-root .sp-app-container,
+  .sp-page-shell.sp-app-container {
+    padding: 1rem;
+  }
+
+  .sp-app-stagebar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .sp-app-stagebar__item {
+    padding: 12px 14px;
+  }
+
+  .sp-app-dose-row,
+  .sp-console-grid,
+  .sp-app-choice-grid,
+  .sp-app-summary-grid,
+  .sp-app-grid--two,
+  .sp-app-grid--three {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-app-search__results {
+    position: static;
+    inset: auto;
+    margin-top: 0;
+    box-shadow: none;
+    border-radius: calc(var(--sp-app-radius) - 4px);
+  }
+
+  .sp-app-search__body {
+    max-height: min(50vh, 22rem);
+  }
+
+  .sp-app-search__item,
+  button.sp-app-search__item {
+    min-height: 64px;
+    padding: 16px 18px;
+  }
+
+  .sp-app-schedule__header,
+  .sp-app-section__actions,
+  .sp-app-actions,
+  .sp-app-confirmation__uid-row,
+  .sp-thread-composer__row,
+  .sp-thread-composer__actions,
+  .sp-patient-console .sp-inline-card__row,
+  .sp-patient-console .sp-patient-hero__body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sp-thread-composer__actions > * {
+    width: 100%;
+  }
+
+  .sp-thread-item,
+  .sp-thread-list--viewer-patient .sp-thread-item {
+    align-items: stretch;
+  }
+
+  .sp-thread-item__bubble,
+  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-app-root,
+  .sp-app-container,
+  .sp-app-card,
+  .sp-panel,
+  .sp-inline-card,
+  .sp-card,
+  .sp-app-stagebar__item,
+  .sp-thread-item__bubble,
+  .sp-app-search__results,
+  .sp-app-search__item,
+  .sp-app-stage-viewport {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
   }
 }

@@ -95,7 +95,7 @@ function isOwnMessage(message: MessageItem): boolean {
 function formatDoctorLabel(authorName: string | undefined): string {
   const normalized = String(authorName || '').trim().replace(/\s+/g, ' ');
   if (normalized === '') {
-    return 'Dr. médecin';
+    return 'Le médecin';
   }
 
   const withoutPrefix = normalized
@@ -103,7 +103,7 @@ function formatDoctorLabel(authorName: string | undefined): string {
     .trim();
 
   if (withoutPrefix === '') {
-    return 'Dr. médecin';
+    return 'Le médecin';
   }
 
   return `Dr. ${withoutPrefix}`;
@@ -113,12 +113,12 @@ function getRoleLabel(message: MessageItem): string {
   const normalizedAuthorRole = normalizeRole(message.author_role);
 
   if (isOwnMessage(message)) {
-    return 'VOUS';
+    return 'Vous';
   }
 
-  if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
+  if (normalizedAuthorRole === 'PATIENT') return 'Patient';
   if (normalizedAuthorRole === 'DOCTOR') return formatDoctorLabel(message.author_name);
-  return 'INTERLOCUTEUR';
+  return 'Interlocuteur';
 }
 
 function formatMessageDate(value: string): string {
@@ -169,7 +169,12 @@ function formatMessageDate(value: string): string {
 const MessageList = React.memo(
   function MessageListComponent({ messages, viewerRole, currentUserRoles: _currentUserRoles, fileIndex, onDownloadFile }: Props) {
     return (
-      <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
+      <div
+        className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+      >
         {messages.map((message, index) => {
           const mine = isOwnMessage(message);
           const roleLabel = getRoleLabel(message);
@@ -196,7 +201,10 @@ const MessageList = React.memo(
                 viewerRole === 'DOCTOR' && 'sp-thread-item--viewer-doctor',
               )}
             >
-              <article className="sp-thread-item__bubble">
+              <article
+                className="sp-thread-item__bubble"
+                aria-label={`${roleLabel} · ${formattedDate || message.created_at}`}
+              >
                 <div
                   className={cx(
                     'sp-thread-item__author',
@@ -220,6 +228,8 @@ const MessageList = React.memo(
                           type="button"
                           className="sp-button sp-button--secondary sp-thread-item__attachment"
                           onClick={() => void onDownloadFile(attachmentId)}
+
+                          aria-label={`Télécharger ${filename}`}
                         >
                           <span className="sp-button__icon" aria-hidden="true">📎</span>
                           <span>{filename}</span>

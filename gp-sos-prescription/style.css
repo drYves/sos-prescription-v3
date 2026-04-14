@@ -513,3 +513,35 @@ body.sp-context-public .site-title a:focus-visible {
 .main-navigation .menu > li > a:active {
   transform: scale(0.98);
 }
+
+
+/* --- V6.4.0 · Systemic Medical-Grade bridge for GeneratePress / GenerateBlocks --- */
+:root {
+  --sp-gp-font-body: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --sp-gp-font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --sp-gp-color-canvas: var(--base, #f6f8fb);
+  --sp-gp-color-surface: var(--base-2, #ffffff);
+  --sp-gp-color-text: var(--contrast, #0f172a);
+  --sp-gp-color-text-soft: color-mix(in srgb, var(--contrast, #0f172a) 70%, var(--base-2, #ffffff) 30%);
+  --sp-gp-color-border: color-mix(in srgb, var(--contrast, #0f172a) 11%, white 8%);
+  --sp-gp-color-accent: var(--accent, #0f6cbd);
+  --sp-gp-color-focus-ring: color-mix(in srgb, var(--accent, #0f6cbd) 18%, transparent);
+  --sp-gp-radius-card-sm: 16px;
+  --sp-gp-radius-card: 20px;
+}
+
+:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) {
+  color: var(--sp-color-text-1, var(--sp-gp-color-text));
+  font-family: var(--sp-font-body, var(--sp-gp-font-body));
+}
+
+:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) :is(h1, h2, h3, h4, h5, .entry-title, .gb-headline, .gb-headline-text, .sp-section-title) {
+  font-family: var(--sp-font-display, var(--sp-gp-font-display));
+  letter-spacing: var(--sp-letter-spacing-heading, -0.015em);
+}
+
+:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) :is(a, button, [role="button"], input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--sp-color-focus-ring, var(--sp-gp-color-focus-ring));
+  border-radius: max(12px, var(--sp-radius-md, var(--sp-gp-radius-card-sm)));
+}

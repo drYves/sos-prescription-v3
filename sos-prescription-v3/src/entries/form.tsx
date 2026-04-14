@@ -97,6 +97,7 @@ type StripeJsInstance = {
 
 type FlowType = 'ro_proof' | 'depannage_no_proof';
 type Stage = 'choose' | 'form' | 'priority_selection' | 'payment_auth' | 'done';
+type StageTransitionState = 'idle' | 'entering' | 'exiting';
 type FrequencyUnit = 'jour' | 'semaine';
 type DurationUnit = 'jour' | 'mois' | 'semaine';
 
@@ -286,17 +287,22 @@ function Button({
   );
 }
 
-function TextInput({
-  className = '',
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={cx('sp-app-input', className)}
-      {...props}
-    />
-  );
-}
+const TextInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function TextInput({
+    className = '',
+    ...props
+  }, ref) {
+    return (
+      <input
+        ref={ref}
+        className={cx('sp-app-input', className)}
+        {...props}
+      />
+    );
+  },
+);
+
+TextInput.displayName = 'TextInput';
 
 function TextareaField({
   className = '',
@@ -865,6 +871,111 @@ function resolveResumeDraftRefFromUrl(): string | null {
   }
 }
 
+const STICKY_EMAIL_STORAGE_KEY = 'sospatient_email_cache';
+const STICKY_EMAIL_URL_PARAM_KEYS = ['email', 'patient_email', 'draft_email'];
+
+function normalizeKnownEmailValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return isEmailLikeValue(normalized) ? normalized : null;
+}
+
+function resolveKnownEmailFromUrl(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    for (const key of STICKY_EMAIL_URL_PARAM_KEYS) {
+      const normalized = normalizeKnownEmailValue(params.get(key));
+      if (normalized) {
+        return normalized;
+      }
+    }
+  } catch {
+    // noop
+  }
+
+  return null;
+}
+
+function readKnownEmailFromBrowserStorage(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const localValue = normalizeKnownEmailValue(window.localStorage?.getItem(STICKY_EMAIL_STORAGE_KEY));
+    if (localValue) {
+      return localValue;
+    }
+  } catch {
+    // noop
+  }
+
+  try {
+    const sessionValue = normalizeKnownEmailValue(window.sessionStorage?.getItem(STICKY_EMAIL_STORAGE_KEY));
+    if (sessionValue) {
+      return sessionValue;
+    }
+  } catch {
+    // noop
+  }
+
+  return null;
+}
+
+function writeKnownEmailToBrowserStorage(value: unknown): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const normalized = normalizeKnownEmailValue(value);
+
+  try {
+    if (normalized) {
+      window.localStorage?.setItem(STICKY_EMAIL_STORAGE_KEY, normalized);
+    } else {
+      window.localStorage?.removeItem(STICKY_EMAIL_STORAGE_KEY);
+    }
+  } catch {
+    // noop
+  }
+
+  try {
+    if (normalized) {
+      window.sessionStorage?.setItem(STICKY_EMAIL_STORAGE_KEY, normalized);
+    } else {
+      window.sessionStorage?.removeItem(STICKY_EMAIL_STORAGE_KEY);
+    }
+  } catch {
+    // noop
+  }
+}
+
+function resolveKnownPatientEmail(config: AppConfig): string | null {
+  const fromUrl = resolveKnownEmailFromUrl();
+  if (fromUrl) {
+    return fromUrl;
+  }
+
+  const fromStorage = readKnownEmailFromBrowserStorage();
+  if (fromStorage) {
+    return fromStorage;
+  }
+
+  const fromConfig = normalizeKnownEmailValue(config.currentUser?.email);
+  if (fromConfig) {
+    return fromConfig;
+  }
+
+  const formWindow = window as FormWindow;
+  return normalizeKnownEmailValue(
+    formWindow.SosPrescription?.currentUser?.email
+    || formWindow.SOSPrescription?.currentUser?.email,
+  );
+}
+
 
 function shouldClearAppStorageKey(key: string): boolean {
   const normalized = String(key || '').trim().toLowerCase();
@@ -1029,6 +1140,23 @@ function isEmailLikeValue(value: unknown): boolean {
 function safePatientNameValue(value: unknown): string {
   const normalized = String(value ?? '').trim();
   return normalized !== '' && !isEmailLikeValue(normalized) ? normalized : '';
+}
+
+function resolveStrictPatientProfileFullName(config: AppConfig): string {
+  return safePatientNameValue(config.patientProfile?.fullname || '');
+}
+
+const STAGE_TRANSITION_EXIT_MS = 120;
+const STAGE_TRANSITION_ENTER_MS = 220;
+
+function prefersReducedMotion(): boolean {
+  try {
+    return typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
 function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
@@ -1796,21 +1924,111 @@ function MedicationSearch({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const abortRef = useRef<AbortController | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resultsId = 'sp-medication-search-results';
+  const hintId = 'sp-medication-search-hint';
+  const statusId = 'sp-medication-search-status';
 
   const canSearch = useMemo(() => query.trim().length >= 2, [query]);
   const hasDisabledResults = useMemo(
     () => results.some((result) => result?.is_selectable === false),
     [results],
   );
+  const selectableCount = useMemo(
+    () => results.filter((result) => result?.is_selectable !== false).length,
+    [results],
+  );
+
+  const optionId = useCallback((index: number) => `sp-medication-search-option-${index}`, []);
+
+  const closeResults = useCallback(() => {
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
+  const resetResults = useCallback(() => {
+    setResults([]);
+    setLoading(false);
+    setError(null);
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
+  const findNextSelectableIndex = useCallback((startIndex: number, direction: 1 | -1): number => {
+    if (!Array.isArray(results) || results.length < 1) {
+      return -1;
+    }
+
+    const total = results.length;
+    let cursor = startIndex;
+
+    for (let step = 0; step < total; step += 1) {
+      cursor += direction;
+      if (cursor < 0) {
+        cursor = total - 1;
+      }
+      if (cursor >= total) {
+        cursor = 0;
+      }
+
+      const candidate = results[cursor];
+      if (candidate?.is_selectable !== false) {
+        return cursor;
+      }
+    }
+
+    return -1;
+  }, [results]);
+
+  const commitSelection = useCallback((result: MedicationSearchResult) => {
+    onSelect(result);
+    setQuery('');
+    setResults([]);
+    setError(null);
+    setOpen(false);
+    setActiveIndex(-1);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, [onSelect]);
+
+  const statusMessage = useMemo(() => {
+    if (!canSearch) {
+      return 'Saisissez au moins deux caractères pour lancer la recherche médicament.';
+    }
+
+    if (loading) {
+      return 'Recherche du médicament en cours.';
+    }
+
+    if (error) {
+      return error;
+    }
+
+    if (!open) {
+      return '';
+    }
+
+    if (results.length < 1) {
+      return 'Aucun résultat trouvé.';
+    }
+
+    const disabledCount = Math.max(0, results.length - selectableCount);
+    const resultLabel = `${selectableCount} résultat${selectableCount > 1 ? 's' : ''} disponible${selectableCount > 1 ? 's' : ''}`;
+    if (disabledCount < 1) {
+      return `${resultLabel}. Utilisez les flèches du clavier pour parcourir la liste.`;
+    }
+
+    return `${resultLabel}. ${disabledCount} résultat${disabledCount > 1 ? 's' : ''} indisponible${disabledCount > 1 ? 's' : ''} pour ce parcours.`;
+  }, [canSearch, error, loading, open, results.length, selectableCount]);
 
   useEffect(() => {
     if (!canSearch) {
-      setResults([]);
-      setOpen(false);
-      setError(null);
-      setLoading(false);
+      resetResults();
       return;
     }
 
@@ -1851,6 +2069,7 @@ function MedicationSearch({
           }
           setResults([]);
           setError('La recherche du médicament n’a pas pu aboutir. Merci de réessayer.');
+          setActiveIndex(-1);
         })
         .finally(() => {
           if (!controller.signal.aborted) {
@@ -1863,19 +2082,152 @@ function MedicationSearch({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [canSearch, query]);
+  }, [canSearch, query, resetResults]);
+
+  useEffect(() => {
+    if (!open || results.length < 1) {
+      setActiveIndex(-1);
+      return;
+    }
+
+    setActiveIndex((current) => {
+      if (current >= 0 && current < results.length && results[current]?.is_selectable !== false) {
+        return current;
+      }
+      return findNextSelectableIndex(-1, 1);
+    });
+  }, [findNextSelectableIndex, open, results]);
+
+  useEffect(() => {
+    if (activeIndex < 0) {
+      return;
+    }
+
+    const node = optionRefs.current[activeIndex];
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeIndex]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent): void => {
+      const target = event.target;
+      if (searchRef.current && target instanceof Node && !searchRef.current.contains(target)) {
+        closeResults();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [closeResults, open]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && results.length > 0) {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex(findNextSelectableIndex(event.key === 'ArrowUp' ? results.length : -1, event.key === 'ArrowUp' ? -1 : 1));
+      return;
+    }
+
+    switch (event.key) {
+      case 'ArrowDown': {
+        if (!open || results.length < 1) {
+          return;
+        }
+        event.preventDefault();
+        setActiveIndex((current) => findNextSelectableIndex(current, 1));
+        return;
+      }
+      case 'ArrowUp': {
+        if (!open || results.length < 1) {
+          return;
+        }
+        event.preventDefault();
+        setActiveIndex((current) => findNextSelectableIndex(current, -1));
+        return;
+      }
+      case 'Home': {
+        if (!open || results.length < 1) {
+          return;
+        }
+        event.preventDefault();
+        setActiveIndex(findNextSelectableIndex(-1, 1));
+        return;
+      }
+      case 'End': {
+        if (!open || results.length < 1) {
+          return;
+        }
+        event.preventDefault();
+        setActiveIndex(findNextSelectableIndex(0, -1));
+        return;
+      }
+      case 'Enter': {
+        if (!open || activeIndex < 0) {
+          return;
+        }
+        const activeResult = results[activeIndex];
+        if (!activeResult || activeResult.is_selectable === false) {
+          return;
+        }
+        event.preventDefault();
+        commitSelection(activeResult);
+        return;
+      }
+      case 'Escape': {
+        if (!open) {
+          return;
+        }
+        event.preventDefault();
+        closeResults();
+        return;
+      }
+      default:
+        return;
+    }
+  }, [activeIndex, closeResults, commitSelection, findNextSelectableIndex, open, results]);
+
+  const activeDescendant = open && activeIndex >= 0 ? optionId(activeIndex) : undefined;
+  const describedBy = [statusId, open ? hintId : null].filter(Boolean).join(' ') || undefined;
 
   return (
-    <div className="sp-app-search" data-open={open ? 'true' : 'false'} data-loading={loading ? 'true' : 'false'}>
+    <div
+      ref={searchRef}
+      className="sp-app-search"
+      data-open={open ? 'true' : 'false'}
+      data-loading={loading ? 'true' : 'false'}
+    >
+      <div id={statusId} className="sp-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {statusMessage}
+      </div>
+
       <TextInput
+        ref={inputRef}
         id="sp-medication-search-input"
         role="combobox"
         aria-autocomplete="list"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? resultsId : undefined}
+        aria-activedescendant={activeDescendant}
+        aria-describedby={describedBy}
+        aria-busy={loading}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="Rechercher un médicament..."
         onFocus={() => {
           if (query.trim().length >= 2) {
@@ -1885,7 +2237,13 @@ function MedicationSearch({
       />
 
       {open ? (
-        <div className="sp-app-search__results" id={resultsId} role="listbox" aria-label="Résultats de recherche médicament">
+        <div
+          className="sp-app-search__results"
+          id={resultsId}
+          role="listbox"
+          aria-label="Résultats de recherche médicament"
+          aria-busy={loading}
+        >
           <div className="sp-app-search__head">
             <span>Résultats</span>
             {loading ? <Spinner /> : null}
@@ -1912,7 +2270,7 @@ function MedicationSearch({
               </div>
             ) : null}
 
-            {results.map((result) => {
+            {results.map((result, index) => {
               const selectable = result?.is_selectable !== false;
               const key = `${result.cip13 || result.cis || result.label}`;
               const sublabel = typeof result.sublabel === 'string' ? result.sublabel.trim() : '';
@@ -1922,26 +2280,41 @@ function MedicationSearch({
                 result.tauxRemb ? `Remb. ${result.tauxRemb}` : null,
                 typeof result.prixTTC === 'number' ? formatAmountValue(result.prixTTC, 'EUR') : null,
               ].filter((value): value is string => Boolean(value));
+              const isActive = index === activeIndex;
 
               return (
                 <button
                   key={key}
+                  ref={(node) => {
+                    optionRefs.current[index] = node;
+                  }}
+                  id={optionId(index)}
                   type="button"
                   disabled={!selectable}
                   role="option"
+                  tabIndex={-1}
                   aria-disabled={!selectable}
+                  aria-selected={isActive}
                   className={cx(
                     'sp-app-search__item',
                     selectable ? 'is-selectable' : 'is-disabled',
+                    isActive && 'is-active',
                   )}
+                  onMouseEnter={() => {
+                    if (selectable) {
+                      setActiveIndex(index);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (selectable) {
+                      setActiveIndex(index);
+                    }
+                  }}
                   onClick={() => {
                     if (!selectable) {
                       return;
                     }
-                    onSelect(result);
-                    setQuery('');
-                    setResults([]);
-                    setOpen(false);
+                    commitSelection(result);
                   }}
                 >
                   <div className="sp-app-search__item-row">
@@ -1965,7 +2338,7 @@ function MedicationSearch({
             })}
           </div>
 
-          <div className="sp-app-search__foot">
+          <div className="sp-app-search__foot" id={hintId}>
             {hasDisabledResults
               ? 'Les résultats grisés ne peuvent pas être ajoutés dans ce parcours.'
               : 'Sélectionnez un résultat pour l’ajouter à votre demande.'}
@@ -2347,6 +2720,8 @@ type StepClinicalDataProps = {
   analysisInProgress: boolean;
   fullName: string;
   birthdate: string;
+  draftEmail: string;
+  draftEmailLocked: boolean;
   ageLabel: string;
   medicalNotes: string;
   items: MedicationItem[];
@@ -2364,6 +2739,8 @@ type StepClinicalDataProps = {
   onBackToChoice: () => void;
   onFullNameChange: (value: string) => void;
   onBirthdateChange: (value: string) => void;
+  onDraftEmailChange: (value: string) => void;
+  onUnlockDraftEmail: () => void;
   onMedicalNotesChange: (value: string) => void;
   onFilesSelected: (list: FileList | null) => void;
   onRemoveFile: (fileId: string) => void;
@@ -2384,6 +2761,8 @@ function StepClinicalData({
   analysisInProgress,
   fullName,
   birthdate,
+  draftEmail,
+  draftEmailLocked,
   ageLabel,
   medicalNotes,
   items,
@@ -2401,6 +2780,8 @@ function StepClinicalData({
   onBackToChoice,
   onFullNameChange,
   onBirthdateChange,
+  onDraftEmailChange,
+  onUnlockDraftEmail,
   onMedicalNotesChange,
   onFilesSelected,
   onRemoveFile,
@@ -2502,6 +2883,33 @@ function StepClinicalData({
               placeholder="JJ/MM/AAAA"
             />
             {ageLabel ? <div className="sp-app-field__hint">Âge estimé : {ageLabel}</div> : null}
+          </div>
+        </div>
+
+        <div className="sp-app-field">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <label className="sp-app-field__label" htmlFor="sp-patient-email">
+              Adresse e-mail
+            </label>
+            {draftEmailLocked ? (
+              <Button type="button" variant="ghost" onClick={onUnlockDraftEmail}>
+                Modifier
+              </Button>
+            ) : null}
+          </div>
+          <TextInput
+            id="sp-patient-email"
+            type="email"
+            autoComplete="email"
+            inputMode="email"
+            readOnly={draftEmailLocked}
+            aria-readonly={draftEmailLocked}
+            value={draftEmail}
+            onChange={(event) => onDraftEmailChange(event.target.value)}
+            placeholder="vous@exemple.fr"
+          />
+          <div className="sp-app-field__hint">
+            Cette adresse sera réutilisée pour reprendre votre dossier et finaliser l’envoi.
           </div>
         </div>
 
@@ -2632,7 +3040,7 @@ function StepClinicalData({
           </div>
 
           <div className="sp-app-field sp-app-field--search">
-            <label className="sp-app-field__label">Médicament concerné</label>
+            <label className="sp-app-field__label" htmlFor="sp-medication-search-input">Médicament concerné</label>
             <MedicationSearch onSelect={onAddMedication} />
           </div>
 
@@ -2945,10 +3353,12 @@ type StepDraftValidationProps = {
   selectedAmount: number | null;
   selectedPriorityEta: string;
   draftEmail: string;
+  draftEmailLocked: boolean;
   draftSending: boolean;
   draftSent: boolean;
   draftSuccessMessage: string | null;
   onDraftEmailChange: (value: string) => void;
+  onUnlockDraftEmail: () => void;
   onBack: () => void;
   onSend: () => void;
 };
@@ -2965,10 +3375,12 @@ function StepDraftValidation({
   selectedAmount,
   selectedPriorityEta,
   draftEmail,
+  draftEmailLocked,
   draftSending,
   draftSent,
   draftSuccessMessage,
   onDraftEmailChange,
+  onUnlockDraftEmail,
   onBack,
   onSend,
 }: StepDraftValidationProps) {
@@ -3022,14 +3434,23 @@ function StepDraftValidation({
         </div>
 
         <div className="sp-app-field">
-          <label className="sp-app-field__label" htmlFor="sp-draft-email">
-            Adresse e-mail
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <label className="sp-app-field__label" htmlFor="sp-draft-email">
+              Adresse e-mail
+            </label>
+            {draftEmailLocked ? (
+              <Button type="button" variant="ghost" onClick={onUnlockDraftEmail} disabled={draftSending}>
+                Modifier
+              </Button>
+            ) : null}
+          </div>
           <TextInput
             id="sp-draft-email"
             type="email"
             autoComplete="email"
             inputMode="email"
+            readOnly={draftEmailLocked}
+            aria-readonly={draftEmailLocked}
             value={draftEmail}
             onChange={(event) => onDraftEmailChange(event.target.value)}
             placeholder="vous@exemple.fr"
@@ -3262,7 +3683,7 @@ function StepPaymentAuth({
 
     try {
       const cfg = getConfigOrThrow();
-      const billingName = safePatientNameValue(fullName) || String(cfg.currentUser?.displayName || '').trim() || undefined;
+      const billingName = safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(cfg) || undefined;
       const billingEmail = typeof cfg.currentUser?.email === 'string' && cfg.currentUser.email.trim() !== ''
         ? cfg.currentUser.email.trim()
         : undefined;
@@ -3548,7 +3969,7 @@ function PublicFormApp() {
   const [priority, setPriority] = useState<'standard' | 'express'>('standard');
 
   const [fullName, setFullName] = useState<string>(() => (
-    resumeDraftRefFromUrl ? '' : safePatientNameValue(config.patientProfile?.fullname || '')
+    resumeDraftRefFromUrl ? '' : resolveStrictPatientProfileFullName(config)
   ));
   const [birthdate, setBirthdate] = useState<string>(() => {
     if (resumeDraftRefFromUrl) {
@@ -3583,7 +4004,10 @@ function PublicFormApp() {
   const [draftEmail, setDraftEmail] = useState<string>(() => (
     resumeDraftRefFromUrl
       ? ''
-      : String(config.currentUser?.email || '').trim()
+      : (resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email) || '')
+  ));
+  const [draftEmailLocked, setDraftEmailLocked] = useState<boolean>(() => (
+    !resumeDraftRefFromUrl && Boolean(resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email))
   ));
   const [draftSending, setDraftSending] = useState(false);
   const [draftSent, setDraftSent] = useState(false);
@@ -3677,6 +4101,82 @@ function PublicFormApp() {
 
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
   const isDraftMode = !isLoggedIn;
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [stageTransitionState, setStageTransitionState] = useState<StageTransitionState>('idle');
+  const stageRef = useRef<Stage>(stage);
+  const stageTransitionTimersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
+
+  const clearStageTransitionTimers = useCallback(() => {
+    stageTransitionTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    stageTransitionTimersRef.current = [];
+  }, []);
+
+  useEffect(() => () => {
+    clearStageTransitionTimers();
+  }, [clearStageTransitionTimers]);
+
+  const transitionToStage = useCallback((nextStage: Stage, options?: { immediate?: boolean }) => {
+    const currentStage = stageRef.current;
+    if (nextStage === currentStage) {
+      return;
+    }
+
+    clearStageTransitionTimers();
+
+    if (options?.immediate || prefersReducedMotion()) {
+      setStage(nextStage);
+      setStageTransitionState('idle');
+      setIsTransitioning(false);
+      return;
+    }
+
+    setIsTransitioning(true);
+    setStageTransitionState('exiting');
+
+    const exitTimer = window.setTimeout(() => {
+      setStage(nextStage);
+      setStageTransitionState('entering');
+
+      const enterTimer = window.setTimeout(() => {
+        setStageTransitionState('idle');
+        setIsTransitioning(false);
+      }, STAGE_TRANSITION_ENTER_MS);
+
+      stageTransitionTimersRef.current.push(enterTimer);
+    }, STAGE_TRANSITION_EXIT_MS);
+
+    stageTransitionTimersRef.current.push(exitTimer);
+  }, [clearStageTransitionTimers]);
+
+  useEffect(() => {
+    if (resumeDraftRefFromUrl) {
+      return;
+    }
+
+    const knownEmail = resolveKnownPatientEmail(config);
+    if (!knownEmail) {
+      return;
+    }
+
+    setDraftEmail((current) => normalizeKnownEmailValue(current) || knownEmail);
+    setDraftEmailLocked(true);
+  }, [config.currentUser?.email, resumeDraftRefFromUrl]);
+
+  useEffect(() => {
+    const normalized = normalizeKnownEmailValue(draftEmail);
+    if (normalized) {
+      writeKnownEmailToBrowserStorage(normalized);
+      return;
+    }
+
+    if (!resumeDraftRefFromUrl) {
+      writeKnownEmailToBrowserStorage(null);
+    }
+  }, [draftEmail, resumeDraftRefFromUrl]);
 
   useEffect(() => {
     if (!resumeDraftRefFromUrl) {
@@ -3778,7 +4278,13 @@ function PublicFormApp() {
         setAnalysisMessage(null);
         setPreparedSubmission(null);
         setSubmissionResult(null);
-        setDraftEmail(typeof payload.email === 'string' ? payload.email : String(config.currentUser?.email || '').trim());
+        const resumedEmail = normalizeKnownEmailValue(
+          typeof payload.email === 'string'
+            ? payload.email
+            : firstNonEmptyString(patient.email, patient.email_address),
+        ) || resolveKnownPatientEmail(config) || normalizeKnownEmailValue(String(config.currentUser?.email || '').trim()) || '';
+        setDraftEmail(resumedEmail);
+        setDraftEmailLocked(Boolean(resumedEmail));
         setDraftSent(false);
         setDraftSuccessMessage(null);
         setAttestationNoProof(Boolean(payload.attestation_no_proof));
@@ -3798,7 +4304,7 @@ function PublicFormApp() {
 
         submissionRefStateRef.current = { ref: draftRef };
         setResumedDraftRef(draftRef);
-        setStage('priority_selection');
+        transitionToStage('priority_selection');
 
         try {
           const url = new URL(window.location.href);
@@ -3824,7 +4330,7 @@ function PublicFormApp() {
     return () => {
       cancelled = true;
     };
-  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl]);
+  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl, transitionToStage]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
     loggedIn: isLoggedIn,
@@ -4016,10 +4522,10 @@ function PublicFormApp() {
   }, [ensureSubmissionRef, flow, isLoggedIn]);
 
   const resetToChoose = useCallback(() => {
-    setStage('choose');
+    transitionToStage('choose', { immediate: true });
     setFlow(null);
     setPriority('standard');
-    setFullName(safePatientNameValue(config.patientProfile?.fullname || ''));
+    setFullName(resolveStrictPatientProfileFullName(config));
     setBirthdate(String(config.patientProfile?.birthdate_fr || ''));
     setMedicalNotes(String(
       config.patientProfile?.note
@@ -4035,7 +4541,9 @@ function PublicFormApp() {
     setPreparedSubmission(null);
     setSubmissionResult(null);
     setCopiedUid(false);
-    setDraftEmail(String(config.currentUser?.email || '').trim());
+    const nextKnownEmail = resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email) || '';
+    setDraftEmail(nextKnownEmail);
+    setDraftEmailLocked(Boolean(nextKnownEmail));
     setDraftSending(false);
     setDraftSent(false);
     setDraftSuccessMessage(null);
@@ -4046,7 +4554,7 @@ function PublicFormApp() {
     setConsentTruth(false);
     setConsentCgu(false);
     setConsentPrivacy(false);
-  }, [config.patientProfile]);
+  }, [config.patientProfile, transitionToStage]);
 
   const copyUid = useCallback(async () => {
     if (!submissionResult?.uid) {
@@ -4074,8 +4582,8 @@ function PublicFormApp() {
     setDraftSuccessMessage(null);
     setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
-    setStage('form');
-  }, []);
+    transitionToStage('form');
+  }, [transitionToStage]);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -4094,8 +4602,8 @@ function PublicFormApp() {
       return null;
     }
 
-    setStage('priority_selection');
-  }, [flow, fullName, submitBlockInfo]);
+    transitionToStage('priority_selection');
+  }, [flow, fullName, submitBlockInfo, transitionToStage]);
 
   const handleSendDraftLink = useCallback(async () => {
     setSubmitError(null);
@@ -4222,6 +4730,7 @@ function PublicFormApp() {
       }
 
       setDraftEmail(email);
+      setDraftEmailLocked(true);
       setDraftSent(true);
 
       if (failedUploads.length > 0) {
@@ -4440,7 +4949,7 @@ function PublicFormApp() {
     }
 
     if (isDraftMode) {
-      setStage('payment_auth');
+      transitionToStage('payment_auth');
       return;
     }
 
@@ -4450,15 +4959,15 @@ function PublicFormApp() {
     }
 
     if (preparedSubmission && Number(preparedSubmission.id) > 0) {
-      setStage('payment_auth');
+      transitionToStage('payment_auth');
       return;
     }
 
     const nextSubmission = await prepareSubmissionForPayment();
     if (nextSubmission && Number(nextSubmission.id) > 0) {
-      setStage('payment_auth');
+      transitionToStage('payment_auth');
     }
-  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
+  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount, transitionToStage]);
 
   const handlePaymentAuthorized = useCallback(() => {
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
@@ -4471,16 +4980,16 @@ function PublicFormApp() {
       ...preparedSubmission,
       status: 'pending',
     });
-    setStage('done');
-  }, [preparedSubmission]);
+    transitionToStage('done');
+  }, [preparedSubmission, transitionToStage]);
 
   const handleBackToClinicalForm = useCallback(() => {
     setPreparedSubmission(null);
     setSubmitError(null);
     setDraftSent(false);
     setDraftSuccessMessage(null);
-    setStage('form');
-  }, []);
+    transitionToStage('form');
+  }, [transitionToStage]);
 
   const patientPortalUrl = useMemo(() => {
     const base = config.urls?.patientPortal || null;
@@ -4582,119 +5091,137 @@ function PublicFormApp() {
           </div>
         ) : null}
 
-        {stage === 'choose' ? (
-          <StepFlowChoice flow={flow} onSelectFlow={handleSelectFlow} />
-        ) : null}
+        <div
+          className={cx(
+            'sp-app-stage-viewport',
+            isTransitioning && 'is-transitioning',
+            stageTransitionState === 'entering' && 'is-entering',
+            stageTransitionState === 'exiting' && 'is-exiting',
+          )}
+          aria-busy={isTransitioning ? 'true' : undefined}
+        >
+          <div className="sp-app-stage-surface">
+            {stage === 'choose' ? (
+              <StepFlowChoice flow={flow} onSelectFlow={handleSelectFlow} />
+            ) : null}
 
-        {stage === 'form' && flow ? (
-          <StepClinicalData
-            flow={flow}
-            isLoggedIn={isLoggedIn}
-            analysisInProgress={analysisInProgress}
-            fullName={fullName}
-            birthdate={birthdate}
-            ageLabel={ageLabel}
-            medicalNotes={medicalNotes}
-            items={items}
-            files={files}
-            rejectedFiles={rejectedFiles}
-            analysisMessage={analysisMessage}
-            attestationNoProof={attestationNoProof}
-            consentRequired={consentRequired}
-            consentTelemedicine={consentTelemedicine}
-            consentTruth={consentTruth}
-            consentCgu={consentCgu}
-            consentPrivacy={consentPrivacy}
-            compliance={compliance}
-            submitLoading={submitLoading}
-            onBackToChoice={() => setStage('choose')}
-            onFullNameChange={setFullName}
-            onBirthdateChange={setBirthdate}
-            onMedicalNotesChange={setMedicalNotes}
-            onFilesSelected={handleFilesSelected}
-            onRemoveFile={(fileId) => {
-              setFiles((current) => current.filter((entry) => entry.id !== fileId));
-            }}
-            onAddMedication={addMedication}
-            onUpdateMedication={updateMedication}
-            onRemoveMedication={removeMedication}
-            onAttestationChange={setAttestationNoProof}
-            onConsentTelemedicineChange={setConsentTelemedicine}
-            onConsentTruthChange={setConsentTruth}
-            onConsentCguChange={setConsentCgu}
-            onConsentPrivacyChange={setConsentPrivacy}
-            onContinue={handleContinueToPriority}
-          />
-        ) : null}
+            {stage === 'form' && flow ? (
+              <StepClinicalData
+                flow={flow}
+                isLoggedIn={isLoggedIn}
+                analysisInProgress={analysisInProgress}
+                fullName={fullName}
+                birthdate={birthdate}
+                draftEmail={draftEmail}
+                draftEmailLocked={draftEmailLocked}
+                ageLabel={ageLabel}
+                medicalNotes={medicalNotes}
+                items={items}
+                files={files}
+                rejectedFiles={rejectedFiles}
+                analysisMessage={analysisMessage}
+                attestationNoProof={attestationNoProof}
+                consentRequired={consentRequired}
+                consentTelemedicine={consentTelemedicine}
+                consentTruth={consentTruth}
+                consentCgu={consentCgu}
+                consentPrivacy={consentPrivacy}
+                compliance={compliance}
+                submitLoading={submitLoading}
+                onBackToChoice={() => transitionToStage('choose')}
+                onFullNameChange={setFullName}
+                onBirthdateChange={setBirthdate}
+                onDraftEmailChange={setDraftEmail}
+                onUnlockDraftEmail={() => setDraftEmailLocked(false)}
+                onMedicalNotesChange={setMedicalNotes}
+                onFilesSelected={handleFilesSelected}
+                onRemoveFile={(fileId) => {
+                  setFiles((current) => current.filter((entry) => entry.id !== fileId));
+                }}
+                onAddMedication={addMedication}
+                onUpdateMedication={updateMedication}
+                onRemoveMedication={removeMedication}
+                onAttestationChange={setAttestationNoProof}
+                onConsentTelemedicineChange={setConsentTelemedicine}
+                onConsentTruthChange={setConsentTruth}
+                onConsentCguChange={setConsentCgu}
+                onConsentPrivacyChange={setConsentPrivacy}
+                onContinue={handleContinueToPriority}
+              />
+            ) : null}
 
-        {stage === 'priority_selection' && flow ? (
-          <StepPrioritySelection
-            flow={flow}
-            itemsCount={items.length}
-            filesCount={files.length}
-            pricingLoading={pricingLoading}
-            pricing={pricing}
-            priority={priority}
-            paymentsConfig={paymentsConfig}
-            selectedAmount={selectedAmount}
-            selectedPriorityEta={selectedPriorityEta}
-            onPriorityChange={setPriority}
-            onBack={handleBackToClinicalForm}
-            onContinue={handleContinueToPaymentAuth}
-            continueDisabled={submitLoading || pricingLoading || !pricing}
-          />
-        ) : null}
+            {stage === 'priority_selection' && flow ? (
+              <StepPrioritySelection
+                flow={flow}
+                itemsCount={items.length}
+                filesCount={files.length}
+                pricingLoading={pricingLoading}
+                pricing={pricing}
+                priority={priority}
+                paymentsConfig={paymentsConfig}
+                selectedAmount={selectedAmount}
+                selectedPriorityEta={selectedPriorityEta}
+                onPriorityChange={setPriority}
+                onBack={handleBackToClinicalForm}
+                onContinue={handleContinueToPaymentAuth}
+                continueDisabled={submitLoading || pricingLoading || !pricing}
+              />
+            ) : null}
 
-        {stage === 'payment_auth' && flow ? (
-          isDraftMode ? (
-            <StepDraftValidation
-              flow={flow}
-              fullName={fullName}
-              birthdate={birthdate}
-              itemsCount={items.length}
-              filesCount={files.length}
-              priority={priority}
-              pricingLoading={pricingLoading}
-              pricing={pricing}
-              selectedAmount={selectedAmount}
-              selectedPriorityEta={selectedPriorityEta}
-              draftEmail={draftEmail}
-              draftSending={draftSending}
-              draftSent={draftSent}
-              draftSuccessMessage={draftSuccessMessage}
-              onDraftEmailChange={setDraftEmail}
-              onBack={() => setStage('priority_selection')}
-              onSend={handleSendDraftLink}
-            />
-          ) : (
-            <StepPaymentAuth
-              flow={flow}
-              fullName={fullName}
-              birthdate={birthdate}
-              itemsCount={items.length}
-              filesCount={files.length}
-              priority={priority}
-              pricingLoading={pricingLoading}
-              pricing={pricing}
-              selectedAmount={selectedAmount}
-              selectedPriorityEta={selectedPriorityEta}
-              paymentsConfig={paymentsConfig}
-              preparedSubmission={preparedSubmission}
-              onBack={() => setStage('priority_selection')}
-              onAuthorized={handlePaymentAuthorized}
-            />
-          )
-        ) : null}
+            {stage === 'payment_auth' && flow ? (
+              isDraftMode ? (
+                <StepDraftValidation
+                  flow={flow}
+                  fullName={fullName}
+                  birthdate={birthdate}
+                  itemsCount={items.length}
+                  filesCount={files.length}
+                  priority={priority}
+                  pricingLoading={pricingLoading}
+                  pricing={pricing}
+                  selectedAmount={selectedAmount}
+                  selectedPriorityEta={selectedPriorityEta}
+                  draftEmail={draftEmail}
+                  draftEmailLocked={draftEmailLocked}
+                  draftSending={draftSending}
+                  draftSent={draftSent}
+                  draftSuccessMessage={draftSuccessMessage}
+                  onDraftEmailChange={setDraftEmail}
+                  onUnlockDraftEmail={() => setDraftEmailLocked(false)}
+                  onBack={() => transitionToStage('priority_selection')}
+                  onSend={handleSendDraftLink}
+                />
+              ) : (
+                <StepPaymentAuth
+                  flow={flow}
+                  fullName={fullName}
+                  birthdate={birthdate}
+                  itemsCount={items.length}
+                  filesCount={files.length}
+                  priority={priority}
+                  pricingLoading={pricingLoading}
+                  pricing={pricing}
+                  selectedAmount={selectedAmount}
+                  selectedPriorityEta={selectedPriorityEta}
+                  paymentsConfig={paymentsConfig}
+                  preparedSubmission={preparedSubmission}
+                  onBack={() => transitionToStage('priority_selection')}
+                  onAuthorized={handlePaymentAuthorized}
+                />
+              )
+            ) : null}
 
-        {stage === 'done' && submissionResult ? (
-          <StepSuccess
-            submissionResult={submissionResult}
-            copiedUid={copiedUid}
-            patientPortalUrl={patientPortalUrl}
-            onCopyUid={copyUid}
-            onReset={resetToChoose}
-          />
-        ) : null}
+            {stage === 'done' && submissionResult ? (
+              <StepSuccess
+                submissionResult={submissionResult}
+                copiedUid={copiedUid}
+                patientPortalUrl={patientPortalUrl}
+                onCopyUid={copyUid}
+                onReset={resetToChoose}
+              />
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -4716,7 +5243,6 @@ function renderFatal(container: HTMLElement, message: string): void {
 
 type ExternalProfileAccordionOptions = {
   collapsedByDefault: boolean;
-  hiddenByDefault?: boolean;
 };
 
 const EXTERNAL_PROFILE_COPY = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
@@ -4745,15 +5271,10 @@ function normalizeExternalProfileWording(card: HTMLElement): void {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): boolean {
   const collapsedByDefault = !!options.collapsedByDefault;
-  const hiddenByDefault = !!options.hiddenByDefault;
   const profileRoot = document.getElementById('sp-patient-profile-root');
   const card = profileRoot?.querySelector('.sp-profile-card');
   if (!(card instanceof HTMLElement)) {
     return false;
-  }
-
-  if (profileRoot instanceof HTMLElement) {
-    profileRoot.hidden = hiddenByDefault;
   }
 
   normalizeExternalProfileWording(card);
@@ -4863,10 +5384,7 @@ function mountPublicForm(container: HTMLElement): void {
     : '';
   const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
 
-  scheduleExternalProfileEnhancements({
-    collapsedByDefault: shouldCollapseProfile,
-    hiddenByDefault: shouldCollapseProfile,
-  });
+  scheduleExternalProfileEnhancements({ collapsedByDefault: shouldCollapseProfile });
 
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);
