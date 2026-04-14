@@ -2759,3 +2759,266 @@ a.sp-app-button.sp-app-button--secondary:hover {
     width: 100%;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.0 — Architecture visuelle cible
+   Shell = layout / app = surfaces métier / mobile first tactile
+   -------------------------------------------------------------------------- */
+:where(#sosprescription-root-form, #sosprescription-root-patient, .sp-app-root, .sp-patient-console) {
+  --sp-app-reading-max: 65ch;
+  --sp-app-workspace-max: 1200px;
+  --sp-app-wide-max: 1600px;
+  --sp-app-card-shadow: 0 1px 1px rgba(15, 23, 42, 0.05), 0 10px 24px rgba(15, 23, 42, 0.06);
+  --sp-app-card-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.04), 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+
+#sosprescription-root-form .sp-app-root[data-layout="workspace"] .sp-app-container,
+#sosprescription-root-patient .sp-app-container,
+.sp-page-shell.sp-app-container,
+.sp-profile-card,
+.sp-patient-console .sp-console-grid {
+  width: min(100%, var(--sp-app-workspace-max)) !important;
+}
+
+.sp-page-shell--narrow,
+.sp-thread-item__bubble,
+.sp-thread-list--viewer-patient .sp-thread-item__bubble,
+.sp-app-header__subtitle,
+.sp-app-section__hint,
+.sp-app-note-card__text,
+.sp-app-priority-selection__summary,
+.sp-app-confirmation__text,
+.sp-app-confirmation__label,
+.sp-app-inline-note {
+  max-inline-size: var(--sp-app-reading-max);
+}
+
+.sp-app-header,
+.sp-app-stagebar {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.sp-app-stagebar {
+  gap: 0.85rem;
+}
+
+.sp-app-stagebar__item {
+  min-height: 4rem;
+  border: var(--sp-border-hairline);
+  background: color-mix(in srgb, var(--sp-color-surface) 92%, var(--sp-color-surface-alt) 8%);
+  box-shadow: var(--sp-app-card-shadow-soft);
+}
+
+.sp-app-stagebar__item.is-complete {
+  background: color-mix(in srgb, var(--sp-color-accent-soft) 24%, #ffffff 76%);
+}
+
+.sp-app-stagebar__item.is-active,
+.sp-app-stagebar__item[aria-current="step"] {
+  background: color-mix(in srgb, var(--sp-color-accent-soft) 38%, #ffffff 62%);
+  border-color: color-mix(in srgb, var(--sp-color-accent) 22%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sp-color-accent) 14%, transparent), var(--sp-app-card-shadow-soft);
+}
+
+.sp-app-card,
+.sp-panel,
+.sp-inline-card,
+.sp-card,
+.sp-app-summary-card,
+.sp-app-medication-card,
+.sp-app-upload-item,
+.sp-app-schedule,
+.sp-app-search__results,
+.sp-app-note-card,
+.sp-app-empty,
+.sp-app-priority-selection__summary,
+.sp-payment-card__mount,
+.sp-thread-item__bubble,
+.sp-thread-composer,
+.sp-profile-card,
+.sp-list-item {
+  border-left: 0 !important;
+  border-inline-start: 0 !important;
+  border: var(--sp-border-hairline);
+  border-radius: var(--sp-radius-lg);
+  background: color-mix(in srgb, var(--sp-color-surface) 94%, var(--sp-color-surface-alt) 6%);
+  box-shadow: var(--sp-app-card-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.sp-app-card--nested,
+.sp-app-priority-selection__summary,
+.sp-app-empty,
+.sp-app-note-card,
+.sp-app-schedule,
+.sp-payment-card__mount,
+.sp-thread-composer.is-readonly {
+  background: color-mix(in srgb, var(--sp-color-surface-alt) 84%, #ffffff 16%);
+  box-shadow: none;
+}
+
+.sp-app-medication-card__head,
+.sp-panel__header,
+.sp-page-header,
+.sp-app-section__header {
+  gap: 1rem;
+}
+
+.sp-app-button,
+.sp-button,
+.sp-app-icon-button,
+.sp-app-choice-card,
+.sp-list-item--button,
+.sp-app-search__item,
+.sp-profile-card__toggle,
+.sp-patient-console__workspace-tab {
+  transition:
+    background-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 220ms) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.sp-app-button:hover,
+.sp-button:hover,
+.sp-app-icon-button:hover,
+.sp-app-choice-card:hover,
+.sp-list-item--button:hover,
+.sp-app-search__item.is-selectable:hover,
+.sp-profile-card__toggle:hover,
+.sp-patient-console__workspace-tab:hover,
+.sp-app-button:active,
+.sp-button:active,
+.sp-app-choice-card:active,
+.sp-app-search__item:active,
+.sp-profile-card__toggle:active,
+.sp-patient-console__workspace-tab:active,
+.sp-app-icon-button:active,
+.sp-list-item--button:active {
+  transform: none !important;
+}
+
+.sp-app-choice-card:hover,
+.sp-list-item--button:hover,
+.sp-app-search__item.is-selectable:hover,
+.sp-profile-card__toggle:hover,
+.sp-patient-console__workspace-tab:hover {
+  box-shadow: var(--sp-app-card-shadow-soft) !important;
+}
+
+.sp-app-button--primary,
+.sp-button--primary {
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--sp-color-accent) 18%, transparent);
+}
+
+.sp-app-search {
+  position: relative;
+}
+
+.sp-app-search__results {
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-app-card-shadow);
+}
+
+.sp-app-search__item {
+  min-height: 44px;
+}
+
+.sp-app-search__item.is-active,
+.sp-app-search__item[aria-selected="true"] {
+  background: color-mix(in srgb, var(--sp-color-accent-soft) 40%, #ffffff 60%);
+}
+
+:where(.sp-app-root, .sp-patient-console, #sosprescription-root-form, #sosprescription-root-patient) :is(
+  a,
+  button,
+  [role="button"],
+  input,
+  select,
+  textarea,
+  summary
+):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--sp-color-focus-ring) !important;
+}
+
+.sp-app-input:focus-visible,
+.sp-app-select:focus-visible,
+.sp-app-textarea:focus-visible,
+.sp-textarea:focus-visible,
+.sp-thread-composer__textarea:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-color-accent) 22%, transparent);
+}
+
+@media (max-width: 1024px) {
+  .sp-app-choice-grid,
+  .sp-app-summary-grid,
+  .sp-app-grid--two,
+  .sp-app-grid--three,
+  .sp-app-dose-row,
+  .sp-console-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-app-section__header,
+  .sp-page-header,
+  .sp-payment-card__footer,
+  .sp-thread-composer__row,
+  .sp-thread-composer__actions,
+  .sp-app-actions,
+  .sp-app-schedule__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 900px) {
+  .sp-app-root .sp-app-container,
+  .sp-page-shell.sp-app-container,
+  .sp-profile-card,
+  .sp-patient-console .sp-console-grid {
+    width: 100% !important;
+  }
+
+  .sp-app-root .sp-app-container,
+  .sp-page-shell.sp-app-container {
+    padding-inline: 0.875rem;
+  }
+
+  .sp-app-search__results {
+    position: static;
+    inset: auto;
+    margin-top: 0.75rem;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .sp-app-search__body {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .sp-app-search__item {
+    min-height: 44px;
+    padding: 14px 16px;
+  }
+
+  .sp-app-search__item-row {
+    align-items: flex-start;
+  }
+
+  .sp-app-search__badge {
+    min-height: 30px;
+  }
+
+  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
+    max-width: 100%;
+  }
+}

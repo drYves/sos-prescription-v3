@@ -2065,10 +2065,13 @@ function MedicationSearch({
   }, []);
 
   const activeOptionId = open && activeIndex >= 0 ? `${resultsId}-option-${activeIndex}` : undefined;
+  const resultsStatusId = `${resultsId}-status`;
+  const resultsHintId = `${resultsId}-hint`;
+  const inputDescriptionIds = [resultsStatusId, open ? resultsHintId : null].filter(Boolean).join(' ');
 
   return (
     <div className="sp-app-search" data-open={open ? 'true' : 'false'} data-loading={loading ? 'true' : 'false'}>
-      <div className="sp-visually-hidden" aria-live="polite">{resultsAnnouncement}</div>
+      <div className="sp-visually-hidden" id={resultsStatusId} aria-live="polite">{resultsAnnouncement}</div>
       <TextInput
         id="sp-medication-search-input"
         role="combobox"
@@ -2077,6 +2080,8 @@ function MedicationSearch({
         aria-expanded={open}
         aria-controls={open ? resultsId : undefined}
         aria-activedescendant={activeOptionId}
+        aria-describedby={inputDescriptionIds || undefined}
+        aria-busy={loading}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -2133,6 +2138,18 @@ function MedicationSearch({
             return;
           }
 
+          if (event.key === 'Home') {
+            event.preventDefault();
+            setActiveIndex(getSelectableIndex(-1, 1));
+            return;
+          }
+
+          if (event.key === 'End') {
+            event.preventDefault();
+            setActiveIndex(getSelectableIndex(results.length, -1));
+            return;
+          }
+
           if (event.key === 'Escape') {
             event.preventDefault();
             setOpen(false);
@@ -2142,7 +2159,7 @@ function MedicationSearch({
       />
 
       {open ? (
-        <div className="sp-app-search__results" id={resultsId} role="listbox" aria-label="Résultats de recherche médicament" ref={listRef}>
+        <div className="sp-app-search__results" id={resultsId} role="listbox" aria-label="Résultats de recherche médicament" aria-busy={loading} ref={listRef}>
           <div className="sp-app-search__head">
             <span>Résultats</span>
             {loading ? <Spinner /> : null}
@@ -2191,6 +2208,8 @@ function MedicationSearch({
                   role="option"
                   aria-disabled={!selectable}
                   aria-selected={selected}
+                  aria-posinset={index + 1}
+                  aria-setsize={results.length}
                   tabIndex={-1}
                   className={cx(
                     'sp-app-search__item',
@@ -2226,7 +2245,7 @@ function MedicationSearch({
             })}
           </div>
 
-          <div className="sp-app-search__foot">
+          <div className="sp-app-search__foot" id={resultsHintId}>
             {hasDisabledResults
               ? 'Les résultats grisés ne peuvent pas être ajoutés dans ce parcours.'
               : 'Sélectionnez un résultat pour l’ajouter à votre demande.'}
@@ -4849,6 +4868,8 @@ function PublicFormApp() {
   return (
     <div
       className="sp-app-root sp-app-theme"
+      data-app="form"
+      data-layout="workspace"
       data-flow={flow || 'none'}
       data-stage={stage}
       data-stage-index={activeStageIndex >= 0 ? activeStageIndex + 1 : 0}

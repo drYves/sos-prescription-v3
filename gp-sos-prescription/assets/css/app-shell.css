@@ -1244,3 +1244,116 @@ body.admin-bar .sp-console-bar {
     width: min(calc(100% - (var(--sp-workspace-gutter, 18px) * 2)), var(--sp-workspace-max, 75rem));
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.0 — Architecture de layout unifiée
+   Reading / Workspace / Wide utility + badges session cohérents
+   -------------------------------------------------------------------------- */
+.sp-shell--app,
+.sp-shell--console {
+  --sp-layout-reading: 65ch;
+  --sp-layout-workspace: 1200px;
+  --sp-layout-wide: 1600px;
+}
+
+.sp-container--app,
+.sp-container--console,
+.sp-container--app-compact,
+.sp-container--console-compact {
+  width: min(calc(100% - (var(--sp-workspace-gutter, 24px) * 2)), var(--sp-layout-workspace)) !important;
+  max-width: var(--sp-layout-workspace) !important;
+}
+
+.sp-app-frame {
+  max-width: calc(var(--sp-layout-workspace) + var(--sp-sidebar-width) + clamp(1.5rem, 3vw, 2.75rem));
+}
+
+.sp-app-frame--no-sidebar .sp-app-main,
+.sp-shell--app :is(
+  .sp-plugin-shell--request,
+  .sp-plugin-shell--patient,
+  .sp-plugin-shell--doctor-account,
+  #sosprescription-root-form,
+  #sp-patient-profile-root
+) {
+  width: min(100%, var(--sp-layout-workspace));
+  margin-inline: auto;
+}
+
+.sp-shell--app :is(
+  .sp-plugin-shell--doctor-catalog,
+  .sp-plugin-root--doctor-catalog,
+  #sosprescription-bdpm-table-root,
+  .sosprescription-bdpm
+) {
+  width: min(100%, var(--sp-layout-wide));
+  max-width: var(--sp-layout-wide);
+  margin-inline: auto;
+}
+
+.sp-shell--verify :is(.sp-plugin-root--verify, .sp-plugin-shell--verify),
+.sp-shell--app .sp-plugin-root--verify {
+  width: min(100%, var(--sp-layout-reading));
+  margin-inline: auto;
+}
+
+.sp-rolebar > .sp-container,
+.sp-console-bar > .sp-container {
+  width: min(calc(100% - (var(--sp-workspace-gutter, 24px) * 2)), var(--sp-layout-workspace));
+}
+
+.sp-rolebar__custom-slot,
+.sp-console-bar__custom-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.sp-rolebar__custom-slot form,
+.sp-console-bar__custom-slot form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.sp-rolebar__custom-slot :is(strong, .sp-badge, .sp-pill, .dc-pill),
+.sp-console-bar__custom-slot :is(strong, .sp-badge, .sp-pill, .dc-pill) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.82rem;
+  border-radius: 999px;
+  border: var(--sp-border-hairline);
+  background: color-mix(in srgb, var(--sp-color-accent-soft, #eff6ff) 48%, #ffffff 52%);
+  color: var(--sp-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.sp-rolebar__custom-slot :is(button, .button, .sp-button, .sp-btn, input[type="submit"]),
+.sp-console-bar__custom-slot :is(button, .button, .sp-button, .sp-btn, input[type="submit"]) {
+  min-height: 2.5rem;
+  padding: 0.62rem 0.95rem;
+  border-radius: 999px;
+}
+
+.sp-shell--app :is(.sosprescription-guard, .sp-plugin-guard, .sp-session-surface, .sp-logout-card),
+.sp-shell--console :is(.sosprescription-guard, .sp-plugin-guard, .sp-session-surface, .sp-logout-card) {
+  width: min(100%, var(--sp-layout-reading));
+  margin-inline: auto;
+}
+
+@media (max-width: 1080px) {
+  .sp-container--app,
+  .sp-container--console,
+  .sp-container--app-compact,
+  .sp-container--console-compact,
+  .sp-rolebar > .sp-container,
+  .sp-console-bar > .sp-container {
+    width: min(calc(100% - (var(--sp-workspace-gutter, 18px) * 2)), var(--sp-layout-workspace)) !important;
+  }
+}

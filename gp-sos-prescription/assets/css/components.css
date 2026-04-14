@@ -932,3 +932,10 @@ body.sp-context-public .sp-alert{
   border: var(--sp-shell-border-hairline);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), var(--sp-shell-shadow-contact);
 }
+
+
+/* V6.5.0 — CTA publics : isolation légère pour éviter les glitches de peinture */
+body.sp-context-public :is(.sp-button, .sp-btn, .sp-card, .sp-trust-box, .sp-final-cta-card) {
+  position: relative;
+  isolation: isolate;
+}

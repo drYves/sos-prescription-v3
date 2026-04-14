@@ -752,3 +752,66 @@ body.sp-modal-open {
     inline-size: 100%;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.0 — CTA vitrine : stabilité de stacking et respiration 1200px
+   -------------------------------------------------------------------------- */
+.sp-hero-actions,
+.sp-final-cta {
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.sp-hero-actions .sp-trust-box,
+.sp-final-cta .sp-trust-box {
+  inline-size: min(100%, var(--sp-workspace-max, 75rem));
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.sp-hero-cta-single,
+.sp-trust-box__actions {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.sp-button--hero,
+.sp-trust-box__actions .sp-button {
+  position: relative;
+  z-index: 2;
+  min-inline-size: min(100%, 24rem);
+  transform: none !important;
+  will-change: auto !important;
+  backface-visibility: visible;
+}
+
+.sp-button--hero:hover,
+.sp-button--hero:focus-visible,
+.sp-button--hero:active,
+.sp-trust-box__actions .sp-button:hover,
+.sp-trust-box__actions .sp-button:focus-visible,
+.sp-trust-box__actions .sp-button:active {
+  transform: none !important;
+}
+
+.sp-trust-box {
+  gap: clamp(var(--sp-space-4), 1.25vw, var(--sp-space-5));
+  padding-inline: clamp(var(--sp-space-5), 4vw, calc(var(--sp-space-8) + var(--sp-space-1)));
+}
+
+.sp-trust-box__lead {
+  max-inline-size: min(100%, 56rem);
+}
+
+@media (max-width: 768px) {
+  .sp-hero-actions .sp-trust-box,
+  .sp-final-cta .sp-trust-box,
+  .sp-button--hero,
+  .sp-trust-box__actions .sp-button {
+    inline-size: 100%;
+  }
+}
