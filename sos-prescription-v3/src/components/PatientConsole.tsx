@@ -80,6 +80,8 @@ type MessageItem = {
   attachments?: number[];
 };
 
+type PatientMessagingState = 'WAITING_DOCTOR' | 'OPEN' | 'CLOSED';
+
 type UploadedFile = PrescriptionFile;
 
 type PdfState = {
@@ -1037,7 +1039,47 @@ function isClosedStatus(status: string): boolean {
 }
 
 function isReadOnlyThreadStatus(status: string): boolean {
-  return isClosedStatus(status);
+  return isClosedStatus(status) || isApprovedStatus(status) || isRejectedStatus(status);
+}
+
+function hasDoctorQuestionMessage(messages: MessageItem[]): boolean {
+  return messages.some((message) => normalizeMessageAuthorRole(message.author_role) === 'DOCTOR');
+}
+
+function resolvePatientMessagingState(status: string, messages: MessageItem[]): PatientMessagingState {
+  if (isReadOnlyThreadStatus(status)) {
+    return 'CLOSED';
+  }
+
+  return hasDoctorQuestionMessage(messages) ? 'OPEN' : 'WAITING_DOCTOR';
+}
+
+function patientMessagingReadOnlyNotice(status: string, state: PatientMessagingState): string {
+  if (state === 'WAITING_DOCTOR') {
+    return "Le médecin n'a pas encore sollicité d'information pour ce dossier. Vous pourrez répondre ici dès qu'un message médical sera envoyé.";
+  }
+
+  if (isApprovedStatus(status)) {
+    return "L'ordonnance a été délivrée. Cet espace est clôturé pour ce dossier.";
+  }
+
+  if (isRejectedStatus(status)) {
+    return 'Ce dossier est clôturé. Si nécessaire, vous pouvez initier une nouvelle demande.';
+  }
+
+  return 'Ce dossier est clôturé. Cet espace sécurisé est désormais en lecture seule.';
+}
+
+function patientMessagingEmptyText(status: string, state: PatientMessagingState): string {
+  if (state === 'WAITING_DOCTOR') {
+    return "Le médecin n'a pas encore sollicité d'information. Cet espace s'ouvrira automatiquement dès qu'un message médical sera envoyé.";
+  }
+
+  if (state === 'CLOSED') {
+    return patientMessagingReadOnlyNotice(status, state);
+  }
+
+  return 'Le médecin a sollicité des informations complémentaires. Vous pouvez lui répondre ici de façon sécurisée.';
 }
 
 function statusTone(status: string): 'success' | 'warning' | 'neutral' {
@@ -1270,6 +1312,34 @@ function StatusTimeline({ status }: { status: string }) {
   );
 }
 
+function StatusPillIcon({ tone }: { tone: 'success' | 'warning' | 'neutral' }) {
+  if (tone === 'success') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="sp-status-pill__icon">
+        <path d="M20 6 9 17l-5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (tone === 'warning') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="sp-status-pill__icon">
+        <path d="M12 3 3 20h18L12 3Z" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 9v4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M12 17h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="sp-status-pill__icon">
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.9" />
+      <path d="M12 8v4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <path d="M12 16h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function StatusPill({ status }: { status: string }) {
   const info = statusInfo(status);
   const tone = statusTone(status);
@@ -1277,6 +1347,7 @@ function StatusPill({ status }: { status: string }) {
   return (
     <span className={cx('sp-status-pill', `is-${tone}`)}>
       <span className="sp-status-pill__dot" aria-hidden="true" />
+      <StatusPillIcon tone={tone} />
       <span>{info.label}</span>
     </span>
   );
@@ -1691,7 +1762,17 @@ export default function PatientConsole() {
     [detail?.created_at, detail?.primary_reason, selectedSummary?.created_at, selectedSummary?.primary_reason]
   );
   const requestDetails = detail?.request_details || [];
-  const messagingLocked = detail ? isReadOnlyThreadStatus(detail.status) : false;
+  const messagingState = useMemo<PatientMessagingState>(
+    () => (detail ? resolvePatientMessagingState(detail.status, messages) : 'WAITING_DOCTOR'),
+    [detail, messages]
+  );
+  const messagingLocked = messagingState !== 'OPEN';
+  const messagingReadOnlyNotice = detail
+    ? patientMessagingReadOnlyNotice(detail.status, messagingState)
+    : "Le médecin n'a pas encore sollicité d'information pour ce dossier.";
+  const messagingEmptyText = detail
+    ? patientMessagingEmptyText(detail.status, messagingState)
+    : "Le médecin n'a pas encore sollicité d'information. Cet espace s'ouvrira automatiquement dès qu'un message médical sera envoyé.";
 
   const fileIndex = useMemo(() => {
     const index: Record<number, PrescriptionFile> = {};
@@ -2316,12 +2397,12 @@ export default function PatientConsole() {
                         title="Échanges avec le médecin"
                         subtitle="Messagerie sécurisée associée à votre dossier."
                         loading={messagesLoading}
-                        emptyText="Espace d’échange sécurisé avec le médecin. Vous pouvez envoyer un message à tout moment."
+                        emptyText={messagingEmptyText}
                         messages={messages}
                         fileIndex={fileIndex}
                         onDownloadFile={handleMessageAttachmentDownload}
                         canCompose={!messagingLocked}
-                        readOnlyNotice="Ce dossier est clôturé. Veuillez initier une nouvelle demande."
+                        readOnlyNotice={messagingReadOnlyNotice}
                         postMessage={postPatientMessage}
                         onMessageCreated={handleMessageCreated}
                         onSurfaceError={setError}

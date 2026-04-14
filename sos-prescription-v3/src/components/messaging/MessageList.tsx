@@ -121,6 +121,14 @@ function getRoleLabel(message: MessageItem): string {
   return 'Interlocuteur';
 }
 
+function PaperclipIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="sp-lucide">
+      <path d="m21.44 11.05-8.49 8.49a5.5 5.5 0 0 1-7.78-7.78l9.2-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.2a1.5 1.5 0 1 1-2.13-2.13l8.49-8.49" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function formatMessageDate(value: string): string {
   const raw = String(value || '').trim();
   if (!raw) {
@@ -169,12 +177,7 @@ function formatMessageDate(value: string): string {
 const MessageList = React.memo(
   function MessageListComponent({ messages, viewerRole, currentUserRoles: _currentUserRoles, fileIndex, onDownloadFile }: Props) {
     return (
-      <div
-        className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}
-        role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
-      >
+      <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
         {messages.map((message, index) => {
           const mine = isOwnMessage(message);
           const roleLabel = getRoleLabel(message);
@@ -201,10 +204,7 @@ const MessageList = React.memo(
                 viewerRole === 'DOCTOR' && 'sp-thread-item--viewer-doctor',
               )}
             >
-              <article
-                className="sp-thread-item__bubble"
-                aria-label={`${roleLabel} · ${formattedDate || message.created_at}`}
-              >
+              <article className="sp-thread-item__bubble">
                 <div
                   className={cx(
                     'sp-thread-item__author',
@@ -228,10 +228,8 @@ const MessageList = React.memo(
                           type="button"
                           className="sp-button sp-button--secondary sp-thread-item__attachment"
                           onClick={() => void onDownloadFile(attachmentId)}
-
-                          aria-label={`Télécharger ${filename}`}
                         >
-                          <span className="sp-button__icon" aria-hidden="true">📎</span>
+                          <span className="sp-button__icon" aria-hidden="true"><PaperclipIcon /></span>
                           <span>{filename}</span>
                         </button>
                       );

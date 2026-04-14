@@ -33,7 +33,7 @@
   letter-spacing: -0.02em;
 }
 
-.sp-shell--app :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sosprescription-doctor .dc-inbox, .sosprescription-doctor .dc-detail, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .sp-plugin-toolbar-meta .sp-card), :where(.sp-shell--app) #sosprescription-root-form :where([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="border"][class~="bg-gray-50"], [class~="rounded-2xl"][class~="border"][class~="bg-white"], [class~="rounded-lg"][class~="border"][class~="bg-white"]){
+.sp-shell--app :where(.sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sosprescription-doctor .dc-inbox, .sosprescription-doctor .dc-detail, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .sp-plugin-toolbar-meta .sp-card), :where(.sp-shell--app) #sosprescription-root-form :where([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="border"][class~="bg-gray-50"], [class~="rounded-2xl"][class~="border"][class~="bg-white"], [class~="rounded-lg"][class~="border"][class~="bg-white"]){
   border-radius: var(--sp-shell-radius-lg) !important;
   border: 1px solid var(--sp-app-border) !important;
   background: var(--sp-app-surface) !important;
@@ -767,7 +767,7 @@
   letter-spacing: var(--sp-shell-letter-spacing-title);
 }
 
-.sp-shell--app :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sosprescription-doctor .dc-inbox, .sosprescription-doctor .dc-detail, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .sp-plugin-toolbar-meta .sp-card, .dc-modal__card), :where(.sp-shell--app) #sosprescription-root-form :where([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="border"][class~="bg-gray-50"], [class~="rounded-2xl"][class~="border"][class~="bg-white"], [class~="rounded-lg"][class~="border"][class~="bg-white"]){
+.sp-shell--app :where(.sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-profile-card, .sp-auth-hint, .sp-flash, .sosprescription-notice, .sosprescription-doctor .dc-inbox, .sosprescription-doctor .dc-detail, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .sp-plugin-toolbar-meta .sp-card, .dc-modal__card), :where(.sp-shell--app) #sosprescription-root-form :where([class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-xl"][class~="border"][class~="bg-gray-50"], [class~="rounded-2xl"][class~="border"][class~="bg-white"], [class~="rounded-lg"][class~="border"][class~="bg-white"]){
   border: var(--sp-shell-border-hairline) !important;
   background: var(--sp-shell-glass-surface) !important;
   box-shadow: var(--sp-shell-shadow-premium) !important;
@@ -843,7 +843,7 @@
   box-shadow: var(--sp-shell-shadow-premium-lg);
 }
 
-.sp-shell--app :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-card, .sp-profile-card, .sp-auth-hint, .sp-plugin-toolbar-meta .sp-card, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .dc-modal__card){
+.sp-shell--app :where(.sp-profile-card, .sp-auth-hint, .sp-patient-chat__panel, .sp-plugin-toolbar-meta .sp-card), .sp-shell--console :where(.sp-profile-card, .sp-auth-hint, .sp-plugin-toolbar-meta .sp-card, .sosprescription-doctor .dc-summary-card, .sosprescription-doctor .dc-meds-card, .sosprescription-doctor .dc-pdf-card, .sosprescription-doctor .dc-refusal-panel, .sosprescription-doctor .dc-inline-proof-card, .dc-modal__card){
   padding: var(--sp-shell-card-padding-block) var(--sp-shell-card-padding-inline) !important;
 }
 
@@ -862,4 +862,16 @@
   100% {
     background-position: -200% 0;
   }
+}
+
+
+/* V6.4.1 — Theme shell keeps macro layout, application keeps its cards */
+.sp-shell--app :where(.sp-button:hover, .sp-btn:hover),
+.sp-shell--console :where(.sp-button:hover, .sp-btn:hover, .dc-filter-tab:hover, .dc-detail-tab:hover, .dc-proof-item:hover) {
+  transform: none;
+}
+
+.sp-shell--app :where(.sp-button:focus-visible, .sp-btn:focus-visible),
+.sp-shell--console :where(.sp-button:focus-visible, .sp-btn:focus-visible, .dc-filter-tab:focus-visible, .dc-detail-tab:focus-visible, .dc-proof-item:focus-visible) {
+  box-shadow: 0 0 0 4px var(--sp-app-focus) !important;
 }

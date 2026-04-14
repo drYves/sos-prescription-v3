@@ -24,10 +24,9 @@
 }
 
 /* UI kit bridge */
-.sp-plugin-root .sp-card,
-.sp-ui .sp-card,
 .sosprescription-bdpm .sp-card,
-.sp-context-console .sp-ui .sp-card {
+.sp-context-console .sp-ui .sp-card,
+.sp-plugin-root--verify .sp-card {
   border-color: var(--sp-border);
   border-radius: var(--sp-radius-lg);
   box-shadow: var(--sp-shadow-1);
@@ -628,10 +627,9 @@
 }
 
 /* --- v4.8.0 · Diamond Grade plugin bridge refinements --- */
-.sp-plugin-root .sp-card,
-.sp-ui .sp-card,
 .sosprescription-bdpm .sp-card,
 .sp-context-console .sp-ui .sp-card,
+.sp-plugin-root--verify .sp-card,
 .sp-context-console .sosprescription-doctor .dc-inbox,
 .sp-context-console .sosprescription-doctor .dc-detail,
 .sp-context-console .sosprescription-doctor .dc-summary-card,
@@ -660,4 +658,13 @@
 .sosprescription-guard .button:active,
 .sp-page-doctor-account .wrap .button:active {
   transform: translateY(0) scale(0.98);
+}
+
+
+/* V6.4.1 — Bridge limited to legacy surfaces */
+.sp-shell--app .sp-plugin-root .sp-btn:hover,
+.sp-shell--app .sp-ui .sp-btn:hover,
+.sp-shell--console .sp-plugin-root .sp-btn:hover,
+.sp-shell--console .sp-ui .sp-btn:hover {
+  transform: none;
 }

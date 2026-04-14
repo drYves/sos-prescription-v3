@@ -97,7 +97,6 @@ type StripeJsInstance = {
 
 type FlowType = 'ro_proof' | 'depannage_no_proof';
 type Stage = 'choose' | 'form' | 'priority_selection' | 'payment_auth' | 'done';
-type StageTransitionState = 'idle' | 'entering' | 'exiting';
 type FrequencyUnit = 'jour' | 'semaine';
 type DurationUnit = 'jour' | 'mois' | 'semaine';
 
@@ -287,22 +286,17 @@ function Button({
   );
 }
 
-const TextInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  function TextInput({
-    className = '',
-    ...props
-  }, ref) {
-    return (
-      <input
-        ref={ref}
-        className={cx('sp-app-input', className)}
-        {...props}
-      />
-    );
-  },
-);
-
-TextInput.displayName = 'TextInput';
+function TextInput({
+  className = '',
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={cx('sp-app-input', className)}
+      {...props}
+    />
+  );
+}
 
 function TextareaField({
   className = '',
@@ -1146,19 +1140,6 @@ function resolveStrictPatientProfileFullName(config: AppConfig): string {
   return safePatientNameValue(config.patientProfile?.fullname || '');
 }
 
-const STAGE_TRANSITION_EXIT_MS = 120;
-const STAGE_TRANSITION_ENTER_MS = 220;
-
-function prefersReducedMotion(): boolean {
-  try {
-    return typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
-}
-
 function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
   const normalized = safePatientNameValue(value);
   if (!normalized) {
@@ -1926,83 +1907,52 @@ function MedicationSearch({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const abortRef = useRef<AbortController | null>(null);
-  const searchRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const blurTimeoutRef = useRef<number | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const resultsId = 'sp-medication-search-results';
-  const hintId = 'sp-medication-search-hint';
-  const statusId = 'sp-medication-search-status';
 
   const canSearch = useMemo(() => query.trim().length >= 2, [query]);
   const hasDisabledResults = useMemo(
     () => results.some((result) => result?.is_selectable === false),
     [results],
   );
-  const selectableCount = useMemo(
-    () => results.filter((result) => result?.is_selectable !== false).length,
-    [results],
-  );
 
-  const optionId = useCallback((index: number) => `sp-medication-search-option-${index}`, []);
-
-  const closeResults = useCallback(() => {
-    setOpen(false);
-    setActiveIndex(-1);
-  }, []);
-
-  const resetResults = useCallback(() => {
-    setResults([]);
-    setLoading(false);
-    setError(null);
-    setOpen(false);
-    setActiveIndex(-1);
-  }, []);
-
-  const findNextSelectableIndex = useCallback((startIndex: number, direction: 1 | -1): number => {
-    if (!Array.isArray(results) || results.length < 1) {
+  const getSelectableIndex = useCallback((startIndex: number, direction: 1 | -1): number => {
+    if (results.length < 1) {
       return -1;
     }
 
-    const total = results.length;
-    let cursor = startIndex;
-
-    for (let step = 0; step < total; step += 1) {
-      cursor += direction;
-      if (cursor < 0) {
-        cursor = total - 1;
-      }
-      if (cursor >= total) {
-        cursor = 0;
-      }
-
-      const candidate = results[cursor];
-      if (candidate?.is_selectable !== false) {
-        return cursor;
+    let index = startIndex;
+    for (let steps = 0; steps < results.length; steps += 1) {
+      index = (index + direction + results.length) % results.length;
+      if (results[index]?.is_selectable !== false) {
+        return index;
       }
     }
 
     return -1;
   }, [results]);
 
-  const commitSelection = useCallback((result: MedicationSearchResult) => {
+  const selectResult = useCallback((result: MedicationSearchResult) => {
+    if (result?.is_selectable === false) {
+      return;
+    }
+
     onSelect(result);
     setQuery('');
     setResults([]);
     setError(null);
     setOpen(false);
     setActiveIndex(-1);
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
   }, [onSelect]);
 
-  const statusMessage = useMemo(() => {
+  const resultsAnnouncement = useMemo(() => {
     if (!canSearch) {
-      return 'Saisissez au moins deux caractères pour lancer la recherche médicament.';
+      return 'Saisissez au moins deux caractères pour rechercher un médicament.';
     }
 
     if (loading) {
-      return 'Recherche du médicament en cours.';
+      return 'Recherche de médicaments en cours.';
     }
 
     if (error) {
@@ -2014,27 +1964,26 @@ function MedicationSearch({
     }
 
     if (results.length < 1) {
-      return 'Aucun résultat trouvé.';
+      return 'Aucun résultat.';
     }
 
-    const disabledCount = Math.max(0, results.length - selectableCount);
-    const resultLabel = `${selectableCount} résultat${selectableCount > 1 ? 's' : ''} disponible${selectableCount > 1 ? 's' : ''}`;
-    if (disabledCount < 1) {
-      return `${resultLabel}. Utilisez les flèches du clavier pour parcourir la liste.`;
-    }
-
-    return `${resultLabel}. ${disabledCount} résultat${disabledCount > 1 ? 's' : ''} indisponible${disabledCount > 1 ? 's' : ''} pour ce parcours.`;
-  }, [canSearch, error, loading, open, results.length, selectableCount]);
+    return `${results.length} résultat${results.length > 1 ? 's' : ''} disponible${results.length > 1 ? 's' : ''}.`;
+  }, [canSearch, error, loading, open, results.length]);
 
   useEffect(() => {
     if (!canSearch) {
-      resetResults();
+      setResults([]);
+      setOpen(false);
+      setError(null);
+      setLoading(false);
+      setActiveIndex(-1);
       return;
     }
 
     const keyword = query.trim();
     setLoading(true);
     setOpen(true);
+    setActiveIndex(-1);
     abortRef.current?.abort();
 
     const controller = new AbortController();
@@ -2069,7 +2018,6 @@ function MedicationSearch({
           }
           setResults([]);
           setError('La recherche du médicament n’a pas pu aboutir. Merci de réessayer.');
-          setActiveIndex(-1);
         })
         .finally(() => {
           if (!controller.signal.aborted) {
@@ -2082,7 +2030,7 @@ function MedicationSearch({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [canSearch, query, resetResults]);
+  }, [canSearch, query]);
 
   useEffect(() => {
     if (!open || results.length < 1) {
@@ -2090,160 +2038,111 @@ function MedicationSearch({
       return;
     }
 
-    setActiveIndex((current) => {
-      if (current >= 0 && current < results.length && results[current]?.is_selectable !== false) {
-        return current;
-      }
-      return findNextSelectableIndex(-1, 1);
-    });
-  }, [findNextSelectableIndex, open, results]);
-
-  useEffect(() => {
-    if (activeIndex < 0) {
+    if (activeIndex >= 0 && activeIndex < results.length && results[activeIndex]?.is_selectable !== false) {
       return;
     }
 
-    const node = optionRefs.current[activeIndex];
-    if (node && typeof node.scrollIntoView === 'function') {
-      node.scrollIntoView({ block: 'nearest' });
-    }
-  }, [activeIndex]);
+    const firstSelectable = results.findIndex((result) => result?.is_selectable !== false);
+    setActiveIndex(firstSelectable);
+  }, [activeIndex, open, results]);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || activeIndex < 0) {
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent | TouchEvent): void => {
-      const target = event.target;
-      if (searchRef.current && target instanceof Node && !searchRef.current.contains(target)) {
-        closeResults();
-      }
-    };
+    const option = listRef.current?.querySelector<HTMLElement>(`#${resultsId}-option-${activeIndex}`);
+    option?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
 
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('touchstart', handlePointerDown);
-
+  useEffect(() => {
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('touchstart', handlePointerDown);
+      if (blurTimeoutRef.current != null) {
+        window.clearTimeout(blurTimeoutRef.current);
+      }
+      abortRef.current?.abort();
     };
-  }, [closeResults, open]);
-
-  useEffect(() => () => {
-    abortRef.current?.abort();
   }, []);
 
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && results.length > 0) {
-      event.preventDefault();
-      setOpen(true);
-      setActiveIndex(findNextSelectableIndex(event.key === 'ArrowUp' ? results.length : -1, event.key === 'ArrowUp' ? -1 : 1));
-      return;
-    }
-
-    switch (event.key) {
-      case 'ArrowDown': {
-        if (!open || results.length < 1) {
-          return;
-        }
-        event.preventDefault();
-        setActiveIndex((current) => findNextSelectableIndex(current, 1));
-        return;
-      }
-      case 'ArrowUp': {
-        if (!open || results.length < 1) {
-          return;
-        }
-        event.preventDefault();
-        setActiveIndex((current) => findNextSelectableIndex(current, -1));
-        return;
-      }
-      case 'Home': {
-        if (!open || results.length < 1) {
-          return;
-        }
-        event.preventDefault();
-        setActiveIndex(findNextSelectableIndex(-1, 1));
-        return;
-      }
-      case 'End': {
-        if (!open || results.length < 1) {
-          return;
-        }
-        event.preventDefault();
-        setActiveIndex(findNextSelectableIndex(0, -1));
-        return;
-      }
-      case 'Enter': {
-        if (!open || activeIndex < 0) {
-          return;
-        }
-        const activeResult = results[activeIndex];
-        if (!activeResult || activeResult.is_selectable === false) {
-          return;
-        }
-        event.preventDefault();
-        commitSelection(activeResult);
-        return;
-      }
-      case 'Escape': {
-        if (!open) {
-          return;
-        }
-        event.preventDefault();
-        closeResults();
-        return;
-      }
-      default:
-        return;
-    }
-  }, [activeIndex, closeResults, commitSelection, findNextSelectableIndex, open, results]);
-
-  const activeDescendant = open && activeIndex >= 0 ? optionId(activeIndex) : undefined;
-  const describedBy = [statusId, open ? hintId : null].filter(Boolean).join(' ') || undefined;
+  const activeOptionId = open && activeIndex >= 0 ? `${resultsId}-option-${activeIndex}` : undefined;
 
   return (
-    <div
-      ref={searchRef}
-      className="sp-app-search"
-      data-open={open ? 'true' : 'false'}
-      data-loading={loading ? 'true' : 'false'}
-    >
-      <div id={statusId} className="sp-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-        {statusMessage}
-      </div>
-
+    <div className="sp-app-search" data-open={open ? 'true' : 'false'} data-loading={loading ? 'true' : 'false'}>
+      <div className="sp-visually-hidden" aria-live="polite">{resultsAnnouncement}</div>
       <TextInput
-        ref={inputRef}
         id="sp-medication-search-input"
         role="combobox"
         aria-autocomplete="list"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? resultsId : undefined}
-        aria-activedescendant={activeDescendant}
-        aria-describedby={describedBy}
-        aria-busy={loading}
+        aria-activedescendant={activeOptionId}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={handleKeyDown}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(event.target.value.trim().length >= 2);
+        }}
         placeholder="Rechercher un médicament..."
         onFocus={() => {
+          if (blurTimeoutRef.current != null) {
+            window.clearTimeout(blurTimeoutRef.current);
+            blurTimeoutRef.current = null;
+          }
           if (query.trim().length >= 2) {
             setOpen(true);
+          }
+        }}
+        onBlur={() => {
+          if (blurTimeoutRef.current != null) {
+            window.clearTimeout(blurTimeoutRef.current);
+          }
+          blurTimeoutRef.current = window.setTimeout(() => {
+            setOpen(false);
+            setActiveIndex(-1);
+          }, 120);
+        }}
+        onKeyDown={(event) => {
+          if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && results.length > 0) {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex(getSelectableIndex(-1, 1));
+            return;
+          }
+
+          if (!open) {
+            return;
+          }
+
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setActiveIndex((current) => getSelectableIndex(current < 0 ? -1 : current, 1));
+            return;
+          }
+
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex((current) => getSelectableIndex(current < 0 ? 0 : current, -1));
+            return;
+          }
+
+          if (event.key === 'Enter') {
+            if (activeIndex >= 0 && results[activeIndex]?.is_selectable !== false) {
+              event.preventDefault();
+              selectResult(results[activeIndex]);
+            }
+            return;
+          }
+
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setOpen(false);
+            setActiveIndex(-1);
           }
         }}
       />
 
       {open ? (
-        <div
-          className="sp-app-search__results"
-          id={resultsId}
-          role="listbox"
-          aria-label="Résultats de recherche médicament"
-          aria-busy={loading}
-        >
+        <div className="sp-app-search__results" id={resultsId} role="listbox" aria-label="Résultats de recherche médicament" ref={listRef}>
           <div className="sp-app-search__head">
             <span>Résultats</span>
             {loading ? <Spinner /> : null}
@@ -2280,42 +2179,31 @@ function MedicationSearch({
                 result.tauxRemb ? `Remb. ${result.tauxRemb}` : null,
                 typeof result.prixTTC === 'number' ? formatAmountValue(result.prixTTC, 'EUR') : null,
               ].filter((value): value is string => Boolean(value));
-              const isActive = index === activeIndex;
+              const optionId = `${resultsId}-option-${index}`;
+              const selected = activeIndex === index;
 
               return (
                 <button
                   key={key}
-                  ref={(node) => {
-                    optionRefs.current[index] = node;
-                  }}
-                  id={optionId(index)}
+                  id={optionId}
                   type="button"
                   disabled={!selectable}
                   role="option"
-                  tabIndex={-1}
                   aria-disabled={!selectable}
-                  aria-selected={isActive}
+                  aria-selected={selected}
+                  tabIndex={-1}
                   className={cx(
                     'sp-app-search__item',
                     selectable ? 'is-selectable' : 'is-disabled',
-                    isActive && 'is-active',
+                    selected && 'is-active',
                   )}
+                  onMouseDown={(event) => event.preventDefault()}
                   onMouseEnter={() => {
                     if (selectable) {
                       setActiveIndex(index);
                     }
                   }}
-                  onFocus={() => {
-                    if (selectable) {
-                      setActiveIndex(index);
-                    }
-                  }}
-                  onClick={() => {
-                    if (!selectable) {
-                      return;
-                    }
-                    commitSelection(result);
-                  }}
+                  onClick={() => selectResult(result)}
                 >
                   <div className="sp-app-search__item-row">
                     <div className="sp-app-search__item-title">
@@ -2338,7 +2226,7 @@ function MedicationSearch({
             })}
           </div>
 
-          <div className="sp-app-search__foot" id={hintId}>
+          <div className="sp-app-search__foot">
             {hasDisabledResults
               ? 'Les résultats grisés ne peuvent pas être ajoutés dans ce parcours.'
               : 'Sélectionnez un résultat pour l’ajouter à votre demande.'}
@@ -3040,7 +2928,7 @@ function StepClinicalData({
           </div>
 
           <div className="sp-app-field sp-app-field--search">
-            <label className="sp-app-field__label" htmlFor="sp-medication-search-input">Médicament concerné</label>
+            <label className="sp-app-field__label">Médicament concerné</label>
             <MedicationSearch onSelect={onAddMedication} />
           </div>
 
@@ -4101,56 +3989,6 @@ function PublicFormApp() {
 
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
   const isDraftMode = !isLoggedIn;
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [stageTransitionState, setStageTransitionState] = useState<StageTransitionState>('idle');
-  const stageRef = useRef<Stage>(stage);
-  const stageTransitionTimersRef = useRef<number[]>([]);
-
-  useEffect(() => {
-    stageRef.current = stage;
-  }, [stage]);
-
-  const clearStageTransitionTimers = useCallback(() => {
-    stageTransitionTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-    stageTransitionTimersRef.current = [];
-  }, []);
-
-  useEffect(() => () => {
-    clearStageTransitionTimers();
-  }, [clearStageTransitionTimers]);
-
-  const transitionToStage = useCallback((nextStage: Stage, options?: { immediate?: boolean }) => {
-    const currentStage = stageRef.current;
-    if (nextStage === currentStage) {
-      return;
-    }
-
-    clearStageTransitionTimers();
-
-    if (options?.immediate || prefersReducedMotion()) {
-      setStage(nextStage);
-      setStageTransitionState('idle');
-      setIsTransitioning(false);
-      return;
-    }
-
-    setIsTransitioning(true);
-    setStageTransitionState('exiting');
-
-    const exitTimer = window.setTimeout(() => {
-      setStage(nextStage);
-      setStageTransitionState('entering');
-
-      const enterTimer = window.setTimeout(() => {
-        setStageTransitionState('idle');
-        setIsTransitioning(false);
-      }, STAGE_TRANSITION_ENTER_MS);
-
-      stageTransitionTimersRef.current.push(enterTimer);
-    }, STAGE_TRANSITION_EXIT_MS);
-
-    stageTransitionTimersRef.current.push(exitTimer);
-  }, [clearStageTransitionTimers]);
 
   useEffect(() => {
     if (resumeDraftRefFromUrl) {
@@ -4304,7 +4142,7 @@ function PublicFormApp() {
 
         submissionRefStateRef.current = { ref: draftRef };
         setResumedDraftRef(draftRef);
-        transitionToStage('priority_selection');
+        setStage('priority_selection');
 
         try {
           const url = new URL(window.location.href);
@@ -4330,7 +4168,7 @@ function PublicFormApp() {
     return () => {
       cancelled = true;
     };
-  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl, transitionToStage]);
+  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
     loggedIn: isLoggedIn,
@@ -4522,7 +4360,7 @@ function PublicFormApp() {
   }, [ensureSubmissionRef, flow, isLoggedIn]);
 
   const resetToChoose = useCallback(() => {
-    transitionToStage('choose', { immediate: true });
+    setStage('choose');
     setFlow(null);
     setPriority('standard');
     setFullName(resolveStrictPatientProfileFullName(config));
@@ -4554,7 +4392,7 @@ function PublicFormApp() {
     setConsentTruth(false);
     setConsentCgu(false);
     setConsentPrivacy(false);
-  }, [config.patientProfile, transitionToStage]);
+  }, [config.patientProfile]);
 
   const copyUid = useCallback(async () => {
     if (!submissionResult?.uid) {
@@ -4582,8 +4420,8 @@ function PublicFormApp() {
     setDraftSuccessMessage(null);
     setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
-    transitionToStage('form');
-  }, [transitionToStage]);
+    setStage('form');
+  }, []);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -4602,8 +4440,8 @@ function PublicFormApp() {
       return null;
     }
 
-    transitionToStage('priority_selection');
-  }, [flow, fullName, submitBlockInfo, transitionToStage]);
+    setStage('priority_selection');
+  }, [flow, fullName, submitBlockInfo]);
 
   const handleSendDraftLink = useCallback(async () => {
     setSubmitError(null);
@@ -4949,7 +4787,7 @@ function PublicFormApp() {
     }
 
     if (isDraftMode) {
-      transitionToStage('payment_auth');
+      setStage('payment_auth');
       return;
     }
 
@@ -4959,15 +4797,15 @@ function PublicFormApp() {
     }
 
     if (preparedSubmission && Number(preparedSubmission.id) > 0) {
-      transitionToStage('payment_auth');
+      setStage('payment_auth');
       return;
     }
 
     const nextSubmission = await prepareSubmissionForPayment();
     if (nextSubmission && Number(nextSubmission.id) > 0) {
-      transitionToStage('payment_auth');
+      setStage('payment_auth');
     }
-  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount, transitionToStage]);
+  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
 
   const handlePaymentAuthorized = useCallback(() => {
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
@@ -4980,16 +4818,16 @@ function PublicFormApp() {
       ...preparedSubmission,
       status: 'pending',
     });
-    transitionToStage('done');
-  }, [preparedSubmission, transitionToStage]);
+    setStage('done');
+  }, [preparedSubmission]);
 
   const handleBackToClinicalForm = useCallback(() => {
     setPreparedSubmission(null);
     setSubmitError(null);
     setDraftSent(false);
     setDraftSuccessMessage(null);
-    transitionToStage('form');
-  }, [transitionToStage]);
+    setStage('form');
+  }, []);
 
   const patientPortalUrl = useMemo(() => {
     const base = config.urls?.patientPortal || null;
@@ -5091,137 +4929,125 @@ function PublicFormApp() {
           </div>
         ) : null}
 
-        <div
-          className={cx(
-            'sp-app-stage-viewport',
-            isTransitioning && 'is-transitioning',
-            stageTransitionState === 'entering' && 'is-entering',
-            stageTransitionState === 'exiting' && 'is-exiting',
-          )}
-          aria-busy={isTransitioning ? 'true' : undefined}
-        >
-          <div className="sp-app-stage-surface">
-            {stage === 'choose' ? (
-              <StepFlowChoice flow={flow} onSelectFlow={handleSelectFlow} />
-            ) : null}
+        {stage === 'choose' ? (
+          <StepFlowChoice flow={flow} onSelectFlow={handleSelectFlow} />
+        ) : null}
 
-            {stage === 'form' && flow ? (
-              <StepClinicalData
-                flow={flow}
-                isLoggedIn={isLoggedIn}
-                analysisInProgress={analysisInProgress}
-                fullName={fullName}
-                birthdate={birthdate}
-                draftEmail={draftEmail}
-                draftEmailLocked={draftEmailLocked}
-                ageLabel={ageLabel}
-                medicalNotes={medicalNotes}
-                items={items}
-                files={files}
-                rejectedFiles={rejectedFiles}
-                analysisMessage={analysisMessage}
-                attestationNoProof={attestationNoProof}
-                consentRequired={consentRequired}
-                consentTelemedicine={consentTelemedicine}
-                consentTruth={consentTruth}
-                consentCgu={consentCgu}
-                consentPrivacy={consentPrivacy}
-                compliance={compliance}
-                submitLoading={submitLoading}
-                onBackToChoice={() => transitionToStage('choose')}
-                onFullNameChange={setFullName}
-                onBirthdateChange={setBirthdate}
-                onDraftEmailChange={setDraftEmail}
-                onUnlockDraftEmail={() => setDraftEmailLocked(false)}
-                onMedicalNotesChange={setMedicalNotes}
-                onFilesSelected={handleFilesSelected}
-                onRemoveFile={(fileId) => {
-                  setFiles((current) => current.filter((entry) => entry.id !== fileId));
-                }}
-                onAddMedication={addMedication}
-                onUpdateMedication={updateMedication}
-                onRemoveMedication={removeMedication}
-                onAttestationChange={setAttestationNoProof}
-                onConsentTelemedicineChange={setConsentTelemedicine}
-                onConsentTruthChange={setConsentTruth}
-                onConsentCguChange={setConsentCgu}
-                onConsentPrivacyChange={setConsentPrivacy}
-                onContinue={handleContinueToPriority}
-              />
-            ) : null}
+        {stage === 'form' && flow ? (
+          <StepClinicalData
+            flow={flow}
+            isLoggedIn={isLoggedIn}
+            analysisInProgress={analysisInProgress}
+            fullName={fullName}
+            birthdate={birthdate}
+            draftEmail={draftEmail}
+            draftEmailLocked={draftEmailLocked}
+            ageLabel={ageLabel}
+            medicalNotes={medicalNotes}
+            items={items}
+            files={files}
+            rejectedFiles={rejectedFiles}
+            analysisMessage={analysisMessage}
+            attestationNoProof={attestationNoProof}
+            consentRequired={consentRequired}
+            consentTelemedicine={consentTelemedicine}
+            consentTruth={consentTruth}
+            consentCgu={consentCgu}
+            consentPrivacy={consentPrivacy}
+            compliance={compliance}
+            submitLoading={submitLoading}
+            onBackToChoice={() => setStage('choose')}
+            onFullNameChange={setFullName}
+            onBirthdateChange={setBirthdate}
+            onDraftEmailChange={setDraftEmail}
+            onUnlockDraftEmail={() => setDraftEmailLocked(false)}
+            onMedicalNotesChange={setMedicalNotes}
+            onFilesSelected={handleFilesSelected}
+            onRemoveFile={(fileId) => {
+              setFiles((current) => current.filter((entry) => entry.id !== fileId));
+            }}
+            onAddMedication={addMedication}
+            onUpdateMedication={updateMedication}
+            onRemoveMedication={removeMedication}
+            onAttestationChange={setAttestationNoProof}
+            onConsentTelemedicineChange={setConsentTelemedicine}
+            onConsentTruthChange={setConsentTruth}
+            onConsentCguChange={setConsentCgu}
+            onConsentPrivacyChange={setConsentPrivacy}
+            onContinue={handleContinueToPriority}
+          />
+        ) : null}
 
-            {stage === 'priority_selection' && flow ? (
-              <StepPrioritySelection
-                flow={flow}
-                itemsCount={items.length}
-                filesCount={files.length}
-                pricingLoading={pricingLoading}
-                pricing={pricing}
-                priority={priority}
-                paymentsConfig={paymentsConfig}
-                selectedAmount={selectedAmount}
-                selectedPriorityEta={selectedPriorityEta}
-                onPriorityChange={setPriority}
-                onBack={handleBackToClinicalForm}
-                onContinue={handleContinueToPaymentAuth}
-                continueDisabled={submitLoading || pricingLoading || !pricing}
-              />
-            ) : null}
+        {stage === 'priority_selection' && flow ? (
+          <StepPrioritySelection
+            flow={flow}
+            itemsCount={items.length}
+            filesCount={files.length}
+            pricingLoading={pricingLoading}
+            pricing={pricing}
+            priority={priority}
+            paymentsConfig={paymentsConfig}
+            selectedAmount={selectedAmount}
+            selectedPriorityEta={selectedPriorityEta}
+            onPriorityChange={setPriority}
+            onBack={handleBackToClinicalForm}
+            onContinue={handleContinueToPaymentAuth}
+            continueDisabled={submitLoading || pricingLoading || !pricing}
+          />
+        ) : null}
 
-            {stage === 'payment_auth' && flow ? (
-              isDraftMode ? (
-                <StepDraftValidation
-                  flow={flow}
-                  fullName={fullName}
-                  birthdate={birthdate}
-                  itemsCount={items.length}
-                  filesCount={files.length}
-                  priority={priority}
-                  pricingLoading={pricingLoading}
-                  pricing={pricing}
-                  selectedAmount={selectedAmount}
-                  selectedPriorityEta={selectedPriorityEta}
-                  draftEmail={draftEmail}
-                  draftEmailLocked={draftEmailLocked}
-                  draftSending={draftSending}
-                  draftSent={draftSent}
-                  draftSuccessMessage={draftSuccessMessage}
-                  onDraftEmailChange={setDraftEmail}
-                  onUnlockDraftEmail={() => setDraftEmailLocked(false)}
-                  onBack={() => transitionToStage('priority_selection')}
-                  onSend={handleSendDraftLink}
-                />
-              ) : (
-                <StepPaymentAuth
-                  flow={flow}
-                  fullName={fullName}
-                  birthdate={birthdate}
-                  itemsCount={items.length}
-                  filesCount={files.length}
-                  priority={priority}
-                  pricingLoading={pricingLoading}
-                  pricing={pricing}
-                  selectedAmount={selectedAmount}
-                  selectedPriorityEta={selectedPriorityEta}
-                  paymentsConfig={paymentsConfig}
-                  preparedSubmission={preparedSubmission}
-                  onBack={() => transitionToStage('priority_selection')}
-                  onAuthorized={handlePaymentAuthorized}
-                />
-              )
-            ) : null}
+        {stage === 'payment_auth' && flow ? (
+          isDraftMode ? (
+            <StepDraftValidation
+              flow={flow}
+              fullName={fullName}
+              birthdate={birthdate}
+              itemsCount={items.length}
+              filesCount={files.length}
+              priority={priority}
+              pricingLoading={pricingLoading}
+              pricing={pricing}
+              selectedAmount={selectedAmount}
+              selectedPriorityEta={selectedPriorityEta}
+              draftEmail={draftEmail}
+              draftEmailLocked={draftEmailLocked}
+              draftSending={draftSending}
+              draftSent={draftSent}
+              draftSuccessMessage={draftSuccessMessage}
+              onDraftEmailChange={setDraftEmail}
+              onUnlockDraftEmail={() => setDraftEmailLocked(false)}
+              onBack={() => setStage('priority_selection')}
+              onSend={handleSendDraftLink}
+            />
+          ) : (
+            <StepPaymentAuth
+              flow={flow}
+              fullName={fullName}
+              birthdate={birthdate}
+              itemsCount={items.length}
+              filesCount={files.length}
+              priority={priority}
+              pricingLoading={pricingLoading}
+              pricing={pricing}
+              selectedAmount={selectedAmount}
+              selectedPriorityEta={selectedPriorityEta}
+              paymentsConfig={paymentsConfig}
+              preparedSubmission={preparedSubmission}
+              onBack={() => setStage('priority_selection')}
+              onAuthorized={handlePaymentAuthorized}
+            />
+          )
+        ) : null}
 
-            {stage === 'done' && submissionResult ? (
-              <StepSuccess
-                submissionResult={submissionResult}
-                copiedUid={copiedUid}
-                patientPortalUrl={patientPortalUrl}
-                onCopyUid={copyUid}
-                onReset={resetToChoose}
-              />
-            ) : null}
-          </div>
-        </div>
+        {stage === 'done' && submissionResult ? (
+          <StepSuccess
+            submissionResult={submissionResult}
+            copiedUid={copiedUid}
+            patientPortalUrl={patientPortalUrl}
+            onCopyUid={copyUid}
+            onReset={resetToChoose}
+          />
+        ) : null}
       </div>
     </div>
   );

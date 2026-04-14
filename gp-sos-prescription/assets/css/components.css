@@ -3,7 +3,7 @@
  * Composants réutilisables shell + landing.
  */
 
-:where(body.sp-context-public, .sp-shell) .sp-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card, :where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card{
+body.sp-context-public .sp-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card, body.sp-context-public .sp-proof-item, body.sp-context-public .sp-widget-card, body.sp-context-public .sp-final-cta-card{
   position: relative;
   background: var(--sp-shell-color-surface);
   border: 1px solid var(--sp-shell-border);
@@ -11,25 +11,25 @@
   box-shadow: var(--sp-shell-shadow-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card, :where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card{
+body.sp-context-public .sp-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card, body.sp-context-public .sp-proof-item, body.sp-context-public .sp-widget-card, body.sp-context-public .sp-final-cta-card{
   padding: var(--sp-shell-space-5);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card > :last-child, :where(body.sp-context-public, .sp-shell) .sp-price-card > :last-child, :where(body.sp-context-public, .sp-shell) .sp-step-card > :last-child, :where(body.sp-context-public, .sp-shell) .sp-trust-card > :last-child, :where(body.sp-context-public, .sp-shell) .sp-proof-item > :last-child, :where(body.sp-context-public, .sp-shell) .sp-widget-card > :last-child, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card > :last-child{
+body.sp-context-public .sp-card > :last-child, body.sp-context-public .sp-price-card > :last-child, body.sp-context-public .sp-step-card > :last-child, body.sp-context-public .sp-trust-card > :last-child, body.sp-context-public .sp-proof-item > :last-child, body.sp-context-public .sp-widget-card > :last-child, body.sp-context-public .sp-final-cta-card > :last-child{
   margin-bottom: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--raised, :where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured{
+body.sp-context-public .sp-card--raised, body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured{
   box-shadow: var(--sp-shell-shadow-2);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured{
+body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured{
   border-color: rgba(15, 108, 189, 0.22);
   background:
     linear-gradient(180deg, rgba(232, 243, 255, 0.5) 0%, rgba(255, 255, 255, 1) 30%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--accent::before, :where(body.sp-context-public, .sp-shell) .sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent::before{
+body.sp-context-public .sp-card--accent::before, body.sp-context-public .sp-card--featured::before, body.sp-context-public .sp-widget-card--accent::before{
   content: "";
   position: absolute;
   inset: 0 auto auto 0;
@@ -39,18 +39,18 @@
   background: linear-gradient(90deg, var(--sp-shell-color-accent), rgba(15, 108, 189, 0.45));
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card-title, :where(body.sp-context-public, .sp-shell) .sp-card__title{
+body.sp-context-public .sp-card-title, body.sp-context-public .sp-card__title{
   margin: 0 0 var(--sp-shell-space-2);
   font-size: var(--sp-shell-text-lg);
   font-weight: 700;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card-subtitle, :where(body.sp-context-public, .sp-shell) .sp-card__subtitle{
+body.sp-context-public .sp-card-subtitle, body.sp-context-public .sp-card__subtitle{
   color: var(--sp-shell-muted);
   font-size: var(--sp-shell-text-sm);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card__eyebrow, :where(body.sp-context-public, .sp-shell) .sp-eyebrow, :where(body.sp-context-public, .sp-shell) .sp-overline{
+body.sp-context-public .sp-card__eyebrow, body.sp-context-public .sp-eyebrow, body.sp-context-public .sp-overline{
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -62,7 +62,7 @@
   color: var(--sp-shell-color-text-3);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button, :where(body.sp-context-public, .sp-shell) .sp-btn, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .wp-element-button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a, :where(body.sp-context-public, .sp-shell) .sp-widget-card__actions .button{
+body.sp-context-public .sp-button, body.sp-context-public .sp-btn, body.sp-context-public .sp-nav-cta .button, body.sp-context-public .sp-nav-cta .wp-element-button, body.sp-context-public .sp-nav-cta a, body.sp-context-public .sp-widget-card__actions .button{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -84,70 +84,70 @@
     transform var(--sp-shell-motion-fast) var(--sp-shell-ease-press);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button:hover, :where(body.sp-context-public, .sp-shell) .sp-btn:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a:hover{
+body.sp-context-public .sp-button:hover, body.sp-context-public .sp-btn:hover, body.sp-context-public .sp-nav-cta .button:hover, body.sp-context-public .sp-nav-cta a:hover{
   text-decoration: none;
   transform: translateY(-1px);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button:active, :where(body.sp-context-public, .sp-shell) .sp-btn:active, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button:active, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a:active{
+body.sp-context-public .sp-button:active, body.sp-context-public .sp-btn:active, body.sp-context-public .sp-nav-cta .button:active, body.sp-context-public .sp-nav-cta a:active{
   transform: translateY(0);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button[disabled], :where(body.sp-context-public, .sp-shell) .sp-btn[disabled], :where(body.sp-context-public, .sp-shell) .sp-button.disabled, :where(body.sp-context-public, .sp-shell) .sp-btn.disabled{
+body.sp-context-public .sp-button[disabled], body.sp-context-public .sp-btn[disabled], body.sp-context-public .sp-button.disabled, body.sp-context-public .sp-btn.disabled{
   opacity: 0.55;
   cursor: not-allowed;
   pointer-events: none;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--primary, :where(body.sp-context-public, .sp-shell) .sp-btn-primary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary a, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary .button{
+body.sp-context-public .sp-button--primary, body.sp-context-public .sp-btn-primary, body.sp-context-public .sp-nav-cta--primary, body.sp-context-public .sp-nav-cta--primary a, body.sp-context-public .sp-nav-cta--primary .button{
   background: var(--sp-shell-primary);
   border-color: var(--sp-shell-primary);
   color: #ffffff;
   box-shadow: 0 10px 20px rgba(15, 108, 189, 0.14);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--primary:hover, :where(body.sp-context-public, .sp-shell) .sp-btn-primary:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary a:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary .button:hover{
+body.sp-context-public .sp-button--primary:hover, body.sp-context-public .sp-btn-primary:hover, body.sp-context-public .sp-nav-cta--primary a:hover, body.sp-context-public .sp-nav-cta--primary .button:hover{
   background: var(--sp-shell-color-accent-hover);
   border-color: var(--sp-shell-color-accent-hover);
   color: #ffffff;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--secondary, :where(body.sp-context-public, .sp-shell) .sp-btn-secondary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary a, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary .button{
+body.sp-context-public .sp-button--secondary, body.sp-context-public .sp-btn-secondary, body.sp-context-public .sp-nav-cta--secondary, body.sp-context-public .sp-nav-cta--secondary a, body.sp-context-public .sp-nav-cta--secondary .button{
   background: var(--sp-shell-color-surface);
   border-color: var(--sp-shell-border-strong);
   color: var(--sp-shell-color-text-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--secondary:hover, :where(body.sp-context-public, .sp-shell) .sp-btn-secondary:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary a:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary .button:hover{
+body.sp-context-public .sp-button--secondary:hover, body.sp-context-public .sp-btn-secondary:hover, body.sp-context-public .sp-nav-cta--secondary a:hover, body.sp-context-public .sp-nav-cta--secondary .button:hover{
   background: var(--sp-shell-color-surface-alt);
   border-color: var(--sp-shell-border);
   color: var(--sp-shell-color-text-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--ghost, :where(body.sp-context-public, .sp-shell) .sp-btn-ghost{
+body.sp-context-public .sp-button--ghost, body.sp-context-public .sp-btn-ghost{
   background: transparent;
   border-color: transparent;
   color: var(--sp-shell-primary-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--ghost:hover, :where(body.sp-context-public, .sp-shell) .sp-btn-ghost:hover{
+body.sp-context-public .sp-button--ghost:hover, body.sp-context-public .sp-btn-ghost:hover{
   background: var(--sp-shell-color-accent-soft);
   color: var(--sp-shell-primary-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--danger, :where(body.sp-context-public, .sp-shell) .sp-btn-danger{
+body.sp-context-public .sp-button--danger, body.sp-context-public .sp-btn-danger{
   background: var(--sp-shell-color-danger);
   border-color: var(--sp-shell-color-danger);
   color: #ffffff;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--danger:hover, :where(body.sp-context-public, .sp-shell) .sp-btn-danger:hover{
+body.sp-context-public .sp-button--danger:hover, body.sp-context-public .sp-btn-danger:hover{
   background: #a92c2c;
   border-color: #a92c2c;
   color: #ffffff;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip, :where(body.sp-context-public, .sp-shell) .sp-badge, :where(body.sp-context-public, .sp-shell) .sp-price-badge{
+body.sp-context-public .sp-chip, body.sp-context-public .sp-badge, body.sp-context-public .sp-price-badge{
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -163,31 +163,31 @@
   white-space: nowrap;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip--accent, :where(body.sp-context-public, .sp-shell) .sp-badge--accent, :where(body.sp-context-public, .sp-shell) .sp-price-badge{
+body.sp-context-public .sp-chip--accent, body.sp-context-public .sp-badge--accent, body.sp-context-public .sp-price-badge{
   background: var(--sp-shell-color-accent-soft);
   border-color: rgba(15, 108, 189, 0.16);
   color: var(--sp-shell-primary-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip--success, :where(body.sp-context-public, .sp-shell) .sp-badge-success{
+body.sp-context-public .sp-chip--success, body.sp-context-public .sp-badge-success{
   background: var(--sp-shell-color-success-soft);
   border-color: var(--sp-shell-color-success-border);
   color: var(--sp-shell-color-success-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip--warning, :where(body.sp-context-public, .sp-shell) .sp-badge-warn{
+body.sp-context-public .sp-chip--warning, body.sp-context-public .sp-badge-warn{
   background: var(--sp-shell-color-warning-soft);
   border-color: var(--sp-shell-color-warning-border);
   color: var(--sp-shell-color-warning-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip--danger, :where(body.sp-context-public, .sp-shell) .sp-badge-danger{
+body.sp-context-public .sp-chip--danger, body.sp-context-public .sp-badge-danger{
   background: var(--sp-shell-color-danger-soft);
   border-color: var(--sp-shell-color-danger-border);
   color: var(--sp-shell-color-danger-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-dot{
+body.sp-context-public .sp-dot{
   width: 0.5rem;
   height: 0.5rem;
   flex: 0 0 auto;
@@ -195,12 +195,12 @@
   background: var(--sp-shell-muted);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-dot-online{
+body.sp-context-public .sp-dot-online{
   background: var(--sp-shell-color-success);
   box-shadow: 0 0 0 4px rgba(15, 159, 110, 0.12);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert{
+body.sp-context-public .sp-alert{
   padding: 0.9rem 1rem;
   border: 1px solid var(--sp-shell-border);
   border-radius: var(--sp-shell-radius-md);
@@ -209,62 +209,62 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert + .sp-alert{
+body.sp-context-public .sp-alert + .sp-alert{
   margin-top: var(--sp-shell-space-3);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert-title{
+body.sp-context-public .sp-alert-title{
   margin: 0 0 0.3rem;
   font-size: var(--sp-shell-text-sm);
   font-weight: 700;
   color: inherit;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert-error{
+body.sp-context-public .sp-alert-error{
   border-color: var(--sp-shell-color-danger-border);
   background: var(--sp-shell-color-danger-soft);
   color: var(--sp-shell-color-danger-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert-success{
+body.sp-context-public .sp-alert-success{
   border-color: var(--sp-shell-color-success-border);
   background: var(--sp-shell-color-success-soft);
   color: var(--sp-shell-color-success-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert-warn{
+body.sp-context-public .sp-alert-warn{
   border-color: var(--sp-shell-color-warning-border);
   background: var(--sp-shell-color-warning-soft);
   color: var(--sp-shell-color-warning-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-field, :where(body.sp-context-public, .sp-shell) .sp-form-section{
+body.sp-context-public .sp-field, body.sp-context-public .sp-form-section{
   display: grid;
   gap: 0.5rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-form-section + .sp-form-section{
+body.sp-context-public .sp-form-section + .sp-form-section{
   margin-top: var(--sp-shell-space-5);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-field__label{
+body.sp-context-public .sp-field__label{
   font-size: var(--sp-shell-text-sm);
   font-weight: 700;
   color: var(--sp-shell-color-text-2);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-field__help, :where(body.sp-context-public, .sp-shell) .sp-inline-help, :where(body.sp-context-public, .sp-shell) .description{
+body.sp-context-public .sp-field__help, body.sp-context-public .sp-inline-help, body.sp-context-public .description{
   color: var(--sp-shell-muted);
   font-size: var(--sp-shell-text-sm);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-price-card{
+body.sp-context-public .sp-price-card{
   display: grid;
   gap: var(--sp-shell-space-4);
   align-content: start;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-price-card__amount, :where(body.sp-context-public, .sp-shell) .sp-price-card .sp-price-amount, :where(body.sp-context-public, .sp-shell) .sp-price-card .sp-price{
+body.sp-context-public .sp-price-card__amount, body.sp-context-public .sp-price-card .sp-price-amount, body.sp-context-public .sp-price-card .sp-price{
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
@@ -275,68 +275,68 @@
   color: var(--sp-shell-color-text-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-price-card__amount small, :where(body.sp-context-public, .sp-shell) .sp-price-card .sp-price-amount small, :where(body.sp-context-public, .sp-shell) .sp-price-card .sp-price small{
+body.sp-context-public .sp-price-card__amount small, body.sp-context-public .sp-price-card .sp-price-amount small, body.sp-context-public .sp-price-card .sp-price small{
   font-family: var(--sp-shell-font-body);
   font-size: var(--sp-shell-text-sm);
   color: var(--sp-shell-muted);
   font-weight: 600;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card{
+body.sp-context-public .sp-proof-item, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card{
   display: grid;
   gap: var(--sp-shell-space-2);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item__title, :where(body.sp-context-public, .sp-shell) .sp-step-card__title, :where(body.sp-context-public, .sp-shell) .sp-trust-card__title{
+body.sp-context-public .sp-proof-item__title, body.sp-context-public .sp-step-card__title, body.sp-context-public .sp-trust-card__title{
   margin: 0;
   font-size: var(--sp-shell-text-md);
   font-weight: 700;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item__body, :where(body.sp-context-public, .sp-shell) .sp-step-card__body, :where(body.sp-context-public, .sp-shell) .sp-trust-card__body{
+body.sp-context-public .sp-proof-item__body, body.sp-context-public .sp-step-card__body, body.sp-context-public .sp-trust-card__body{
   margin: 0;
   color: var(--sp-shell-muted);
   font-size: var(--sp-shell-text-sm);
 }
 
-:where(body.sp-context-public, .sp-shell) .widget.sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-widget-card{
+body.sp-context-public .widget.sp-widget-card, body.sp-context-public .sp-widget-card{
   display: grid;
   gap: var(--sp-shell-space-3);
   align-content: start;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card__title{
+body.sp-context-public .sp-widget-card__title{
   margin: 0;
   font-size: var(--sp-shell-text-lg);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card__body{
+body.sp-context-public .sp-widget-card__body{
   margin: 0;
   color: var(--sp-shell-muted);
   font-size: var(--sp-shell-text-sm);
   line-height: 1.55;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card__actions{
+body.sp-context-public .sp-widget-card__actions{
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: var(--sp-shell-space-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card--accent{
+body.sp-context-public .sp-widget-card--accent{
   background: linear-gradient(180deg, rgba(232, 243, 255, 0.55) 0%, rgba(255, 255, 255, 1) 100%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card--soft{
+body.sp-context-public .sp-widget-card--soft{
   background: linear-gradient(180deg, rgba(242, 246, 250, 0.78) 0%, rgba(255, 255, 255, 1) 100%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-widget-card--neutral{
+body.sp-context-public .sp-widget-card--neutral{
   background: var(--sp-shell-color-surface);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-empty-state{
+body.sp-context-public .sp-empty-state{
   padding: var(--sp-shell-space-5);
   border: 1px dashed var(--sp-shell-border-strong);
   border-radius: var(--sp-shell-radius-lg);
@@ -345,7 +345,7 @@
   text-align: center;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-checklist, :where(body.sp-context-public, .sp-shell) .sp-usecase-list, :where(body.sp-context-public, .sp-shell) .sp-diff-list{
+body.sp-context-public .sp-checklist, body.sp-context-public .sp-usecase-list, body.sp-context-public .sp-diff-list{
   list-style: none;
   padding: 0;
   margin: 0;
@@ -353,47 +353,47 @@
   gap: 0.8rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-checklist li, :where(body.sp-context-public, .sp-shell) .sp-usecase-list li, :where(body.sp-context-public, .sp-shell) .sp-diff-list li{
+body.sp-context-public .sp-checklist li, body.sp-context-public .sp-usecase-list li, body.sp-context-public .sp-diff-list li{
   display: flex;
   align-items: flex-start;
   gap: 0.7rem;
   line-height: 1.5;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-checklist li::before, :where(body.sp-context-public, .sp-shell) .sp-usecase-list li::before, :where(body.sp-context-public, .sp-shell) .sp-diff-list li::before{
+body.sp-context-public .sp-checklist li::before, body.sp-context-public .sp-usecase-list li::before, body.sp-context-public .sp-diff-list li::before{
   content: "•";
   margin-top: -0.05rem;
   color: var(--sp-shell-primary);
   font-weight: 700;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-usecase-card--no .sp-usecase-list li::before{
+body.sp-context-public .sp-usecase-card--no .sp-usecase-list li::before{
   color: var(--sp-shell-color-warning);
 }
 
 @media (max-width: 768px) {
-  :where(body.sp-context-public, .sp-shell) .sp-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card, :where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card{
+  body.sp-context-public .sp-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card, body.sp-context-public .sp-proof-item, body.sp-context-public .sp-widget-card, body.sp-context-public .sp-final-cta-card{
     padding: var(--sp-shell-space-4);
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-button, :where(body.sp-context-public, .sp-shell) .sp-btn{
+  body.sp-context-public .sp-button, body.sp-context-public .sp-btn{
     width: 100%;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-widget-card__actions{
+  body.sp-context-public .sp-widget-card__actions{
     flex-direction: column;
   }
 }
 
 
 /* V2.2 : accent cards clipping */
-:where(body.sp-context-public, .sp-shell) .sp-card--accent, :where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent{
+body.sp-context-public .sp-card--accent, body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured, body.sp-context-public .sp-widget-card--accent{
   overflow: hidden;
   isolation: isolate;
   background-clip: padding-box;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--accent::before, :where(body.sp-context-public, .sp-shell) .sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent::before{
+body.sp-context-public .sp-card--accent::before, body.sp-context-public .sp-card--featured::before, body.sp-context-public .sp-price-card.sp-card--featured::before, body.sp-context-public .sp-widget-card--accent::before{
   content: "";
   position: absolute;
   top: -1px;
@@ -407,14 +407,14 @@
   z-index: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--accent > *, :where(body.sp-context-public, .sp-shell) .sp-card--featured > *, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured > *, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent > *{
+body.sp-context-public .sp-card--accent > *, body.sp-context-public .sp-card--featured > *, body.sp-context-public .sp-price-card.sp-card--featured > *, body.sp-context-public .sp-widget-card--accent > *{
   position: relative;
   z-index: 1;
 }
 
 
 /* V2.3 : icônes Dashicons + alignements CTA */
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+body.sp-context-public .sp-icon-badge{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -427,32 +427,32 @@
   color: var(--sp-shell-primary);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge .dashicons{
+body.sp-context-public .sp-icon-badge .dashicons{
   width: 1.2rem;
   height: 1.2rem;
   font-size: 1.2rem;
   line-height: 1.2rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item--icon, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon{
+body.sp-context-public .sp-proof-item--icon, body.sp-context-public .sp-trust-card--icon{
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 0.95rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item--icon strong, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon strong{
+body.sp-context-public .sp-proof-item--icon strong, body.sp-context-public .sp-trust-card--icon strong{
   display: block;
   margin: 0 0 0.2rem;
   font-size: var(--sp-shell-text-md);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item--icon p, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon p{
+body.sp-context-public .sp-proof-item--icon p, body.sp-context-public .sp-trust-card--icon p{
   margin: 0;
   color: var(--sp-shell-muted);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-step-card__top{
+body.sp-context-public .sp-step-card__top{
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -460,33 +460,33 @@
   margin-bottom: 0.15rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-diff-point{
+body.sp-context-public .sp-diff-point{
   display: flex;
   align-items: center;
   gap: 0.75rem;
   min-width: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-diff-point span:last-child{
+body.sp-context-public .sp-diff-point span:last-child{
   min-width: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card{
+body.sp-context-public .sp-cta-card{
   display: flex;
   flex-direction: column;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card .sp-button, :where(body.sp-context-public, .sp-shell) .sp-cta-card .wp-block-button__link{
+body.sp-context-public .sp-cta-card .sp-button, body.sp-context-public .sp-cta-card .wp-block-button__link{
   margin-top: auto;
 }
 
 @media (max-width: 768px) {
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+  body.sp-context-public .sp-icon-badge{
     width: 2.1rem;
     height: 2.1rem;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge .dashicons{
+  body.sp-context-public .sp-icon-badge .dashicons{
     width: 1.05rem;
     height: 1.05rem;
     font-size: 1.05rem;
@@ -496,14 +496,14 @@
 
 
 /* V2.4 : Lucide icons + surgical featured accents */
-:where(body.sp-context-public, .sp-shell) .sp-card--accent, :where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent{
+body.sp-context-public .sp-card--accent, body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured, body.sp-context-public .sp-widget-card--accent{
   position: relative;
   overflow: hidden;
   isolation: isolate;
   background-clip: padding-box;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--accent::before, :where(body.sp-context-public, .sp-shell) .sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent::before{
+body.sp-context-public .sp-card--accent::before, body.sp-context-public .sp-card--featured::before, body.sp-context-public .sp-price-card.sp-card--featured::before, body.sp-context-public .sp-widget-card--accent::before{
   content: "";
   position: absolute;
   top: 0;
@@ -517,12 +517,12 @@
   z-index: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--accent > *, :where(body.sp-context-public, .sp-shell) .sp-card--featured > *, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured > *, :where(body.sp-context-public, .sp-shell) .sp-widget-card--accent > *{
+body.sp-context-public .sp-card--accent > *, body.sp-context-public .sp-card--featured > *, body.sp-context-public .sp-price-card.sp-card--featured > *, body.sp-context-public .sp-widget-card--accent > *{
   position: relative;
   z-index: 1;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+body.sp-context-public .sp-icon-badge{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -535,39 +535,39 @@
   color: var(--sp-shell-primary-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge--soft{
+body.sp-context-public .sp-icon-badge--soft{
   background: rgba(255, 255, 255, 0.74);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm{
+body.sp-context-public .sp-icon-badge--sm{
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 0.9rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge .sp-lucide, :where(body.sp-context-public, .sp-shell) .sp-icon-inline svg, :where(body.sp-context-public, .sp-shell) .sp-icon-inline .sp-lucide{
+body.sp-context-public .sp-icon-badge svg, body.sp-context-public .sp-icon-badge .sp-lucide, body.sp-context-public .sp-icon-inline svg, body.sp-context-public .sp-icon-inline .sp-lucide{
   width: 1.28rem;
   height: 1.28rem;
   stroke: currentColor;
   stroke-width: 1.75;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm .sp-lucide{
+body.sp-context-public .sp-icon-badge--sm svg, body.sp-context-public .sp-icon-badge--sm .sp-lucide{
   width: 1.1rem;
   height: 1.1rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item--icon, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon, :where(body.sp-context-public, .sp-shell) .sp-diff-chip{
+body.sp-context-public .sp-proof-item--icon, body.sp-context-public .sp-trust-card--icon, body.sp-context-public .sp-diff-chip{
   display: flex;
   align-items: flex-start;
   gap: 0.95rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item--icon > div, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon > div, :where(body.sp-context-public, .sp-shell) .sp-diff-chip > div{
+body.sp-context-public .sp-proof-item--icon > div, body.sp-context-public .sp-trust-card--icon > div, body.sp-context-public .sp-diff-chip > div{
   min-width: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-diff-chip{
+body.sp-context-public .sp-diff-chip{
   min-height: 100%;
   padding: 1rem 1.1rem;
   border: 1px solid var(--sp-shell-border);
@@ -576,34 +576,34 @@
   box-shadow: var(--sp-shell-shadow-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-diff-chip strong{
+body.sp-context-public .sp-diff-chip strong{
   display: block;
   margin: 0 0 0.2rem;
   font-size: var(--sp-shell-text-sm);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-diff-chip p, :where(body.sp-context-public, .sp-shell) .sp-trust-card--icon p, :where(body.sp-context-public, .sp-shell) .sp-proof-item--icon p{
+body.sp-context-public .sp-diff-chip p, body.sp-context-public .sp-trust-card--icon p, body.sp-context-public .sp-proof-item--icon p{
   margin: 0;
   color: var(--sp-shell-muted);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card{
+body.sp-context-public .sp-cta-card{
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card .sp-button, :where(body.sp-context-public, .sp-shell) .sp-cta-card .wp-block-button__link{
+body.sp-context-public .sp-cta-card .sp-button, body.sp-context-public .sp-cta-card .wp-block-button__link{
   margin-top: auto;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-step-card{
+body.sp-context-public .sp-step-card{
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-step-card__number{
+body.sp-context-public .sp-step-card__number{
   width: 2.65rem;
   height: 2.65rem;
   font-size: 1.05rem;
@@ -611,13 +611,13 @@
 }
 
 @media (max-width: 768px) {
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+  body.sp-context-public .sp-icon-badge{
     width: 2.35rem;
     height: 2.35rem;
     border-radius: 0.85rem;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge .sp-lucide{
+  body.sp-context-public .sp-icon-badge svg, body.sp-context-public .sp-icon-badge .sp-lucide{
     width: 1.12rem;
     height: 1.12rem;
   }
@@ -625,12 +625,12 @@
 
 
 /* V2.4.1 : Featured accents + CTA alignment polish */
-:where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured{
+body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured{
   overflow: hidden;
   border-top: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured::before{
+body.sp-context-public .sp-card--featured::before, body.sp-context-public .sp-price-card.sp-card--featured::before{
   content: "";
   position: absolute;
   top: 0;
@@ -644,50 +644,50 @@
   z-index: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card{
+body.sp-context-public .sp-cta-card{
   display: flex;
   flex-direction: column;
   min-height: 100%;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card > :last-child{
+body.sp-context-public .sp-cta-card > :last-child{
   margin-bottom: 0;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card .sp-button, :where(body.sp-context-public, .sp-shell) .sp-cta-card .wp-block-button__link{
+body.sp-context-public .sp-cta-card .sp-button, body.sp-context-public .sp-cta-card .wp-block-button__link{
   margin-top: auto;
 }
 
 
 /* V2.4.2 : CTA grid surgical alignment */
-:where(body.sp-context-public, .sp-shell) .sp-cta-card{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--sp-shell-space-3);align-content:start;min-height:100%;}
-:where(body.sp-context-public, .sp-shell) .sp-cta-card > :last-child{margin-bottom:0;}
-:where(body.sp-context-public, .sp-shell) .sp-cta-card h3{margin-bottom:0;line-height:1.04;}
-:where(body.sp-context-public, .sp-shell) .sp-cta-card p{margin-bottom:0;align-self:start;color:var(--sp-shell-muted);}
-:where(body.sp-context-public, .sp-shell) .sp-cta-card .sp-button, :where(body.sp-context-public, .sp-shell) .sp-cta-card .wp-block-button__link{margin-top:var(--sp-shell-space-4);align-self:stretch;justify-content:center;}
-@media (max-width: 900px){:where(body.sp-context-public, .sp-shell) .sp-cta-card{grid-template-rows:auto auto auto auto;}}
+body.sp-context-public .sp-cta-card{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--sp-shell-space-3);align-content:start;min-height:100%;}
+body.sp-context-public .sp-cta-card > :last-child{margin-bottom:0;}
+body.sp-context-public .sp-cta-card h3{margin-bottom:0;line-height:1.04;}
+body.sp-context-public .sp-cta-card p{margin-bottom:0;align-self:start;color:var(--sp-shell-muted);}
+body.sp-context-public .sp-cta-card .sp-button, body.sp-context-public .sp-cta-card .wp-block-button__link{margin-top:var(--sp-shell-space-4);align-self:stretch;justify-content:center;}
+@media (max-width: 900px){body.sp-context-public .sp-cta-card{grid-template-rows:auto auto auto auto;}}
 
 /* V2.4.3 : card rhythm and cleaner featured accents */
-:where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured{
+body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured{
   background: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(248, 251, 255, 1) 100%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--featured::before, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured::before{
+body.sp-context-public .sp-card--featured::before, body.sp-context-public .sp-price-card.sp-card--featured::before{
   height: 6px;
   background: linear-gradient(90deg, var(--sp-shell-color-accent), rgba(15, 108, 189, 0.82));
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card{
+body.sp-context-public .sp-proof-item, body.sp-context-public .sp-step-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-final-cta-card{
   border-color: rgba(203, 213, 225, 0.78);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-cta-card .sp-chip{
+body.sp-context-public .sp-cta-card .sp-chip{
   margin-bottom: var(--sp-shell-space-1);
 }
 
 
 /* V2.4.4 : icon scale + tactile polish */
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+body.sp-context-public .sp-icon-badge{
   width: 3rem;
   height: 3rem;
   border-radius: 1rem;
@@ -695,24 +695,24 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge .sp-lucide, :where(body.sp-context-public, .sp-shell) .sp-icon-inline svg, :where(body.sp-context-public, .sp-shell) .sp-icon-inline .sp-lucide{
+body.sp-context-public .sp-icon-badge svg, body.sp-context-public .sp-icon-badge .sp-lucide, body.sp-context-public .sp-icon-inline svg, body.sp-context-public .sp-icon-inline .sp-lucide{
   width: 1.42rem;
   height: 1.42rem;
   stroke-width: 1.85;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm{
+body.sp-context-public .sp-icon-badge--sm{
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 0.95rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm .sp-lucide{
+body.sp-context-public .sp-icon-badge--sm svg, body.sp-context-public .sp-icon-badge--sm .sp-lucide{
   width: 1.18rem;
   height: 1.18rem;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-step-card .sp-icon-badge--soft{
+body.sp-context-public .sp-step-card .sp-icon-badge--soft{
   width: 3.65rem;
   height: 3.65rem;
   border-radius: 1.1rem;
@@ -721,22 +721,22 @@
 }
 
 @media (max-width: 768px) {
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge{
+  body.sp-context-public .sp-icon-badge{
     width: 2.6rem;
     height: 2.6rem;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge .sp-lucide{
+  body.sp-context-public .sp-icon-badge svg, body.sp-context-public .sp-icon-badge .sp-lucide{
     width: 1.18rem;
     height: 1.18rem;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm{
+  body.sp-context-public .sp-icon-badge--sm{
     width: 2.2rem;
     height: 2.2rem;
   }
 
-  :where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm svg, :where(body.sp-context-public, .sp-shell) .sp-icon-badge--sm .sp-lucide{
+  body.sp-context-public .sp-icon-badge--sm svg, body.sp-context-public .sp-icon-badge--sm .sp-lucide{
     width: 1.02rem;
     height: 1.02rem;
   }
@@ -744,45 +744,45 @@
 
 
 /* V2.4.15 - Caméléon authority layer */
-:where(body.sp-context-public, .sp-shell) .sp-button, :where(body.sp-context-public, .sp-shell) .sp-btn, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .wp-element-button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a, :where(body.sp-context-public, .sp-shell) .sp-widget-card__actions .button{
+body.sp-context-public .sp-button, body.sp-context-public .sp-btn, body.sp-context-public .sp-nav-cta .button, body.sp-context-public .sp-nav-cta .wp-element-button, body.sp-context-public .sp-nav-cta a, body.sp-context-public .sp-widget-card__actions .button{
   border-radius: var(--sp-shell-radius-md);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-price-badge{
+body.sp-context-public .sp-price-badge{
   background: var(--sp-shell-color-accent-soft);
   border-color: color-mix(in srgb, var(--sp-shell-color-accent) 18%, transparent);
   color: var(--sp-shell-color-accent-ink);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip--priority, :where(body.sp-context-public, .sp-shell) .sp-price-badge--priority{
+body.sp-context-public .sp-chip--priority, body.sp-context-public .sp-price-badge--priority{
   background: color-mix(in srgb, var(--sp-shell-brand-priority) 12%, var(--sp-shell-color-surface));
   border-color: color-mix(in srgb, var(--sp-shell-brand-priority) 28%, transparent);
   color: color-mix(in srgb, var(--sp-shell-brand-priority) 72%, var(--sp-shell-color-text-1) 28%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--gold, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--gold{
+body.sp-context-public .sp-card--gold, body.sp-context-public .sp-price-card.sp-card--gold{
   border-color: color-mix(in srgb, var(--sp-shell-brand-priority) 28%, transparent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-brand-priority) 12%, var(--sp-shell-color-surface)) 0%, var(--sp-shell-color-surface) 32%);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--gold::before, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--gold::before{
+body.sp-context-public .sp-card--gold::before, body.sp-context-public .sp-price-card.sp-card--gold::before{
   background: linear-gradient(90deg, var(--sp-shell-brand-priority), color-mix(in srgb, var(--sp-shell-brand-priority) 70%, var(--sp-shell-color-surface) 30%));
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card, :where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card, :where(body.sp-context-public, .sp-shell) .sp-faq-item{
+body.sp-context-public .sp-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card, body.sp-context-public .sp-proof-item, body.sp-context-public .sp-widget-card, body.sp-context-public .sp-final-cta-card, body.sp-context-public .sp-faq-item{
   transition:
     transform var(--sp-shell-motion-base) var(--sp-shell-ease-standard),
     box-shadow var(--sp-shell-motion-base) var(--sp-shell-ease-standard),
     border-color var(--sp-shell-motion-base) var(--sp-shell-ease-standard);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card:hover, :where(body.sp-context-public, .sp-shell) .sp-price-card:hover, :where(body.sp-context-public, .sp-shell) .sp-step-card:hover, :where(body.sp-context-public, .sp-shell) .sp-trust-card:hover, :where(body.sp-context-public, .sp-shell) .sp-proof-item:hover, :where(body.sp-context-public, .sp-shell) .sp-widget-card:hover, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card:hover, :where(body.sp-context-public, .sp-shell) .sp-faq-item:hover{
+body.sp-context-public .sp-card:hover, body.sp-context-public .sp-price-card:hover, body.sp-context-public .sp-step-card:hover, body.sp-context-public .sp-trust-card:hover, body.sp-context-public .sp-proof-item:hover, body.sp-context-public .sp-widget-card:hover, body.sp-context-public .sp-final-cta-card:hover, body.sp-context-public .sp-faq-item:hover{
   transform: translateY(-4px);
   box-shadow: var(--sp-shell-shadow-2);
 }
 
 /* --- v4.8.0 · Diamond Grade surfaces, controls and badges --- */
-:where(body.sp-context-public, .sp-shell) .sp-card, :where(body.sp-context-public, .sp-shell) .sp-price-card, :where(body.sp-context-public, .sp-shell) .sp-step-card, :where(body.sp-context-public, .sp-shell) .sp-trust-card, :where(body.sp-context-public, .sp-shell) .sp-proof-item, :where(body.sp-context-public, .sp-shell) .sp-widget-card, :where(body.sp-context-public, .sp-shell) .sp-final-cta-card{
+body.sp-context-public .sp-card, body.sp-context-public .sp-price-card, body.sp-context-public .sp-step-card, body.sp-context-public .sp-trust-card, body.sp-context-public .sp-proof-item, body.sp-context-public .sp-widget-card, body.sp-context-public .sp-final-cta-card{
   border: var(--sp-shell-border-hairline);
   background: linear-gradient(
     180deg,
@@ -794,34 +794,34 @@
   -webkit-backdrop-filter: var(--sp-shell-glass-effect);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card--raised, :where(body.sp-context-public, .sp-shell) .sp-card--featured, :where(body.sp-context-public, .sp-shell) .sp-price-card.sp-card--featured{
+body.sp-context-public .sp-card--raised, body.sp-context-public .sp-card--featured, body.sp-context-public .sp-price-card.sp-card--featured{
   box-shadow: var(--sp-shell-shadow-premium-lg);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card-title, :where(body.sp-context-public, .sp-shell) .sp-card__title{
+body.sp-context-public .sp-card-title, body.sp-context-public .sp-card__title{
   letter-spacing: var(--sp-shell-letter-spacing-title);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-card-subtitle, :where(body.sp-context-public, .sp-shell) .sp-card__subtitle, :where(body.sp-context-public, .sp-shell) .sp-field__help, :where(body.sp-context-public, .sp-shell) .sp-inline-help, :where(body.sp-context-public, .sp-shell) .description{
+body.sp-context-public .sp-card-subtitle, body.sp-context-public .sp-card__subtitle, body.sp-context-public .sp-field__help, body.sp-context-public .sp-inline-help, body.sp-context-public .description{
   color: var(--sp-shell-color-text-3);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button, :where(body.sp-context-public, .sp-shell) .sp-btn, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .wp-element-button, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a, :where(body.sp-context-public, .sp-shell) .sp-widget-card__actions .button{
+body.sp-context-public .sp-button, body.sp-context-public .sp-btn, body.sp-context-public .sp-nav-cta .button, body.sp-context-public .sp-nav-cta .wp-element-button, body.sp-context-public .sp-nav-cta a, body.sp-context-public .sp-widget-card__actions .button{
   border: var(--sp-shell-border-hairline);
   box-shadow: var(--sp-shell-shadow-contact), inset 0 1px 0 rgba(255, 255, 255, 0.75);
   backdrop-filter: var(--sp-shell-glass-effect);
   -webkit-backdrop-filter: var(--sp-shell-glass-effect);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button:hover, :where(body.sp-context-public, .sp-shell) .sp-btn:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button:hover, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a:hover{
+body.sp-context-public .sp-button:hover, body.sp-context-public .sp-btn:hover, body.sp-context-public .sp-nav-cta .button:hover, body.sp-context-public .sp-nav-cta a:hover{
   box-shadow: var(--sp-shell-shadow-contact), var(--sp-shell-shadow-1);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button:active, :where(body.sp-context-public, .sp-shell) .sp-btn:active, :where(body.sp-context-public, .sp-shell) .sp-nav-cta .button:active, :where(body.sp-context-public, .sp-shell) .sp-nav-cta a:active{
+body.sp-context-public .sp-button:active, body.sp-context-public .sp-btn:active, body.sp-context-public .sp-nav-cta .button:active, body.sp-context-public .sp-nav-cta a:active{
   transform: translateY(0) scale(0.98);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--primary, :where(body.sp-context-public, .sp-shell) .sp-btn-primary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary a, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--primary .button{
+body.sp-context-public .sp-button--primary, body.sp-context-public .sp-btn-primary, body.sp-context-public .sp-nav-cta--primary, body.sp-context-public .sp-nav-cta--primary a, body.sp-context-public .sp-nav-cta--primary .button{
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--sp-shell-color-accent) 88%, white 12%) 0%,
@@ -833,16 +833,16 @@
     0 16px 32px color-mix(in srgb, var(--sp-shell-color-accent) 24%, transparent);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--secondary, :where(body.sp-context-public, .sp-shell) .sp-btn-secondary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary a, :where(body.sp-context-public, .sp-shell) .sp-nav-cta--secondary .button{
+body.sp-context-public .sp-button--secondary, body.sp-context-public .sp-btn-secondary, body.sp-context-public .sp-nav-cta--secondary, body.sp-context-public .sp-nav-cta--secondary a, body.sp-context-public .sp-nav-cta--secondary .button{
   background: color-mix(in srgb, var(--sp-shell-color-surface) 92%, transparent);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-button--ghost, :where(body.sp-context-public, .sp-shell) .sp-btn-ghost{
+body.sp-context-public .sp-button--ghost, body.sp-context-public .sp-btn-ghost{
   background: color-mix(in srgb, var(--sp-shell-color-surface) 44%, transparent);
   border-color: transparent;
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-chip, :where(body.sp-context-public, .sp-shell) .sp-badge, :where(body.sp-context-public, .sp-shell) .sp-price-badge{
+body.sp-context-public .sp-chip, body.sp-context-public .sp-badge, body.sp-context-public .sp-price-badge{
   border: var(--sp-shell-border-hairline);
   background: linear-gradient(
     180deg,
@@ -853,13 +853,13 @@
   color: var(--sp-shell-color-text-2);
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge, .sp-badge-success, .sp-badge-warn, .sp-badge-danger, .dc-pill, .dc-pill-soft, .dc-pill-success, .dc-pill-warn, .dc-pill-danger){
+body.sp-context-public :is(.sp-badge, .sp-badge-success, .sp-badge-warn, .sp-badge-danger, .dc-pill, .dc-pill-soft, .dc-pill-success, .dc-pill-warn, .dc-pill-danger){
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge, .sp-badge-success, .sp-badge-warn, .sp-badge-danger, .dc-pill, .dc-pill-soft, .dc-pill-success, .dc-pill-warn, .dc-pill-danger)::before{
+body.sp-context-public :is(.sp-badge, .sp-badge-success, .sp-badge-warn, .sp-badge-danger, .dc-pill, .dc-pill-soft, .dc-pill-success, .dc-pill-warn, .dc-pill-danger)::before{
   content: "";
   display: inline-grid;
   place-items: center;
@@ -874,7 +874,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge, .dc-pill, .dc-pill-soft)::before{
+body.sp-context-public :is(.sp-badge, .dc-pill, .dc-pill-soft)::before{
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--sp-shell-color-accent) 72%, white 28%) 0%,
@@ -882,7 +882,7 @@
   );
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge-success, .dc-pill-success)::before{
+body.sp-context-public :is(.sp-badge-success, .dc-pill-success)::before{
   content: "✓";
   background: linear-gradient(
     180deg,
@@ -891,7 +891,7 @@
   );
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge-warn, .dc-pill-warn)::before{
+body.sp-context-public :is(.sp-badge-warn, .dc-pill-warn)::before{
   content: "•";
   font-size: 14px;
   transform: translateY(-1px);
@@ -902,7 +902,7 @@
   );
 }
 
-:where(body.sp-context-public, .sp-shell) :is(.sp-badge-danger, .dc-pill-danger)::before{
+body.sp-context-public :is(.sp-badge-danger, .dc-pill-danger)::before{
   content: "!";
   background: linear-gradient(
     180deg,
@@ -911,7 +911,7 @@
   );
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-dot{
+body.sp-context-public .sp-dot{
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--sp-shell-color-text-3) 76%, white 24%) 0%,
@@ -920,7 +920,7 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-text-1) 7%, transparent);
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-dot-online{
+body.sp-context-public .sp-dot-online{
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--sp-shell-color-success) 72%, white 28%) 0%,
@@ -928,7 +928,7 @@
   );
 }
 
-:where(body.sp-context-public, .sp-shell) .sp-alert{
+body.sp-context-public .sp-alert{
   border: var(--sp-shell-border-hairline);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), var(--sp-shell-shadow-contact);
 }

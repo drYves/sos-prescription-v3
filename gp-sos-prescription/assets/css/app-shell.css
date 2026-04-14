@@ -1187,3 +1187,60 @@ body.admin-bar .sp-console-bar {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* V6.4.1 — Rolebar parity and unified workspace rhythm */
+.sp-rolebar > .sp-container,
+.sp-console-bar > .sp-container {
+  width: min(calc(100% - (var(--sp-workspace-gutter, 24px) * 2)), var(--sp-workspace-max, 75rem));
+}
+
+.sp-rolebar__custom-slot,
+.sp-console-bar__custom-slot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sp-rolebar__custom-slot form,
+.sp-console-bar__custom-slot form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.sp-rolebar__custom-slot :is(button, .button, .sp-button, .sp-btn, input[type="submit"]),
+.sp-console-bar__custom-slot :is(button, .button, .sp-button, .sp-btn, input[type="submit"]) {
+  min-height: 2.5rem;
+  padding: 0.6rem 0.95rem;
+  border-radius: 999px;
+}
+
+.sp-rolebar__custom-slot :is(span, strong, em, small),
+.sp-console-bar__custom-slot :is(span, strong, em, small) {
+  line-height: 1.3;
+}
+
+.sp-rolebar__custom-slot :is(strong, .sp-badge, .sp-pill, .dc-pill),
+.sp-console-bar__custom-slot :is(strong, .sp-badge, .sp-pill, .dc-pill) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 14%, transparent);
+  background: color-mix(in srgb, var(--sp-color-accent-soft, #eff6ff) 60%, #ffffff 40%);
+  color: var(--sp-color-accent-ink, #0a4d87);
+}
+
+@media (max-width: 1080px) {
+  .sp-rolebar > .sp-container,
+  .sp-console-bar > .sp-container {
+    width: min(calc(100% - (var(--sp-workspace-gutter, 18px) * 2)), var(--sp-workspace-max, 75rem));
+  }
+}

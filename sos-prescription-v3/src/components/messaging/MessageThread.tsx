@@ -194,22 +194,10 @@ export default function MessageThread({
   );
 
   const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
-
-  const composerBaseId = useMemo(() => `sp-thread-composer-${String(prescriptionId || 'draft')}`, [prescriptionId]);
-  const composerTextareaId = `${composerBaseId}-textarea`;
-  const composerNoticeId = `${composerBaseId}-notice`;
-  const composerErrorId = `${composerBaseId}-error`;
-  const composerStatusId = `${composerBaseId}-status`;
-  const composerDescription = [
-    isReadOnly ? composerNoticeId : null,
-    localError ? composerErrorId : null,
-    composerStatusId,
-  ].filter(Boolean).join(' ') || undefined;
-  const composerStatusMessage = sending
-    ? 'Envoi du message en cours.'
-    : polishing
-      ? 'Aide à la rédaction en cours.'
-      : '';
+  const readOnlyNoticeId = useMemo(
+    () => (prescriptionId ? `sp-thread-readonly-notice-${prescriptionId}` : 'sp-thread-readonly-notice'),
+    [prescriptionId],
+  );
 
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
@@ -305,12 +293,12 @@ export default function MessageThread({
       </div>
 
       {loading && messages.length === 0 ? (
-        <div className="sp-loading-row" role="status" aria-live="polite">
+        <div className="sp-loading-row">
           <InlineSpinner />
           <span>Chargement…</span>
         </div>
       ) : messages.length === 0 ? (
-        <div className="sp-empty-note" role="status" aria-live="polite">{emptyText}</div>
+        <div className="sp-empty-note">{emptyText}</div>
       ) : (
         <MessageList
           messages={normalizedMessages}
@@ -322,16 +310,9 @@ export default function MessageThread({
       )}
 
       <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
-        <div id={composerStatusId} className="sp-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-          {composerStatusMessage}
-        </div>
-        {localError ? (
-          <div id={composerErrorId}>
-            <Notice variant="error">{localError}</Notice>
-          </div>
-        ) : null}
+        {localError ? <Notice variant="error">{localError}</Notice> : null}
         {isReadOnly ? (
-          <div id={composerNoticeId}>
+          <div id={readOnlyNoticeId} aria-live="polite">
             <Notice variant="info">{readOnlyNotice}</Notice>
           </div>
         ) : null}
@@ -339,7 +320,6 @@ export default function MessageThread({
         <div className="sp-thread-composer__row">
           <div className="sp-thread-composer__field">
             <textarea
-              id={composerTextareaId}
               ref={textareaRef}
               value={draftBody}
               onChange={(event) => setDraftBody(event.target.value)}
@@ -348,8 +328,7 @@ export default function MessageThread({
               className="sp-textarea sp-thread-composer__textarea"
               disabled={isReadOnly}
               aria-disabled={isReadOnly}
-              aria-invalid={localError ? true : undefined}
-              aria-describedby={composerDescription}
+              aria-describedby={isReadOnly ? readOnlyNoticeId : undefined}
             />
           </div>
 
@@ -366,7 +345,6 @@ export default function MessageThread({
                 disabled={polishing || sending || draftBody.trim().length < 1}
                 title="Aide à la rédaction"
                 aria-label="Aide à la rédaction"
-                aria-controls={composerTextareaId}
               >
                 {polishing ? <InlineSpinner /> : <BotAssistIcon />}
               </button>
@@ -377,8 +355,6 @@ export default function MessageThread({
               onClick={() => void handleSend()}
               disabled={isReadOnly || sending || draftBody.trim().length < 1}
               className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-              aria-controls={composerTextareaId}
-              aria-label="Envoyer le message sécurisé"
             >
               {sending ? <InlineSpinner /> : 'Envoyer'}
             </button>

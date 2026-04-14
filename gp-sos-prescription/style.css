@@ -351,28 +351,28 @@ body.sp-context-public .site-title a:focus-visible {
   border-radius: var(--sp-shell-radius);
 }
 
-.sp-card,
-.sp-price-card,
-.sp-step-card,
-.sp-trust-card,
-.sp-proof-item,
-.sp-widget-card,
-.sp-final-cta-card,
-.sp-faq-item {
+body.sp-context-public .sp-card,
+body.sp-context-public .sp-price-card,
+body.sp-context-public .sp-step-card,
+body.sp-context-public .sp-trust-card,
+body.sp-context-public .sp-proof-item,
+body.sp-context-public .sp-widget-card,
+body.sp-context-public .sp-final-cta-card,
+body.sp-context-public .sp-faq-item {
   transition:
     transform var(--sp-motion-base) var(--sp-ease-standard),
     box-shadow var(--sp-motion-base) var(--sp-ease-standard),
     border-color var(--sp-motion-base) var(--sp-ease-standard);
 }
 
-.sp-card:hover,
-.sp-price-card:hover,
-.sp-step-card:hover,
-.sp-trust-card:hover,
-.sp-proof-item:hover,
-.sp-widget-card:hover,
-.sp-final-cta-card:hover,
-.sp-faq-item:hover {
+body.sp-context-public .sp-card:hover,
+body.sp-context-public .sp-price-card:hover,
+body.sp-context-public .sp-step-card:hover,
+body.sp-context-public .sp-trust-card:hover,
+body.sp-context-public .sp-proof-item:hover,
+body.sp-context-public .sp-widget-card:hover,
+body.sp-context-public .sp-final-cta-card:hover,
+body.sp-context-public .sp-faq-item:hover {
   transform: translateY(-4px);
   box-shadow: var(--sp-shell-shadow-hover);
 }
@@ -515,33 +515,30 @@ body.sp-context-public .site-title a:focus-visible {
 }
 
 
-/* --- V6.4.0 · Systemic Medical-Grade bridge for GeneratePress / GenerateBlocks --- */
+/* V6.4.1 — Public motion only, workspace doctrine and CTA polish */
 :root {
-  --sp-gp-font-body: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  --sp-gp-font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
-  --sp-gp-color-canvas: var(--base, #f6f8fb);
-  --sp-gp-color-surface: var(--base-2, #ffffff);
-  --sp-gp-color-text: var(--contrast, #0f172a);
-  --sp-gp-color-text-soft: color-mix(in srgb, var(--contrast, #0f172a) 70%, var(--base-2, #ffffff) 30%);
-  --sp-gp-color-border: color-mix(in srgb, var(--contrast, #0f172a) 11%, white 8%);
-  --sp-gp-color-accent: var(--accent, #0f6cbd);
-  --sp-gp-color-focus-ring: color-mix(in srgb, var(--accent, #0f6cbd) 18%, transparent);
-  --sp-gp-radius-card-sm: 16px;
-  --sp-gp-radius-card: 20px;
+  --sp-shell-frame-max: 1240px;
 }
 
-:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) {
-  color: var(--sp-color-text-1, var(--sp-gp-color-text));
-  font-family: var(--sp-font-body, var(--sp-gp-font-body));
+body.sp-context-public .sp-button,
+body.sp-context-public .sp-btn,
+body.sp-context-public .wp-element-button,
+body.sp-context-public .button {
+  transition:
+    background-color var(--sp-motion-base) var(--sp-ease-standard),
+    border-color var(--sp-motion-base) var(--sp-ease-standard),
+    color var(--sp-motion-base) var(--sp-ease-standard),
+    box-shadow var(--sp-motion-base) var(--sp-ease-standard),
+    transform var(--sp-motion-fast) var(--sp-ease-press);
 }
 
-:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) :is(h1, h2, h3, h4, h5, .entry-title, .gb-headline, .gb-headline-text, .sp-section-title) {
-  font-family: var(--sp-font-display, var(--sp-gp-font-display));
-  letter-spacing: var(--sp-letter-spacing-heading, -0.015em);
-}
-
-:where(body.sp-context-public, .sp-shell, .sp-shell--app, .sp-shell--console, .sp-plugin-shell--app, .sp-plugin-shell--console, .sp-plugin-shell--request, .sp-plugin-shell--patient, .sp-plugin-shell--doctor-account) :is(a, button, [role="button"], input, select, textarea):focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 4px var(--sp-color-focus-ring, var(--sp-gp-color-focus-ring));
-  border-radius: max(12px, var(--sp-radius-md, var(--sp-gp-radius-card-sm)));
+body:not(.sp-context-public) .sp-card,
+body:not(.sp-context-public) .sp-price-card,
+body:not(.sp-context-public) .sp-step-card,
+body:not(.sp-context-public) .sp-trust-card,
+body:not(.sp-context-public) .sp-proof-item,
+body:not(.sp-context-public) .sp-widget-card,
+body:not(.sp-context-public) .sp-final-cta-card,
+body:not(.sp-context-public) .sp-faq-item {
+  transition: none;
 }
