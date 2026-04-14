@@ -95,7 +95,7 @@ function isOwnMessage(message: MessageItem): boolean {
 function formatDoctorLabel(authorName: string | undefined): string {
   const normalized = String(authorName || '').trim().replace(/\s+/g, ' ');
   if (normalized === '') {
-    return 'Le médecin';
+    return 'Dr. médecin';
   }
 
   const withoutPrefix = normalized
@@ -103,7 +103,7 @@ function formatDoctorLabel(authorName: string | undefined): string {
     .trim();
 
   if (withoutPrefix === '') {
-    return 'Le médecin';
+    return 'Dr. médecin';
   }
 
   return `Dr. ${withoutPrefix}`;
@@ -113,12 +113,12 @@ function getRoleLabel(message: MessageItem): string {
   const normalizedAuthorRole = normalizeRole(message.author_role);
 
   if (isOwnMessage(message)) {
-    return 'Vous';
+    return 'VOUS';
   }
 
-  if (normalizedAuthorRole === 'PATIENT') return 'Patient';
+  if (normalizedAuthorRole === 'PATIENT') return 'PATIENT';
   if (normalizedAuthorRole === 'DOCTOR') return formatDoctorLabel(message.author_name);
-  return 'Interlocuteur';
+  return 'INTERLOCUTEUR';
 }
 
 function formatMessageDate(value: string): string {

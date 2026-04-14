@@ -865,111 +865,6 @@ function resolveResumeDraftRefFromUrl(): string | null {
   }
 }
 
-const STICKY_EMAIL_STORAGE_KEY = 'sospatient_email_cache';
-const STICKY_EMAIL_URL_PARAM_KEYS = ['email', 'patient_email', 'draft_email'];
-
-function normalizeKnownEmailValue(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return isEmailLikeValue(normalized) ? normalized : null;
-}
-
-function resolveKnownEmailFromUrl(): string | null {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    for (const key of STICKY_EMAIL_URL_PARAM_KEYS) {
-      const normalized = normalizeKnownEmailValue(params.get(key));
-      if (normalized) {
-        return normalized;
-      }
-    }
-  } catch {
-    // noop
-  }
-
-  return null;
-}
-
-function readKnownEmailFromBrowserStorage(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    const localValue = normalizeKnownEmailValue(window.localStorage?.getItem(STICKY_EMAIL_STORAGE_KEY));
-    if (localValue) {
-      return localValue;
-    }
-  } catch {
-    // noop
-  }
-
-  try {
-    const sessionValue = normalizeKnownEmailValue(window.sessionStorage?.getItem(STICKY_EMAIL_STORAGE_KEY));
-    if (sessionValue) {
-      return sessionValue;
-    }
-  } catch {
-    // noop
-  }
-
-  return null;
-}
-
-function writeKnownEmailToBrowserStorage(value: unknown): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const normalized = normalizeKnownEmailValue(value);
-
-  try {
-    if (normalized) {
-      window.localStorage?.setItem(STICKY_EMAIL_STORAGE_KEY, normalized);
-    } else {
-      window.localStorage?.removeItem(STICKY_EMAIL_STORAGE_KEY);
-    }
-  } catch {
-    // noop
-  }
-
-  try {
-    if (normalized) {
-      window.sessionStorage?.setItem(STICKY_EMAIL_STORAGE_KEY, normalized);
-    } else {
-      window.sessionStorage?.removeItem(STICKY_EMAIL_STORAGE_KEY);
-    }
-  } catch {
-    // noop
-  }
-}
-
-function resolveKnownPatientEmail(config: AppConfig): string | null {
-  const fromUrl = resolveKnownEmailFromUrl();
-  if (fromUrl) {
-    return fromUrl;
-  }
-
-  const fromStorage = readKnownEmailFromBrowserStorage();
-  if (fromStorage) {
-    return fromStorage;
-  }
-
-  const fromConfig = normalizeKnownEmailValue(config.currentUser?.email);
-  if (fromConfig) {
-    return fromConfig;
-  }
-
-  const formWindow = window as FormWindow;
-  return normalizeKnownEmailValue(
-    formWindow.SosPrescription?.currentUser?.email
-    || formWindow.SOSPrescription?.currentUser?.email,
-  );
-}
-
 
 function shouldClearAppStorageKey(key: string): boolean {
   const normalized = String(key || '').trim().toLowerCase();
@@ -1134,10 +1029,6 @@ function isEmailLikeValue(value: unknown): boolean {
 function safePatientNameValue(value: unknown): string {
   const normalized = String(value ?? '').trim();
   return normalized !== '' && !isEmailLikeValue(normalized) ? normalized : '';
-}
-
-function resolveStrictPatientProfileFullName(config: AppConfig): string {
-  return safePatientNameValue(config.patientProfile?.fullname || '');
 }
 
 function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
@@ -2456,8 +2347,6 @@ type StepClinicalDataProps = {
   analysisInProgress: boolean;
   fullName: string;
   birthdate: string;
-  draftEmail: string;
-  draftEmailLocked: boolean;
   ageLabel: string;
   medicalNotes: string;
   items: MedicationItem[];
@@ -2475,8 +2364,6 @@ type StepClinicalDataProps = {
   onBackToChoice: () => void;
   onFullNameChange: (value: string) => void;
   onBirthdateChange: (value: string) => void;
-  onDraftEmailChange: (value: string) => void;
-  onUnlockDraftEmail: () => void;
   onMedicalNotesChange: (value: string) => void;
   onFilesSelected: (list: FileList | null) => void;
   onRemoveFile: (fileId: string) => void;
@@ -2497,8 +2384,6 @@ function StepClinicalData({
   analysisInProgress,
   fullName,
   birthdate,
-  draftEmail,
-  draftEmailLocked,
   ageLabel,
   medicalNotes,
   items,
@@ -2516,8 +2401,6 @@ function StepClinicalData({
   onBackToChoice,
   onFullNameChange,
   onBirthdateChange,
-  onDraftEmailChange,
-  onUnlockDraftEmail,
   onMedicalNotesChange,
   onFilesSelected,
   onRemoveFile,
@@ -2619,33 +2502,6 @@ function StepClinicalData({
               placeholder="JJ/MM/AAAA"
             />
             {ageLabel ? <div className="sp-app-field__hint">Âge estimé : {ageLabel}</div> : null}
-          </div>
-        </div>
-
-        <div className="sp-app-field">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-            <label className="sp-app-field__label" htmlFor="sp-patient-email">
-              Adresse e-mail
-            </label>
-            {draftEmailLocked ? (
-              <Button type="button" variant="ghost" onClick={onUnlockDraftEmail}>
-                Modifier
-              </Button>
-            ) : null}
-          </div>
-          <TextInput
-            id="sp-patient-email"
-            type="email"
-            autoComplete="email"
-            inputMode="email"
-            readOnly={draftEmailLocked}
-            aria-readonly={draftEmailLocked}
-            value={draftEmail}
-            onChange={(event) => onDraftEmailChange(event.target.value)}
-            placeholder="vous@exemple.fr"
-          />
-          <div className="sp-app-field__hint">
-            Cette adresse sera réutilisée pour reprendre votre dossier et finaliser l’envoi.
           </div>
         </div>
 
@@ -3089,12 +2945,10 @@ type StepDraftValidationProps = {
   selectedAmount: number | null;
   selectedPriorityEta: string;
   draftEmail: string;
-  draftEmailLocked: boolean;
   draftSending: boolean;
   draftSent: boolean;
   draftSuccessMessage: string | null;
   onDraftEmailChange: (value: string) => void;
-  onUnlockDraftEmail: () => void;
   onBack: () => void;
   onSend: () => void;
 };
@@ -3111,12 +2965,10 @@ function StepDraftValidation({
   selectedAmount,
   selectedPriorityEta,
   draftEmail,
-  draftEmailLocked,
   draftSending,
   draftSent,
   draftSuccessMessage,
   onDraftEmailChange,
-  onUnlockDraftEmail,
   onBack,
   onSend,
 }: StepDraftValidationProps) {
@@ -3170,23 +3022,14 @@ function StepDraftValidation({
         </div>
 
         <div className="sp-app-field">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-            <label className="sp-app-field__label" htmlFor="sp-draft-email">
-              Adresse e-mail
-            </label>
-            {draftEmailLocked ? (
-              <Button type="button" variant="ghost" onClick={onUnlockDraftEmail} disabled={draftSending}>
-                Modifier
-              </Button>
-            ) : null}
-          </div>
+          <label className="sp-app-field__label" htmlFor="sp-draft-email">
+            Adresse e-mail
+          </label>
           <TextInput
             id="sp-draft-email"
             type="email"
             autoComplete="email"
             inputMode="email"
-            readOnly={draftEmailLocked}
-            aria-readonly={draftEmailLocked}
             value={draftEmail}
             onChange={(event) => onDraftEmailChange(event.target.value)}
             placeholder="vous@exemple.fr"
@@ -3419,7 +3262,7 @@ function StepPaymentAuth({
 
     try {
       const cfg = getConfigOrThrow();
-      const billingName = safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(cfg) || undefined;
+      const billingName = safePatientNameValue(fullName) || String(cfg.currentUser?.displayName || '').trim() || undefined;
       const billingEmail = typeof cfg.currentUser?.email === 'string' && cfg.currentUser.email.trim() !== ''
         ? cfg.currentUser.email.trim()
         : undefined;
@@ -3705,7 +3548,7 @@ function PublicFormApp() {
   const [priority, setPriority] = useState<'standard' | 'express'>('standard');
 
   const [fullName, setFullName] = useState<string>(() => (
-    resumeDraftRefFromUrl ? '' : resolveStrictPatientProfileFullName(config)
+    resumeDraftRefFromUrl ? '' : safePatientNameValue(config.patientProfile?.fullname || '')
   ));
   const [birthdate, setBirthdate] = useState<string>(() => {
     if (resumeDraftRefFromUrl) {
@@ -3740,10 +3583,7 @@ function PublicFormApp() {
   const [draftEmail, setDraftEmail] = useState<string>(() => (
     resumeDraftRefFromUrl
       ? ''
-      : (resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email) || '')
-  ));
-  const [draftEmailLocked, setDraftEmailLocked] = useState<boolean>(() => (
-    !resumeDraftRefFromUrl && Boolean(resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email))
+      : String(config.currentUser?.email || '').trim()
   ));
   const [draftSending, setDraftSending] = useState(false);
   const [draftSent, setDraftSent] = useState(false);
@@ -3837,32 +3677,6 @@ function PublicFormApp() {
 
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
   const isDraftMode = !isLoggedIn;
-
-  useEffect(() => {
-    if (resumeDraftRefFromUrl) {
-      return;
-    }
-
-    const knownEmail = resolveKnownPatientEmail(config);
-    if (!knownEmail) {
-      return;
-    }
-
-    setDraftEmail((current) => normalizeKnownEmailValue(current) || knownEmail);
-    setDraftEmailLocked(true);
-  }, [config.currentUser?.email, resumeDraftRefFromUrl]);
-
-  useEffect(() => {
-    const normalized = normalizeKnownEmailValue(draftEmail);
-    if (normalized) {
-      writeKnownEmailToBrowserStorage(normalized);
-      return;
-    }
-
-    if (!resumeDraftRefFromUrl) {
-      writeKnownEmailToBrowserStorage(null);
-    }
-  }, [draftEmail, resumeDraftRefFromUrl]);
 
   useEffect(() => {
     if (!resumeDraftRefFromUrl) {
@@ -3964,13 +3778,7 @@ function PublicFormApp() {
         setAnalysisMessage(null);
         setPreparedSubmission(null);
         setSubmissionResult(null);
-        const resumedEmail = normalizeKnownEmailValue(
-          typeof payload.email === 'string'
-            ? payload.email
-            : firstNonEmptyString(patient.email, patient.email_address),
-        ) || resolveKnownPatientEmail(config) || normalizeKnownEmailValue(String(config.currentUser?.email || '').trim()) || '';
-        setDraftEmail(resumedEmail);
-        setDraftEmailLocked(Boolean(resumedEmail));
+        setDraftEmail(typeof payload.email === 'string' ? payload.email : String(config.currentUser?.email || '').trim());
         setDraftSent(false);
         setDraftSuccessMessage(null);
         setAttestationNoProof(Boolean(payload.attestation_no_proof));
@@ -4211,7 +4019,7 @@ function PublicFormApp() {
     setStage('choose');
     setFlow(null);
     setPriority('standard');
-    setFullName(resolveStrictPatientProfileFullName(config));
+    setFullName(safePatientNameValue(config.patientProfile?.fullname || ''));
     setBirthdate(String(config.patientProfile?.birthdate_fr || ''));
     setMedicalNotes(String(
       config.patientProfile?.note
@@ -4227,9 +4035,7 @@ function PublicFormApp() {
     setPreparedSubmission(null);
     setSubmissionResult(null);
     setCopiedUid(false);
-    const nextKnownEmail = resolveKnownPatientEmail(config) || normalizeKnownEmailValue(config.currentUser?.email) || '';
-    setDraftEmail(nextKnownEmail);
-    setDraftEmailLocked(Boolean(nextKnownEmail));
+    setDraftEmail(String(config.currentUser?.email || '').trim());
     setDraftSending(false);
     setDraftSent(false);
     setDraftSuccessMessage(null);
@@ -4416,7 +4222,6 @@ function PublicFormApp() {
       }
 
       setDraftEmail(email);
-      setDraftEmailLocked(true);
       setDraftSent(true);
 
       if (failedUploads.length > 0) {
@@ -4788,8 +4593,6 @@ function PublicFormApp() {
             analysisInProgress={analysisInProgress}
             fullName={fullName}
             birthdate={birthdate}
-            draftEmail={draftEmail}
-            draftEmailLocked={draftEmailLocked}
             ageLabel={ageLabel}
             medicalNotes={medicalNotes}
             items={items}
@@ -4807,8 +4610,6 @@ function PublicFormApp() {
             onBackToChoice={() => setStage('choose')}
             onFullNameChange={setFullName}
             onBirthdateChange={setBirthdate}
-            onDraftEmailChange={setDraftEmail}
-            onUnlockDraftEmail={() => setDraftEmailLocked(false)}
             onMedicalNotesChange={setMedicalNotes}
             onFilesSelected={handleFilesSelected}
             onRemoveFile={(fileId) => {
@@ -4858,12 +4659,10 @@ function PublicFormApp() {
               selectedAmount={selectedAmount}
               selectedPriorityEta={selectedPriorityEta}
               draftEmail={draftEmail}
-              draftEmailLocked={draftEmailLocked}
               draftSending={draftSending}
               draftSent={draftSent}
               draftSuccessMessage={draftSuccessMessage}
               onDraftEmailChange={setDraftEmail}
-              onUnlockDraftEmail={() => setDraftEmailLocked(false)}
               onBack={() => setStage('priority_selection')}
               onSend={handleSendDraftLink}
             />
@@ -4917,6 +4716,7 @@ function renderFatal(container: HTMLElement, message: string): void {
 
 type ExternalProfileAccordionOptions = {
   collapsedByDefault: boolean;
+  hiddenByDefault?: boolean;
 };
 
 const EXTERNAL_PROFILE_COPY = 'Ces informations prérempliront votre prochaine demande d’ordonnance.';
@@ -4945,10 +4745,15 @@ function normalizeExternalProfileWording(card: HTMLElement): void {
 
 function installExternalProfileAccordion(options: ExternalProfileAccordionOptions): boolean {
   const collapsedByDefault = !!options.collapsedByDefault;
+  const hiddenByDefault = !!options.hiddenByDefault;
   const profileRoot = document.getElementById('sp-patient-profile-root');
   const card = profileRoot?.querySelector('.sp-profile-card');
   if (!(card instanceof HTMLElement)) {
     return false;
+  }
+
+  if (profileRoot instanceof HTMLElement) {
+    profileRoot.hidden = hiddenByDefault;
   }
 
   normalizeExternalProfileWording(card);
@@ -5058,7 +4863,10 @@ function mountPublicForm(container: HTMLElement): void {
     : '';
   const shouldCollapseProfile = !!dedicatedPatientRoot || sharedAppKind === 'patient';
 
-  scheduleExternalProfileEnhancements({ collapsedByDefault: shouldCollapseProfile });
+  scheduleExternalProfileEnhancements({
+    collapsedByDefault: shouldCollapseProfile,
+    hiddenByDefault: shouldCollapseProfile,
+  });
 
   if (dedicatedPatientRoot) {
     mountPatientConsole(dedicatedPatientRoot);

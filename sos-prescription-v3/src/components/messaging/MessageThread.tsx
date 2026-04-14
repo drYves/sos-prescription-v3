@@ -74,51 +74,8 @@ function Notice({
   return <div className={cx('sp-alert', `sp-alert--${variant}`)}>{children}</div>;
 }
 
-function composerPlaceholder(_viewerRole: ViewerRole): string {
-  return 'Rédiger un message sécurisé...';
-}
-
-function normalizeRoleToken(value: string): ViewerRole | '' {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === '') {
-    return '';
-  }
-
-  if (normalized.includes('patient')) {
-    return 'PATIENT';
-  }
-
-  if (
-    normalized.includes('doctor')
-    || normalized.includes('medecin')
-    || normalized.includes('médecin')
-    || normalized.includes('physician')
-    || normalized.includes('praticien')
-    || normalized.includes('admin')
-    || normalized.includes('administrator')
-  ) {
-    return 'DOCTOR';
-  }
-
-  return '';
-}
-
-function normalizeCurrentUserRoles(value: string[] | string | undefined): ViewerRole[] {
-  const source = Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-    ? value.split(/[\s,|]+/g)
-    : [];
-
-  const roles: ViewerRole[] = [];
-  source.forEach((entry) => {
-    const normalized = normalizeRoleToken(entry);
-    if (normalized && !roles.includes(normalized)) {
-      roles.push(normalized);
-    }
-  });
-
-  return roles;
+function composerPlaceholder(viewerRole: ViewerRole): string {
+  return viewerRole === 'DOCTOR' ? 'Écrire au patient...' : 'Écrire au médecin...';
 }
 
 function BotAssistIcon() {
@@ -150,7 +107,7 @@ export default function MessageThread({
   fileIndex,
   onDownloadFile,
   canCompose,
-  readOnlyNotice = 'Cet espace d’échange sécurisé est actuellement en lecture seule.',
+  readOnlyNotice = 'La messagerie est en lecture seule pour ce dossier.',
   postMessage,
   onMessageCreated,
   onSurfaceError,
@@ -174,26 +131,7 @@ export default function MessageThread({
     polishRequestRef.current = 0;
   }, [prescriptionId]);
 
-  const normalizedCurrentUserRoles = useMemo(() => normalizeCurrentUserRoles(currentUserRoles), [currentUserRoles]);
-  const isDoctorCurrentUser = useMemo(
-    () => viewerRole === 'DOCTOR' || normalizedCurrentUserRoles.includes('DOCTOR'),
-    [normalizedCurrentUserRoles, viewerRole],
-  );
-
-  const visibleReplies = useMemo(
-    () => (isDoctorCurrentUser ? smartReplies.slice(0, 3).filter((item) => String(item.body || '').trim() !== '') : []),
-    [isDoctorCurrentUser, smartReplies],
-  );
-
-  const normalizedMessages = useMemo(
-    () => messages.map((message) => ({
-      ...message,
-      author_name: typeof message.author_name === 'string' ? message.author_name.trim() : message.author_name,
-    })),
-    [messages],
-  );
-
-  const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
+  const visibleReplies = useMemo(() => smartReplies.slice(0, 3).filter((item) => String(item.body || '').trim() !== ''), [smartReplies]);
 
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
@@ -221,7 +159,7 @@ export default function MessageThread({
 
   const handlePolish = async (): Promise<void> => {
     const sourceDraft = draftBody.trim();
-    if (!showWritingAssistant || !onPolishDraft || polishing || sending || isReadOnly || sourceDraft === '') {
+    if (!enablePolish || !onPolishDraft || polishing || sending || isReadOnly || sourceDraft === '') {
       return;
     }
 
@@ -297,7 +235,7 @@ export default function MessageThread({
         <div className="sp-empty-note">{emptyText}</div>
       ) : (
         <MessageList
-          messages={normalizedMessages}
+          messages={messages}
           viewerRole={viewerRole}
           currentUserRoles={currentUserRoles}
           fileIndex={fileIndex}
@@ -324,7 +262,7 @@ export default function MessageThread({
           </div>
 
           <div className="sp-thread-composer__actions">
-            {showWritingAssistant ? (
+            {enablePolish && onPolishDraft && !isReadOnly ? (
               <button
                 type="button"
                 className="sp-app-icon-button"
@@ -352,7 +290,7 @@ export default function MessageThread({
           </div>
         </div>
 
-        {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
+        {viewerRole === 'DOCTOR' && visibleReplies.length > 0 && !isReadOnly ? (
           <>
             <div className="sp-thread-composer__hint">Suggestions de réponse</div>
             <div className="sp-inline-actions">
