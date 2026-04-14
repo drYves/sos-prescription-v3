@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import type { JobsRepo, JobRow } from "./jobsRepo";
 import { NdjsonLogger } from "../logger";
-import { PdfRenderer } from "../pdf/pdfRenderer";
+import { PdfRenderer, type PdfRenderInput } from "../pdf/pdfRenderer";
 import { parseMls1Token, verifyMls1Payload } from "../security/mls1";
 import { S3Service } from "../s3/s3Service";
 import { HardError, SoftError } from "./errors";
@@ -91,7 +91,7 @@ async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?:
     templateVariant,
   });
 
-  const render = await deps.pdfRenderer.renderToTmpPdf({
+  const render = await renderPdfWithRecovery({
     mode: "inline-html",
     workerId: deps.workerId,
     jobId: job.job_id,
@@ -104,7 +104,7 @@ async function processRestBridgeJob(job: JobRow, deps: JobProcessorDeps, reqId?:
     admissionMaxMb: deps.admissionMaxMb,
     html: built.html,
     templateName: built.templateName,
-  });
+  }, deps, reqId);
 
   await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName, aggregate.doctor.id);
 }
@@ -140,7 +140,7 @@ async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: st
     templateVariant: process.env.ML_PDF_TEMPLATE_DEFAULT ?? "modern",
   });
 
-  const render = await deps.pdfRenderer.renderToTmpPdf({
+  const render = await renderPdfWithRecovery({
     mode: "inline-html",
     workerId: deps.workerId,
     jobId: job.job_id,
@@ -153,9 +153,81 @@ async function processLocalDbJob(job: JobRow, deps: JobProcessorDeps, reqId?: st
     admissionMaxMb: deps.admissionMaxMb,
     html: built.html,
     templateName: built.templateName,
-  });
+  }, deps, reqId);
 
   await finalizeSuccessfulRender(job, deps, render, reqId, "inline-html", built.templateName, aggregate.doctor.id);
+}
+
+async function renderPdfWithRecovery(input: PdfRenderInput, deps: JobProcessorDeps, reqId?: string) {
+  try {
+    return await deps.pdfRenderer.renderToTmpPdf(input);
+  } catch (err) {
+    await deps.pdfRenderer.resetBrowser("processor_render_failure", reqId);
+
+    const softPdfError = toSoftPdfRenderError(err);
+    if (softPdfError) {
+      throw softPdfError;
+    }
+
+    throw err;
+  }
+}
+
+function toSoftPdfRenderError(err: unknown): SoftError | null {
+  if (err instanceof SoftError) {
+    return err;
+  }
+
+  const details = extractErrorDetails(err);
+
+  if (err instanceof HardError) {
+    if (isTransientPdfRenderFailure(err)) {
+      return withErrorDetails(new SoftError(err.code, err.messageSafe), details);
+    }
+    return null;
+  }
+
+  if (isTransientPdfRenderFailure(err)) {
+    return withErrorDetails(
+      new SoftError("ML_PDF_RENDER_TRANSIENT", details.error_message || "Transient PDF render failure"),
+      details,
+    );
+  }
+
+  return null;
+}
+
+function isTransientPdfRenderFailure(err: unknown): boolean {
+  if (err instanceof HardError) {
+    return [
+      "ML_PDF_TIMEOUT",
+      "ML_ADMISSION_OVERLOAD",
+      "ML_PDF_EMPTY",
+      "ML_PDF_CORRUPT",
+      "ML_PDF_READ_FAILED",
+    ].includes(err.code);
+  }
+
+  const text = err instanceof Error
+    ? `${err.name} ${err.message}`.toLowerCase()
+    : String(err).toLowerCase();
+
+  const markers = [
+    "waiting for the ws endpoint url",
+    "failed to launch the browser process",
+    "browser has disconnected",
+    "target closed",
+    "page crashed",
+    "session closed",
+    "protocol error",
+    "socket hang up",
+    "econnreset",
+    "broken pipe",
+    "navigation timeout",
+    "timeout",
+  ];
+
+  return markers.some((marker) => text.includes(marker));
 }
 
 async function finalizeSuccessfulRender(

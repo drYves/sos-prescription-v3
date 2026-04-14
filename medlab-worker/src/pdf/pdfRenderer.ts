@@ -3,11 +3,17 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import puppeteer, { Browser, BrowserContext, Page } from "puppeteer";
+import puppeteer, { Browser, Page } from "puppeteer";
 
 import { MemoryGuard } from "../admission/memoryGuard";
 import { HardError } from "../jobs/errors";
 import { NdjsonLogger } from "../logger";
+
+const BROWSER_LAUNCH_TIMEOUT_MS = 60_000;
+const BROWSER_PROTOCOL_TIMEOUT_MS = 60_000;
+const BROWSER_HEALTHCHECK_TIMEOUT_MS = 2_500;
+const BROWSER_CLOSE_TIMEOUT_MS = 2_000;
+const PAGE_CLOSE_TIMEOUT_MS = 1_500;
 
 export interface PdfRenderInput {
   mode: "inline-html" | "remote-wordpress";
@@ -37,7 +43,37 @@ export interface PdfRenderResult {
 }
 
 export class PdfRenderer {
+  private browser: Browser | null = null;
+  private browserPromise: Promise<Browser> | null = null;
+  private browserUserDir: string | null = null;
+
   constructor(private readonly logger: NdjsonLogger) {}
+
+  async resetBrowser(reason = "manual_reset", reqId?: string): Promise<void> {
+    const browser = this.browser;
+    const userDir = this.browserUserDir;
+
+    this.browser = null;
+    this.browserPromise = null;
+    this.browserUserDir = null;
+
+    if (browser) {
+      this.logger.warning(
+        "pdf.chrome.reset",
+        {
+          reason,
+          pid: browser.process()?.pid ?? null,
+        },
+        reqId,
+      );
+
+      await hardKillBrowser(browser, this.logger, reqId);
+    }
+
+    if (userDir) {
+      await safeRmDir(userDir);
+    }
+  }
 
   async renderToTmpPdf(input: PdfRenderInput): Promise<PdfRenderResult> {
     const startedAt = Date.now();
@@ -61,12 +97,7 @@ export class PdfRenderer {
     await safeUnlink(pdfPath);
 
     let browser: Browser | null = null;
-    let context: BrowserContext | null = null;
     let page: Page | null = null;
-
-    const safeWorkerId = sanitizeId(input.workerId || "worker");
-    const safeJobId = sanitizeId(input.jobId || "job");
-    const userDir = path.join("/tmp", `medlab-chrome-${safeWorkerId}-${safeJobId}`);
 
     let abortedByOverload = false;
     const memTimer = setInterval(() => {
@@ -90,19 +121,12 @@ export class PdfRenderer {
         input.reqId,
       );
 
-      const safeExecutablePath = input.chromeExecutablePath && fs.existsSync(input.chromeExecutablePath)
-        ? input.chromeExecutablePath
-        : undefined;
+      browser = await this.ensureBrowser(input, input.reqId);
+      page = await browser.newPage();
 
-      browser = await puppeteer.launch({
-        executablePath: safeExecutablePath,
-        headless: true,
-        args: chromeArgs(),
-        userDataDir: userDir,
-      });
-
-      context = await browser.createBrowserContext();
-      page = await context.newPage();
+      const pageTimeoutMs = Math.max(30_000, input.renderTimeoutMs, input.readyTimeoutMs);
+      page.setDefaultNavigationTimeout(pageTimeoutMs);
+      page.setDefaultTimeout(pageTimeoutMs);
 
       await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
       await page.setExtraHTTPHeaders({
@@ -142,7 +166,7 @@ export class PdfRenderer {
         try {
           await page!.waitForFunction(
             `globalThis.__ML_PDF_READY__ === true || document.querySelector("[data-ml-pdf-ready='1']") !== null`,
-            { timeout: input.readyTimeoutMs },
+            { timeout: Math.max(1_000, input.readyTimeoutMs) },
           );
         } catch {
           await new Promise((resolve) => setTimeout(resolve, 150));
@@ -160,7 +184,7 @@ export class PdfRenderer {
           preferCSSPageSize: true,
           margin: { top: "0", right: "0", bottom: "0", left: "0" },
         });
-      }, input.renderTimeoutMs);
+      }, input.renderTimeoutMs, () => new HardError("ML_PDF_TIMEOUT", "PDF render timeout"));
 
       if (abortedByOverload) {
         throw new HardError("ML_ADMISSION_OVERLOAD", "Admission overload");
@@ -203,7 +227,7 @@ export class PdfRenderer {
           input.reqId,
         );
 
-        await hardKillBrowser(browser, this.logger, input.reqId);
+        await this.resetBrowser("admission_overload", input.reqId);
         throw new HardError("ML_ADMISSION_OVERLOAD", "Admission overload");
       }
 
@@ -219,25 +243,167 @@ export class PdfRenderer {
         input.reqId,
       );
 
-      await hardKillBrowser(browser, this.logger, input.reqId);
+      if (shouldResetBrowserAfterFailure(err)) {
+        await this.resetBrowser("render_failed", input.reqId);
+      }
+
       throw err;
     } finally {
       clearInterval(memTimer);
-      await safeClose(page);
-      await safeClose(context);
-      await safeClose(browser);
+      await safeClose(page, PAGE_CLOSE_TIMEOUT_MS);
       await safeUnlink(tmpPdfPath);
+    }
+  }
+
+  private async ensureBrowser(input: PdfRenderInput, reqId?: string): Promise<Browser> {
+    if (this.browser) {
+      const healthy = await this.isBrowserHealthy(this.browser, reqId);
+      if (healthy) {
+        this.logger.info(
+          "pdf.chrome.reused",
+          {
+            worker_id: input.workerId,
+            pid: this.browser.process()?.pid ?? null,
+          },
+          reqId,
+        );
+        return this.browser;
+      }
+
+      await this.resetBrowser("healthcheck_failed", reqId);
+    }
+
+    if (!this.browserPromise) {
+      const safeWorkerId = sanitizeId(input.workerId || "worker");
+      const userDir = path.join("/tmp", `medlab-chrome-${safeWorkerId}`);
+      this.browserUserDir = userDir;
+      this.browserPromise = this.launchBrowser(input, userDir, reqId);
+    }
+
+    return await this.browserPromise;
+  }
+
+  private async launchBrowser(input: PdfRenderInput, userDir: string, reqId?: string): Promise<Browser> {
+    const safeExecutablePath = input.chromeExecutablePath && fs.existsSync(input.chromeExecutablePath)
+      ? input.chromeExecutablePath
+      : undefined;
+
+    await safeRmDir(userDir);
+    await safeMkdir(userDir);
+
+    this.logger.info(
+      "pdf.chrome.launching",
+      {
+        worker_id: input.workerId,
+        job_id: input.jobId,
+        executable_path_present: Boolean(safeExecutablePath),
+        launch_timeout_ms: BROWSER_LAUNCH_TIMEOUT_MS,
+        protocol_timeout_ms: BROWSER_PROTOCOL_TIMEOUT_MS,
+      },
+      reqId,
+    );
+
+    try {
+      const browser = await puppeteer.launch({
+        executablePath: safeExecutablePath,
+        headless: true,
+        pipe: true,
+        timeout: BROWSER_LAUNCH_TIMEOUT_MS,
+        protocolTimeout: BROWSER_PROTOCOL_TIMEOUT_MS,
+        args: chromeArgs(),
+        userDataDir: userDir,
+      });
+
+      browser.on("disconnected", () => {
+        if (this.browser === browser) {
+          this.browser = null;
+          this.browserPromise = null;
+          this.logger.warning(
+            "pdf.chrome.disconnected",
+            {
+              pid: browser.process()?.pid ?? null,
+            },
+            undefined,
+          );
+        }
+      });
+
+      this.browser = browser;
+
+      this.logger.info(
+        "pdf.chrome.ready",
+        {
+          worker_id: input.workerId,
+          job_id: input.jobId,
+          pid: browser.process()?.pid ?? null,
+        },
+        reqId,
+      );
+
+      return browser;
+    } catch (err) {
+      this.browser = null;
+
+      this.logger.error(
+        "pdf.chrome.launch_failed",
+        {
+          worker_id: input.workerId,
+          job_id: input.jobId,
+          error_message: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
+        },
+        reqId,
+      );
+
       await safeRmDir(userDir);
+      throw err;
+    } finally {
+      this.browserPromise = null;
+    }
+  }
+
+  private async isBrowserHealthy(browser: Browser, reqId?: string): Promise<boolean> {
+    if (!browser.isConnected()) {
+      return false;
+    }
+
+    const proc = browser.process();
+    if (proc && (proc.killed || proc.exitCode !== null)) {
+      return false;
+    }
+
+    try {
+      await withTimeout(
+        async () => {
+          await browser.version();
+        },
+        BROWSER_HEALTHCHECK_TIMEOUT_MS,
+        () => new Error("Browser health check timeout"),
+      );
+      return true;
+    } catch (err) {
+      this.logger.warning(
+        "pdf.chrome.unhealthy",
+        {
+          pid: proc?.pid ?? null,
+          error_message: err instanceof Error ? err.message : String(err),
+        },
+        reqId,
+      );
+      return false;
     }
   }
 }
 
 function chromeArgs(): string[] {
   return [
-    "--disable-gpu",
     "--no-sandbox",
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-zygote",
+    "--single-process",
+    "--disable-software-rasterizer",
     "--disable-extensions",
     "--disable-background-networking",
     "--disable-background-timer-throttling",
@@ -256,15 +422,23 @@ function chromeArgs(): string[] {
   ];
 }
 
-async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
-  const timeout = Math.max(1000, timeoutMs);
-  return await Promise.race([
-    fn(),
-    new Promise<T>((_resolve, reject) => {
-      const t = setTimeout(() => reject(new HardError("ML_PDF_TIMEOUT", "PDF render timeout")), timeout);
-      (t as { unref?: () => void }).unref?.();
-    }),
-  ]);
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, onTimeout: () => Error): Promise<T> {
+  const timeout = Math.max(1_000, timeoutMs);
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(onTimeout()), timeout);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function verifyPdfHeader(filePath: string): Promise<void> {
@@ -304,7 +478,10 @@ async function hardKillBrowser(browser: Browser | null, logger: NdjsonLogger, re
   try {
     await Promise.race([
       browser.close(),
-      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, BROWSER_CLOSE_TIMEOUT_MS);
+        timer.unref?.();
+      }),
     ]);
   } catch {
     // noop
@@ -326,10 +503,16 @@ async function hardKillBrowser(browser: Browser | null, logger: NdjsonLogger, re
   }
 }
 
-async function safeClose(obj: { close?: () => Promise<unknown> } | null): Promise<void> {
+async function safeClose(obj: { close?: () => Promise<unknown> } | null, timeoutMs = PAGE_CLOSE_TIMEOUT_MS): Promise<void> {
   if (!obj?.close) return;
   try {
-    await obj.close();
+    await Promise.race([
+      obj.close(),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
   } catch {
     // noop
   }
@@ -361,4 +544,38 @@ async function safeRmDir(dir: string): Promise<void> {
 
 function sanitizeId(s: string): string {
   return s.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 64);
+}
+
+function shouldResetBrowserAfterFailure(err: unknown): boolean {
+  if (err instanceof HardError) {
+    if (
+      err.code === "ML_PDF_TIMEOUT"
+      || err.code === "ML_ADMISSION_OVERLOAD"
+      || err.code === "ML_PDF_EMPTY"
+      || err.code === "ML_PDF_CORRUPT"
+      || err.code === "ML_PDF_READ_FAILED"
+    ) {
+      return true;
+    }
+  }
+
+  const text = err instanceof Error
+    ? `${err.name} ${err.message}`.toLowerCase()
+    : String(err).toLowerCase();
+
+  const markers = [
+    "waiting for the ws endpoint url",
+    "failed to launch the browser process",
+    "browser has disconnected",
+    "target closed",
+    "page crashed",
+    "session closed",
+    "protocol error",
+    "socket hang up",
+    "econnreset",
+    "broken pipe",
+    "timeout",
+  ];
+
+  return markers.some((marker) => text.includes(marker));
 }
