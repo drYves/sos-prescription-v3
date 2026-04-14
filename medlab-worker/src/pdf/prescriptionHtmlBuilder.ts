@@ -797,6 +797,11 @@ function normalizeSignatureS3Key(value: string | null): string {
     return "";
   }
 
+  const lowered = raw.toLowerCase();
+  if (lowered.startsWith("wpfile:") || lowered.startsWith("wpmedia:") || lowered.startsWith("wpstorage:")) {
+    return raw;
+  }
+
   if (raw.startsWith("s3://")) {
     const normalized = raw.replace(/^s3:\/\//i, "").replace(/^\/+/, "").trim();
     return normalized !== "" ? `s3://${normalized}` : "";

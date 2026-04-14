@@ -88,6 +88,9 @@ async function main(): Promise<void> {
     secretAccessKey: cfg.s3.secretAccessKey,
     forcePathStyle: cfg.s3.forcePathStyle,
     bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
+    requestTimeoutMs: cfg.restRequestTimeoutMs,
+    wpBaseUrl: cfg.wpBaseUrl,
+    wpHmacSecret: cfg.security.hmacSecretActive,
   });
 
   const prescriptionStore = new PrismaPrescriptionStore({ logger });

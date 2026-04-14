@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 // src/main.ts
 const memoryGuard_1 = require("./admission/memoryGuard");
@@ -21,6 +54,7 @@ const sleep_1 = require("./utils/sleep");
 const paymentProcessor_1 = require("./payments/paymentProcessor");
 const stripeClient_1 = require("./payments/stripeClient");
 const wordpressPaymentBridge_1 = require("./payments/wordpressPaymentBridge");
+const copilotService_1 = require("./services/copilotService");
 const DEFAULT_WP_CALLBACK_PATH_TEMPLATE = "/wp-json/sosprescription/v1/prescriptions/worker/{job_id}/callback";
 async function main() {
     const cfg = (0, config_1.loadConfig)();
@@ -71,6 +105,9 @@ async function main() {
         secretAccessKey: cfg.s3.secretAccessKey,
         forcePathStyle: cfg.s3.forcePathStyle,
         bucket: (process.env.S3_BUCKET_SIGNATURES ?? cfg.s3.bucketPdf).trim(),
+        requestTimeoutMs: cfg.restRequestTimeoutMs,
+        wpBaseUrl: cfg.wpBaseUrl,
+        wpHmacSecret: cfg.security.hmacSecretActive,
     });
     const prescriptionStore = new prismaPrescriptionStore_1.PrismaPrescriptionStore({ logger });
     const htmlBuilder = new prescriptionHtmlBuilder_1.PrescriptionHtmlBuilder({
@@ -89,6 +126,31 @@ async function main() {
         title: cfg.openRouter.title,
         logger,
     });
+    const copilotService = new copilotService_1.CopilotService({
+        apiKey: cfg.openRouter.apiKey,
+        model: cfg.openRouter.model,
+        baseUrl: cfg.openRouter.baseUrl,
+        requestTimeoutMs: cfg.openRouter.requestTimeoutMs,
+        httpReferer: cfg.openRouter.httpReferer,
+        title: `${cfg.openRouter.title ?? "SOS Prescription Worker"} Copilot`,
+        logger,
+    });
+    const smartRepliesEnabled = resolveBooleanFlag(process.env.SMART_REPLIES_ENABLED, false);
+    let smartReplyService;
+    if (smartRepliesEnabled) {
+        const { SmartReplyService: SmartReplyServiceCtor } = await Promise.resolve().then(() => __importStar(require("./services/smartReplyService")));
+        smartReplyService = new SmartReplyServiceCtor({
+            siteId: cfg.siteId,
+            copilot: copilotService,
+            logger,
+        });
+        await smartReplyService.ensureSchema();
+    }
+    else {
+        logger.info("smart_replies.disabled", {
+            smart_replies_enabled: false,
+        }, undefined);
+    }
     if (prismaJobsRepo) {
         await prismaJobsRepo.ensurePaymentActionQueueSchema();
     }
@@ -118,6 +180,8 @@ async function main() {
         logger,
         stripeGateway,
         wpPaymentBridge,
+        smartReplyService,
+        copilotService,
     });
     const shutdown = async (signal) => {
         logger.warning("system.shutdown", { signal, queue_mode: jobsRepo.mode }, undefined);
@@ -150,6 +214,14 @@ async function main() {
         }
         catch {
             // noop
+        }
+        if (smartRepliesEnabled && smartReplyService) {
+            try {
+                await smartReplyService.close();
+            }
+            catch {
+                // noop
+            }
         }
         try {
             await jobsRepo.close();
@@ -187,6 +259,7 @@ async function main() {
         artifact_ticket_ttl_ms: cfg.upload.ticketTtlMs,
         openrouter_enabled: openRouter.isEnabled(),
         openrouter_model: cfg.openRouter.model,
+        smart_replies_enabled: smartReplyService != null,
     }, undefined);
     while (true) {
         memGuard.tick();
@@ -292,12 +365,39 @@ async function main() {
                 continue;
             }
         }
+        if (smartRepliesEnabled && smartReplyService) {
+            let smartReplyJob = null;
+            try {
+                smartReplyJob = await smartReplyService.claimNextPendingJob({
+                    workerId: cfg.workerId,
+                    leaseMinutes: cfg.leaseMinutes,
+                });
+            }
+            catch (err) {
+                logger.error("smart_replies.job.claim_failed", {
+                    message: err instanceof Error ? err.message : "Failed to claim smart reply job",
+                }, undefined);
+                await (0, sleep_1.sleep)(withJitter(claimFailureBackoffMs, 1_000));
+                continue;
+            }
+            if (smartReplyJob) {
+                await smartReplyService.processJob(smartReplyJob);
+                continue;
+            }
+        }
         await (0, sleep_1.sleep)(withJitter(idlePollMs, 1_000));
     }
 }
 function resolveQueueMode(value) {
     const normalized = String(value ?? "postgres").trim().toLowerCase();
     return normalized === "rest" ? "rest" : "postgres";
+}
+function resolveBooleanFlag(value, fallback) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (normalized === "") {
+        return fallback;
+    }
+    return ["1", "true", "yes", "on"].includes(normalized);
 }
 function withJitter(baseMs, spreadMs) {
     const spread = Math.max(0, Math.floor(spreadMs));

@@ -50,6 +50,7 @@ class PdfRenderer {
                 job_id: input.jobId,
                 rx_id: input.rxId,
                 worker_id: input.workerId,
+                doctor_id: input.doctorId,
                 render_mode: input.mode,
             }, input.reqId);
             const safeExecutablePath = input.chromeExecutablePath && node_fs_1.default.existsSync(input.chromeExecutablePath)
@@ -123,6 +124,7 @@ class PdfRenderer {
             this.logger.info("pdf.render.completed", {
                 job_id: input.jobId,
                 rx_id: input.rxId,
+                doctor_id: input.doctorId,
                 size_bytes: sizeBytes,
                 duration_ms: Date.now() - startedAt,
             }, input.reqId);
@@ -138,6 +140,7 @@ class PdfRenderer {
                 this.logger.critical("pdf.render.aborted_overload", {
                     job_id: input.jobId,
                     rx_id: input.rxId,
+                    doctor_id: input.doctorId,
                     rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
                 }, input.reqId);
                 await hardKillBrowser(browser, this.logger, input.reqId);
@@ -146,6 +149,7 @@ class PdfRenderer {
             this.logger.error("pdf.render.failed", {
                 job_id: input.jobId,
                 rx_id: input.rxId,
+                doctor_id: input.doctorId,
                 error_message: err instanceof Error ? err.message : String(err),
                 error_stack: err instanceof Error ? err.stack : undefined,
             }, input.reqId);

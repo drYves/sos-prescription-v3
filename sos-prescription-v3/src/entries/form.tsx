@@ -1136,6 +1136,10 @@ function safePatientNameValue(value: unknown): string {
   return normalized !== '' && !isEmailLikeValue(normalized) ? normalized : '';
 }
 
+function resolveStrictPatientProfileFullName(config: AppConfig): string {
+  return safePatientNameValue(config.patientProfile?.fullname || '');
+}
+
 function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
   const normalized = safePatientNameValue(value);
   if (!normalized) {
@@ -3415,7 +3419,7 @@ function StepPaymentAuth({
 
     try {
       const cfg = getConfigOrThrow();
-      const billingName = safePatientNameValue(fullName) || String(cfg.currentUser?.displayName || '').trim() || undefined;
+      const billingName = safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(cfg) || undefined;
       const billingEmail = typeof cfg.currentUser?.email === 'string' && cfg.currentUser.email.trim() !== ''
         ? cfg.currentUser.email.trim()
         : undefined;
@@ -3701,7 +3705,7 @@ function PublicFormApp() {
   const [priority, setPriority] = useState<'standard' | 'express'>('standard');
 
   const [fullName, setFullName] = useState<string>(() => (
-    resumeDraftRefFromUrl ? '' : safePatientNameValue(config.patientProfile?.fullname || '')
+    resumeDraftRefFromUrl ? '' : resolveStrictPatientProfileFullName(config)
   ));
   const [birthdate, setBirthdate] = useState<string>(() => {
     if (resumeDraftRefFromUrl) {
@@ -4207,7 +4211,7 @@ function PublicFormApp() {
     setStage('choose');
     setFlow(null);
     setPriority('standard');
-    setFullName(safePatientNameValue(config.patientProfile?.fullname || ''));
+    setFullName(resolveStrictPatientProfileFullName(config));
     setBirthdate(String(config.patientProfile?.birthdate_fr || ''));
     setMedicalNotes(String(
       config.patientProfile?.note

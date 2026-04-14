@@ -7,6 +7,8 @@ use SOSPrescription\Core\Mls1Verifier;
 use SOSPrescription\Core\NdjsonLogger;
 use SOSPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
+use SOSPrescription\Repositories\FileRepository;
+use SOSPrescription\Services\FileStorage;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -51,23 +53,60 @@ final class WorkerCallbackController
                     ],
                 ]);
 
-                // Alias de transition pour permettre un rolling deploy sans rupture.
                 register_rest_route('sosprescription/v3', '/worker/callback', [
                     'methods' => 'POST',
                     'permission_callback' => '__return_true',
                     'callback' => [$controller, 'handle'],
                 ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/file/(?P<file_id>\d+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => [$controller, 'handleSignatureFile'],
+                ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/media/(?P<attachment_id>\d+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => [$controller, 'handleSignatureMedia'],
+                ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/storage/(?P<storage_ref>[A-Za-z0-9_\-]+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => [$controller, 'handleSignatureStorage'],
+                ]);
             } catch (\Throwable $e) {
+                $unavailable = static function (): WP_Error {
+                    return new WP_Error(
+                        'ml_worker_callback_unavailable',
+                        'Worker callback endpoint misconfigured.',
+                        ['status' => 503]
+                    );
+                };
+
                 register_rest_route('sosprescription/v3', '/worker/jobs/(?P<job_id>[A-Fa-f0-9\-]{36})/callback', [
                     'methods' => 'POST',
                     'permission_callback' => '__return_true',
-                    'callback' => static function (): WP_Error {
-                        return new WP_Error(
-                            'ml_worker_callback_unavailable',
-                            'Worker callback endpoint misconfigured.',
-                            ['status' => 503]
-                        );
-                    },
+                    'callback' => $unavailable,
+                ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/file/(?P<file_id>\d+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => $unavailable,
+                ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/media/(?P<attachment_id>\d+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => $unavailable,
+                ]);
+
+                register_rest_route('sosprescription/v3', '/worker/signatures/storage/(?P<storage_ref>[A-Za-z0-9_\-]+)', [
+                    'methods' => 'GET',
+                    'permission_callback' => '__return_true',
+                    'callback' => $unavailable,
                 ]);
             }
         });
@@ -362,6 +401,163 @@ final class WorkerCallbackController
         ], $reqId);
 
         return true;
+    }
+
+    public function handleSignatureFile(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $verified = $this->verifyWorkerSignatureRequest($request, 'worker_signature_file');
+        if (is_wp_error($verified)) {
+            return $verified;
+        }
+
+        $fileId = (int) $request->get_param('file_id');
+        if ($fileId < 1) {
+            return new WP_Error('ml_signature_file_id', 'Invalid signature file ID.', ['status' => 400]);
+        }
+
+        $repo = new FileRepository();
+        $row = $repo->get($fileId);
+        if (!is_array($row)) {
+            return new WP_Error('ml_signature_not_found', 'Signature not found.', ['status' => 404]);
+        }
+
+        $purpose = isset($row['purpose']) ? (string) $row['purpose'] : '';
+        if (!in_array($purpose, ['doctor_signature', 'doctor_stamp'], true)) {
+            return new WP_Error('ml_signature_forbidden', 'Signature access denied.', ['status' => 403]);
+        }
+
+        $storageKey = isset($row['storage_key']) ? (string) $row['storage_key'] : '';
+        $path = FileStorage::safe_abs_path($storageKey);
+        if (is_wp_error($path)) {
+            return new WP_Error('ml_signature_missing', 'Signature not found.', ['status' => 404]);
+        }
+
+        $mime = isset($row['mime']) ? (string) $row['mime'] : '';
+        $name = isset($row['original_name']) ? (string) $row['original_name'] : 'signature';
+        $this->streamImageFileResponse($path, $mime, $name);
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public function handleSignatureMedia(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $verified = $this->verifyWorkerSignatureRequest($request, 'worker_signature_media');
+        if (is_wp_error($verified)) {
+            return $verified;
+        }
+
+        $attachmentId = (int) $request->get_param('attachment_id');
+        if ($attachmentId < 1) {
+            return new WP_Error('ml_signature_attachment_id', 'Invalid signature attachment ID.', ['status' => 400]);
+        }
+
+        $path = get_attached_file($attachmentId);
+        if (!is_string($path) || trim($path) === '' || !is_file($path)) {
+            return new WP_Error('ml_signature_not_found', 'Signature not found.', ['status' => 404]);
+        }
+
+        $mime = get_post_mime_type($attachmentId);
+        $name = get_the_title($attachmentId);
+        $fallbackName = is_string($name) && trim($name) !== '' ? $name : 'signature';
+        $this->streamImageFileResponse($path, is_string($mime) ? $mime : '', $fallbackName);
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public function handleSignatureStorage(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $verified = $this->verifyWorkerSignatureRequest($request, 'worker_signature_storage');
+        if (is_wp_error($verified)) {
+            return $verified;
+        }
+
+        $encoded = trim((string) $request->get_param('storage_ref'));
+        $decoded = $this->decodeBase64Url($encoded);
+        if ($decoded === '') {
+            return new WP_Error('ml_signature_storage_ref', 'Invalid storage reference.', ['status' => 400]);
+        }
+
+        $path = FileStorage::safe_abs_path($decoded);
+        if (is_wp_error($path)) {
+            return new WP_Error('ml_signature_not_found', 'Signature not found.', ['status' => 404]);
+        }
+
+        $this->streamImageFileResponse($path, '', basename($decoded));
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    private function verifyWorkerSignatureRequest(WP_REST_Request $request, string $scope): array|WP_Error
+    {
+        $route = (string) $request->get_route();
+        return $this->verifier->verifyCanonicalGet($request, $route, $scope);
+    }
+
+    private function streamImageFileResponse(string $path, string $mime, string $name): void
+    {
+        if (!is_file($path)) {
+            wp_die('Signature introuvable.', 'Signature introuvable', ['response' => 404]);
+        }
+
+        $resolvedMime = $this->inferImageMimeType($path, $mime);
+        if ($resolvedMime === '') {
+            wp_die('Type de signature non supporté.', 'Signature invalide', ['response' => 415]);
+        }
+
+        $size = (int) (@filesize($path) ?: 0);
+        $fallback = preg_replace('/[^A-Za-z0-9._-]/', '_', $name);
+        $fallback = is_string($fallback) && $fallback !== '' ? $fallback : 'signature';
+
+        while (ob_get_level()) {
+            @ob_end_clean();
+        }
+
+        nocache_headers();
+        header('Content-Type: ' . $resolvedMime);
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        header('Content-Disposition: inline; filename="' . $fallback . '"');
+        if ($size > 0) {
+            header('Content-Length: ' . (string) $size);
+        }
+
+        readfile($path);
+        exit;
+    }
+
+    private function inferImageMimeType(string $path, string $mime): string
+    {
+        $candidate = trim($mime);
+        if ($candidate !== '' && str_starts_with($candidate, 'image/')) {
+            return $candidate;
+        }
+
+        $wpType = wp_check_filetype($path);
+        $type = isset($wpType['type']) && is_string($wpType['type']) ? trim($wpType['type']) : '';
+        if ($type !== '' && str_starts_with($type, 'image/')) {
+            return $type;
+        }
+
+        $ext = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+        return match ($ext) {
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'svg' => 'image/svg+xml',
+            default => '',
+        };
+    }
+
+    private function decodeBase64Url(string $value): string
+    {
+        $normalized = trim($value);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $padding = (4 - (strlen($normalized) % 4)) % 4;
+        $base64 = strtr($normalized, '-_', '+/') . str_repeat('=', $padding);
+        $decoded = base64_decode($base64, true);
+        return is_string($decoded) ? trim($decoded) : '';
     }
 
     /**

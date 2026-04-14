@@ -193,6 +193,14 @@
   box-shadow: var(--sp-app-shadow);
 }
 
+#sosprescription-root-form .sp-app-card,
+#sosprescription-root-form .sp-panel,
+#sosprescription-root-form .sp-inline-card,
+#sosprescription-root-form .sp-card {
+  border-left: var(--sp-app-border);
+  border-inline-start: var(--sp-app-border);
+}
+
 .sp-app-card {
   padding: 20px;
 }

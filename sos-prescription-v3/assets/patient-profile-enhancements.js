@@ -148,7 +148,7 @@
   function buildProfileSeed() {
     var currentUser = cfg.currentUser && typeof cfg.currentUser === 'object' ? cfg.currentUser : {};
     var patientProfile = cfg.patientProfile && typeof cfg.patientProfile === 'object' ? cfg.patientProfile : {};
-    var split = splitDisplayName(currentUser.displayName || patientProfile.fullname || '');
+    var split = splitDisplayName(patientProfile.fullname || '');
 
     var firstName = safeHumanValue(
       currentUser.firstName || currentUser.first_name || patientProfile.first_name || split.firstName

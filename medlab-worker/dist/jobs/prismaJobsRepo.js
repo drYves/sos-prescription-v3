@@ -6,6 +6,7 @@ const node_crypto_1 = require("node:crypto");
 const promises_1 = require("node:timers/promises");
 const client_1 = require("@prisma/client");
 const mls1_1 = require("../security/mls1");
+const jobsRepo_1 = require("./jobsRepo");
 const CURRENT_INGEST_SCHEMA_VERSION = "2026.6";
 const COMPAT_JOB_SCHEMA_VERSION = "2026.5";
 const JOB_TYPE = "PDF_GEN";
@@ -288,82 +289,130 @@ class PrismaJobsRepo {
         throw new Error("Unreachable ingestion state");
     }
     async approvePrescription(prescriptionId, input) {
-        const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
-        const doctor = input.doctor;
         const reqId = input.req_id;
-        const canonicalItems = Array.isArray(input.items) && input.items.length > 0
-            ? canonicalizePrescriptionItems(input.items)
-            : null;
-        const payment = normalizePaymentActionPayload(input.payment);
-        if (payment) {
-            await this.ensurePaymentActionQueueSchema();
-        }
-        const updated = await this.prisma.$transaction(async (tx) => {
-            const existing = await tx.prescription.findUnique({
-                where: { id: safePrescriptionId },
-                select: {
-                    ...ingestSelect(),
-                    doctorId: true,
-                },
-            });
-            if (!existing) {
-                throw new Error("Prescription not found");
+        const doctor = input.doctor;
+        const requestedItemsCount = Array.isArray(input.items) ? input.items.length : 0;
+        let safePrescriptionId = typeof prescriptionId === "string" ? prescriptionId.trim() : String(prescriptionId ?? "");
+        let canonicalItems = null;
+        let payment = null;
+        try {
+            safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
+            canonicalItems = Array.isArray(input.items) && input.items.length > 0
+                ? canonicalizePrescriptionItems(input.items)
+                : null;
+            payment = normalizePaymentActionPayload(input.payment);
+            if (payment) {
+                await this.ensurePaymentActionQueueSchema();
             }
-            let finalDoctorId = existing.doctorId;
-            if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
-                const upsertedDoctor = await tx.doctor.upsert({
-                    where: { wpUserId: normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") },
-                    create: buildDoctorCreate(doctor),
-                    update: buildDoctorUpdate(doctor),
-                    select: { id: true },
+            const updated = await this.prisma.$transaction(async (tx) => {
+                const existing = await tx.prescription.findUnique({
+                    where: { id: safePrescriptionId },
+                    select: {
+                        ...ingestSelect(),
+                        doctorId: true,
+                    },
                 });
-                finalDoctorId = upsertedDoctor.id;
-            }
-            const now = new Date();
-            if (canonicalItems) {
-                await tx.prescription.update({
+                if (!existing) {
+                    throw new Error("Prescription not found");
+                }
+                let finalDoctorId = existing.doctorId;
+                if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
+                    const upsertedDoctor = await tx.doctor.upsert({
+                        where: { wpUserId: normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") },
+                        create: buildDoctorCreate(doctor),
+                        update: buildDoctorUpdate(doctor),
+                        select: { id: true },
+                    });
+                    finalDoctorId = upsertedDoctor.id;
+                }
+                const now = new Date();
+                if (canonicalItems) {
+                    await tx.prescription.update({
+                        where: { id: safePrescriptionId },
+                        data: {
+                            items: toInputJsonArray(canonicalItems),
+                            updatedAt: now,
+                        },
+                        select: { id: true },
+                    });
+                }
+                const updatedPrescription = await tx.prescription.update({
                     where: { id: safePrescriptionId },
                     data: {
-                        items: toInputJsonArray(canonicalItems),
+                        status: "APPROVED",
+                        processingStatus: "PENDING",
+                        availableAt: now,
+                        claimedAt: null,
+                        lockExpiresAt: null,
+                        workerRef: null,
+                        doctorId: finalDoctorId,
+                        lastErrorCode: null,
+                        lastErrorMessageSafe: null,
                         updatedAt: now,
                     },
-                    select: { id: true },
+                    select: ingestSelect(),
                 });
-            }
-            const updatedPrescription = await tx.prescription.update({
-                where: { id: safePrescriptionId },
-                data: {
-                    status: "APPROVED",
-                    processingStatus: "PENDING",
-                    availableAt: now,
-                    claimedAt: null,
-                    lockExpiresAt: null,
-                    workerRef: null,
-                    doctorId: finalDoctorId,
-                    lastErrorCode: null,
-                    lastErrorMessageSafe: null,
-                    updatedAt: now,
-                },
-                select: ingestSelect(),
+                if (payment) {
+                    await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+                }
+                return updatedPrescription;
+            }, {
+                maxWait: TX_MAX_WAIT_MS,
+                timeout: TX_TIMEOUT_MS,
             });
-            if (payment) {
-                await this.enqueuePaymentActionTx(tx, safePrescriptionId, payment, reqId ?? updatedPrescription.sourceReqId ?? safePrescriptionId);
+            const result = mapApproveResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
+            this.logger?.info("ingest.approved", {
+                job_id: result.job_id,
+                prescription_uid: result.uid,
+                processing_status: result.processing_status,
+                source_req_id: result.source_req_id,
+                doctor_wp_user_id: doctor?.wpUserId ?? null,
+                items_count: canonicalItems ? canonicalItems.length : null,
+            }, reqId ?? updated.sourceReqId ?? undefined);
+            return result;
+        }
+        catch (err) {
+            const failure = classifyApproveRepoFailure(err);
+            this.logger?.error("ingest.approve_failed.repo", {
+                prescription_id: safePrescriptionId !== "" ? safePrescriptionId : null,
+                source_req_id: reqId ?? null,
+                doctor_wp_user_id: doctor?.wpUserId ?? null,
+                items_count: canonicalItems ? canonicalItems.length : requestedItemsCount,
+                payment_present: payment !== null || input.payment != null,
+                failure_stage: failure.stage,
+                failure_code: failure.code,
+                failure_status: failure.statusCode,
+                prisma_code: failure.prismaCode,
+                system_code: failure.systemCode,
+                system_errno: failure.systemErrno,
+                system_syscall: failure.systemSyscall,
+                system_path: failure.systemPath,
+                raw_error_name: failure.rawName,
+                raw_error_message: failure.rawMessage,
+                raw_error_stack: failure.rawStack,
+                raw_error_cause: failure.rawCauseMessage,
+            }, reqId ?? undefined, err);
+            if (err instanceof jobsRepo_1.JobsRepoActionError) {
+                throw err;
             }
-            return updatedPrescription;
-        }, {
-            maxWait: TX_MAX_WAIT_MS,
-            timeout: TX_TIMEOUT_MS,
-        });
-        const result = mapApproveResult(updated, reqId ?? updated.sourceReqId ?? safePrescriptionId);
-        this.logger?.info("ingest.approved", {
-            job_id: result.job_id,
-            prescription_uid: result.uid,
-            processing_status: result.processing_status,
-            source_req_id: result.source_req_id,
-            doctor_wp_user_id: doctor?.wpUserId ?? null,
-            items_count: canonicalItems ? canonicalItems.length : null,
-        }, reqId ?? updated.sourceReqId ?? undefined);
-        return result;
+            throw new jobsRepo_1.JobsRepoActionError({
+                code: failure.code,
+                message: failure.rawMessage !== "" ? failure.rawMessage : "approve_failed",
+                statusCode: failure.statusCode,
+                stage: failure.stage,
+                details: {
+                    prisma_code: failure.prismaCode,
+                    system_code: failure.systemCode,
+                    system_errno: failure.systemErrno,
+                    system_syscall: failure.systemSyscall,
+                    system_path: failure.systemPath,
+                    raw_error_name: failure.rawName,
+                    raw_error_stack: failure.rawStack,
+                    raw_error_cause: failure.rawCauseMessage,
+                },
+                cause: err,
+            });
+        }
     }
     async rejectPrescription(prescriptionId, input) {
         const safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
@@ -1472,6 +1521,169 @@ function extractPrismaCode(err) {
     }
     const code = err.code;
     return typeof code === "string" && code !== "" ? code : null;
+}
+function classifyApproveRepoFailure(err) {
+    const snapshot = buildRepoFailureSnapshot(err);
+    if (err instanceof jobsRepo_1.JobsRepoActionError) {
+        return {
+            ...snapshot,
+            code: err.code,
+            statusCode: err.statusCode,
+            stage: err.stage === "rejection" ? "approval" : err.stage,
+        };
+    }
+    const lowerMessage = snapshot.rawMessage.toLowerCase();
+    if (isRepoPdfGenerationError(snapshot.rawMessage)) {
+        return {
+            ...snapshot,
+            code: "ML_PDF_GENERATION_FAILED",
+            statusCode: 500,
+            stage: "pdf_generation",
+        };
+    }
+    if (snapshot.prismaCode === "P2025" || lowerMessage.includes("prescription not found")) {
+        return {
+            ...snapshot,
+            code: "ML_PRESCRIPTION_NOT_FOUND",
+            statusCode: 404,
+            stage: "database",
+        };
+    }
+    if (isRepoValidationError(snapshot.rawMessage)) {
+        return {
+            ...snapshot,
+            code: "ML_INGEST_BAD_REQUEST",
+            statusCode: 400,
+            stage: "validation",
+        };
+    }
+    if (lowerMessage.includes("payment") || lowerMessage.includes("stripe") || lowerMessage.includes("capture") || lowerMessage.includes("cancel")) {
+        return {
+            ...snapshot,
+            code: "ML_APPROVE_FAILED",
+            statusCode: 500,
+            stage: "payment",
+        };
+    }
+    return {
+        ...snapshot,
+        code: "ML_APPROVE_FAILED",
+        statusCode: 500,
+        stage: snapshot.prismaCode ? "database" : "approval",
+    };
+}
+function buildRepoFailureSnapshot(err) {
+    return {
+        code: "ML_APPROVE_FAILED",
+        statusCode: 500,
+        stage: "unknown",
+        prismaCode: extractPrismaCode(err),
+        rawName: extractRepoErrorName(err),
+        rawMessage: extractRepoErrorMessage(err),
+        rawStack: extractRepoErrorStack(err),
+        rawCauseMessage: extractRepoCauseMessage(err),
+        systemCode: extractRepoSystemCode(err),
+        systemErrno: extractRepoSystemErrno(err),
+        systemSyscall: extractRepoSystemStringField(err, "syscall"),
+        systemPath: extractRepoSystemStringField(err, "path"),
+    };
+}
+function isRepoValidationError(message) {
+    const haystack = message.toLowerCase();
+    return [
+        "required",
+        "must be",
+        "invalid",
+        "schema_version mismatch",
+        "site_id mismatch",
+        "doctor block is required",
+        "doctor block must be an object if provided",
+        "patient block is required",
+        "prescription block is required",
+        "prescription.items must be an array",
+        "ingress payload is missing",
+    ].some((needle) => haystack.includes(needle));
+}
+function isRepoPdfGenerationError(message) {
+    const haystack = message.toLowerCase();
+    return [
+        "ml_pdf_",
+        "pdf generation",
+        "pdf render",
+        "pdf.render",
+        "puppeteer",
+        "invalid pdf",
+        "failed to read pdf",
+    ].some((needle) => haystack.includes(needle));
+}
+function extractRepoErrorName(err) {
+    if (err instanceof Error && typeof err.name === "string" && err.name.trim() !== "") {
+        return err.name.trim();
+    }
+    return typeof err === "object" && err !== null ? "Object" : typeof err;
+}
+function extractRepoErrorMessage(err) {
+    if (err instanceof Error && typeof err.message === "string") {
+        return err.message.trim();
+    }
+    return typeof err === "string" ? err.trim() : "";
+}
+function extractRepoErrorStack(err) {
+    return err instanceof Error && typeof err.stack === "string" && err.stack.trim() !== ""
+        ? err.stack
+        : null;
+}
+function extractRepoCauseMessage(err) {
+    if (!(err instanceof Error)) {
+        return null;
+    }
+    const cause = err.cause;
+    if (cause instanceof Error && typeof cause.message === "string" && cause.message.trim() !== "") {
+        return cause.message.trim();
+    }
+    return typeof cause === "string" && cause.trim() !== "" ? cause.trim() : null;
+}
+function extractRepoSystemCode(err) {
+    for (const candidate of iterateRepoErrorCandidates(err)) {
+        const code = candidate.code;
+        if (typeof code !== "string" || code.trim() === "") {
+            continue;
+        }
+        if (/^P\d{4}$/u.test(code.trim())) {
+            continue;
+        }
+        return code.trim();
+    }
+    return null;
+}
+function extractRepoSystemErrno(err) {
+    for (const candidate of iterateRepoErrorCandidates(err)) {
+        const errno = candidate.errno;
+        if (typeof errno === "number" || typeof errno === "string") {
+            return errno;
+        }
+    }
+    return null;
+}
+function extractRepoSystemStringField(err, field) {
+    for (const candidate of iterateRepoErrorCandidates(err)) {
+        const value = candidate[field];
+        if (typeof value === "string" && value.trim() !== "") {
+            return value.trim();
+        }
+    }
+    return null;
+}
+function* iterateRepoErrorCandidates(err) {
+    let current = err;
+    for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+        yield current;
+        if (current instanceof Error) {
+            current = current.cause;
+            continue;
+        }
+        break;
+    }
 }
 function normalizeBaseUrl(value) {
     return value.trim().replace(/\/+$/g, "");

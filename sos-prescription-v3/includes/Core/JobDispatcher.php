@@ -868,18 +868,6 @@ final class JobDispatcher
             return $this->normalizeSignatureKeyForWorker($directKey);
         }
 
-        $attachmentId = (int) $this->readUserMetaFirst($doctorUserId, [
-            'signature_attachment_id',
-            'sosprescription_signature_attachment_id',
-            'sosprescription_doctor_signature_attachment_id',
-        ]);
-        if ($attachmentId > 0) {
-            $attachedFile = get_post_meta($attachmentId, '_wp_attached_file', true);
-            if (is_string($attachedFile) && trim($attachedFile) !== '') {
-                return $this->normalizeSignatureKeyForWorker($attachedFile);
-            }
-        }
-
         $fileId = (int) $this->readUserMetaFirst($doctorUserId, [
             'sosprescription_signature_file_id',
             'signature_file_id',
@@ -888,14 +876,40 @@ final class JobDispatcher
         $repo = new FileRepository();
         if ($fileId > 0) {
             $file = $repo->get($fileId);
-            if (is_array($file) && !empty($file['storage_key']) && is_scalar($file['storage_key'])) {
-                return $this->normalizeSignatureKeyForWorker((string) $file['storage_key']);
+            if (is_array($file)) {
+                $fileRef = $this->buildWorkerSignatureFileRef((int) ($file['id'] ?? 0));
+                if ($fileRef !== null) {
+                    return $fileRef;
+                }
+
+                if (!empty($file['storage_key']) && is_scalar($file['storage_key'])) {
+                    return $this->buildWorkerSignatureStorageRef((string) $file['storage_key']);
+                }
             }
         }
 
         $latest = $repo->find_latest_for_owner_purpose($doctorUserId, 'doctor_signature');
-        if (is_array($latest) && !empty($latest['storage_key']) && is_scalar($latest['storage_key'])) {
-            return $this->normalizeSignatureKeyForWorker((string) $latest['storage_key']);
+        if (is_array($latest)) {
+            $latestRef = $this->buildWorkerSignatureFileRef((int) ($latest['id'] ?? 0));
+            if ($latestRef !== null) {
+                return $latestRef;
+            }
+
+            if (!empty($latest['storage_key']) && is_scalar($latest['storage_key'])) {
+                return $this->buildWorkerSignatureStorageRef((string) $latest['storage_key']);
+            }
+        }
+
+        $attachmentId = (int) $this->readUserMetaFirst($doctorUserId, [
+            'signature_attachment_id',
+            'sosprescription_signature_attachment_id',
+            'sosprescription_doctor_signature_attachment_id',
+        ]);
+        if ($attachmentId > 0) {
+            $attachedFile = get_post_meta($attachmentId, '_wp_attached_file', true);
+            if (is_string($attachedFile) && trim($attachedFile) !== '') {
+                return $this->buildWorkerSignatureMediaRef($attachmentId);
+            }
         }
 
         return null;
@@ -908,7 +922,12 @@ final class JobDispatcher
             return null;
         }
 
-        if (stripos($key, 's3://') === 0) {
+        if (
+            stripos($key, 's3://') === 0
+            || stripos($key, 'wpfile:') === 0
+            || stripos($key, 'wpmedia:') === 0
+            || stripos($key, 'wpstorage:') === 0
+        ) {
             return $key;
         }
 
@@ -923,6 +942,27 @@ final class JobDispatcher
         }
 
         return $bucket !== '' ? sprintf('s3://%s/%s', trim($bucket), $key) : $key;
+    }
+
+    private function buildWorkerSignatureFileRef(int $fileId): ?string
+    {
+        return $fileId > 0 ? sprintf('wpfile:%d', $fileId) : null;
+    }
+
+    private function buildWorkerSignatureMediaRef(int $attachmentId): ?string
+    {
+        return $attachmentId > 0 ? sprintf('wpmedia:%d', $attachmentId) : null;
+    }
+
+    private function buildWorkerSignatureStorageRef(string $storageKey): ?string
+    {
+        $normalized = ltrim(trim($storageKey), '/');
+        if ($normalized === '' || str_contains($normalized, '..')) {
+            return null;
+        }
+
+        $encoded = rtrim(strtr(base64_encode($normalized), '+/', '-_'), '=');
+        return $encoded !== '' ? 'wpstorage:' . $encoded : null;
     }
 
     private function normalizeBirthdateString(string $value): string

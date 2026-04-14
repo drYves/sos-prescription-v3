@@ -1,0 +1,25 @@
+/*
+ * SOS Prescription : Fonts V4.8.0
+ * Typographie premium locale-only.
+ */
+
+:root {
+  font-synthesis-weight: none;
+  font-synthesis-style: none;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-kerning: normal;
+  font-optical-sizing: auto;
+}
+
+:where(h1, h2, h3, h4, h5, h6, .sp-card-title, .sp-widget-card__title, .sp-rolebar__title, .sp-console-bar__title) {
+  font-optical-sizing: auto;
+  text-wrap: balance;
+}

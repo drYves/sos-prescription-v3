@@ -1,0 +1,663 @@
+/*
+ * SOS Prescription : Plugin Bridge V4.8.0
+ * Harmonisation visuelle du plugin sans toucher au métier.
+ */
+
+/* Shared plugin roots */
+.sp-plugin-root,
+.sp-ui,
+.sosprescription-doctor,
+.sosprescription-bdpm,
+.sosprescription-notice,
+.sosprescription-guard {
+  color: var(--sp-ink);
+  font-family: var(--sp-font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.sp-plugin-root *,
+.sp-ui *,
+.sosprescription-doctor *,
+.sosprescription-bdpm * {
+  box-sizing: border-box;
+}
+
+/* UI kit bridge */
+.sp-plugin-root .sp-card,
+.sp-ui .sp-card,
+.sosprescription-bdpm .sp-card,
+.sp-context-console .sp-ui .sp-card {
+  border-color: var(--sp-border);
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-shadow-1);
+  padding: 1.15rem 1.2rem;
+  background: var(--sp-bg);
+}
+
+.sp-plugin-root .sp-card-title,
+.sp-ui .sp-card-title,
+.sosprescription-bdpm .sp-title h2 {
+  font-family: var(--sp-font-display);
+  font-size: var(--sp-text-lg);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.sp-plugin-root .sp-muted,
+.sp-ui .sp-muted,
+.sosprescription-bdpm .sp-muted {
+  color: var(--sp-muted);
+}
+
+.sp-plugin-root .sp-alert,
+.sp-ui .sp-alert,
+.sosprescription-bdpm .sp-error,
+.sosprescription-bdpm .sp-empty {
+  border-radius: var(--sp-radius-md);
+  box-shadow: none;
+}
+
+.sp-plugin-root .sp-alert,
+.sp-ui .sp-alert {
+  border-color: var(--sp-border);
+  background: var(--sp-color-surface-alt);
+  color: var(--sp-color-text-2);
+}
+
+.sp-plugin-root .sp-alert-error,
+.sp-ui .sp-alert-error,
+.sosprescription-bdpm .sp-error {
+  border-color: var(--sp-color-danger-border);
+  background: var(--sp-color-danger-soft);
+  color: var(--sp-color-danger-ink);
+}
+
+.sp-plugin-root .sp-alert-success,
+.sp-ui .sp-alert-success {
+  border-color: var(--sp-color-success-border);
+  background: var(--sp-color-success-soft);
+  color: var(--sp-color-success-ink);
+}
+
+.sp-plugin-root .sp-alert-warn,
+.sp-ui .sp-alert-warn {
+  border-color: var(--sp-color-warning-border);
+  background: var(--sp-color-warning-soft);
+  color: var(--sp-color-warning-ink);
+}
+
+.sp-plugin-root .sp-badge,
+.sp-ui .sp-badge,
+.sosprescription-bdpm .sp-pill,
+.sosprescription-doctor .dc-pill {
+  border-radius: var(--sp-radius-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sp-plugin-root .sp-badge,
+.sp-ui .sp-badge,
+.sosprescription-bdpm .sp-pill,
+.sosprescription-doctor .dc-pill-soft {
+  border-color: rgba(15, 108, 189, 0.12);
+  background: var(--sp-color-accent-soft);
+  color: var(--sp-primary-ink);
+}
+
+.sp-plugin-root .sp-badge-success,
+.sp-ui .sp-badge-success,
+.sosprescription-doctor .dc-pill-success {
+  border-color: var(--sp-color-success-border);
+  background: var(--sp-color-success-soft);
+  color: var(--sp-color-success-ink);
+}
+
+.sp-plugin-root .sp-badge-warn,
+.sp-ui .sp-badge-warn,
+.sosprescription-doctor .dc-pill-warn {
+  border-color: var(--sp-color-warning-border);
+  background: var(--sp-color-warning-soft);
+  color: var(--sp-color-warning-ink);
+}
+
+.sp-plugin-root .sp-badge-danger,
+.sp-ui .sp-badge-danger,
+.sosprescription-doctor .dc-pill-danger {
+  border-color: var(--sp-color-danger-border);
+  background: var(--sp-color-danger-soft);
+  color: var(--sp-color-danger-ink);
+}
+
+.sp-plugin-root .sp-btn,
+.sp-ui .sp-btn,
+.sosprescription-bdpm .sp-btn,
+.sosprescription-guard .button,
+.sp-page-doctor-account .wrap .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--sp-radius-md);
+  border: 1px solid transparent;
+  font-size: var(--sp-text-sm);
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: none;
+  transition:
+    background-color var(--sp-motion-base) var(--sp-ease-standard),
+    border-color var(--sp-motion-base) var(--sp-ease-standard),
+    color var(--sp-motion-base) var(--sp-ease-standard),
+    transform var(--sp-motion-fast) var(--sp-ease-press);
+}
+
+.sp-plugin-root .sp-btn:hover,
+.sp-ui .sp-btn:hover,
+.sosprescription-bdpm .sp-btn:hover,
+.sosprescription-guard .button:hover,
+.sp-page-doctor-account .wrap .button:hover {
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.sp-plugin-root .sp-btn-primary,
+.sp-ui .sp-btn-primary,
+.sosprescription-bdpm .sp-btn:not(.sp-btn-secondary),
+.sosprescription-guard .button.button-primary,
+.sp-page-doctor-account .wrap .button.button-primary,
+.sp-page-doctor-account .wrap button.button-primary {
+  background: var(--sp-primary) !important;
+  border-color: var(--sp-primary) !important;
+  color: #ffffff !important;
+}
+
+.sp-plugin-root .sp-btn-primary:hover,
+.sp-ui .sp-btn-primary:hover,
+.sosprescription-bdpm .sp-btn:not(.sp-btn-secondary):hover,
+.sosprescription-guard .button.button-primary:hover,
+.sp-page-doctor-account .wrap .button.button-primary:hover,
+.sp-page-doctor-account .wrap button.button-primary:hover {
+  background: var(--sp-color-accent-hover) !important;
+  border-color: var(--sp-color-accent-hover) !important;
+}
+
+.sp-plugin-root .sp-btn-secondary,
+.sp-ui .sp-btn-secondary,
+.sosprescription-bdpm .sp-btn-secondary,
+.sosprescription-guard .button:not(.button-primary),
+.sp-page-doctor-account .wrap .button:not(.button-primary) {
+  background: var(--sp-color-surface) !important;
+  border-color: var(--sp-border-strong) !important;
+  color: var(--sp-color-text-1) !important;
+}
+
+.sp-plugin-root .sp-btn-secondary:hover,
+.sp-ui .sp-btn-secondary:hover,
+.sosprescription-bdpm .sp-btn-secondary:hover,
+.sosprescription-guard .button:not(.button-primary):hover,
+.sp-page-doctor-account .wrap .button:not(.button-primary):hover {
+  background: var(--sp-color-surface-alt) !important;
+  border-color: var(--sp-border) !important;
+}
+
+.sp-plugin-root .sp-btn-ghost,
+.sp-ui .sp-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--sp-primary-ink);
+}
+
+.sp-plugin-root .sp-btn-danger,
+.sp-ui .sp-btn-danger {
+  background: var(--sp-color-danger);
+  border-color: var(--sp-color-danger);
+  color: #fff;
+}
+
+.sp-plugin-root .sp-input,
+.sp-plugin-root .sp-select,
+.sp-plugin-root .sp-textarea,
+.sp-ui .sp-input,
+.sp-ui .sp-select,
+.sp-ui .sp-textarea,
+.sosprescription-bdpm .sp-input,
+.sosprescription-bdpm .sp-select,
+.sp-page-doctor-account .wrap input[type="text"],
+.sp-page-doctor-account .wrap input[type="email"],
+.sp-page-doctor-account .wrap input[type="search"],
+.sp-page-doctor-account .wrap input[type="password"],
+.sp-page-doctor-account .wrap input[type="number"],
+.sp-page-doctor-account .wrap select,
+.sp-page-doctor-account .wrap textarea {
+  border-color: var(--sp-border-strong);
+  border-radius: var(--sp-radius-md);
+  background: var(--sp-color-surface);
+  color: var(--sp-ink);
+  min-height: 2.875rem;
+  padding: 0.8rem 0.95rem;
+  box-shadow: none;
+}
+
+.sp-plugin-root .sp-input:focus,
+.sp-plugin-root .sp-select:focus,
+.sp-plugin-root .sp-textarea:focus,
+.sp-ui .sp-input:focus,
+.sp-ui .sp-select:focus,
+.sp-ui .sp-textarea:focus,
+.sosprescription-bdpm .sp-input:focus,
+.sosprescription-bdpm .sp-select:focus,
+.sp-page-doctor-account .wrap input:focus,
+.sp-page-doctor-account .wrap select:focus,
+.sp-page-doctor-account .wrap textarea:focus {
+  border-color: var(--sp-primary);
+  box-shadow: 0 0 0 4px var(--sp-color-focus-ring);
+}
+
+.sp-plugin-root .sp-row,
+.sp-ui .sp-row {
+  gap: 0.85rem;
+}
+
+.sp-plugin-root .sp-row-between,
+.sp-ui .sp-row-between {
+  justify-content: space-between;
+}
+
+/* Guards */
+.sosprescription-guard,
+.sp-plugin-guard {
+  border-color: var(--sp-border) !important;
+  background: var(--sp-bg) !important;
+  border-radius: var(--sp-radius-lg) !important;
+  box-shadow: var(--sp-shadow-1);
+  color: var(--sp-ink);
+}
+
+.sosprescription-guard h3,
+.sp-plugin-guard h3 {
+  font-family: var(--sp-font-display);
+  font-size: var(--sp-text-lg);
+  margin-bottom: 0.5rem !important;
+}
+
+.sosprescription-guard p,
+.sp-plugin-guard p {
+  color: var(--sp-muted);
+}
+
+/* Notices */
+.sosprescription-notice {
+  border: 1px solid var(--sp-border);
+  background: var(--sp-bg);
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-shadow-1);
+}
+
+.sosprescription-notice .sp-notice-close {
+  border-color: var(--sp-border) !important;
+  background: var(--sp-color-surface-alt) !important;
+  border-radius: var(--sp-radius-md);
+  color: var(--sp-color-text-2) !important;
+}
+
+.sosprescription-notice .sp-notice-close:hover {
+  background: #edf2f7 !important;
+}
+
+/* Request / patient roots */
+.sp-context-patient #sp-error-surface-form,
+.sp-context-patient #sp-error-surface-patient {
+  margin-bottom: var(--sp-space-3);
+}
+
+.sp-context-patient #sp-patient-profile-root:empty {
+  display: none;
+}
+
+.sp-context-patient #sp-patient-profile-root:not(:empty) {
+  margin-bottom: var(--sp-space-4);
+}
+
+.sp-context-patient .sp-row.sp-row-between {
+  align-items: center;
+}
+
+.sp-context-patient .sp-badge .sp-dot-online {
+  box-shadow: 0 0 0 4px rgba(15, 159, 110, 0.12);
+}
+
+/* Doctor account */
+.sp-page-doctor-account .wrap {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.sp-page-doctor-account .wrap > h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem !important;
+  font-family: var(--sp-font-display);
+  font-size: clamp(1.6rem, 2vw, 2.1rem);
+  line-height: 1.15;
+}
+
+.sp-page-doctor-account .wrap > p {
+  max-width: 70ch;
+  color: var(--sp-muted);
+}
+
+.sp-page-doctor-account .wrap > div:not(.notice) {
+  background: var(--sp-bg) !important;
+  border: 1px solid var(--sp-border) !important;
+  border-radius: var(--sp-radius-lg) !important;
+  box-shadow: var(--sp-shadow-1);
+  padding: 1.25rem !important;
+  margin: 1rem 0 0 !important;
+}
+
+.sp-page-doctor-account .wrap .notice {
+  margin: 0.75rem 0 !important;
+  border: 1px solid var(--sp-border);
+  border-left: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-md);
+  box-shadow: none;
+  padding: 0.85rem 1rem;
+}
+
+.sp-page-doctor-account .wrap .notice-success {
+  border-color: var(--sp-color-success-border);
+  background: var(--sp-color-success-soft);
+}
+
+.sp-page-doctor-account .wrap .notice-error {
+  border-color: var(--sp-color-danger-border);
+  background: var(--sp-color-danger-soft);
+}
+
+.sp-page-doctor-account .wrap h2 {
+  font-size: var(--sp-text-xl);
+  margin-bottom: 0.9rem;
+}
+
+.sp-page-doctor-account .wrap .form-table th {
+  width: 16rem;
+  padding-left: 0;
+  color: var(--sp-color-text-2);
+  font-size: var(--sp-text-sm);
+  font-weight: 700;
+}
+
+.sp-page-doctor-account .wrap .form-table td {
+  padding-right: 0;
+}
+
+.sp-page-doctor-account .wrap .regular-text,
+.sp-page-doctor-account .wrap .large-text,
+.sp-page-doctor-account .wrap textarea,
+.sp-page-doctor-account .wrap select {
+  max-width: 36rem;
+}
+
+.sp-page-doctor-account .sp-signature-upload-wrap {
+  max-width: 40rem;
+}
+
+.sp-page-doctor-account .sp-custom-file-upload {
+  border-color: var(--sp-border-strong);
+  border-radius: var(--sp-radius-lg);
+  background: var(--sp-color-surface);
+}
+
+.sp-page-doctor-account .sp-custom-file-upload:hover,
+.sp-page-doctor-account .sp-custom-file-upload.dragover {
+  border-color: var(--sp-primary);
+  background: var(--sp-color-accent-soft);
+}
+
+.sp-page-doctor-account .sp-signature-upload-icon {
+  background: var(--sp-color-accent-soft);
+  color: var(--sp-primary-ink);
+}
+
+.sp-page-doctor-account .sp-signature-preview,
+.sp-page-doctor-account .sp-signature-meta {
+  border-radius: var(--sp-radius-md);
+}
+
+/* BDPM catalog */
+.sp-context-doctor .sosprescription-bdpm,
+.sp-plugin-root--doctor-catalog {
+  display: grid;
+  gap: var(--sp-space-4);
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-card {
+  padding: 1.2rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-title {
+  margin-bottom: 0.25rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-toolbar {
+  gap: 0.75rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm table {
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-lg);
+  overflow: hidden;
+  background: var(--sp-bg);
+}
+
+.sp-context-doctor .sosprescription-bdpm th {
+  background: rgba(242, 246, 250, 0.9);
+  color: var(--sp-color-text-2);
+  font-size: var(--sp-text-sm);
+  font-weight: 700;
+}
+
+.sp-context-doctor .sosprescription-bdpm td {
+  color: var(--sp-color-text-2);
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-footer,
+.sp-context-doctor .sosprescription-bdpm .sp-pagination {
+  gap: 0.75rem;
+}
+
+/* Console */
+.sp-context-console .sosprescription-doctor {
+  color: var(--sp-color-text-1);
+}
+
+.sp-context-console .sosprescription-doctor .dc-inbox,
+.sp-context-console .sosprescription-doctor .dc-detail,
+.sp-context-console .sosprescription-doctor .dc-summary-card,
+.sp-context-console .sosprescription-doctor .dc-meds-card,
+.sp-context-console .sosprescription-doctor .dc-pdf-card,
+.sp-context-console .sosprescription-doctor .dc-refusal-panel {
+  border-color: var(--sp-border);
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-shadow-1);
+}
+
+.sp-context-console .sosprescription-doctor .dc-detail {
+  background: linear-gradient(180deg, rgba(248, 250, 252, 1) 0%, rgba(255, 255, 255, 1) 22%);
+}
+
+.sp-context-console .sosprescription-doctor .dc-inbox__head,
+.sp-context-console .sosprescription-doctor .dc-detail-pane {
+  background: transparent;
+}
+
+.sp-context-console .sosprescription-doctor .dc-title,
+.sp-context-console .sosprescription-doctor .dc-patient-name {
+  font-family: var(--sp-font-display);
+  letter-spacing: -0.02em;
+}
+
+.sp-context-console .sosprescription-doctor .dc-item:hover {
+  background: rgba(242, 246, 250, 0.8);
+}
+
+.sp-context-console .sosprescription-doctor .dc-item.is-selected {
+  background: var(--sp-color-accent-soft);
+  border-left-color: var(--sp-primary);
+}
+
+.sp-context-console .sosprescription-doctor .dc-summary-row {
+  border-color: var(--sp-border);
+  border-radius: var(--sp-radius-md);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+/* Future verify wrapper */
+.sp-plugin-root--verify,
+.sp-plugin-root--verify .sp-card {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+@media (max-width: 768px) {
+  .sp-context-doctor .sosprescription-bdpm .sp-input {
+    min-width: 0;
+  }
+
+  .sp-page-doctor-account .wrap .form-table,
+  .sp-page-doctor-account .wrap .form-table tbody,
+  .sp-page-doctor-account .wrap .form-table tr,
+  .sp-page-doctor-account .wrap .form-table th,
+  .sp-page-doctor-account .wrap .form-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .sp-page-doctor-account .wrap .form-table th {
+    padding-bottom: 0.4rem;
+  }
+
+  .sp-page-doctor-account .wrap .regular-text,
+  .sp-page-doctor-account .wrap .large-text,
+  .sp-page-doctor-account .wrap textarea,
+  .sp-page-doctor-account .wrap select {
+    max-width: 100%;
+  }
+}
+
+/* V2.4.9 : BDPM premium alignment */
+.sp-context-doctor .sosprescription-bdpm .sp-card {
+  padding: 1.35rem 1.4rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-title {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-bottom: 0.35rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-title img,
+.sp-context-doctor .sosprescription-bdpm .sp-bdpm-title__icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-title h2 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-toolbar {
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-input,
+.sp-context-doctor .sosprescription-bdpm .sp-select {
+  min-height: 3rem;
+  padding: 0.875rem 1rem;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-input {
+  min-width: min(28rem, 100%);
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-btn {
+  min-height: 3rem;
+  padding: 0.875rem 1.15rem;
+  border-radius: var(--sp-radius-pill);
+}
+
+.sp-context-doctor .sosprescription-bdpm #sp-search {
+  background: #0066cc !important;
+  border-color: #0066cc !important;
+  color: #ffffff !important;
+}
+
+.sp-context-doctor .sosprescription-bdpm #sp-search:hover {
+  background: #005bb5 !important;
+  border-color: #005bb5 !important;
+}
+
+.sp-context-doctor .sosprescription-bdpm .sp-footer,
+.sp-context-doctor .sosprescription-bdpm .sp-pagination {
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .sp-context-doctor .sosprescription-bdpm .sp-toolbar {
+    align-items: stretch;
+  }
+
+  .sp-context-doctor .sosprescription-bdpm .sp-toolbar > * {
+    width: 100%;
+  }
+
+  .sp-context-doctor .sosprescription-bdpm .sp-btn {
+    width: 100%;
+  }
+}
+
+/* --- v4.8.0 · Diamond Grade plugin bridge refinements --- */
+.sp-plugin-root .sp-card,
+.sp-ui .sp-card,
+.sosprescription-bdpm .sp-card,
+.sp-context-console .sp-ui .sp-card,
+.sp-context-console .sosprescription-doctor .dc-inbox,
+.sp-context-console .sosprescription-doctor .dc-detail,
+.sp-context-console .sosprescription-doctor .dc-summary-card,
+.sp-context-console .sosprescription-doctor .dc-meds-card,
+.sp-context-console .sosprescription-doctor .dc-pdf-card,
+.sp-context-console .sosprescription-doctor .dc-refusal-panel {
+  border: var(--sp-border-hairline);
+  background: var(--sp-glass-surface-strong);
+  box-shadow: var(--sp-shadow-premium);
+  backdrop-filter: var(--sp-glass-effect);
+  -webkit-backdrop-filter: var(--sp-glass-effect);
+}
+
+.sp-plugin-root .sp-btn,
+.sp-ui .sp-btn,
+.sosprescription-bdpm .sp-btn,
+.sosprescription-guard .button,
+.sp-page-doctor-account .wrap .button {
+  border: var(--sp-border-hairline);
+  box-shadow: var(--sp-shadow-contact), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.sp-plugin-root .sp-btn:active,
+.sp-ui .sp-btn:active,
+.sosprescription-bdpm .sp-btn:active,
+.sosprescription-guard .button:active,
+.sp-page-doctor-account .wrap .button:active {
+  transform: translateY(0) scale(0.98);
+}

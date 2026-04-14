@@ -336,17 +336,6 @@ final class Assets
         $first_name = $user_id > 0 ? sanitize_text_field((string) get_user_meta($user_id, 'first_name', true)) : '';
         $last_name = $user_id > 0 ? sanitize_text_field((string) get_user_meta($user_id, 'last_name', true)) : '';
         $display_name = $user instanceof \WP_User ? (string) $user->display_name : '';
-
-        if (($first_name === '' || $last_name === '') && self::is_human_display_name($display_name)) {
-            $parts = self::split_human_name($display_name);
-            if ($first_name === '') {
-                $first_name = $parts['first_name'];
-            }
-            if ($last_name === '') {
-                $last_name = $parts['last_name'];
-            }
-        }
-
         $birth_iso = '';
         $birth_precision = '';
         $birth_fr = '';

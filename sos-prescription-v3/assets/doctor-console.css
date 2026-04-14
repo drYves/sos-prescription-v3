@@ -110,8 +110,7 @@
 
 .sosprescription-doctor .dc-item.is-selected {
   background: #eff6ff;
-  border-left: 4px solid #2563eb;
-  padding-left: 14px;
+  border-color: #bfdbfe;
 }
 
 .sosprescription-doctor .dc-item__row,

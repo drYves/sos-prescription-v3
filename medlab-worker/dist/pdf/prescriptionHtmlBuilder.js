@@ -29,16 +29,28 @@ class PrescriptionHtmlBuilder {
         const doctor = buildDoctorProfile(aggregate);
         const verifyUrl = buildVerificationUrl(this.verifyBaseUrl, aggregate.prescription.verifyToken);
         const qrDataUri = await (0, qrSvg_1.buildQrDataUri)(verifyUrl || `rx:${aggregate.prescription.uid || aggregate.prescription.id}`);
-        const signatureDataUri = this.signatureLoader && doctor.signatureS3Key
-            ? await this.signatureLoader.loadFromKey(doctor.signatureS3Key)
-            : "";
+        const normalizedSignatureKey = normalizeSignatureS3Key(doctor.signatureS3Key);
+        let signatureDataUri = "";
+        if (this.signatureLoader && normalizedSignatureKey !== "") {
+            try {
+                signatureDataUri = await this.signatureLoader.loadFromKey(normalizedSignatureKey);
+            }
+            catch (err) {
+                this.logger?.warning("pdf.signature.load_failed", {
+                    prescription_id: aggregate.prescription.id,
+                    doctor_id: doctorKeyForAudit(aggregate),
+                    sig_key_tail: signatureKeyTail(normalizedSignatureKey),
+                    reason: err instanceof Error ? err.message : "signature_load_failed",
+                }, input.reqId, err);
+            }
+        }
         const rppsBarcodeDataUri = doctor.rpps !== "" ? (0, code39Svg_1.buildCode39DataUri)(doctor.rpps) : "";
         const signatureImgHtml = signatureDataUri !== ""
             ? `<img class="sig-img" src="${escapeHtmlAttr(signatureDataUri)}" alt="Signature du médecin" />`
-            : '<div class="sig-fallback">Signature non renseignée.</div>';
+            : buildSignatureFallbackHtml(doctor);
         const qrImgHtml = `<img class="qr qr-img" src="${escapeHtmlAttr(qrDataUri !== "" ? qrDataUri : blankImageDataUri())}" alt="QR Code de vérification" />`;
         const rppsBarcodeHtml = rppsBarcodeDataUri !== ""
-            ? `<img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code barre RPPS" />`
+            ? `<img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code RPPS" />`
             : "";
         const doctorBlock = buildDoctorBlockHtml(doctor, rppsBarcodeDataUri);
         const patientBlock = buildPatientBlockHtml(aggregate);
@@ -85,12 +97,15 @@ class PrescriptionHtmlBuilder {
         for (const [needle, replacement] of Object.entries(replacements)) {
             html = html.split(needle).join(replacement);
         }
+        html = injectPrescriptionGradeStyles(html);
         html = injectMetaAndReadiness(html, aggregate, input.reqId, input.jobId, template.templateName);
         this.logger?.info("pdf.html.built", {
             prescription_id: aggregate.prescription.id,
+            doctor_id: doctorKeyForAudit(aggregate),
             job_id: input.jobId,
             template: template.templateName,
             template_variant: template.variant,
+            sig_key_present: normalizedSignatureKey !== "",
             sig_present: signatureDataUri !== "",
             verify_enabled: verifyUrl !== "",
             items_count: countMedicationItems(aggregate.prescription.items),
@@ -116,17 +131,24 @@ function buildDoctorProfile(aggregate) {
     const specialty = normalizeHumanString(doctor.specialty) || "Médecin prescripteur";
     const rpps = sanitizeDigits(doctor.rpps);
     const address = buildDoctorAddress(doctor.address, doctor.zipCode, doctor.city);
-    const phone = normalizeString(doctor.phone);
+    const phone = formatFrenchInternationalPhone(doctor.twilioPhone);
+    const university = normalizeString(doctor.university);
+    const distinctions = normalizeString(doctor.distinctions);
     const fullName = title !== "" && !displayName.toLowerCase().startsWith(title.toLowerCase())
         ? `${title} ${displayName}`.trim()
         : displayName;
+    const diplomaLine = university !== ""
+        ? `Diplômé de la faculté de médecine de ${university}`
+        : "";
     return {
         fullName,
         specialty,
         rpps,
         address,
         phone,
-        diplomaLine: "",
+        university,
+        distinctions,
+        diplomaLine,
         issuePlace: normalizeString(doctor.city),
         signatureS3Key: doctor.signatureS3Key,
     };
@@ -158,6 +180,9 @@ function buildDoctorBlockHtml(doctor, rppsBarcodeDataUri) {
     if (doctor.diplomaLine !== "") {
         lines.push(`<div class="doctor-diploma">${escapeHtml(doctor.diplomaLine)}</div>`);
     }
+    if (doctor.distinctions !== "") {
+        lines.push(`<div class="doctor-distinctions">${escapeHtml(`Distinctions : ${doctor.distinctions}`)}</div>`);
+    }
     const metaRows = [];
     if (doctor.address !== "") {
         metaRows.push(buildLabeledValueRowHtml("Adresse", nl2brEscaped(doctor.address), true));
@@ -174,8 +199,8 @@ function buildDoctorBlockHtml(doctor, rppsBarcodeDataUri) {
     if (doctor.rpps !== "" && rppsBarcodeDataUri !== "") {
         lines.push([
             '<div class="doctor-rpps-panel">',
-            '  <div class="doctor-rpps-heading">Code barre RPPS</div>',
-            `  <img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code barre RPPS ${escapeHtmlAttr(doctor.rpps)}" />`,
+            '  <div class="doctor-rpps-heading">Code RPPS</div>',
+            `  <img class="doctor-rpps-barcode" src="${escapeHtmlAttr(rppsBarcodeDataUri)}" alt="Code RPPS ${escapeHtmlAttr(doctor.rpps)}" />`,
             '</div>',
         ].join("\n"));
     }
@@ -524,9 +549,9 @@ function buildFooterBlockHtml(aggregate, verifyUrl, doctor) {
 function buildHeaderBadgeHtml(deliveryCode) {
     const code = normalizeString(deliveryCode);
     if (code === "") {
-        return '<span class="badge badge--muted">Ordonnance numérique</span>';
+        return '<span class="badge badge--muted"><span class="badge__label">Ordonnance numérique</span></span>';
     }
-    return `<span class="badge">Code délivrance : ${escapeHtml(code)}</span>`;
+    return `<span class="badge badge--delivery"><span class="badge__label">Code délivrance</span><span class="badge__value">${escapeHtml(code)}</span></span>`;
 }
 function buildPatientWeightLabel(aggregate) {
     const raw = normalizeString(aggregate.patient.weight_kg ?? aggregate.patient.weightKg);
@@ -579,9 +604,129 @@ function coerceItemArray(items) {
     }
     return items.map((item) => asRecord(item));
 }
+function injectPrescriptionGradeStyles(html) {
+    const style = [
+        '<style id="ml-pdf-v590-prescription-grade">',
+        '.badge{display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:2.2mm;min-height:10mm;width:auto!important;max-width:100%;padding:1.2mm 4.2mm!important;border-radius:9999px!important;box-sizing:border-box;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;}',
+        '.badge__label{font-weight:600;white-space:nowrap;}',
+        '.badge__value{font-weight:700;white-space:nowrap;letter-spacing:0.03em;}',
+        '.badge--delivery{flex-wrap:wrap;}',
+        '.badge--muted{padding-right:3.6mm!important;padding-left:3.6mm!important;}',
+        '.sig-fallback{display:inline-flex!important;flex-direction:column;align-items:flex-end;justify-content:center;min-width:48mm;min-height:18mm;padding-top:3mm;color:#0f172a;}',
+        '.sig-fallback__name{font-size:10pt;font-weight:700;line-height:1.2;text-align:right;}',
+        '.sig-fallback__label{margin-top:1.2mm;font-size:8pt;line-height:1.2;color:#475569;text-align:right;}',
+        '.doctor-distinctions{margin-top:1.2mm;font-size:9pt;line-height:1.35;color:#334155;}',
+        '.doctor-rpps-heading{text-transform:none;}',
+        '</style>',
+    ].join("\n");
+    if (/<\/head>/i.test(html)) {
+        return html.replace(/<\/head>/i, `${style}\n</head>`);
+    }
+    return `${style}\n${html}`;
+}
+function buildSignatureFallbackHtml(doctor) {
+    return [
+        '<div class="sig-fallback">',
+        `  <div class="sig-fallback__name">${escapeHtml(doctor.fullName)}</div>`,
+        '  <div class="sig-fallback__label">Signature numérique</div>',
+        '</div>',
+    ].join("\n");
+}
+function doctorKeyForAudit(aggregate) {
+    return normalizeString(aggregate.doctor.id) || "doctor:unknown";
+}
+function normalizeSignatureS3Key(value) {
+    const raw = normalizeString(value);
+    if (raw === "") {
+        return "";
+    }
+    const lowered = raw.toLowerCase();
+    if (lowered.startsWith("wpfile:") || lowered.startsWith("wpmedia:") || lowered.startsWith("wpstorage:")) {
+        return raw;
+    }
+    if (raw.startsWith("s3://")) {
+        const normalized = raw.replace(/^s3:\/\//i, "").replace(/^\/+/, "").trim();
+        return normalized !== "" ? `s3://${normalized}` : "";
+    }
+    try {
+        const parsed = new URL(raw);
+        const host = parsed.hostname.toLowerCase();
+        const pathSegments = parsed.pathname.split("/").filter(Boolean);
+        if (host.includes("amazonaws.com")) {
+            const hostedBucket = extractVirtualHostedS3Bucket(host);
+            if (hostedBucket !== "") {
+                const key = decodeURIComponent(pathSegments.join("/")).replace(/^\/+/, "");
+                return key !== "" ? `s3://${hostedBucket}/${key}` : "";
+            }
+            const isPathStyleHost = host === "s3.amazonaws.com" || host.startsWith("s3.") || host.startsWith("s3-");
+            if (isPathStyleHost && pathSegments.length > 1) {
+                const bucket = decodeURIComponent(pathSegments[0] ?? "").trim();
+                const key = decodeURIComponent(pathSegments.slice(1).join("/")).replace(/^\/+/, "");
+                if (bucket !== "" && key !== "") {
+                    return `s3://${bucket}/${key}`;
+                }
+                return key;
+            }
+            return decodeURIComponent(pathSegments.join("/")).replace(/^\/+/, "");
+        }
+        return decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+    }
+    catch {
+        // noop: raw value may already be a plain S3 key
+    }
+    return decodeURIComponent(raw).replace(/^\/+/, "");
+}
+function extractVirtualHostedS3Bucket(host) {
+    const normalizedHost = normalizeString(host).toLowerCase();
+    if (normalizedHost === "") {
+        return "";
+    }
+    const separator = normalizedHost.indexOf(".s3.");
+    if (separator > 0) {
+        return normalizedHost.slice(0, separator).trim();
+    }
+    return "";
+}
+function signatureKeyTail(value) {
+    const key = normalizeString(value);
+    if (key === "") {
+        return "";
+    }
+    return key.length <= 20 ? key : key.slice(-20);
+}
+function formatFrenchInternationalPhone(value) {
+    const raw = normalizeString(value);
+    if (raw === "") {
+        return "";
+    }
+    const digits = raw.replace(/\D+/g, "");
+    let national = "";
+    if (digits.startsWith("0033") && digits.length >= 13) {
+        national = digits.slice(4);
+    }
+    else if (digits.startsWith("33") && digits.length >= 11) {
+        national = digits.slice(2);
+    }
+    else if (digits.startsWith("0") && digits.length >= 10) {
+        national = digits.slice(1);
+    }
+    else if (digits.length == 9) {
+        national = digits;
+    }
+    national = national.replace(/\D+/g, "");
+    if (national.startsWith("0") && national.length === 10) {
+        national = national.slice(1);
+    }
+    if (!/^[1-9]\d{8}$/.test(national)) {
+        return "";
+    }
+    return `+33 ${national.slice(0, 1)} ${national.slice(1, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7, 9)}`;
+}
 function injectMetaAndReadiness(html, aggregate, reqId, jobId, templateName) {
     const meta = [
         `<meta name="ml:job_id" content="${escapeHtmlAttr(jobId)}">`,
+        `<meta name="ml:req_id" content="${escapeHtmlAttr(reqId ?? "")}">`,
+        `<meta name="ml:doctor_id" content="${escapeHtmlAttr(doctorKeyForAudit(aggregate))}">`,
         `<meta name="ml:prescription_id" content="${escapeHtmlAttr(aggregate.prescription.id)}">`,
         `<meta name="ml:uid" content="${escapeHtmlAttr(aggregate.prescription.uid)}">`,
         `<meta name="ml:template" content="${escapeHtmlAttr(templateName)}">`,

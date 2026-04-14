@@ -14,12 +14,14 @@ const accountService_1 = require("../auth/accountService");
 const authService_1 = require("../auth/authService");
 const mailService_1 = require("../mail/mailService");
 const messagesRepo_1 = require("../messages/messagesRepo");
+const jobsRepo_1 = require("../jobs/jobsRepo");
 const mls1_1 = require("../security/mls1");
 const submissionRepo_1 = require("../submissions/submissionRepo");
 const patientRepo_1 = require("../patients/patientRepo");
 const doctorReadRepo_1 = require("../prescriptions/doctorReadRepo");
 const patientReadRepo_1 = require("../prescriptions/patientReadRepo");
 const prescriptionReadMapper_1 = require("../prescriptions/prescriptionReadMapper");
+const medicationSearchController_1 = require("./medicationSearchController");
 const MAX_INGEST_BODY_BYTES = 512 * 1024;
 const ARTIFACT_ACCESS_TTL_SECONDS = 60;
 const CURRENT_SCHEMA_VERSION = "2026.6";
@@ -46,6 +48,9 @@ function startPulseServer(deps) {
             if (method === "GET" && path === "/pulse") {
                 return await handlePulse(req, res, deps, signingSecret);
             }
+            if (method === "GET" && path === "/api/v2/medications/search") {
+                return await handleMedicationSearch(req, res, deps, signingSecret, url);
+            }
             if (method === "POST" && path === "/webhooks/stripe") {
                 return await handleStripeWebhook(req, res, deps);
             }
@@ -60,6 +65,9 @@ function startPulseServer(deps) {
             }
             if (method === "POST" && path === "/api/v2/submissions") {
                 return await handleSubmissionCreate(req, res, deps, signingSecret, submissionRepo);
+            }
+            if (method === "POST" && path === "/api/v2/submissions/draft") {
+                return await handleSubmissionDraftCreate(req, res, deps, signingSecret, submissionRepo, authService, mailService);
             }
             const submissionArtifactInitMatch = method === "POST" ? path.match(/^\/api\/v2\/submissions\/([^/]+)\/artifacts\/init$/) : null;
             if (submissionArtifactInitMatch) {
@@ -86,6 +94,17 @@ function startPulseServer(deps) {
             }
             if (method === "POST" && path === "/api/v2/prescriptions/get") {
                 return await handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRepo, patientReadRepo);
+            }
+            const prescriptionDownloadMatch = method === "GET" ? path.match(/^\/api\/v2\/prescriptions\/([^/]+)\/download$/) : null;
+            if (prescriptionDownloadMatch) {
+                return await handlePrescriptionDownload(req, res, deps, signingSecret, url, decodeURIComponent(prescriptionDownloadMatch[1]));
+            }
+            if (method === "POST" && path === "/api/v2/messages/polish") {
+                return await handleMessagesPolish(req, res, deps, signingSecret);
+            }
+            const smartRepliesGetMatch = method === "GET" ? path.match(/^\/api\/v2\/prescriptions\/([^/]+)\/smart-replies$/) : null;
+            if (smartRepliesGetMatch) {
+                return await handlePrescriptionSmartRepliesGet(req, res, deps, signingSecret, url, decodeURIComponent(smartRepliesGetMatch[1]));
             }
             if (method === "POST" && path === "/api/v1/prescriptions") {
                 return await handlePrescriptionIngress(req, res, deps, signingSecret);
@@ -166,6 +185,10 @@ function logSubmissionRejected(logger, reqId, phase, reason, code, submissionRef
 }
 function isSubmissionExpiredError(err) {
     return err instanceof submissionRepo_1.SubmissionRepoError && err.code === "ML_SUBMISSION_EXPIRED";
+}
+async function handleMedicationSearch(_req, res, deps, signingSecret, url) {
+    const response = await (0, medicationSearchController_1.handleMedicationSearchRequest)(url, { logger: deps.logger });
+    sendJson(res, response.statusCode, response.body, signingSecret);
 }
 async function handlePulse(req, res, deps, signingSecret) {
     const path = "/pulse";
@@ -305,6 +328,94 @@ async function handleSubmissionCreate(req, res, deps, signingSecret, submissionR
         }
         const message = err instanceof Error ? err.message : "submission_create_failed";
         logSubmissionRejected(deps.logger, reqId, "create", message, "ML_SUBMISSION_CREATE_FAILED", undefined, err, "error");
+        return sendJson(res, 500, { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId }, signingSecret);
+    }
+}
+async function handleSubmissionDraftCreate(req, res, deps, signingSecret, submissionRepo, authService, mailService) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/submissions/draft");
+    if (parsedBody.ok !== true) {
+        logSubmissionRejected(deps.logger, getResponseReqId(res), "create_draft", parsedBody.code, parsedBody.code, undefined, undefined, "warning");
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const body = parsedBody.body;
+        const email = normalizeMagicLinkRequestEmail(body.email);
+        const flowKey = normalizeSubmissionFlow(body.flow);
+        const priority = normalizeSubmissionPriority(body.priority);
+        const redirectTo = normalizeOptionalRedirectTo(body.redirect_to);
+        const verifyUrl = normalizeOptionalMagicLinkVerifyUrl(body.verify_url);
+        const idempotencyKey = normalizeSubmissionIdempotencyKey(body.idempotency_key);
+        const draftResult = await submissionRepo.createDraftSubmission({
+            email,
+            flowKey,
+            priority,
+            reqId,
+            idempotencyKey,
+        });
+        const resumeRedirect = appendResumeDraftToRedirect(redirectTo, draftResult.submission.publicRef);
+        const issued = await authService.issueMagicLink({
+            email,
+            ownerRole: client_1.ActorRole.PATIENT,
+            ownerWpUserId: null,
+            metadata: {
+                draft_ref: draftResult.submission.publicRef,
+                redirect_to: resumeRedirect,
+            },
+        }, reqId);
+        deps.logger.info("submission.draft.magic_link.dispatching", {
+            submission_ref: draftResult.submission.publicRef,
+            email_fp: fingerprintPublicId(email),
+            redirect_present: resumeRedirect !== "",
+        }, reqId);
+        const mailResult = await mailService.sendMagicLink({
+            email,
+            token: issued.token,
+            expiresAt: issued.expiresAt,
+            verifyBaseUrl: verifyUrl || undefined,
+        }, reqId);
+        deps.logger.info("submission.draft.magic_link.dispatched", {
+            submission_ref: draftResult.submission.publicRef,
+            email_fp: fingerprintPublicId(email),
+            delivery_mode: mailResult.deliveryMode,
+            sent: mailResult.sent,
+        }, reqId);
+        deps.logger.info("submission.draft.created", {
+            mode: draftResult.mode,
+            submission_ref: draftResult.submission.publicRef,
+            flow_key: draftResult.submission.flowKey,
+            priority: draftResult.submission.priority,
+            email_fp: fingerprintPublicId(email),
+            sent: mailResult.sent,
+        }, reqId);
+        return sendJson(res, draftResult.mode === "replayed" ? 200 : 201, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            sent: true,
+            submission_ref: draftResult.submission.publicRef,
+            status: draftResult.submission.status,
+            expires_at: draftResult.submission.expiresAt.toISOString(),
+            expires_in: issued.expiresIn,
+            redirect_to: resumeRedirect,
+            req_id: reqId,
+        }, signingSecret);
+    }
+    catch (err) {
+        if (err instanceof submissionRepo_1.SubmissionRepoError || err instanceof authService_1.AuthServiceError || err instanceof mailService_1.MailServiceError) {
+            if (err.statusCode >= 500) {
+                deps.logger.error("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            else {
+                deps.logger.warning("submission.draft.failed", { code: err.code, reason: err.message }, reqId, err);
+            }
+            return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
+        }
+        if (err instanceof Error && /(required|invalid)$/i.test(err.message)) {
+            deps.logger.warning("submission.draft.failed", { code: "ML_SUBMISSION_BAD_REQUEST", reason: err.message }, reqId, err);
+            return sendJson(res, 400, { ok: false, code: "ML_SUBMISSION_BAD_REQUEST", req_id: reqId }, signingSecret);
+        }
+        const message = err instanceof Error ? err.message : "submission_draft_failed";
+        deps.logger.error("submission.draft.failed", { reason: message }, reqId, err);
         return sendJson(res, 500, { ok: false, code: "ML_SUBMISSION_CREATE_FAILED", req_id: reqId }, signingSecret);
     }
 }
@@ -663,6 +774,7 @@ async function handleAuthRequestLink(req, res, deps, signingSecret, authService,
     try {
         const body = parsedBody.body;
         const email = normalizeMagicLinkRequestEmail(body.email);
+        const verifyUrl = normalizeOptionalMagicLinkVerifyUrl(body.verify_url);
         const lookup = await authService.lookupOwnerByEmail(email, reqId);
         if (lookup.status !== "matched" || !lookup.candidate) {
             deps.logger.info("auth.request_link.accepted", {
@@ -673,8 +785,11 @@ async function handleAuthRequestLink(req, res, deps, signingSecret, authService,
             return sendJson(res, 200, {
                 ok: true,
                 schema_version: CURRENT_SCHEMA_VERSION,
-                sent: true,
-                expires_in: 900,
+                sent: false,
+                not_found: true,
+                code: "ML_AUTH_EMAIL_NOT_FOUND",
+                message: "Adresse e-mail inconnue.",
+                owner_match: lookup.status,
                 req_id: reqId,
             }, signingSecret);
         }
@@ -687,6 +802,7 @@ async function handleAuthRequestLink(req, res, deps, signingSecret, authService,
             email: lookup.candidate.email,
             token: issued.token,
             expiresAt: issued.expiresAt,
+            verifyBaseUrl: verifyUrl || undefined,
         }, reqId);
         deps.logger.info("auth.request_link.accepted", {
             email_fp: fingerprintPublicId(lookup.candidate.email),
@@ -716,6 +832,10 @@ async function handleAuthRequestLink(req, res, deps, signingSecret, authService,
             deps.logger.error("auth.request_link.failed", { code: err.code, reason: err.message }, reqId, err);
             return sendJson(res, err.statusCode, { ok: false, code: err.code, req_id: reqId }, signingSecret);
         }
+        if (err instanceof Error && /(required|invalid)$/i.test(err.message)) {
+            deps.logger.warning("auth.request_link.failed", { code: "ML_MAGIC_LINK_BAD_REQUEST", reason: err.message }, reqId, err);
+            return sendJson(res, 400, { ok: false, code: "ML_MAGIC_LINK_BAD_REQUEST", req_id: reqId }, signingSecret);
+        }
         const message = err instanceof Error ? err.message : "auth_request_link_failed";
         deps.logger.error("auth.request_link.failed", { reason: message }, reqId, err);
         return sendJson(res, 500, { ok: false, code: "ML_MAGIC_LINK_REQUEST_FAILED", req_id: reqId }, signingSecret);
@@ -731,15 +851,21 @@ async function handleAuthVerifyLink(req, res, deps, signingSecret, authService) 
         const body = parsedBody.body;
         const token = normalizeMagicLinkToken(body.token);
         const result = await authService.consumeMagicLink(token, reqId);
-        if (!result.valid || result.ownerWpUserId == null || result.ownerRole == null) {
+        const draftRef = typeof result.metadata?.draft_ref === "string" ? result.metadata.draft_ref : "";
+        const redirectTo = typeof result.metadata?.redirect_to === "string" ? result.metadata.redirect_to : "";
+        if (!result.valid || result.ownerRole == null) {
             deps.logger.info("auth.verify_link.completed", {
                 valid: false,
                 token_fp: token !== "" ? fingerprintPublicId(token) : null,
+                has_draft_ref: draftRef !== "",
             }, reqId);
             return sendJson(res, 200, {
                 ok: true,
                 schema_version: CURRENT_SCHEMA_VERSION,
                 valid: false,
+                email: result.email || undefined,
+                draft_ref: draftRef || undefined,
+                redirect_to: redirectTo || undefined,
                 req_id: reqId,
             }, signingSecret);
         }
@@ -748,13 +874,17 @@ async function handleAuthVerifyLink(req, res, deps, signingSecret, authService) 
             valid: true,
             owner_role: result.ownerRole,
             owner_wp_user_id: result.ownerWpUserId,
+            has_draft_ref: draftRef !== "",
         }, reqId);
         return sendJson(res, 200, {
             ok: true,
             schema_version: CURRENT_SCHEMA_VERSION,
             valid: true,
+            email: result.email,
             wp_user_id: result.ownerWpUserId,
             role: publicRole,
+            draft_ref: draftRef || undefined,
+            redirect_to: redirectTo || undefined,
             req_id: reqId,
         }, signingSecret);
     }
@@ -918,6 +1048,87 @@ async function handlePrescriptionGet(req, res, deps, signingSecret, doctorReadRe
         return sendPrescriptionReadRepoError(res, deps, signingSecret, err, reqId, "prescription.get.failed", {
             route: "/api/v2/prescriptions/get",
         }, "ML_PRESCRIPTION_GET_FAILED");
+    }
+}
+async function handlePrescriptionDownload(req, res, deps, signingSecret, url, prescriptionId) {
+    const parsed = validateSignedRequestHeader(req, deps.secrets);
+    if (parsed.ok !== true) {
+        if (parsed.logReason) {
+            deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: `/api/v2/prescriptions/${prescriptionId}/download` }, getResponseReqId(res));
+        }
+        return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+    }
+    const reqId = getResponseReqId(res);
+    let actor;
+    try {
+        actor = normalizePrescriptionDownloadActorFromQuery(url);
+    }
+    catch (err) {
+        return sendPrescriptionReadRepoError(res, deps, signingSecret, err, reqId, "prescription.download.failed", {
+            route: `/api/v2/prescriptions/${prescriptionId}/download`,
+        }, "ML_PRESCRIPTION_DOWNLOAD_FAILED");
+    }
+    const canon = (0, mls1_1.parseCanonicalGet)(parsed.token.payloadBytes);
+    if (!canon) {
+        return sendJson(res, 400, { ok: false, code: "ML_AUTH_BAD_PAYLOAD" }, signingSecret);
+    }
+    const expectedPath = buildPrescriptionDownloadCanonicalGetPath(prescriptionId, actor);
+    if (canon.method !== "GET" || canon.path !== expectedPath) {
+        deps.logger.warning("security.mls1.rejected", {
+            reason: "scope_denied",
+            expected_path: expectedPath,
+            received_path: canon.path,
+        }, reqId);
+        return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
+    }
+    const now = Date.now();
+    const skew = Math.abs(now - canon.tsMs);
+    if (skew > deps.skewWindowMs) {
+        deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, reqId);
+        return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
+    }
+    const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
+    if (!isNew) {
+        deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, reqId);
+        return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
+    }
+    try {
+        const record = await resolvePrescriptionDownloadRecord(prescriptionId);
+        if (!record) {
+            return sendJson(res, 404, { ok: false, code: "ML_PRESCRIPTION_NOT_FOUND" }, signingSecret);
+        }
+        if (!canActorDownloadPrescription(record, actor)) {
+            return sendJson(res, 403, { ok: false, code: "ML_READ_FORBIDDEN" }, signingSecret);
+        }
+        const target = normalizeS3ObjectLocation(record.s3PdfKey, resolvePdfBucketForDownload(deps));
+        if (!target) {
+            return sendJson(res, 409, { ok: false, code: "ML_PDF_NOT_READY" }, signingSecret);
+        }
+        const presignedUrl = await deps.s3.createPresignedAccessUrl({
+            bucket: target.bucket,
+            key: target.key,
+            expiresInSeconds: 300,
+            contentDisposition: buildArtifactContentDisposition("attachment", buildPrescriptionPdfFilename(record.uid)),
+            contentType: "application/pdf",
+        });
+        deps.logger.info("prescription.download.redirected", {
+            actor_role: actor.role,
+            actor_wp_user_id: actor.wpUserId,
+            prescription_id: record.id,
+            prescription_uid: record.uid,
+            ttl_seconds: 300,
+        }, reqId);
+        res.statusCode = 302;
+        res.setHeader("Location", presignedUrl);
+        res.setHeader("Cache-Control", "private, no-store, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.end();
+        return;
+    }
+    catch (err) {
+        return sendPrescriptionReadRepoError(res, deps, signingSecret, err, reqId, "prescription.download.failed", {
+            route: `/api/v2/prescriptions/${prescriptionId}/download`,
+        }, "ML_PRESCRIPTION_DOWNLOAD_FAILED");
     }
 }
 async function handlePrescriptionIngress(req, res, deps, signingSecret) {
@@ -1447,6 +1658,22 @@ async function handlePrescriptionMessagesCreate(req, res, deps, signingSecret, p
             body: typeof messageBlock.body === "string" ? messageBlock.body : null,
             attachmentArtifactIds: normalizeAttachmentArtifactIds(messageBlock.attachment_artifact_ids),
         });
+        if (actor.role === client_1.ActorRole.PATIENT && deps.smartReplyService && result.message.body.trim() !== "") {
+            try {
+                await deps.smartReplyService.enqueueGenerateSmartReplies({
+                    prescriptionId,
+                    messageId: result.message.id,
+                    reqId,
+                });
+            }
+            catch (enqueueErr) {
+                deps.logger.error("smart_replies.enqueue_failed", {
+                    prescription_id: prescriptionId,
+                    message_id: result.message.id,
+                    author_role: actor.role,
+                }, reqId, enqueueErr);
+            }
+        }
         if (actor.role === client_1.ActorRole.DOCTOR && result.threadState.unreadCountPatient === 1) {
             await maybeNotifyPatientAboutNewMessage(deps, prescriptionId, reqId);
         }
@@ -1487,6 +1714,115 @@ async function handlePrescriptionMessagesRead(req, res, deps, signingSecret, pre
         return sendMessagesRepoError(res, deps, signingSecret, err, reqId, "messages.read_failed", { prescription_id: prescriptionId });
     }
 }
+async function handleMessagesPolish(req, res, deps, signingSecret) {
+    const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/messages/polish");
+    if (parsedBody.ok !== true) {
+        return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+    }
+    const reqId = parsedBody.reqId;
+    try {
+        const payload = parsedBody.body;
+        const actor = normalizeDoctorReadActorInput(payload.actor);
+        const draft = normalizePolishDraft(payload.draft);
+        const constraints = normalizePolishConstraints(payload.constraints);
+        if (draft === "") {
+            return sendJson(res, 400, { ok: false, code: "ML_MESSAGE_BAD_REQUEST", req_id: reqId }, signingSecret);
+        }
+        if (!deps.copilotService) {
+            return sendJson(res, 200, {
+                ok: true,
+                schema_version: CURRENT_SCHEMA_VERSION,
+                rewritten_body: draft,
+                changes_summary: ["assistant_unavailable_original_returned"],
+                risk_flags: ["ASSISTANT_UNAVAILABLE"],
+                actor_role: actor.role,
+            }, signingSecret);
+        }
+        const result = await deps.copilotService.polishMessage(draft, constraints);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            rewritten_body: result.rewritten_body,
+            changes_summary: result.changes_summary,
+            risk_flags: result.risk_flags,
+            provider: result.provider ?? null,
+            model: result.model ?? null,
+            actor_role: actor.role,
+        }, signingSecret);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : "copilot_polish_failed";
+        deps.logger.error("copilot.polish_failed", { reason: message }, reqId, err instanceof Error ? err : undefined);
+        return sendJson(res, 500, { ok: false, code: "ML_COPILOT_POLISH_FAILED", req_id: reqId }, signingSecret);
+    }
+}
+async function handlePrescriptionSmartRepliesGet(req, res, deps, signingSecret, url, prescriptionId) {
+    if (!deps.smartReplyService) {
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            prescription_id: prescriptionId,
+            smart_replies: null,
+        }, signingSecret);
+    }
+    const parsed = validateSignedRequestHeader(req, deps.secrets);
+    if (parsed.ok !== true) {
+        if (parsed.logReason) {
+            deps.logger.warning("security.mls1.rejected", { reason: parsed.logReason, path: `/api/v2/prescriptions/${prescriptionId}/smart-replies` }, getResponseReqId(res));
+        }
+        return sendJson(res, parsed.statusCode, { ok: false, code: parsed.code }, signingSecret);
+    }
+    let actor;
+    try {
+        actor = normalizeMessagesActorFromQuery(url);
+        if (actor.role !== client_1.ActorRole.DOCTOR || actor.wpUserId == null) {
+            throw new messagesRepo_1.MessagesRepoError("ML_READ_FORBIDDEN", 403, "doctor_actor_required");
+        }
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : "smart_replies_bad_request";
+        deps.logger.warning("smart_replies.query_rejected", { reason: message, prescription_id: prescriptionId }, getResponseReqId(res), err instanceof Error ? err : undefined);
+        return sendJson(res, 400, { ok: false, code: "ML_MESSAGE_BAD_REQUEST" }, signingSecret);
+    }
+    const canon = (0, mls1_1.parseCanonicalGet)(parsed.token.payloadBytes);
+    if (!canon) {
+        return sendJson(res, 400, { ok: false, code: "ML_AUTH_BAD_PAYLOAD" }, signingSecret);
+    }
+    const expectedPath = buildSmartRepliesCanonicalGetPath(prescriptionId, actor);
+    if (canon.method !== "GET" || canon.path !== expectedPath) {
+        deps.logger.warning("security.mls1.rejected", {
+            reason: "scope_denied",
+            expected_path: expectedPath,
+            received_path: canon.path,
+        }, getResponseReqId(res));
+        return sendJson(res, 403, { ok: false, code: "ML_AUTH_SCOPE_DENIED" }, signingSecret);
+    }
+    const now = Date.now();
+    const skew = Math.abs(now - canon.tsMs);
+    if (skew > deps.skewWindowMs) {
+        deps.logger.warning("security.mls1.rejected", { reason: "ts_ms_skew", skew_ms: skew }, getResponseReqId(res));
+        return sendJson(res, 401, { ok: false, code: "ML_AUTH_EXPIRED" }, signingSecret);
+    }
+    const isNew = deps.nonceCache.checkAndStore(canon.nonce, now);
+    if (!isNew) {
+        deps.logger.warning("security.mls1.rejected", { reason: "replay", nonce: "[REDACTED]" }, getResponseReqId(res));
+        return sendJson(res, 409, { ok: false, code: "ML_AUTH_REPLAY" }, signingSecret);
+    }
+    try {
+        const result = await deps.smartReplyService.getLatestReplies(prescriptionId);
+        return sendJson(res, 200, {
+            ok: true,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            prescription_id: prescriptionId,
+            smart_replies: result ? serializeLatestSmartReply(result) : null,
+        }, signingSecret);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : "smart_replies_query_failed";
+        deps.logger.error("smart_replies.query_failed", { reason: message, prescription_id: prescriptionId }, getResponseReqId(res), err instanceof Error ? err : undefined);
+        return sendJson(res, 500, { ok: false, code: "ML_SMART_REPLIES_FAILED" }, signingSecret);
+    }
+}
 async function handlePrescriptionApprove(req, res, deps, signingSecret, prescriptionId) {
     const repo = asApprovalRepo(deps.jobsRepo);
     if (!repo) {
@@ -1497,20 +1833,28 @@ async function handlePrescriptionApprove(req, res, deps, signingSecret, prescrip
         return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
     }
     const reqId = parsedBody.reqId;
+    let doctorWpUserId = null;
+    let itemsCount = 0;
+    let paymentPresent = false;
     try {
         const body = parsedBody.body;
         const doctor = body.doctor && typeof body.doctor === "object" ? body.doctor : null;
         if (!doctor) {
             throw new Error("doctor block is required");
         }
+        doctorWpUserId = typeof doctor.wpUserId === "number" && Number.isFinite(doctor.wpUserId)
+            ? doctor.wpUserId
+            : null;
         const rawItems = Object.prototype.hasOwnProperty.call(body, "items") ? body.items : undefined;
         if (rawItems != null && !Array.isArray(rawItems)) {
             return sendJson(res, 400, { ok: false, code: "ML_INGEST_BAD_REQUEST", message: "items must be an array" }, signingSecret);
         }
+        itemsCount = Array.isArray(rawItems) ? rawItems.length : 0;
         const items = Array.isArray(rawItems) && rawItems.length > 0 ? rawItems : undefined;
         const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
             ? body.payment
             : undefined;
+        paymentPresent = payment !== undefined;
         const input = {
             schema_version: CURRENT_SCHEMA_VERSION,
             site_id: deps.siteId,
@@ -1536,9 +1880,27 @@ async function handlePrescriptionApprove(req, res, deps, signingSecret, prescrip
         }, signingSecret);
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : "approve_failed";
-        deps.logger.error("ingest.approve_failed", { reason: message }, reqId, err);
-        return sendJson(res, 500, { ok: false, code: "ML_APPROVE_FAILED" }, signingSecret);
+        const failure = classifyPrescriptionActionFailure(err, "approve");
+        deps.logger.error("ingest.approve_failed", {
+            prescription_id: prescriptionId,
+            doctor_wp_user_id: doctorWpUserId,
+            items_count: itemsCount,
+            payment_present: paymentPresent,
+            failure_code: failure.code,
+            failure_status: failure.statusCode,
+            failure_stage: failure.stage,
+            prisma_code: failure.prismaCode,
+            system_code: failure.systemCode,
+            system_errno: failure.systemErrno,
+            system_syscall: failure.systemSyscall,
+            system_path: failure.systemPath,
+            raw_error_name: failure.rawName,
+            raw_error_message: failure.rawMessage,
+            raw_error_stack: failure.rawStack,
+            raw_error_cause: failure.rawCauseMessage,
+            repo_details: failure.repoDetails,
+        }, reqId, err);
+        return sendJson(res, failure.statusCode, { ok: false, code: failure.code, req_id: reqId }, signingSecret);
     }
 }
 async function handlePrescriptionReject(req, res, deps, signingSecret, prescriptionId) {
@@ -1551,12 +1913,16 @@ async function handlePrescriptionReject(req, res, deps, signingSecret, prescript
         return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
     }
     const reqId = parsedBody.reqId;
+    let paymentPresent = false;
+    let reasonPresent = false;
     try {
         const body = parsedBody.body;
         const reason = typeof body.reason === "string" ? body.reason : null;
+        reasonPresent = typeof reason === "string" && reason.trim() !== "";
         const payment = body.payment && typeof body.payment === "object" && !Array.isArray(body.payment)
             ? body.payment
             : undefined;
+        paymentPresent = payment !== undefined;
         const input = {
             schema_version: CURRENT_SCHEMA_VERSION,
             site_id: deps.siteId,
@@ -1581,9 +1947,26 @@ async function handlePrescriptionReject(req, res, deps, signingSecret, prescript
         }, signingSecret);
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : "reject_failed";
-        deps.logger.error("ingest.reject_failed", { reason: message }, reqId, err);
-        return sendJson(res, 500, { ok: false, code: "ML_REJECT_FAILED" }, signingSecret);
+        const failure = classifyPrescriptionActionFailure(err, "reject");
+        deps.logger.error("ingest.reject_failed", {
+            prescription_id: prescriptionId,
+            payment_present: paymentPresent,
+            reason_present: reasonPresent,
+            failure_code: failure.code,
+            failure_status: failure.statusCode,
+            failure_stage: failure.stage,
+            prisma_code: failure.prismaCode,
+            system_code: failure.systemCode,
+            system_errno: failure.systemErrno,
+            system_syscall: failure.systemSyscall,
+            system_path: failure.systemPath,
+            raw_error_name: failure.rawName,
+            raw_error_message: failure.rawMessage,
+            raw_error_stack: failure.rawStack,
+            raw_error_cause: failure.rawCauseMessage,
+            repo_details: failure.repoDetails,
+        }, reqId, err);
+        return sendJson(res, failure.statusCode, { ok: false, code: failure.code, req_id: reqId }, signingSecret);
     }
 }
 async function handleStripeWebhook(req, res, deps) {
@@ -2152,8 +2535,115 @@ function buildMessagesCanonicalGetPath(prescriptionId, actor, afterSeq, limit) {
     search.set("limit", String(limit));
     return `/api/v1/prescriptions/${encodeURIComponent(prescriptionId)}/messages?${search.toString()}`;
 }
+function buildSmartRepliesCanonicalGetPath(prescriptionId, actor) {
+    const search = new URLSearchParams();
+    search.set("actor_role", actor.role);
+    if (actor.wpUserId != null) {
+        search.set("actor_wp_user_id", String(actor.wpUserId));
+    }
+    return `/api/v2/prescriptions/${encodeURIComponent(prescriptionId)}/smart-replies?${search.toString()}`;
+}
+function buildPrescriptionDownloadCanonicalGetPath(prescriptionId, actor) {
+    const search = new URLSearchParams();
+    search.set("actor_role", actor.role);
+    search.set("actor_wp_user_id", String(actor.wpUserId));
+    return `/api/v2/prescriptions/${encodeURIComponent(prescriptionId)}/download?${search.toString()}`;
+}
+async function resolvePrescriptionDownloadRecord(prescriptionId) {
+    const normalizedPrescriptionId = normalizeReadPrescriptionId(prescriptionId);
+    const prisma = getPulsePrismaClient();
+    return prisma.prescription.findFirst({
+        where: {
+            OR: [
+                { id: normalizedPrescriptionId },
+                { uid: normalizedPrescriptionId },
+            ],
+        },
+        select: {
+            id: true,
+            uid: true,
+            status: true,
+            s3PdfKey: true,
+            doctor: {
+                select: {
+                    wpUserId: true,
+                },
+            },
+            patient: {
+                select: {
+                    wpUserId: true,
+                },
+            },
+        },
+    });
+}
+function canActorDownloadPrescription(record, actor) {
+    if (actor.role === "DOCTOR") {
+        if (record.doctor == null) {
+            return true;
+        }
+        return record.doctor.wpUserId === actor.wpUserId;
+    }
+    return record.patient.wpUserId === actor.wpUserId;
+}
+function resolvePdfBucketForDownload(deps) {
+    return normalizeOptionalString(process.env.S3_BUCKET_PDF)
+        ?? normalizeOptionalString(process.env.S3_BUCKET_ARTIFACTS)
+        ?? deps.artifactsBucket;
+}
+function normalizeS3ObjectLocation(rawValue, fallbackBucket) {
+    const value = normalizeOptionalString(rawValue);
+    if (!value) {
+        return null;
+    }
+    if (value.startsWith("s3://")) {
+        const withoutScheme = value.slice("s3://".length);
+        const slashIndex = withoutScheme.indexOf("/");
+        if (slashIndex <= 0) {
+            return null;
+        }
+        const bucket = withoutScheme.slice(0, slashIndex).trim();
+        const key = withoutScheme.slice(slashIndex + 1).replace(/^\/+/, "").trim();
+        if (bucket === "" || key === "") {
+            return null;
+        }
+        return { bucket, key };
+    }
+    const bucket = normalizeOptionalString(fallbackBucket);
+    const key = value.replace(/^\/+/, "");
+    if (!bucket || key === "") {
+        return null;
+    }
+    return { bucket, key };
+}
+function buildPrescriptionPdfFilename(uid) {
+    const normalizedUid = sanitizeDispositionFilename(uid).replace(/\.pdf$/i, "").trim();
+    return normalizedUid !== "" ? `ordonnance-${normalizedUid}.pdf` : "ordonnance.pdf";
+}
+function serializeLatestSmartReply(record) {
+    return {
+        prescription_id: record.prescriptionId,
+        message_id: record.messageId,
+        replies: record.replies.map((reply) => ({
+            type: reply.type,
+            title: reply.title,
+            body: reply.body,
+        })),
+        risk_flags: record.riskFlags,
+        provider: record.provider,
+        model: record.model,
+        created_at: record.createdAt.toISOString(),
+        updated_at: record.updatedAt.toISOString(),
+    };
+}
 function normalizeMessagesActorFromQuery(url) {
     return normalizeMessagesActorInput({
+        role: url.searchParams.get("actor_role"),
+        wp_user_id: url.searchParams.get("actor_wp_user_id"),
+    });
+}
+function normalizePrescriptionDownloadActorFromQuery(url) {
+    return normalizePrescriptionReadActorInput({
         role: url.searchParams.get("actor_role"),
         wp_user_id: url.searchParams.get("actor_wp_user_id"),
     });
@@ -2218,6 +2708,80 @@ function normalizeReadUptoSeq(value) {
     }
     return Math.trunc(parsed);
 }
+function normalizePolishDraft(value) {
+    if (typeof value !== "string") {
+        return "";
+    }
+    return value.trim();
+}
+function normalizePolishConstraints(value) {
+    const row = value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+    const audienceRaw = normalizeOptionalString(row.audience);
+    const toneRaw = normalizeOptionalString(row.tone);
+    const languageRaw = normalizeOptionalString(row.language);
+    const maxCharactersRaw = row.max_characters ?? row.maxCharacters;
+    const preserveDecisionRaw = row.preserve_decision ?? row.preserveDecision;
+    const forceClarificationRaw = row.force_clarification_if_ambiguous ?? row.forceClarificationIfAmbiguous;
+    const constraints = {};
+    if (audienceRaw === "patient" || audienceRaw === "doctor" || audienceRaw === "internal") {
+        constraints.audience = audienceRaw;
+    }
+    if (toneRaw === "professional"
+        || toneRaw === "warm"
+        || toneRaw === "direct"
+        || toneRaw === "reassuring") {
+        constraints.tone = toneRaw;
+    }
+    if (languageRaw) {
+        constraints.language = languageRaw;
+    }
+    const maxCharacters = normalizeOptionalPositiveInt(maxCharactersRaw);
+    if (maxCharacters != null) {
+        constraints.maxCharacters = maxCharacters;
+    }
+    const preserveDecision = normalizeOptionalBoolean(preserveDecisionRaw);
+    if (preserveDecision != null) {
+        constraints.preserveDecision = preserveDecision;
+    }
+    const forceClarificationIfAmbiguous = normalizeOptionalBoolean(forceClarificationRaw);
+    if (forceClarificationIfAmbiguous != null) {
+        constraints.forceClarificationIfAmbiguous = forceClarificationIfAmbiguous;
+    }
+    return constraints;
+}
+function normalizeOptionalPositiveInt(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return null;
+    }
+    return Math.trunc(parsed);
+}
+function normalizeOptionalBoolean(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "number") {
+        return value !== 0;
+    }
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+            return true;
+        }
+        if (["0", "false", "no", "n", "off"].includes(normalized)) {
+            return false;
+        }
+    }
+    return null;
+}
 function hasSubmissionSignedEnvelope(body) {
     return hasSignedEnvelopeFields(body);
 }
@@ -2274,7 +2838,13 @@ async function resolveSubmissionForArtifactInit(submissionRef, actor, logger, re
             expiresAt: true,
         },
     });
-    if (!row) {
+    if (row == null || row.ownerRole == null) {
+        logger?.warning("submission.artifact_init.missing", {
+            phase: "artifact_init",
+            submission_ref: normalizedSubmissionRef,
+            actor_role: actor.role,
+            actor_wp_user_id: actor.wpUserId,
+        }, reqId);
         throw new submissionRepo_1.SubmissionRepoError("ML_SUBMISSION_NOT_FOUND", 404, "Submission not found");
     }
     if (actor.role !== client_1.ActorRole.SYSTEM) {
@@ -2283,11 +2853,11 @@ async function resolveSubmissionForArtifactInit(submissionRef, actor, logger, re
         }
     }
     if (row.status === client_1.SubmissionStatus.EXPIRED || row.expiresAt.getTime() <= Date.now()) {
-        if (row.status === client_1.SubmissionStatus.OPEN) {
+        if (row.status === client_1.SubmissionStatus.OPEN || row.status === "DRAFT") {
             await prisma.submission.updateMany({
                 where: {
                     id: row.id,
-                    status: client_1.SubmissionStatus.OPEN,
+                    status: row.status,
                 },
                 data: {
                     status: client_1.SubmissionStatus.EXPIRED,
@@ -2303,7 +2873,7 @@ async function resolveSubmissionForArtifactInit(submissionRef, actor, logger, re
         }, reqId);
         throw new submissionRepo_1.SubmissionRepoError("ML_SUBMISSION_EXPIRED", 410, "Submission has expired");
     }
-    if (row.status !== client_1.SubmissionStatus.OPEN) {
+    if (row.status !== client_1.SubmissionStatus.OPEN && row.status !== "DRAFT") {
         throw new submissionRepo_1.SubmissionRepoError("ML_SUBMISSION_NOT_OPEN", 409, "Submission cannot accept new artifacts");
     }
     return row;
@@ -2388,6 +2958,44 @@ function normalizeMagicLinkToken(value) {
         throw new Error("token is invalid");
     }
     return normalized;
+}
+function normalizeOptionalRedirectTo(value) {
+    if (value == null || value === "") {
+        return "";
+    }
+    if (typeof value !== "string") {
+        throw new Error("redirect_to is invalid");
+    }
+    const normalized = value.trim();
+    if (normalized === "" || normalized.length > 1024) {
+        throw new Error("redirect_to is invalid");
+    }
+    return normalized;
+}
+function normalizeOptionalMagicLinkVerifyUrl(value) {
+    if (value == null || value === "") {
+        return "";
+    }
+    if (typeof value !== "string") {
+        throw new Error("verify_url is invalid");
+    }
+    const normalized = value.trim();
+    if (normalized === "" || normalized.length > 1024) {
+        throw new Error("verify_url is invalid");
+    }
+    const url = new node_url_1.URL(normalized);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("verify_url is invalid");
+    }
+    return url.toString();
+}
+function appendResumeDraftToRedirect(redirectTo, draftRef) {
+    if (!redirectTo) {
+        return "";
+    }
+    const url = new node_url_1.URL(redirectTo);
+    url.searchParams.set("resume_draft", draftRef);
+    return url.toString();
 }
 function toPublicMagicLinkRole(role) {
     return role === client_1.ActorRole.DOCTOR ? "doctor" : "patient";
@@ -2780,6 +3388,8 @@ function normalizePublicErrorMessage(code, status, providedMessage) {
             return "Le service de messagerie est temporairement indisponible.";
         case "ML_APPROVE_FAILED":
             return "La validation du dossier a échoué. Réessayez ultérieurement.";
+        case "ML_PDF_GENERATION_FAILED":
+            return "La génération du document a échoué. Réessayez ultérieurement.";
         case "ML_REJECT_FAILED":
             return "La mise à jour du dossier a échoué. Réessayez ultérieurement.";
         case "ML_AI_DISABLED":
@@ -2914,6 +3524,149 @@ function sendUnsignedJson(res, status, body, extraHeaders) {
 }
 function buildResponseSignature(payloadBytes, secret) {
     return `sha256=${node_crypto_1.default.createHmac("sha256", secret).update(payloadBytes).digest("hex")}`;
+}
+function classifyPrescriptionActionFailure(err, action) {
+    const snapshot = buildPrescriptionActionFailureSnapshot(err);
+    const fallbackCode = action === "approve" ? "ML_APPROVE_FAILED" : "ML_REJECT_FAILED";
+    const actionStage = action === "approve" ? "approval" : "rejection";
+    if (err instanceof jobsRepo_1.JobsRepoActionError) {
+        return {
+            ...snapshot,
+            code: err.code,
+            statusCode: err.statusCode,
+            stage: err.stage,
+            repoDetails: err.details && typeof err.details === "object" ? err.details : null,
+        };
+    }
+    if (isPdfGenerationFailureMessage(snapshot.rawMessage)) {
+        return {
+            ...snapshot,
+            code: "ML_PDF_GENERATION_FAILED",
+            statusCode: 500,
+            stage: "pdf_generation",
+        };
+    }
+    if (isClientIngestError(snapshot.rawMessage)) {
+        return {
+            ...snapshot,
+            code: "ML_INGEST_BAD_REQUEST",
+            statusCode: 400,
+            stage: "validation",
+        };
+    }
+    return {
+        ...snapshot,
+        code: fallbackCode,
+        statusCode: 500,
+        stage: snapshot.prismaCode ? "database" : actionStage,
+    };
+}
+function buildPrescriptionActionFailureSnapshot(err) {
+    return {
+        code: "ML_APPROVE_FAILED",
+        statusCode: 500,
+        stage: "unknown",
+        rawName: extractActionErrorName(err),
+        rawMessage: extractActionErrorMessage(err),
+        rawStack: extractActionErrorStack(err),
+        rawCauseMessage: extractActionCauseMessage(err),
+        prismaCode: extractActionPrismaCode(err),
+        systemCode: extractActionSystemCode(err),
+        systemErrno: extractActionSystemErrno(err),
+        systemSyscall: extractActionSystemStringField(err, "syscall"),
+        systemPath: extractActionSystemStringField(err, "path"),
+        repoDetails: null,
+    };
+}
+function isPdfGenerationFailureMessage(message) {
+    const haystack = String(message || "").toLowerCase();
+    return [
+        "ml_pdf_",
+        "pdf generation",
+        "pdf render",
+        "pdf.render",
+        "puppeteer",
+        "invalid pdf",
+        "failed to read pdf",
+    ].some((needle) => haystack.includes(needle));
+}
+function extractActionErrorName(err) {
+    if (err instanceof Error && typeof err.name === "string" && err.name.trim() !== "") {
+        return err.name.trim();
+    }
+    return typeof err === "object" && err !== null ? "Object" : typeof err;
+}
+function extractActionErrorMessage(err) {
+    if (err instanceof Error && typeof err.message === "string") {
+        return err.message.trim();
+    }
+    return typeof err === "string" ? err.trim() : "";
+}
+function extractActionErrorStack(err) {
+    return err instanceof Error && typeof err.stack === "string" && err.stack.trim() !== ""
+        ? err.stack
+        : null;
+}
+function extractActionCauseMessage(err) {
+    if (!(err instanceof Error)) {
+        return null;
+    }
+    const cause = err.cause;
+    if (cause instanceof Error && typeof cause.message === "string" && cause.message.trim() !== "") {
+        return cause.message.trim();
+    }
+    return typeof cause === "string" && cause.trim() !== "" ? cause.trim() : null;
+}
+function extractActionPrismaCode(err) {
+    for (const candidate of iterateActionErrorCandidates(err)) {
+        const code = candidate.code;
+        if (typeof code === "string" && /^P\d{4}$/u.test(code.trim())) {
+            return code.trim();
+        }
+    }
+    return null;
+}
+function extractActionSystemCode(err) {
+    for (const candidate of iterateActionErrorCandidates(err)) {
+        const code = candidate.code;
+        if (typeof code !== "string" || code.trim() === "") {
+            continue;
+        }
+        if (/^P\d{4}$/u.test(code.trim())) {
+            continue;
+        }
+        return code.trim();
+    }
+    return null;
+}
+function extractActionSystemErrno(err) {
+    for (const candidate of iterateActionErrorCandidates(err)) {
+        const errno = candidate.errno;
+        if (typeof errno === "number" || typeof errno === "string") {
+            return errno;
+        }
+    }
+    return null;
+}
+function extractActionSystemStringField(err, field) {
+    for (const candidate of iterateActionErrorCandidates(err)) {
+        const value = candidate[field];
+        if (typeof value === "string" && value.trim() !== "") {
+            return value.trim();
+        }
+    }
+    return null;
+}
+function* iterateActionErrorCandidates(err) {
+    let current = err;
+    for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+        yield current;
+        if (current instanceof Error) {
+            current = current.cause;
+            continue;
+        }
+        break;
+    }
 }
 function isClientIngestError(message) {
     const haystack = String(message || "").toLowerCase();

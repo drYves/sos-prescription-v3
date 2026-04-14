@@ -150,7 +150,7 @@ export default function MessageThread({
   fileIndex,
   onDownloadFile,
   canCompose,
-  readOnlyNotice = 'La messagerie est en lecture seule pour ce dossier.',
+  readOnlyNotice = 'Cet espace d’échange sécurisé est actuellement en lecture seule.',
   postMessage,
   onMessageCreated,
   onSurfaceError,

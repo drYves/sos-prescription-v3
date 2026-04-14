@@ -1,0 +1,189 @@
+/*
+ * SOS Prescription - Tokens V4.8.1
+ * Source unique de vérité visuelle Diamond Grade.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --sp-font-body: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --sp-font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --sp-font-ui: var(--sp-font-body);
+  --sp-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sp-letter-spacing-display: -0.02em;
+  --sp-letter-spacing-heading: -0.015em;
+  --sp-letter-spacing-title: -0.01em;
+
+  /* Color system - mapped to GeneratePress globals */
+  --sp-color-canvas: var(--base, #f6f8fb);
+  --sp-color-surface: var(--base-2, #ffffff);
+  --sp-color-surface-alt: color-mix(in srgb, var(--base, #f6f8fb) 76%, var(--base-2, #ffffff) 24%);
+  --sp-color-surface-raised: color-mix(in srgb, var(--base-2, #ffffff) 96%, var(--base, #f6f8fb) 4%);
+  --sp-color-surface-frosted: color-mix(in srgb, var(--base-2, #ffffff) 85%, transparent);
+  --sp-color-surface-frosted-strong: color-mix(in srgb, var(--base-2, #ffffff) 92%, transparent);
+
+  --sp-color-border: color-mix(in srgb, var(--contrast, #0f172a) 9%, transparent);
+  --sp-color-border-strong: color-mix(in srgb, var(--contrast, #0f172a) 16%, transparent);
+  --sp-color-border-hairline: color-mix(in srgb, var(--contrast, #0f172a) 11%, white 8%);
+  --sp-color-border-hairline-strong: color-mix(in srgb, var(--accent, #0f6cbd) 16%, var(--contrast, #0f172a) 8%);
+
+  --sp-color-text-1: var(--contrast, #0f172a);
+  --sp-color-text-2: color-mix(in srgb, var(--contrast, #0f172a) 82%, var(--base-2, #ffffff) 18%);
+  --sp-color-text-3: color-mix(in srgb, var(--contrast, #0f172a) 70%, var(--base-2, #ffffff) 30%);
+  --sp-color-text-4: color-mix(in srgb, var(--contrast, #0f172a) 56%, var(--base-2, #ffffff) 44%);
+
+  --sp-color-accent: var(--accent, #0f6cbd);
+  --sp-color-accent-hover: color-mix(in srgb, var(--accent, #0f6cbd) 84%, var(--contrast, #0f172a) 16%);
+  --sp-color-accent-soft: color-mix(in srgb, var(--accent, #0f6cbd) 12%, var(--base-2, #ffffff));
+  --sp-color-accent-ink: color-mix(in srgb, var(--accent, #0f6cbd) 72%, var(--contrast, #0f172a) 28%);
+
+  --sp-brand-payment: #635bff;
+  --sp-brand-priority: #c5a028;
+
+  --sp-color-success: #159f6e;
+  --sp-color-success-soft: color-mix(in srgb, var(--sp-color-success) 11%, var(--base-2, #ffffff));
+  --sp-color-success-border: color-mix(in srgb, var(--sp-color-success) 24%, transparent);
+  --sp-color-success-ink: color-mix(in srgb, var(--sp-color-success) 70%, var(--contrast, #0f172a) 30%);
+
+  --sp-color-warning: #d68f12;
+  --sp-color-warning-soft: color-mix(in srgb, var(--sp-color-warning) 12%, var(--base-2, #ffffff));
+  --sp-color-warning-border: color-mix(in srgb, var(--sp-color-warning) 28%, transparent);
+  --sp-color-warning-ink: color-mix(in srgb, var(--sp-color-warning) 78%, var(--contrast, #0f172a) 22%);
+
+  --sp-color-danger: #c03a3a;
+  --sp-color-danger-soft: color-mix(in srgb, var(--sp-color-danger) 11%, var(--base-2, #ffffff));
+  --sp-color-danger-border: color-mix(in srgb, var(--sp-color-danger) 24%, transparent);
+  --sp-color-danger-ink: color-mix(in srgb, var(--sp-color-danger) 76%, var(--contrast, #0f172a) 24%);
+
+  --sp-color-info: #0e7490;
+  --sp-color-info-soft: color-mix(in srgb, var(--sp-color-info) 11%, var(--base-2, #ffffff));
+  --sp-color-info-border: color-mix(in srgb, var(--sp-color-info) 24%, transparent);
+  --sp-color-info-ink: color-mix(in srgb, var(--sp-color-info) 74%, var(--contrast, #0f172a) 26%);
+
+  --sp-color-focus-ring: color-mix(in srgb, var(--accent, #0f6cbd) 18%, transparent);
+  --sp-color-shadow: rgba(15, 23, 42, 0.1);
+
+  /* Type scale */
+  --sp-text-xs: 0.8125rem;
+  --sp-text-sm: 0.875rem;
+  --sp-text-md: 1rem;
+  --sp-text-lg: 1.125rem;
+  --sp-text-xl: 1.25rem;
+  --sp-text-2xl: 1.5rem;
+  --sp-text-3xl: 2rem;
+  --sp-text-4xl: 2.75rem;
+  --sp-text-5xl: 3.5rem;
+
+  /* Spacing scale */
+  --sp-space-1: 0.25rem;
+  --sp-space-2: 0.5rem;
+  --sp-space-3: 0.75rem;
+  --sp-space-4: 1rem;
+  --sp-space-5: 1.5rem;
+  --sp-space-6: 2rem;
+  --sp-space-7: 2.5rem;
+  --sp-space-8: 3rem;
+  --sp-space-9: 4rem;
+  --sp-space-10: 5rem;
+  --sp-space-11: 6rem;
+
+  /* Radius */
+  --sp-radius-sm: 14px;
+  --sp-radius-md: 16px;
+  --sp-radius-lg: 20px;
+  --sp-radius-xl: 24px;
+  --sp-radius-pill: 999px;
+
+  /* Elevation */
+  --sp-shadow-contact: 0 1px 1px rgba(15, 23, 42, 0.08);
+  --sp-shadow-1: 0 1px 1px rgba(15, 23, 42, 0.05), 0 12px 28px rgba(15, 23, 42, 0.06), 0 28px 64px rgba(15, 23, 42, 0.04);
+  --sp-shadow-2: 0 1px 1px rgba(15, 23, 42, 0.06), 0 18px 40px rgba(15, 23, 42, 0.08), 0 36px 80px rgba(15, 23, 42, 0.06);
+  --sp-shadow-3: 0 2px 2px rgba(15, 23, 42, 0.08), 0 28px 64px rgba(15, 23, 42, 0.12), 0 56px 120px rgba(15, 23, 42, 0.08);
+  --sp-shadow-premium: 0 1px 1px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.08), 0 34px 84px rgba(15, 23, 42, 0.05);
+  --sp-shadow-premium-lg: 0 2px 2px rgba(15, 23, 42, 0.08), 0 24px 54px rgba(15, 23, 42, 0.1), 0 48px 120px rgba(15, 23, 42, 0.08);
+
+  /* Containers */
+  --sp-container-reading: 47.5rem;
+  --sp-container-public: 75rem;
+  --sp-workspace-max: 75rem;
+  --sp-workspace-gutter: clamp(1.25rem, 3.2vw, 2.5rem);
+  --sp-sidebar-width: 18rem;
+  --sp-container-app: 96rem;
+  --sp-container-app-compact: 75rem;
+  --sp-container-console: 80rem;
+  --sp-container-console-compact: 75rem;
+  --sp-card-padding-block: clamp(1.2rem, 1rem + 0.7vw, 1.65rem);
+  --sp-card-padding-inline: clamp(1.25rem, 1rem + 0.85vw, 1.8rem);
+  --sp-message-bubble-max: 70%;
+
+  /* Motion */
+  --sp-motion-fast: 140ms;
+  --sp-motion-base: 220ms;
+  --sp-motion-slow: 320ms;
+  --sp-motion-shimmer: 2800ms;
+  --sp-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --sp-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sp-ease-press: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Effects */
+  --sp-glass-effect: blur(20px) saturate(170%);
+  --sp-glass-surface: var(--sp-color-surface-frosted);
+  --sp-glass-surface-strong: var(--sp-color-surface-frosted-strong);
+  --sp-border-hairline: 1px solid var(--sp-color-border-hairline);
+  --sp-border-hairline-strong: 1px solid var(--sp-color-border-hairline-strong);
+  --sp-skeleton-shimmer: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sp-color-canvas) 84%, var(--sp-color-surface) 16%) 0%,
+    color-mix(in srgb, var(--sp-color-canvas) 70%, var(--sp-color-surface) 30%) 46%,
+    color-mix(in srgb, var(--sp-color-surface) 78%, white 22%) 52%,
+    color-mix(in srgb, var(--sp-color-canvas) 70%, var(--sp-color-surface) 30%) 58%,
+    color-mix(in srgb, var(--sp-color-canvas) 84%, var(--sp-color-surface) 16%) 100%
+  );
+
+  /* Z-index */
+  --sp-z-header: 100;
+  --sp-z-sticky-sidebar: 120;
+  --sp-z-dropdown: 180;
+  --sp-z-offcanvas: 220;
+  --sp-z-modal: 300;
+
+  /* Convenience aliases */
+  --gb-container-width: var(--sp-container-public);
+  --container-width: var(--sp-container-public);
+  --container-padding: var(--sp-space-6);
+  --sp-header-offset: 6rem;
+}
+
+body {
+  --sp-ink: var(--sp-color-text-1);
+  --sp-muted: var(--sp-color-text-3);
+  --sp-muted-2: var(--sp-color-text-4);
+  --sp-border: var(--sp-color-border);
+  --sp-border-strong: var(--sp-color-border-strong);
+  --sp-bg: var(--sp-color-surface);
+  --sp-primary: var(--sp-color-accent);
+  --sp-primary-ink: var(--sp-color-accent-ink);
+
+  --sp-success-bg: var(--sp-color-success-soft);
+  --sp-success-border: var(--sp-color-success-border);
+  --sp-success-ink: var(--sp-color-success-ink);
+
+  --sp-warn-bg: var(--sp-color-warning-soft);
+  --sp-warn-border: var(--sp-color-warning-border);
+  --sp-warn-ink: var(--sp-color-warning-ink);
+
+  --sp-danger-bg: var(--sp-color-danger-soft);
+  --sp-danger-border: var(--sp-color-danger-border);
+  --sp-danger-ink: var(--sp-color-danger-ink);
+
+  --sp-radius: var(--sp-radius-lg);
+  --sp-radius-card: var(--sp-radius-lg);
+  --sp-shadow: var(--sp-shadow-premium);
+  --sp-shadow-md: var(--sp-shadow-premium);
+  --sp-shadow-lg: var(--sp-shadow-premium-lg);
+}
+
+body.sp-context-console {
+  --sp-sidebar-width: 0px;
+}
