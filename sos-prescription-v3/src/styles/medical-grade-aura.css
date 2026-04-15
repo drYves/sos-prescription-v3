@@ -3344,3 +3344,180 @@ a.sp-app-button.sp-app-button--secondary:hover {
     z-index: 1;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V6.5.2 — Controls, choice cards, payment cleanup, confirmation
+   -------------------------------------------------------------------------- */
+#sosprescription-root-form,
+#sosprescription-root-patient,
+.sp-app-root,
+.sp-patient-console {
+  --sp-control-radius: 16px;
+  --sp-control-min-height: 3rem;
+  --sp-control-padding-inline: 0.95rem;
+  --sp-control-padding-block: 0.82rem;
+  --sp-control-border-rest: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 18%, transparent);
+  --sp-control-border-hover: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 26%, transparent);
+  --sp-control-border-focus: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 38%, transparent);
+  --sp-control-bg-rest: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%), color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 30%, var(--sp-shell-color-surface, #ffffff) 70%));
+  --sp-control-bg-hover: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, #ffffff 2%), color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 12%, var(--sp-shell-color-surface, #ffffff) 88%));
+  --sp-control-bg-disabled: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
+  --sp-control-shadow-rest: inset 0 1px 0 rgba(255,255,255,0.84), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --sp-control-shadow-hover: inset 0 1px 0 rgba(255,255,255,0.86), 0 6px 16px rgba(15, 23, 42, 0.05);
+  --sp-control-shadow-focus: inset 0 0 0 1px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 16%, transparent), 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 14%, transparent), 0 10px 24px rgba(15, 23, 42, 0.06);
+  --sp-control-placeholder: color-mix(in srgb, var(--sp-shell-color-text-3, #64748b) 88%, transparent);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea),
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea) {
+  min-height: var(--sp-control-min-height);
+  padding-inline: var(--sp-control-padding-inline);
+  padding-block: var(--sp-control-padding-block);
+  border-radius: var(--sp-control-radius);
+  border-color: var(--sp-control-border-rest);
+  background: var(--sp-control-bg-rest);
+  box-shadow: var(--sp-control-shadow-rest);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea)::placeholder,
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea)::placeholder {
+  color: var(--sp-control-placeholder);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):hover,
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):hover {
+  border-color: var(--sp-control-border-hover);
+  background: var(--sp-control-bg-hover);
+  box-shadow: var(--sp-control-shadow-hover);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus,
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus {
+  outline: none;
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus:not(:focus-visible),
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus:not(:focus-visible) {
+  border-color: var(--sp-control-border-rest);
+  box-shadow: var(--sp-control-shadow-rest);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus-visible,
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):focus-visible {
+  border-color: var(--sp-control-border-focus);
+  background: var(--sp-shell-color-surface, #ffffff);
+  box-shadow: var(--sp-control-shadow-focus);
+}
+
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):disabled,
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea):disabled,
+#sosprescription-root-form :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea)[aria-disabled="true"],
+#sosprescription-root-patient :is(.sp-app-control, .sp-app-input, .sp-app-select, .sp-app-textarea, .sp-textarea)[aria-disabled="true"] {
+  background: var(--sp-control-bg-disabled);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+}
+
+#sosprescription-root-form .sp-app-choice-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+#sosprescription-root-form .sp-app-choice-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  flex: 0 0 2.5rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 16%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 68%, #ffffff 32%), color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 34%, var(--sp-shell-color-surface, #ffffff) 66%));
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.82), 0 8px 16px rgba(15, 23, 42, 0.06);
+}
+
+#sosprescription-root-form .sp-app-choice-card__icon .sp-lucide {
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+}
+
+#sosprescription-root-form .sp-app-choice-card__header + .sp-app-choice-card__text {
+  margin-top: 0.55rem;
+}
+
+#sosprescription-root-form .sp-app-payment-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0.1rem 0 0.2rem;
+}
+
+#sosprescription-root-form .sp-app-payment-summary__item {
+  display: grid;
+  gap: 0.42rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--sp-shell-radius-lg, 18px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, #ffffff 5%), color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 34%, var(--sp-shell-color-surface, #ffffff) 66%));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.82), 0 10px 22px rgba(15, 23, 42, 0.05);
+}
+
+#sosprescription-root-form .sp-app-payment-summary__label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+#sosprescription-root-form .sp-app-payment-summary__value {
+  font-size: 1.05rem;
+  letter-spacing: -0.015em;
+  color: var(--sp-shell-color-text-1, #111827);
+}
+
+#sosprescription-root-form .sp-app-card--payment {
+  gap: 18px;
+}
+
+#sosprescription-root-form .sp-app-card--payment .sp-app-section__header {
+  margin-bottom: 0;
+}
+
+#sosprescription-root-form .sp-app-payment-panel {
+  gap: 14px;
+  padding: clamp(1rem, 0.96rem + 0.32vw, 1.22rem);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, var(--sp-shell-color-surface-alt, #f6f8fb) 10%), var(--sp-shell-color-surface, #ffffff));
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+#sosprescription-root-form .sp-app-payment-panel__mount-frame {
+  padding: clamp(0.95rem, 0.92rem + 0.2vw, 1.1rem);
+}
+
+#sosprescription-root-form .sp-app-inline-note--payment {
+  margin: 0;
+  line-height: 1.65;
+}
+
+#sosprescription-root-form .sp-app-card--success .sp-app-confirmation {
+  display: grid;
+  gap: 14px;
+}
+
+#sosprescription-root-form .sp-app-confirmation__actions {
+  margin-top: 0.2rem;
+}
+
+.sp-patient-console [id^="sp-thread-readonly-notice"] .sp-alert {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  #sosprescription-root-form .sp-app-payment-summary {
+    grid-template-columns: 1fr;
+  }
+}

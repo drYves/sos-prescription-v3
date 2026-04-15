@@ -2406,6 +2406,7 @@ export default function PatientConsole() {
                         onDownloadFile={handleMessageAttachmentDownload}
                         canCompose={!messagingLocked}
                         readOnlyNotice={messagingReadOnlyNotice}
+                        hideComposerWhenReadOnly={messagingLocked}
                         postMessage={postPatientMessage}
                         onMessageCreated={handleMessageCreated}
                         onSurfaceError={setError}

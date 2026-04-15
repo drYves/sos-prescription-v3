@@ -292,7 +292,7 @@ function TextInput({
 }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={cx('sp-app-input', className)}
+      className={cx('sp-app-control', 'sp-app-input', className)}
       {...props}
     />
   );
@@ -304,9 +304,55 @@ function TextareaField({
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={cx('sp-app-textarea', className)}
+      className={cx('sp-app-control', 'sp-app-textarea', className)}
       {...props}
     />
+  );
+}
+
+type LucideIconProps = {
+  className?: string;
+};
+
+function FileUpIcon({ className = '' }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
+      <path d="M14 2v5h5" />
+      <path d="M12 18V10" />
+      <path d="m8.5 13.5 3.5-3.5 3.5 3.5" />
+    </svg>
+  );
+}
+
+function FileMinusIcon({ className = '' }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
+      <path d="M14 2v5h5" />
+      <path d="M9 14h6" />
+    </svg>
+  );
+}
+
+function Clock2Icon({ className = '' }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v5l3 1.8" />
+      <path d="M9 2.5h6" />
+    </svg>
+  );
+}
+
+function TimerIcon({ className = '' }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 2h4" />
+      <path d="M12 14v-4" />
+      <path d="m15 5 1.6-1.6" />
+      <path d="M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z" />
+    </svg>
   );
 }
 
@@ -1136,8 +1182,43 @@ function safePatientNameValue(value: unknown): string {
   return normalized !== '' && !isEmailLikeValue(normalized) ? normalized : '';
 }
 
+type PatientProfileSnapshot = {
+  fullName: string;
+  birthdate: string;
+  medicalNotes: string;
+};
+
 function resolveStrictPatientProfileFullName(config: AppConfig): string {
   return safePatientNameValue(config.patientProfile?.fullname || '');
+}
+
+function resolvePatientProfileSnapshotFromSource(source: Record<string, unknown> | null | undefined): PatientProfileSnapshot {
+  const joinedName = [
+    firstNonEmptyString(source?.first_name, source?.firstName),
+    firstNonEmptyString(source?.last_name, source?.lastName),
+  ].filter(Boolean).join(' ');
+
+  return {
+    fullName: safePatientNameValue(firstNonEmptyString(source?.fullname, source?.fullName, joinedName)),
+    birthdate: firstNonEmptyString(source?.birthdate_fr, source?.birthdateFr, source?.birthdate),
+    medicalNotes: firstNonEmptyString(source?.note, source?.medical_notes, source?.medicalNotes),
+  };
+}
+
+function resolvePatientProfileSnapshot(config: AppConfig | null | undefined): PatientProfileSnapshot {
+  return resolvePatientProfileSnapshotFromSource(
+    config?.patientProfile && typeof config.patientProfile === 'object'
+      ? config.patientProfile as unknown as Record<string, unknown>
+      : null,
+  );
+}
+
+function resolveLatestPatientProfileSnapshot(fallbackConfig: AppConfig): PatientProfileSnapshot {
+  try {
+    return resolvePatientProfileSnapshot(getConfigOrThrow());
+  } catch {
+    return resolvePatientProfileSnapshot(fallbackConfig);
+  }
 }
 
 function splitPatientNameValue(value: unknown): { firstName: string; lastName: string } {
@@ -2439,7 +2520,7 @@ function ScheduleEditor({
         <div className="sp-app-field">
           <label className="sp-app-field__label">Périodicité</label>
           <select
-            className="sp-app-select"
+            className="sp-app-control sp-app-select"
             value={freqUnit}
             onChange={(event) => updateFreqUnit(event.target.value === 'semaine' ? 'semaine' : 'jour')}
           >
@@ -2460,7 +2541,7 @@ function ScheduleEditor({
         <div className="sp-app-field">
           <label className="sp-app-field__label">Unité</label>
           <select
-            className="sp-app-select"
+            className="sp-app-control sp-app-select"
             value={normalized.durationUnit}
             onChange={(event) => update({ durationUnit: event.target.value === 'mois' ? 'mois' : event.target.value === 'semaine' ? 'semaine' : 'jour' })}
           >
@@ -2595,9 +2676,14 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           className={cx('sp-app-choice-card', flow === 'ro_proof' && 'is-selected')}
           onClick={() => onSelectFlow('ro_proof')}
         >
-          <div className="sp-app-choice-card__title">Renouvellement avec justificatif</div>
+          <div className="sp-app-choice-card__header">
+            <span className="sp-app-choice-card__icon" aria-hidden="true">
+              <FileUpIcon />
+            </span>
+            <div className="sp-app-choice-card__title">Renouvellement avec justificatif</div>
+          </div>
           <div className="sp-app-choice-card__text">
-            Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
+            Vous avez une ordonnance, une photo de boîte ou un document de prescription.
           </div>
           <div className="sp-app-choice-card__meta">Pré-remplissage du dossier disponible.</div>
         </button>
@@ -2610,7 +2696,12 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           className={cx('sp-app-choice-card', flow === 'depannage_no_proof' && 'is-selected')}
           onClick={() => onSelectFlow('depannage_no_proof')}
         >
-          <div className="sp-app-choice-card__title">Dépannage sans justificatif</div>
+          <div className="sp-app-choice-card__header">
+            <span className="sp-app-choice-card__icon" aria-hidden="true">
+              <FileMinusIcon />
+            </span>
+            <div className="sp-app-choice-card__title">Dépannage sans justificatif</div>
+          </div>
           <div className="sp-app-choice-card__text">
             En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
           </div>
@@ -2977,9 +3068,6 @@ function StepClinicalData({
                         onUpdateMedication(index, { schedule: nextSchedule });
                       }}
                     />
-                    <div className="sp-app-field__hint">
-                      Les références du médicament sont conservées pour la vérification médicale et pharmaceutique.
-                    </div>
                   </div>
                 </div>
               ))}
@@ -3183,7 +3271,7 @@ function StepPrioritySelection({
             <span>Chargement du montant de la demande…</span>
           </div>
         ) : pricing ? (
-          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir la rapidité de traitement">
+          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le délai de traitement">
             <button
               type="button"
               role="radio"
@@ -3192,7 +3280,12 @@ function StepPrioritySelection({
               className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
               onClick={() => onPriorityChange('standard')}
             >
-              <div className="sp-app-choice-card__title">Standard</div>
+              <div className="sp-app-choice-card__header">
+                <span className="sp-app-choice-card__icon" aria-hidden="true">
+                  <Clock2Icon />
+                </span>
+                <div className="sp-app-choice-card__title">Standard</div>
+              </div>
               <div className="sp-app-choice-card__text">{describePriorityTurnaround('standard', pricing)}</div>
               <div className="sp-app-choice-card__meta">
                 {formatMoney(pricing.standard_cents, pricing.currency)}
@@ -3207,7 +3300,12 @@ function StepPrioritySelection({
               className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
               onClick={() => onPriorityChange('express')}
             >
-              <div className="sp-app-choice-card__title">Express</div>
+              <div className="sp-app-choice-card__header">
+                <span className="sp-app-choice-card__icon" aria-hidden="true">
+                  <TimerIcon />
+                </span>
+                <div className="sp-app-choice-card__title">Express</div>
+              </div>
               <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
               <div className="sp-app-choice-card__meta">
                 {formatMoney(pricing.express_cents, pricing.currency)}
@@ -3222,15 +3320,13 @@ function StepPrioritySelection({
 
         <div className="sp-app-block">
           <Notice variant="info">
-            Les montants correspondent aux <strong>frais d’analyse médicale</strong>. Votre choix sera rappelé avant la validation sécurisée.
+            Les frais affichés correspondent à l’<strong>analyse médicale</strong>. Votre délai sélectionné sera rappelé à l’étape suivante.
           </Notice>
         </div>
 
         {selectedAmount != null && pricing ? (
-          <div className="sp-app-priority-selection__summary" data-priority={priority}>
-            <strong>Votre choix</strong>
-            <div className="sp-app-priority-selection__amount">{formatMoney(selectedAmount, pricing.currency)}</div>
-            <span>{priority === 'express' ? 'Express' : 'Standard'} • {selectedPriorityEta}</span>
+          <div className="sp-app-inline-note">
+            Sélection actuelle : <strong>{priority === 'express' ? 'Express' : 'Standard'}</strong> · {selectedPriorityEta} · {formatMoney(selectedAmount, pricing.currency)}
           </div>
         ) : null}
       </section>
@@ -3656,80 +3752,35 @@ function StepPaymentAuth({
           <div>
             <h2 className="sp-app-section__title">Paiement sécurisé</h2>
             <p className="sp-app-section__hint">
-              Votre carte est vérifiée de manière sécurisée avant l’envoi de votre demande.
+              Votre carte est uniquement autorisée avant la transmission au médecin. Aucun débit n’est réalisé avant validation médicale.
             </p>
           </div>
         </div>
 
-        <div className="sp-app-block">
-          <Notice variant="info">
-            <strong>Votre carte est uniquement autorisée. Elle ne sera débitée qu’après validation médicale. Aucun frais n’est appliqué en cas de refus.</strong>
-          </Notice>
-        </div>
-
-        <div className="sp-app-summary-grid">
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Patient</div>
-            <div className="sp-app-summary-card__value">{safePatientNameValue(fullName) || '—'}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Naissance</div>
-            <div className="sp-app-summary-card__value">{birthdate || '—'}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Situation</div>
-            <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Priorité</div>
-            <div className="sp-app-summary-card__value">{priority === 'express' ? 'Express' : 'Standard'}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Délai visé</div>
-            <div className="sp-app-summary-card__value">{selectedPriorityEta}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Frais d’analyse médicale</div>
-            <div className="sp-app-summary-card__value">
-              {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : '—'}
-            </div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Médicaments</div>
-            <div className="sp-app-summary-card__value">{itemsCount}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Justificatifs</div>
-            <div className="sp-app-summary-card__value">{filesCount}</div>
-          </div>
-        </div>
-
-        {preparedSubmission?.uid ? (
-          <div className="sp-app-inline-note">
-            Référence de dossier : <strong>{preparedSubmission.uid}</strong>
-          </div>
-        ) : null}
-
         {pricingLoading ? (
           <div className="sp-app-inline-status">
             <Spinner />
-<span>Préparation du montant de votre demande…</span>
+            <span>Préparation du montant de votre demande…</span>
           </div>
         ) : null}
 
-        <div className="sp-app-card sp-app-card--nested sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
-          <div className="sp-app-payment-panel__trust" role="list" aria-label="Garanties de paiement">
-            <span className="sp-app-payment-panel__trust-pill" role="listitem">Validation bancaire sécurisée</span>
-            <span className="sp-app-payment-panel__trust-pill" role="listitem">Aucun débit avant validation médicale</span>
-            <span className="sp-app-payment-panel__trust-pill" role="listitem">Conforme aux standards Stripe</span>
+        <div className="sp-app-payment-summary" role="list" aria-label="Récapitulatif avant paiement">
+          <div className="sp-app-payment-summary__item" role="listitem">
+            <span className="sp-app-payment-summary__label">Montant</span>
+            <strong className="sp-app-payment-summary__value">
+              {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : '—'}
+            </strong>
           </div>
-          <div className="sp-app-section__header">
-            <div>
-              <h3 className="sp-app-section__title">Carte bancaire sécurisée</h3>
-              <p className="sp-app-section__hint">
-                Saisissez votre carte dans le formulaire sécurisé. Les données ne sont pas stockées.
-              </p>
-            </div>
+          <div className="sp-app-payment-summary__item" role="listitem">
+            <span className="sp-app-payment-summary__label">Délai</span>
+            <strong className="sp-app-payment-summary__value">{selectedPriorityEta || '—'}</strong>
+          </div>
+        </div>
+
+        <div className="sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
+          <div className="sp-app-inline-note sp-app-inline-note--payment">
+            Carte bancaire sécurisée par Stripe • Autorisation uniquement • Aucun débit avant validation médicale
+            {amountCents != null ? ` • Montant autorisé : ${formatMoney(amountCents, currency)}` : ''}
           </div>
 
           {error ? (
@@ -3738,21 +3789,14 @@ function StepPaymentAuth({
             </div>
           ) : null}
 
-          <div className="sp-app-block">
-            <div className="sp-app-payment-panel__mount-frame">
-              {initializing ? (
-                <div className="sp-app-inline-status">
-                  <Spinner />
-<span>Chargement du formulaire bancaire sécurisé…</span>
-                </div>
-              ) : null}
-              <div ref={mountRef} data-sp-stripe-mount="1" />
-            </div>
-          </div>
-
-          <div className="sp-app-inline-note sp-app-inline-note--payment">
-            Paiement sécurisé
-            {amountCents != null ? ` • Aucun débit avant validation médicale • Autorisation temporaire : ${formatMoney(amountCents, currency)}` : ' • Aucun débit avant validation médicale'}
+          <div className="sp-app-payment-panel__mount-frame">
+            {initializing ? (
+              <div className="sp-app-inline-status">
+                <Spinner />
+                <span>Chargement du formulaire bancaire sécurisé…</span>
+              </div>
+            ) : null}
+            <div ref={mountRef} data-sp-stripe-mount="1" />
           </div>
         </div>
       </section>
@@ -3827,26 +3871,15 @@ function StepSuccess({
           <div className="sp-app-confirmation__text">
             Conservez ce numéro pour retrouver votre dossier et suivre son évolution depuis votre espace patient.
           </div>
+          {patientPortalUrl ? (
+            <div className="sp-app-actions sp-app-actions--start sp-app-confirmation__actions">
+              <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
+                Accéder à mon espace patient
+              </a>
+            </div>
+          ) : null}
         </div>
       </section>
-
-      {patientPortalUrl ? (
-        <section className="sp-app-card sp-app-card--followup">
-          <div className="sp-app-section__header">
-            <div>
-              <h2 className="sp-app-section__title">Suite de votre dossier</h2>
-              <p className="sp-app-section__hint">
-                Retrouvez votre suivi et les prochains échanges depuis votre espace patient sécurisé.
-              </p>
-            </div>
-          </div>
-          <div className="sp-app-actions sp-app-actions--start">
-            <a href={patientPortalUrl} className="sp-app-button sp-app-button--primary">
-              Accéder à mon espace patient
-            </a>
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -3919,6 +3952,9 @@ function PublicFormApp() {
   const [resumedDraftRef, setResumedDraftRef] = useState<string | null>(null);
   const submissionRefStateRef = useRef<SubmissionRefState>({ ref: null });
   const resumeDraftConsumedRef = useRef(false);
+  const fullNameEditedRef = useRef(false);
+  const birthdateEditedRef = useRef(false);
+  const medicalNotesEditedRef = useRef(false);
 
   const compliance = config.compliance || {};
   const consentRequired = Boolean(compliance.consent_required);
@@ -4005,6 +4041,76 @@ function PublicFormApp() {
   const isLoggedIn = Boolean(config.currentUser?.id && Number(config.currentUser.id) > 0);
   const isDraftMode = !isLoggedIn;
 
+  const handleFullNameChange = useCallback((value: string) => {
+    fullNameEditedRef.current = true;
+    setFullName(value);
+  }, []);
+
+  const handleBirthdateChange = useCallback((value: string) => {
+    birthdateEditedRef.current = true;
+    setBirthdate(value);
+  }, []);
+
+  const handleMedicalNotesChange = useCallback((value: string) => {
+    medicalNotesEditedRef.current = true;
+    setMedicalNotes(value);
+  }, []);
+
+  const hydratePatientProfileFields = useCallback((snapshot: PatientProfileSnapshot, options?: { force?: boolean }) => {
+    const force = Boolean(options?.force);
+    if (!force && (resumeDraftRefFromUrl || resumedDraftRef || draftResumeLoading)) {
+      return;
+    }
+
+    const nextFullName = safePatientNameValue(snapshot.fullName);
+    const nextBirthdate = String(snapshot.birthdate || '').trim();
+    const nextMedicalNotes = String(snapshot.medicalNotes || '').trim();
+
+    if ((force || !fullNameEditedRef.current) && nextFullName !== safePatientNameValue(fullName)) {
+      setFullName(nextFullName);
+    }
+
+    if ((force || !birthdateEditedRef.current) && nextBirthdate !== String(birthdate || '').trim()) {
+      setBirthdate(nextBirthdate);
+    }
+
+    if ((force || !medicalNotesEditedRef.current) && nextMedicalNotes !== String(medicalNotes || '').trim()) {
+      setMedicalNotes(nextMedicalNotes);
+    }
+  }, [birthdate, draftResumeLoading, fullName, medicalNotes, resumeDraftRefFromUrl, resumedDraftRef]);
+
+  useEffect(() => {
+    if (stage !== 'form' || resumeDraftRefFromUrl || resumedDraftRef || draftResumeLoading) {
+      return;
+    }
+
+    hydratePatientProfileFields(resolveLatestPatientProfileSnapshot(config));
+  }, [config, config.patientProfile, draftResumeLoading, hydratePatientProfileFields, resumeDraftRefFromUrl, resumedDraftRef, stage]);
+
+  useEffect(() => {
+    const handlePatientProfileUpdated = (rawEvent: Event): void => {
+      if (stage !== 'form' || resumeDraftRefFromUrl || resumedDraftRef || draftResumeLoading) {
+        return;
+      }
+
+      const event = rawEvent as CustomEvent<{ profile?: Record<string, unknown> }>;
+      const detail = event && typeof event.detail === 'object' ? event.detail : undefined;
+      const profile = detail && detail.profile && typeof detail.profile === 'object'
+        ? detail.profile as Record<string, unknown>
+        : null;
+      const snapshot = profile
+        ? resolvePatientProfileSnapshotFromSource(profile)
+        : resolveLatestPatientProfileSnapshot(config);
+
+      hydratePatientProfileFields(snapshot);
+    };
+
+    window.addEventListener('sosprescription:patient-profile-updated', handlePatientProfileUpdated as EventListener);
+    return () => {
+      window.removeEventListener('sosprescription:patient-profile-updated', handlePatientProfileUpdated as EventListener);
+    };
+  }, [config, draftResumeLoading, hydratePatientProfileFields, resumeDraftRefFromUrl, resumedDraftRef, stage]);
+
   useEffect(() => {
     if (resumeDraftRefFromUrl) {
       return;
@@ -4061,6 +4167,9 @@ function PublicFormApp() {
 
     async function resumeDraft(): Promise<void> {
       clearAppBrowserStateStorage();
+      fullNameEditedRef.current = false;
+      birthdateEditedRef.current = false;
+      medicalNotesEditedRef.current = false;
       submissionRefStateRef.current = { ref: draftRef };
       setFlow(null);
       setPriority('standard');
@@ -4375,17 +4484,16 @@ function PublicFormApp() {
   }, [ensureSubmissionRef, flow, isLoggedIn]);
 
   const resetToChoose = useCallback(() => {
+    const profileSnapshot = resolveLatestPatientProfileSnapshot(config);
+    fullNameEditedRef.current = false;
+    birthdateEditedRef.current = false;
+    medicalNotesEditedRef.current = false;
     setStage('choose');
     setFlow(null);
     setPriority('standard');
-    setFullName(resolveStrictPatientProfileFullName(config));
-    setBirthdate(String(config.patientProfile?.birthdate_fr || ''));
-    setMedicalNotes(String(
-      config.patientProfile?.note
-      || config.patientProfile?.medical_notes
-      || config.patientProfile?.medicalNotes
-      || '',
-    ).trim());
+    setFullName(profileSnapshot.fullName);
+    setBirthdate(profileSnapshot.birthdate);
+    setMedicalNotes(profileSnapshot.medicalNotes);
     setItems([]);
     setFiles([]);
     setRejectedFiles([]);
@@ -4407,7 +4515,7 @@ function PublicFormApp() {
     setConsentTruth(false);
     setConsentCgu(false);
     setConsentPrivacy(false);
-  }, [config.patientProfile]);
+  }, [config]);
 
   const copyUid = useCallback(async () => {
     if (!submissionResult?.uid) {
@@ -4855,7 +4963,7 @@ function PublicFormApp() {
   const stageEntries: Array<{ key: Stage; label: string }> = [
     { key: 'choose', label: 'Type de demande' },
     { key: 'form', label: 'Saisie médicale' },
-    { key: 'priority_selection', label: 'Priorité' },
+    { key: 'priority_selection', label: 'Délai' },
     { key: 'payment_auth', label: isDraftMode ? 'Validation' : 'Paiement sécurisé' },
     { key: 'done', label: 'Confirmation' },
   ];
@@ -4974,11 +5082,11 @@ function PublicFormApp() {
             compliance={compliance}
             submitLoading={submitLoading}
             onBackToChoice={() => setStage('choose')}
-            onFullNameChange={setFullName}
-            onBirthdateChange={setBirthdate}
+            onFullNameChange={handleFullNameChange}
+            onBirthdateChange={handleBirthdateChange}
             onDraftEmailChange={setDraftEmail}
             onUnlockDraftEmail={() => setDraftEmailLocked(false)}
-            onMedicalNotesChange={setMedicalNotes}
+            onMedicalNotesChange={handleMedicalNotesChange}
             onFilesSelected={handleFilesSelected}
             onRemoveFile={(fileId) => {
               setFiles((current) => current.filter((entry) => entry.id !== fileId));

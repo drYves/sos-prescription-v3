@@ -48,6 +48,7 @@ type Props = {
   onDownloadFile: (attachmentId: number) => void | Promise<void>;
   canCompose: boolean;
   readOnlyNotice?: string;
+  hideComposerWhenReadOnly?: boolean;
   postMessage: (prescriptionId: number, body: string, attachments?: number[]) => Promise<MessageItem>;
   onMessageCreated: (message: MessageItem) => void | Promise<void>;
   onSurfaceError?: (message: string | null) => void;
@@ -151,6 +152,7 @@ export default function MessageThread({
   onDownloadFile,
   canCompose,
   readOnlyNotice = 'Cet espace d’échange sécurisé est actuellement en lecture seule.',
+  hideComposerWhenReadOnly = false,
   postMessage,
   onMessageCreated,
   onSurfaceError,
@@ -194,6 +196,7 @@ export default function MessageThread({
   );
 
   const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
+  const shouldRenderComposer = !(isReadOnly && hideComposerWhenReadOnly);
   const readOnlyNoticeId = useMemo(
     () => (prescriptionId ? `sp-thread-readonly-notice-${prescriptionId}` : 'sp-thread-readonly-notice'),
     [prescriptionId],
@@ -311,81 +314,87 @@ export default function MessageThread({
         />
       )}
 
-      <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
-        {localError ? <Notice variant="error">{localError}</Notice> : null}
-        {isReadOnly ? (
-          <div id={readOnlyNoticeId} aria-live="polite">
-            <Notice variant="info">{readOnlyNotice}</Notice>
-          </div>
-        ) : null}
-
-        <div className="sp-thread-composer__row">
-          <div className="sp-thread-composer__field">
-            <textarea
-              ref={textareaRef}
-              value={draftBody}
-              onChange={(event) => setDraftBody(event.target.value)}
-              rows={2}
-              placeholder={isReadOnly ? '' : composerPlaceholder(viewerRole)}
-              className="sp-textarea sp-thread-composer__textarea"
-              disabled={isReadOnly}
-              aria-disabled={isReadOnly}
-              aria-describedby={isReadOnly ? readOnlyNoticeId : undefined}
-            />
-          </div>
-
-          {!isReadOnly ? (
-            <div className="sp-thread-composer__actions">
-              {showWritingAssistant ? (
-              <button
-                type="button"
-                className="sp-app-icon-button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void handlePolish();
-                }}
-                disabled={polishing || sending || draftBody.trim().length < 1}
-                title="Aide à la rédaction"
-                aria-label="Aide à la rédaction"
-              >
-                {polishing ? <InlineSpinner /> : <BotAssistIcon />}
-              </button>
-            ) : null}
-
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={sending || draftBody.trim().length < 1}
-                className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-              >
-                {sending ? <InlineSpinner /> : 'Envoyer'}
-              </button>
+      {shouldRenderComposer ? (
+        <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
+          {localError ? <Notice variant="error">{localError}</Notice> : null}
+          {isReadOnly ? (
+            <div id={readOnlyNoticeId} aria-live="polite">
+              <Notice variant="info">{readOnlyNotice}</Notice>
             </div>
           ) : null}
-        </div>
 
-        {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
-          <>
-            <div className="sp-thread-composer__hint">Suggestions de réponse</div>
-            <div className="sp-inline-actions">
-              {visibleReplies.map((reply, index) => {
-                const label = String(reply.title || reply.body || '').trim() || `Suggestion ${index + 1}`;
-                return (
-                  <button
-                    key={`${reply.type || 'reply'}-${index}`}
-                    type="button"
-                    className="sp-button sp-button--secondary"
-                    onClick={() => applySmartReply(reply.body)}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+          <div className="sp-thread-composer__row">
+            <div className="sp-thread-composer__field">
+              <textarea
+                ref={textareaRef}
+                value={draftBody}
+                onChange={(event) => setDraftBody(event.target.value)}
+                rows={2}
+                placeholder={isReadOnly ? '' : composerPlaceholder(viewerRole)}
+                className="sp-textarea sp-thread-composer__textarea"
+                disabled={isReadOnly}
+                aria-disabled={isReadOnly}
+                aria-describedby={isReadOnly ? readOnlyNoticeId : undefined}
+              />
             </div>
-          </>
-        ) : null}
-      </div>
+
+            {!isReadOnly ? (
+              <div className="sp-thread-composer__actions">
+                {showWritingAssistant ? (
+                <button
+                  type="button"
+                  className="sp-app-icon-button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handlePolish();
+                  }}
+                  disabled={polishing || sending || draftBody.trim().length < 1}
+                  title="Aide à la rédaction"
+                  aria-label="Aide à la rédaction"
+                >
+                  {polishing ? <InlineSpinner /> : <BotAssistIcon />}
+                </button>
+              ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => void handleSend()}
+                  disabled={sending || draftBody.trim().length < 1}
+                  className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+                >
+                  {sending ? <InlineSpinner /> : 'Envoyer'}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
+            <>
+              <div className="sp-thread-composer__hint">Suggestions de réponse</div>
+              <div className="sp-inline-actions">
+                {visibleReplies.map((reply, index) => {
+                  const label = String(reply.title || reply.body || '').trim() || `Suggestion ${index + 1}`;
+                  return (
+                    <button
+                      key={`${reply.type || 'reply'}-${index}`}
+                      type="button"
+                      className="sp-button sp-button--secondary"
+                      onClick={() => applySmartReply(reply.body)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <div id={readOnlyNoticeId} aria-live="polite">
+          <Notice variant="info">{readOnlyNotice}</Notice>
+        </div>
+      )}
     </div>
   );
 }
