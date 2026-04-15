@@ -1,15 +1,15 @@
 /*
 Theme Name: gp-sos-prescription
 Theme URI: https://sosprescription.fr/
-Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress natif, aura Noble Blue SaaS, header glass universel, menu harmonisé global, version v6.5.4 – QA finale complète, surfaces critiques unifiées, guards/BDPM/widgets/compte médecin repris.
+Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress natif, aura Noble Blue SaaS, header glass universel, menu harmonisé global, version v6.5.6 – QA finale, composants partagés finalisés, guards enrichis, tunnel/console/patient affinés.
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 6.5.5
+Version: 6.5.6
 Text Domain: gp-sos-prescription
 */
 
-/* V6.5.4 · QA finale complète, unification des surfaces critiques et finitions premium */
+/* V6.5.6 · QA finale : finitions locales, composants partagés stabilisés et surfaces premium unifiées */
 
 :root {
   --sp-shell-frame-max: 1200px;

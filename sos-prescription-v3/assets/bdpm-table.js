@@ -1,4 +1,4 @@
-// assets/bdpm-table.js · V6.5.5
+// assets/bdpm-table.js · V6.5.6
 (function () {
   var root = document.getElementById('sosprescription-bdpm-table-root')
   if (!root) return
@@ -110,7 +110,7 @@
       + '          <th>CIS</th>'
       + '          <th>CIP13</th>'
       + '          <th>Remb.</th>'
-      + '          <th>Prix TTC</th>'
+      + '          <th class="sp-col-price"><span>Prix TTC</span></th>'
       + '        </tr>'
       + '      </thead>'
       + '      <tbody id="sp-tbody"></tbody>'
@@ -280,7 +280,7 @@
       rows += '<td><span class="sp-pill">' + escHtml(cis) + '</span></td>'
       rows += '<td>' + (cip13 ? '<span class="sp-pill">' + escHtml(cip13) + '</span>' : '<span class="sp-muted">—</span>') + '</td>'
       rows += '<td>' + (remb ? escHtml(remb) : '<span class="sp-muted">—</span>') + '</td>'
-      rows += '<td>' + (prix ? escHtml(prix) + ' €' : '<span class="sp-muted">—</span>') + '</td>'
+      rows += '<td class="sp-col-price">' + (prix ? '<span class="sp-price-cell">' + escHtml(prix) + '&nbsp;€</span>' : '<span class="sp-muted">—</span>') + '</td>'
       rows += '</tr>'
     }
 

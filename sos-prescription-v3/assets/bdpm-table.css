@@ -1,4 +1,4 @@
-/* SOS Prescription : BDPM Table V6.5.5 */
+/* SOS Prescription : BDPM Table V6.5.6 */
 .sosprescription-bdpm {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: #111;
@@ -516,5 +516,45 @@
   .sosprescription-bdpm .sp-pagination {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.6 — QA pass: centered catalogue badges and stable price column
+   -------------------------------------------------------------------------- */
+.sosprescription-bdpm .sp-catalog-head {
+  align-items: center;
+}
+
+.sosprescription-bdpm .sp-catalog-meta {
+  justify-content: center;
+  align-items: center;
+}
+
+.sosprescription-bdpm .sp-catalog-meta .sp-meta-pill {
+  align-self: center;
+  text-align: center;
+}
+
+.sosprescription-bdpm .sp-table-wrap table {
+  table-layout: auto;
+}
+
+.sosprescription-bdpm .sp-table-wrap th.sp-col-price,
+.sosprescription-bdpm .sp-table-wrap td.sp-col-price {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.sosprescription-bdpm .sp-table-wrap th.sp-col-price > span,
+.sosprescription-bdpm .sp-price-cell {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .sosprescription-bdpm .sp-catalog-meta {
+    justify-content: flex-start;
   }
 }

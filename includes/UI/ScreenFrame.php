@@ -103,6 +103,14 @@ final class ScreenFrame
         $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
         $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
         $content .= '</div>';
+        $content .= '<div class="sp-plugin-guard__brand" aria-hidden="true">';
+        $content .= '<img class="sp-plugin-guard__favicon" src="' . esc_url(self::guard_favicon_url()) . '" alt="" loading="lazy" decoding="async" />';
+        $content .= '<div class="sp-plugin-guard__icons">';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('shield') . '</span>';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('stethoscope') . '</span>';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('lock') . '</span>';
+        $content .= '</div>';
+        $content .= '</div>';
 
         if ($actions !== []) {
             $content .= '<div class="sp-plugin-guard__actions">';
@@ -121,6 +129,32 @@ final class ScreenFrame
         return self::screen($screen, $content);
     }
 
+
+
+
+    private static function guard_favicon_url(): string
+    {
+        if (function_exists('get_theme_file_uri')) {
+            return (string) get_theme_file_uri('assets/img/brand/sos-favicon.svg');
+        }
+
+        return defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL . 'assets/caduceus.svg' : '';
+    }
+
+    private static function guard_icon(string $name): string
+    {
+        $name = strtolower(trim($name));
+
+        if ($name === 'stethoscope') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a4 4 0 0 0 8 0V3"/><path d="M8 3v5"/><path d="M16 11v2a4 4 0 0 0 8 0 4 4 0 0 0-4-4h-1"/><circle cx="20" cy="9" r="2"/></svg>';
+        }
+
+        if ($name === 'lock') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg>';
+        }
+
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"/><path d="m9 12 2 2 4-4"/></svg>';
+    }
 
     /**
      * @param array<string, string> $attrs

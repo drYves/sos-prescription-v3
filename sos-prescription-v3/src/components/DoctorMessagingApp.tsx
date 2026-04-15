@@ -482,7 +482,7 @@ function threadModeNotice(mode: 'DOCTOR_ONLY' | 'PATIENT_REPLY' | 'READ_ONLY' | 
     return 'La messagerie est en lecture seule pour ce dossier.';
   }
   if (mode === 'DOCTOR_ONLY') {
-    return 'Vous pouvez initier l’échange sécurisé avec le patient depuis cet espace.';
+    return 'Vous pouvez envoyer un message sécurisé au patient depuis cet espace dès que vous en avez besoin.';
   }
   return '';
 }

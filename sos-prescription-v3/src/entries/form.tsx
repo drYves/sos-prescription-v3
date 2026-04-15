@@ -357,6 +357,15 @@ function TimerIcon({ className = '' }: LucideIconProps) {
   );
 }
 
+function Settings2Icon({ className = "" }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82 2 2 0 1 1-2.82 2.82 1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51 2 2 0 1 1-4 0 1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33 2 2 0 1 1-2.82-2.82 1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1 2 2 0 1 1 0-4 1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82 2 2 0 1 1 2.82-2.82 1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 10 2.6a2 2 0 1 1 4 0 1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33 2 2 0 1 1 2.82 2.82 1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1 2 2 0 1 1 0 4 1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
 function getConfigOrThrow(): AppConfig {
   const formWindow = window as FormWindow;
   const cfg = (typeof window !== 'undefined' ? (formWindow.SosPrescription || formWindow.SOSPrescription) : null) || null;
@@ -2378,6 +2387,7 @@ function ScheduleEditor({
   const times = autoDistribution ? autoDistribution.times : fillArray(normalized.times, count, '');
   const doses = fillArray(normalized.doses, count, '1');
   const warnings = autoDistribution ? autoDistribution.warnings : [];
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const update = useCallback((patch: Partial<Schedule>) => {
     onChange({
@@ -2458,18 +2468,6 @@ function ScheduleEditor({
     });
   }, [normalized, onChange]);
 
-  const resetAutomaticTimes = useCallback(() => {
-    const auto = distributeTimes(normalized.nb, normalized.start, normalized.end);
-    onChange({
-      ...normalized,
-      autoTimesEnabled: true,
-      start: auto.start,
-      end: auto.end,
-      times: auto.times,
-      doses: fillArray(normalized.doses, normalized.nb, '1'),
-    });
-  }, [normalized, onChange]);
-
   const updateAnchors = useCallback((nextStart: string, nextEnd: string) => {
     const safeStart = isTimeString(nextStart) ? nextStart : normalized.start;
     const safeEnd = isTimeString(nextEnd) ? nextEnd : normalized.end;
@@ -2504,6 +2502,10 @@ function ScheduleEditor({
       doses: nextDoses,
     });
   }, [doses, normalized, onChange]);
+
+  const openAdvancedPlanning = useCallback(() => {
+    setAdvancedOpen(true);
+  }, []);
 
   return (
     <div className="sp-app-card sp-app-card--nested sp-app-schedule-editor">
@@ -2559,45 +2561,6 @@ function ScheduleEditor({
             <div className="sp-app-schedule__title">
               {autoTimesEnabled ? 'Horaires suggérés' : 'Horaires personnalisés'}
             </div>
-            <div className="sp-app-schedule__actions">
-              {autoTimesEnabled ? (
-                <Button type="button" variant="secondary" onClick={resetAutomaticTimes}>
-Recalculer
-                </Button>
-              ) : (
-                <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
-Proposer des horaires
-                </Button>
-              )}
-              {autoTimesEnabled ? (
-                <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
-Personnaliser
-                </Button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="sp-app-grid sp-app-grid--two sp-app-schedule__anchors">
-            <div className="sp-app-field">
-              <label className="sp-app-field__label">1ère prise</label>
-              <TextInput
-                type="time"
-                step={300}
-                value={normalized.start}
-                onChange={(event) => updateAnchors(event.target.value, normalized.end)}
-                disabled={!autoTimesEnabled}
-              />
-            </div>
-            <div className="sp-app-field">
-              <label className="sp-app-field__label">Dernière prise</label>
-              <TextInput
-                type="time"
-                step={300}
-                value={normalized.end}
-                onChange={(event) => updateAnchors(normalized.start, event.target.value)}
-                disabled={!autoTimesEnabled}
-              />
-            </div>
           </div>
         </div>
       ) : null}
@@ -2641,6 +2604,71 @@ Personnaliser
           );
         })}
       </div>
+
+      {freqUnit === 'jour' ? (
+        <div className="sp-app-schedule-editor__advanced" data-expanded={advancedOpen ? 'true' : 'false'}>
+          {advancedOpen ? (
+            <div className="sp-app-schedule sp-app-schedule--grouped sp-app-schedule--advanced">
+              <div className="sp-app-schedule__header">
+                <div className="sp-app-schedule__title">Réglages avancés de planification</div>
+                <div className="sp-app-schedule__actions">
+                  {autoTimesEnabled ? (
+                    <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
+                      Passer en manuel
+                    </Button>
+                  ) : (
+                    <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
+                      Utiliser les horaires suggérés
+                    </Button>
+                  )}
+                  <Button type="button" variant="ghost" onClick={() => setAdvancedOpen(false)}>
+                    Fermer
+                  </Button>
+                </div>
+              </div>
+
+              <div className="sp-app-grid sp-app-grid--two sp-app-schedule__anchors">
+                <div className="sp-app-field">
+                  <label className="sp-app-field__label">1ère prise</label>
+                  <TextInput
+                    type="time"
+                    step={300}
+                    value={normalized.start}
+                    onChange={(event) => updateAnchors(event.target.value, normalized.end)}
+                    disabled={!autoTimesEnabled}
+                  />
+                </div>
+                <div className="sp-app-field">
+                  <label className="sp-app-field__label">Dernière prise</label>
+                  <TextInput
+                    type="time"
+                    step={300}
+                    value={normalized.end}
+                    onChange={(event) => updateAnchors(normalized.start, event.target.value)}
+                    disabled={!autoTimesEnabled}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="sp-app-schedule-editor__advanced-toggle">
+              <Button type="button" variant="secondary" onClick={openAdvancedPlanning}>
+                <Settings2Icon />
+                Personnaliser
+              </Button>
+              <button
+                type="button"
+                className="sp-app-icon-button"
+                aria-label="Ouvrir les réglages de planification"
+                title="Ouvrir les réglages de planification"
+                onClick={openAdvancedPlanning}
+              >
+                <Settings2Icon />
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2806,11 +2834,6 @@ function StepClinicalData({
             <p className="sp-app-section__hint">
               Renseignez les éléments indispensables au contrôle médical.
             </p>
-          </div>
-          <div className="sp-app-section__actions">
-            <Button type="button" variant="secondary" onClick={onBackToChoice}>
-              Modifier ma situation
-            </Button>
           </div>
         </div>
 
@@ -3196,10 +3219,6 @@ function StepClinicalData({
       ) : null}
 
       <div className="sp-app-actions">
-        <Button type="button" variant="secondary" onClick={onBackToChoice} disabled={submitLoading}>
-          Modifier ma situation
-        </Button>
-
         <Button type="button" onClick={onContinue} disabled={submitLoading}>
           Continuer
         </Button>
@@ -3318,12 +3337,6 @@ function StepPrioritySelection({
             Nous n’avons pas pu charger le montant de la demande. Merci de réessayer avant de poursuivre.
           </Notice>
         )}
-
-        <div className="sp-app-block">
-          <Notice variant="info">
-            Les frais correspondent à l’<strong>analyse médicale</strong>. Le délai choisi sera rappelé à l’étape suivante.
-          </Notice>
-        </div>
 
         {selectedAmount != null && pricing ? (
           <div className="sp-app-inline-note">
@@ -4962,7 +4975,7 @@ function PublicFormApp() {
 
   const stageEntries: Array<{ key: Stage; label: string }> = [
     { key: 'choose', label: 'Type de demande' },
-    { key: 'form', label: 'Saisie médicale' },
+    { key: 'form', label: 'Informations patient' },
     { key: 'priority_selection', label: 'Délai' },
     { key: 'payment_auth', label: isDraftMode ? 'Validation' : 'Paiement sécurisé' },
     { key: 'done', label: 'Confirmation' },

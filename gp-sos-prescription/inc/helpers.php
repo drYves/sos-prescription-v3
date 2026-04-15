@@ -2482,8 +2482,8 @@ function sp_sync_public_shell_v256($content)
       </div>
 
       <div class="sp-status-bar" role="status" aria-label="État de la plateforme">
-        <span>Plateforme opérationnelle</span>
-        <span>Médecins en ligne</span>
+        <span>Service médical disponible</span>
+        <span class="sp-status-item--live">Médecins en ligne</span>
         <span>Délai d’expertise prioritaire : [sosprescription_pricing field="eta" type="express"]</span>
       </div>
 HTML;
@@ -2666,8 +2666,8 @@ function sp_sync_public_shell_v257($content)
       </div>
 
       <div class="sp-status-bar" role="status" aria-label="État de la plateforme">
-        <span>Plateforme opérationnelle</span>
-        <span>Médecins en ligne</span>
+        <span>Service médical disponible</span>
+        <span class="sp-status-item--live">Médecins en ligne</span>
         <span>Délai d’expertise prioritaire : [sosprescription_pricing field="eta" type="express"]</span>
       </div>
 HTML;

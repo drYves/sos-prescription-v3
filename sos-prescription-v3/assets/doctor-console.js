@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V6.5.5
+// assets/doctor-console.js · V6.5.6
 (function () {
   'use strict';
 
@@ -3447,7 +3447,7 @@
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
       '          <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
-      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + ' • synchronisation automatique</div>',
+      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
       '          <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '        </div>',
       '      </div>',

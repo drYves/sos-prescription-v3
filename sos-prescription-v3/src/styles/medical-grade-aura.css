@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V6.5.5 */
+/* SOS Prescription : Medical-Grade Aura V6.5.6 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -4176,5 +4176,221 @@ a.sp-app-button.sp-app-button--secondary:hover {
 
   .sp-patient-console .sp-patient-hero__aside {
     inline-size: 100%;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.6 — QA pass: stepper geometry, simplified planning, patient hero and
+   stable workspace columns (strictly local container scoping)
+   -------------------------------------------------------------------------- */
+#sosprescription-root-form .sp-app-stagebar__item {
+  min-width: 0;
+}
+
+#sosprescription-root-form .sp-app-stagebar__badge {
+  flex: 0 0 2.55rem;
+  inline-size: 2.55rem;
+  min-inline-size: 2.55rem;
+  max-inline-size: 2.55rem;
+  block-size: 2.55rem;
+  min-block-size: 2.55rem;
+  max-block-size: 2.55rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  text-align: center;
+}
+
+#sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
+  margin-top: 0.15rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor {
+  gap: 1rem;
+}
+
+#sosprescription-root-form .sp-app-schedule__header {
+  align-items: center;
+}
+
+#sosprescription-root-form .sp-app-schedule__actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__advanced {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__advanced-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+#sosprescription-root-form .sp-app-schedule--advanced {
+  margin-top: 0.1rem;
+  padding: 1rem;
+  border: 1px dashed color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 62%, var(--sp-shell-color-surface, #ffffff) 38%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, var(--sp-shell-color-surface-alt, #f6f8fb) 5%)
+  );
+}
+
+#sosprescription-root-form .sp-app-checkbox__label {
+  align-items: center;
+}
+
+#sosprescription-root-form .sp-app-checkbox__control {
+  margin-top: 0;
+  align-self: center;
+}
+
+#sosprescription-root-form .sp-app-checkbox__box {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+#sosprescription-root-form .sp-app-checkbox__box::after {
+  left: 50%;
+  top: 50%;
+  width: 0.42rem;
+  height: 0.78rem;
+  transform: translate(-50%, -58%) rotate(45deg) scale(0.92);
+  transform-origin: center;
+}
+
+#sosprescription-root-form .sp-app-card--priority .sp-app-inline-note {
+  margin-top: 0.15rem;
+}
+
+.sp-patient-console .sp-patient-hero {
+  padding: clamp(1.05rem, 0.96rem + 0.45vw, 1.35rem);
+}
+
+.sp-patient-console .sp-patient-hero__body {
+  grid-template-columns: minmax(0, 1fr) clamp(18rem, 26vw, 20.5rem);
+  gap: clamp(1rem, 0.92rem + 0.45vw, 1.4rem);
+  align-items: stretch;
+}
+
+.sp-patient-console .sp-patient-hero__headline,
+.sp-patient-console .sp-patient-hero__content {
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__title {
+  max-inline-size: min(100%, 40rem);
+  white-space: normal;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.sp-patient-console .sp-patient-hero__lead,
+.sp-patient-console .sp-patient-hero__support {
+  max-inline-size: 64ch;
+}
+
+.sp-patient-console .sp-patient-hero__aside {
+  inline-size: clamp(18rem, 26vw, 20.5rem);
+  max-inline-size: 100%;
+  align-self: stretch;
+}
+
+.sp-patient-console .sp-patient-hero__action-card {
+  grid-template-rows: auto 1fr;
+  align-content: start;
+}
+
+.sp-patient-console .sp-patient-hero__actions {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__button,
+.sp-patient-console .sp-patient-hero__note {
+  width: 100%;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-console-grid {
+  grid-template-columns: 19.5rem minmax(0, 1fr);
+  align-items: start;
+}
+
+.sp-patient-console .sp-console-grid__sidebar {
+  inline-size: 19.5rem;
+  min-inline-size: 19.5rem;
+  max-inline-size: 19.5rem;
+}
+
+.sp-patient-console .sp-console-grid__sidebar > .sp-panel {
+  position: sticky;
+  top: clamp(0.85rem, 0.7rem + 0.45vw, 1.1rem);
+}
+
+.sp-patient-console .sp-console-grid__sidebar > .sp-panel > .sp-panel__body {
+  max-block-size: min(70vh, 44rem);
+  overflow-y: auto;
+  padding-inline-end: 0.25rem;
+}
+
+.sp-patient-console .sp-patient-console__workspace-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.7rem;
+  padding-inline: 0.7rem;
+}
+
+.sp-patient-console .sp-patient-console__workspace-badge[data-state='success'] {
+  border-color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 24%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-success-soft, #ecfdf5) 72%, #ffffff 28%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-success-soft, #ecfdf5) 12%)
+  );
+  color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 74%, var(--sp-shell-color-text-1, #111827) 26%);
+}
+
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-card--embedded,
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-card--embedded {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+@media (max-width: 1100px) {
+  .sp-patient-console .sp-console-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-patient-console .sp-console-grid__sidebar {
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: none;
+  }
+
+  .sp-patient-console .sp-console-grid__sidebar > .sp-panel {
+    position: static;
+  }
+
+  .sp-patient-console .sp-console-grid__sidebar > .sp-panel > .sp-panel__body {
+    max-block-size: none;
+    overflow: visible;
+    padding-inline-end: 0;
   }
 }

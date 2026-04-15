@@ -1,6 +1,6 @@
-/* SOS Prescription : App Skin V6.5.5 */
+/* SOS Prescription : App Skin V6.5.6 */
 /*
- * SOS Prescription — App Skin v6.5.5
+ * SOS Prescription — App Skin v6.5.6
  * Finition Diamond Grade pour les surfaces patient et console médecin
  * Cible: pages utilisant page-sos-app.php et page-sos-console.php
  */
@@ -1167,4 +1167,28 @@
   .sp-shell--console .sp-widget-card__actions > * {
     width: 100%;
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.6 — Widget/button QA pass: local container unification (patient first)
+   -------------------------------------------------------------------------- */
+.sp-shell--app :where(.sp-widget-card__actions .sp-button, .sp-plugin-toolbar-meta .sp-card .sp-button, .sp-plugin-status-surface .sp-card .sp-button, .sp-plugin-profile-slot .sp-card .sp-button),
+.sp-shell--console :where(.sp-widget-card__actions .sp-button, .sp-plugin-toolbar-meta .sp-card .sp-button, .sp-plugin-status-surface .sp-card .sp-button, .sp-plugin-profile-slot .sp-card .sp-button) {
+  min-height: 44px !important;
+  padding-inline: 1rem !important;
+  border-radius: 14px !important;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 10px 22px rgba(15, 23, 42, 0.06) !important;
+}
+
+.sp-shell--app :where(.sp-widget-card__actions, .sp-plugin-toolbar-meta .sp-card .sp-stack:last-child, .sp-plugin-status-surface .sp-card .sp-stack:last-child, .sp-plugin-profile-slot .sp-card .sp-stack:last-child),
+.sp-shell--console :where(.sp-widget-card__actions, .sp-plugin-toolbar-meta .sp-card .sp-stack:last-child, .sp-plugin-status-surface .sp-card .sp-stack:last-child, .sp-plugin-profile-slot .sp-card .sp-stack:last-child) {
+  gap: 0.75rem;
+}
+
+.sp-shell--app .sp-widget-card__actions > *,
+.sp-shell--console .sp-widget-card__actions > * {
+  flex: 0 0 auto;
 }

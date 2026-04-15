@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account V6.5.5 (Signature upload + premium hierarchy) */
+/* SOS Prescription – Doctor Account V6.5.6 (Signature upload + premium hierarchy) */
 
 .sp-signature-upload-wrap {
   max-width: 540px;
@@ -285,4 +285,28 @@
   .sp-plugin-root--doctor-account .sp-doctor-account__form-actions > * {
     width: 100%;
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.6 — QA pass: calmer hierarchy for established doctor accounts
+   -------------------------------------------------------------------------- */
+.sp-plugin-root--doctor-account .sp-doctor-account__section {
+  padding: clamp(1.05rem, 0.98rem + 0.35vw, 1.3rem);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__hero h1,
+.sp-plugin-root--doctor-account .sp-doctor-account__section-heading h2,
+.sp-plugin-root--doctor-account .sp-doctor-account__subsection h3 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section-heading p,
+.sp-plugin-root--doctor-account .sp-doctor-account__hero p {
+  margin: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__subsection > :where(h3, p) {
+  margin: 0;
 }

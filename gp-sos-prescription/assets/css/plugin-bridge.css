@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : Plugin Bridge V6.5.5
+ * SOS Prescription : Plugin Bridge V6.5.6
  * Pont limité aux surfaces legacy. Le shell garde le layout,
  * l'application garde ses cartes métiers.
  */
@@ -677,4 +677,62 @@
   .sp-plugin-root--doctor-catalog .sosprescription-bdpm {
     width: 100%;
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.6 — Guard QA pass: premium brand block with centered favicon/icons
+   -------------------------------------------------------------------------- */
+.sp-plugin-guard__shell {
+  justify-items: center;
+  text-align: center;
+}
+
+.sp-plugin-guard__header {
+  justify-items: center;
+}
+
+.sp-plugin-guard__brand {
+  display: grid;
+  gap: 0.85rem;
+  justify-items: center;
+}
+
+.sp-plugin-guard__favicon {
+  inline-size: 5rem;
+  block-size: 5rem;
+  padding: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--sp-color-text-1, #111827) 12%, transparent);
+  border-radius: calc(var(--sp-radius-xl, 22px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 24%, var(--sp-color-surface, #ffffff) 76%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.sp-plugin-guard__icons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.sp-plugin-guard__icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.65rem;
+  block-size: 2.65rem;
+  border: 1px solid color-mix(in srgb, var(--sp-color-text-1, #111827) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 74%, var(--sp-color-surface, #ffffff) 26%);
+  color: var(--sp-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.sp-plugin-guard__icon-chip svg {
+  inline-size: 1rem;
+  block-size: 1rem;
 }

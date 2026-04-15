@@ -364,11 +364,7 @@
 
   function buildProfileMarkup(seed) {
     return '' +
-      '<div class="sp-profile-card">' +
-      '  <div class="sp-profile-card__header">' +
-      '    <div class="sp-profile-card__title">Mon Profil</div>' +
-      '    <div class="sp-profile-card__meta">Ces informations peuvent préremplir vos prochaines demandes si nécessaire.</div>' +
-      '  </div>' +
+      '<div class="sp-profile-card sp-profile-card--embedded">' +
       '  <div id="sp-profile-feedback" class="sp-flash" style="display:none"></div>' +
       '  <form id="sp-patient-profile-form" novalidate>' +
       '    <div class="sp-profile-grid">' +

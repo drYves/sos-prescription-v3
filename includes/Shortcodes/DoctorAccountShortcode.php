@@ -241,12 +241,15 @@ final class DoctorAccountShortcode
         );
 
         if ($is_admin_view) {
-            $content .= ScreenFrame::mount(
-                'doctor-account',
-                self::render_management_section(),
-                [],
-                ['sp-ui']
-            );
+            $management = self::render_management_section();
+            if ($management !== '') {
+                $content .= ScreenFrame::mount(
+                    'doctor-account',
+                    $management,
+                    [],
+                    ['sp-ui']
+                );
+            }
         }
 
         if ($is_self && self::can_self_delete_account()) {
@@ -535,16 +538,20 @@ final class DoctorAccountShortcode
             'number' => 200,
         ]);
 
+        if (!empty($doctors)) {
+            return '';
+        }
+
         $html = '';
         $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--management">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
         $html .= '<div class="sp-doctor-account__section-heading">';
-        $html .= '<h2>Gestion des médecins</h2>';
-        $html .= '<p class="sp-field__help">Créez rapidement un compte médecin et accédez ensuite à son profil professionnel, à son RPPS et à sa signature.</p>';
+        $html .= '<h2>Ajouter un médecin ultérieurement</h2>';
+        $html .= '<p class="sp-field__help">Cet espace pourra servir plus tard à préparer l’ajout d’un autre praticien si l’organisation évolue. Il reste volontairement discret tant qu’aucun second compte n’est nécessaire.</p>';
         $html .= '</div>';
 
         $html .= '<div class="sp-stack sp-doctor-account__subsection">';
-        $html .= '<h3>Créer un compte médecin</h3>';
+        $html .= '<h3>Préparer un compte médecin</h3>';
         $html .= '<form class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_create" />';
         $html .= wp_nonce_field('sosprescription_doctor_create', '_wpnonce', true, false);
@@ -568,20 +575,11 @@ final class DoctorAccountShortcode
         $html .= '</div>';
 
         $html .= '<div class="sp-stack sp-doctor-account__form-actions">';
-        $html .= '<button type="submit" class="sp-button sp-button--primary">Créer le compte médecin</button>';
+        $html .= '<button type="submit" class="sp-button sp-button--primary">Préparer le compte médecin</button>';
         $html .= '</div>';
 
         $html .= '</div>';
         $html .= '</form>';
-        $html .= '</div>';
-
-        $html .= '<div class="sp-stack sp-doctor-account__subsection">';
-        $html .= '<h3>Comptes médecins existants</h3>';
-        if (empty($doctors)) {
-            $html .= self::render_alert('info', 'Aucun compte médecin', 'Aucun compte avec le rôle sosprescription_doctor n’a été trouvé.');
-        } else {
-            $html .= self::render_doctors_table($doctors);
-        }
         $html .= '</div>';
 
         $html .= '</div>';

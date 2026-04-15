@@ -58,8 +58,8 @@
           <a class="sp-button sp-button--primary sp-button--hero" href="/demande-ordonnance/">Démarrer ma demande</a>
         </div>
         <p class="sp-trust-box__arguments" aria-label="Statut de plateforme">
-          <span>Plateforme opérationnelle</span>
-          <span>Médecins en ligne</span>
+          <span>Service médical disponible</span>
+          <span class="sp-status-item--live">Médecins en ligne</span>
         </p>
       </div>
       

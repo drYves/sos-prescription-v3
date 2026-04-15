@@ -2286,7 +2286,12 @@ export default function PatientConsole() {
           onClick={() => setWorkspace('profile')}
         >
           Profil patient
-          {!profileComplete ? <span className="sp-patient-console__workspace-badge">À compléter</span> : null}
+          <span
+            className="sp-patient-console__workspace-badge"
+            data-state={profileComplete ? 'success' : 'warning'}
+          >
+            {profileComplete ? 'Complet' : 'À compléter'}
+          </span>
         </button>
       </div>
 
