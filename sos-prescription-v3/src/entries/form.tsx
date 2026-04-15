@@ -325,12 +325,13 @@ function FileUpIcon({ className = '' }: LucideIconProps) {
   );
 }
 
-function FileMinusIcon({ className = '' }: LucideIconProps) {
+function FilePenIcon({ className = '' }: LucideIconProps) {
   return (
     <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
       <path d="M14 2v5h5" />
-      <path d="M9 14h6" />
+      <path d="m14.4 11.4 2.2 2.2" />
+      <path d="m10.8 19.1-2.3.4.4-2.3 7-7a1.6 1.6 0 0 1 2.3 0l.9.9a1.6 1.6 0 0 1 0 2.3Z" />
     </svg>
   );
 }
@@ -2698,7 +2699,7 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
         >
           <div className="sp-app-choice-card__header">
             <span className="sp-app-choice-card__icon" aria-hidden="true">
-              <FileMinusIcon />
+              <FilePenIcon />
             </span>
             <div className="sp-app-choice-card__title">Dépannage sans justificatif</div>
           </div>

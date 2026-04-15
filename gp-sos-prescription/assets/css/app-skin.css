@@ -1,3 +1,4 @@
+/* SOS Prescription : App Skin V6.5.3 */
 /*
  * SOS Prescription — App Skin v4.8.1
  * Finition Diamond Grade pour les surfaces patient et console médecin
@@ -903,4 +904,66 @@
 .sp-shell--console .dc-item__status .dc-pill,
 .sp-shell--console .dc-detail-head__aside .dc-pill {
   box-shadow: none !important;
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.3 — QA final polish: shell widgets, status surfaces and delete zones
+   -------------------------------------------------------------------------- */
+.sp-shell--app :where(.sp-auth-hint, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card),
+.sp-shell--console :where(.sp-auth-hint, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card, .dc-modal__card) {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 14%, transparent) !important;
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, #ffffff 5%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 20%, var(--sp-shell-color-surface, #ffffff) 80%)
+  ) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 16px 34px rgba(15, 23, 42, 0.07) !important;
+}
+
+.sp-shell--app :where(.sp-plugin-status-surface .sp-card),
+.sp-shell--console :where(.sp-plugin-status-surface .sp-card) {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sp-shell--app :where(.sp-plugin-status-surface .sp-card h1, .sp-plugin-status-surface .sp-card h2, .sp-plugin-status-surface .sp-card h3, .sp-plugin-status-surface .sp-card .sp-card-title),
+.sp-shell--console :where(.sp-plugin-status-surface .sp-card h1, .sp-plugin-status-surface .sp-card h2, .sp-plugin-status-surface .sp-card h3, .sp-plugin-status-surface .sp-card .sp-card-title) {
+  text-wrap: balance;
+}
+
+.sp-shell--app :where(.sp-profile-card, .sp-card, .sp-auth-hint):has(#sp-delete-account-btn),
+.sp-shell--console :where(.sp-profile-card, .sp-card, .sp-auth-hint):has(#sp-delete-account-btn) {
+  border-color: color-mix(in srgb, var(--sp-shell-color-danger, #dc2626) 14%, rgba(15, 23, 42, 0.12)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 34%, var(--sp-shell-color-surface, #ffffff) 66%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-danger-soft, #fef2f2) 6%)
+  ) !important;
+}
+
+.sp-shell--app #sp-delete-account-btn,
+.sp-shell--console #sp-delete-account-btn {
+  min-height: 46px !important;
+  padding-inline: 15px !important;
+  border-radius: 14px !important;
+  border-color: color-mix(in srgb, var(--sp-shell-color-danger, #dc2626) 20%, transparent) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 78%, var(--sp-shell-color-surface, #ffffff) 22%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, var(--sp-shell-color-danger-soft, #fef2f2) 10%)
+  ) !important;
+  color: var(--sp-shell-color-danger-ink, #991b1b) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.82), 0 8px 20px rgba(15, 23, 42, 0.06) !important;
+}
+
+.sp-shell--app #sp-delete-account-btn:hover,
+.sp-shell--console #sp-delete-account-btn:hover {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 10px 24px rgba(15, 23, 42, 0.08), 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-danger, #dc2626) 10%, transparent) !important;
+}
+
+.sp-shell--app #sp-delete-account-feedback,
+.sp-shell--console #sp-delete-account-feedback {
+  margin-top: 0.85rem;
 }

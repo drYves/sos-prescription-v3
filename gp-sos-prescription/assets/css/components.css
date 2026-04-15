@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : Components V4.8.0
+ * SOS Prescription : Components V6.5.3
  * Composants réutilisables shell + landing.
  */
 
@@ -1021,4 +1021,59 @@ body.sp-context-public :is(.sp-button--ghost, .sp-btn-ghost) {
   background: color-mix(in srgb, var(--sp-shell-color-surface) 92%, var(--sp-shell-color-surface-alt) 8%);
   border-color: color-mix(in srgb, var(--sp-shell-color-text-1) 10%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.3 — QA final polish: widget surfaces + list markers cleanup
+   -------------------------------------------------------------------------- */
+body.sp-context-public :is(.sp-checklist, .sp-usecase-list, .sp-diff-list) {
+  list-style: none !important;
+  list-style-type: none !important;
+  padding-inline-start: 0 !important;
+}
+
+body.sp-context-public :is(.sp-checklist, .sp-usecase-list, .sp-diff-list) > li {
+  list-style: none !important;
+}
+
+body.sp-context-public :is(.sp-checklist, .sp-usecase-list, .sp-diff-list) > li::marker {
+  content: '';
+  font-size: 0;
+}
+
+body.sp-context-public .sp-widget-card {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1) 14%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg) + 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface) 95%, white 5%) 0%,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt) 18%, var(--sp-shell-color-surface) 82%) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 16px 34px rgba(15, 23, 42, 0.07);
+}
+
+body.sp-context-public .sp-widget-card__actions {
+  gap: 0.75rem;
+}
+
+body.sp-context-public .sp-pricing-widget {
+  display: grid;
+  gap: 0.8rem;
+}
+
+body.sp-context-public .sp-pricing-widget__item {
+  padding: 0.92rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-md) + 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface) 96%, white 4%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt) 42%, var(--sp-shell-color-surface) 58%)
+  );
+}
+
+body.sp-context-public .sp-pricing-widget__foot {
+  color: var(--sp-shell-color-text-3);
+  font-size: 0.82rem;
 }

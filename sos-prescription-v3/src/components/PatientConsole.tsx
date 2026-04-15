@@ -27,6 +27,11 @@ type AppConfig = {
   };
 };
 
+type PatientProfileSnapshot = {
+  patientProfile?: AppConfig['patientProfile'];
+  currentUser?: AppConfig['currentUser'];
+};
+
 type RequestDetailField = {
   label: string;
   value: string;
@@ -1729,6 +1734,10 @@ export default function PatientConsole() {
   const [workspace, setWorkspace] = useState<'requests' | 'profile'>('requests');
   const [paymentPreview, setPaymentPreview] = useState<{ amountCents: number; currency: string } | null>(null);
   const [profileReady, setProfileReady] = useState(false);
+  const [profileSnapshot, setProfileSnapshot] = useState<PatientProfileSnapshot>(() => ({
+    patientProfile: cfg.patientProfile,
+    currentUser: cfg.currentUser,
+  }));
 
   const paymentSectionRef = useRef<HTMLDivElement | null>(null);
   const profileHostRef = useRef<HTMLDivElement | null>(null);
@@ -1750,9 +1759,32 @@ export default function PatientConsole() {
     [prescriptions, selectedId]
   );
 
+  useEffect(() => {
+    setProfileSnapshot({
+      patientProfile: cfg.patientProfile,
+      currentUser: cfg.currentUser,
+    });
+  }, [cfg.currentUser, cfg.patientProfile]);
+
+  useEffect(() => {
+    const handlePatientProfileUpdated = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? event.detail as { profile?: AppConfig['patientProfile'] } | undefined : undefined;
+      const nextConfig = getAppConfig();
+      setProfileSnapshot({
+        patientProfile: detail?.profile || nextConfig.patientProfile,
+        currentUser: nextConfig.currentUser,
+      });
+    };
+
+    window.addEventListener('sosprescription:patient-profile-updated', handlePatientProfileUpdated as EventListener);
+    return () => {
+      window.removeEventListener('sosprescription:patient-profile-updated', handlePatientProfileUpdated as EventListener);
+    };
+  }, []);
+
   const profileComplete = useMemo(
-    () => isPatientProfileComplete(cfg.patientProfile, cfg.currentUser),
-    [cfg.currentUser, cfg.patientProfile]
+    () => isPatientProfileComplete(profileSnapshot.patientProfile, profileSnapshot.currentUser),
+    [profileSnapshot.currentUser, profileSnapshot.patientProfile]
   );
 
   const selectedStatus = normalizeStatusValue(detail?.status || selectedSummary?.status || '');

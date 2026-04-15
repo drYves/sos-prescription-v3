@@ -197,10 +197,41 @@ export default function MessageThread({
 
   const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
   const shouldRenderComposer = !(isReadOnly && hideComposerWhenReadOnly);
+  const shouldStackComposerActions = Boolean(!isReadOnly && isDoctorCurrentUser);
   const readOnlyNoticeId = useMemo(
     () => (prescriptionId ? `sp-thread-readonly-notice-${prescriptionId}` : 'sp-thread-readonly-notice'),
     [prescriptionId],
   );
+
+  const composerActionButtons = !isReadOnly ? (
+    <>
+      {showWritingAssistant ? (
+        <button
+          type="button"
+          className="sp-app-icon-button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void handlePolish();
+          }}
+          disabled={polishing || sending || draftBody.trim().length < 1}
+          title="Aide à la rédaction"
+          aria-label="Aide à la rédaction"
+        >
+          {polishing ? <InlineSpinner /> : <BotAssistIcon />}
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => void handleSend()}
+        disabled={sending || draftBody.trim().length < 1}
+        className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+      >
+        {sending ? <InlineSpinner /> : 'Envoyer'}
+      </button>
+    </>
+  ) : null;
 
   const handleSend = async (): Promise<void> => {
     const body = draftBody.trim();
@@ -315,7 +346,7 @@ export default function MessageThread({
       )}
 
       {shouldRenderComposer ? (
-        <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', isReadOnly && 'is-readonly')}>
+        <div className={cx('sp-card', 'sp-thread-composer', 'sp-thread-composer--text-only', shouldStackComposerActions && 'sp-thread-composer--stacked', isReadOnly && 'is-readonly')}>
           {localError ? <Notice variant="error">{localError}</Notice> : null}
           {isReadOnly ? (
             <div id={readOnlyNoticeId} aria-live="polite">
@@ -338,36 +369,18 @@ export default function MessageThread({
               />
             </div>
 
-            {!isReadOnly ? (
+            {!isReadOnly && !shouldStackComposerActions ? (
               <div className="sp-thread-composer__actions">
-                {showWritingAssistant ? (
-                <button
-                  type="button"
-                  className="sp-app-icon-button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handlePolish();
-                  }}
-                  disabled={polishing || sending || draftBody.trim().length < 1}
-                  title="Aide à la rédaction"
-                  aria-label="Aide à la rédaction"
-                >
-                  {polishing ? <InlineSpinner /> : <BotAssistIcon />}
-                </button>
-              ) : null}
-
-                <button
-                  type="button"
-                  onClick={() => void handleSend()}
-                  disabled={sending || draftBody.trim().length < 1}
-                  className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-                >
-                  {sending ? <InlineSpinner /> : 'Envoyer'}
-                </button>
+                {composerActionButtons}
               </div>
             ) : null}
           </div>
+
+          {!isReadOnly && shouldStackComposerActions ? (
+            <div className="sp-thread-composer__actions sp-thread-composer__actions--below">
+              {composerActionButtons}
+            </div>
+          ) : null}
 
           {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
             <>

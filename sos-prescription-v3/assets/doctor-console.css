@@ -1,3 +1,4 @@
+/* SOS Prescription : Doctor Console V6.5.3 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -921,4 +922,91 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.3 — QA final polish: tabs, edit action, composer rhythm
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor .dc-detail-head .dc-detail-tabs,
+.sosprescription-doctor .dc-detail-tabs {
+  gap: 20px !important;
+  padding: 0 24px 14px !important;
+  border-bottom-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent) !important;
+}
+
+.sosprescription-doctor .dc-detail-head .dc-detail-tab,
+.sosprescription-doctor .dc-detail-tabs .dc-detail-tab {
+  padding: 0.1rem 0 0.9rem !important;
+  color: var(--sp-shell-color-text-3, #64748b) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.01em;
+}
+
+.sosprescription-doctor .dc-detail-head .dc-detail-tab:hover,
+.sosprescription-doctor .dc-detail-tabs .dc-detail-tab:hover {
+  color: var(--sp-shell-color-text-2, #334155) !important;
+}
+
+.sosprescription-doctor .dc-detail-head .dc-detail-tab.is-active,
+.sosprescription-doctor .dc-detail-tabs .dc-detail-tab.is-active {
+  color: var(--sp-shell-color-text-1, #0f172a) !important;
+}
+
+.sosprescription-doctor .dc-detail-head .dc-detail-tab.is-active::after,
+.sosprescription-doctor .dc-detail-tabs .dc-detail-tab.is-active::after {
+  height: 2.5px;
+  background: linear-gradient(90deg, var(--sp-shell-color-accent, #0f6cbd), color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 52%, #7dd3fc 48%));
+}
+
+.sosprescription-doctor .dc-meds-card [data-action='edit-med'],
+.sosprescription-doctor .dc-meds-card .sp-button--ghost[data-action='edit-med'] {
+  min-height: 38px !important;
+  padding: 0 0.9rem !important;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 54%, #ffffff 46%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 92%, var(--sp-shell-color-accent-soft, #eff6ff) 8%)
+  ) !important;
+  color: var(--sp-shell-color-accent-ink, #0a4d87) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.82), 0 8px 18px rgba(15, 23, 42, 0.06) !important;
+}
+
+.sosprescription-doctor .dc-meds-card [data-action='edit-med']:hover,
+.sosprescription-doctor .dc-meds-card .sp-button--ghost[data-action='edit-med']:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 26%, transparent) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 66%, #ffffff 34%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, var(--sp-shell-color-accent-soft, #eff6ff) 10%)
+  ) !important;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer--stacked .sp-thread-composer__row {
+  display: block;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer--stacked .sp-thread-composer__field {
+  width: 100%;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer--stacked .sp-thread-composer__actions--below {
+  justify-content: flex-end;
+  align-items: stretch;
+  width: 100%;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer--stacked .sp-thread-composer__actions--below > * {
+  flex: 0 0 auto;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-app-icon-button,
+.sosprescription-doctor .dc-message-react-panel .sp-button--primary {
+  min-height: 46px !important;
+  height: 46px;
 }
