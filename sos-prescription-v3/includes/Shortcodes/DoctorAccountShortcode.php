@@ -222,7 +222,7 @@ final class DoctorAccountShortcode
             );
         }
 
-        $content = '';
+        $content = '<div class="sp-doctor-account__screen">';
         $content .= ScreenFrame::toolbarMeta(
             'doctor-account',
             self::render_session_toolbar($current_id, $user, $is_admin_view, $is_self)
@@ -237,7 +237,7 @@ final class DoctorAccountShortcode
             'doctor-account',
             self::render_profile_section($screen_title, $user, $profile_values, $is_self, $is_admin_view),
             [],
-            ['sp-ui']
+            ['sp-ui', 'sp-doctor-account__mount', 'sp-doctor-account__mount--profile']
         );
 
         if ($is_admin_view) {
@@ -247,7 +247,7 @@ final class DoctorAccountShortcode
                     'doctor-account',
                     $management,
                     [],
-                    ['sp-ui']
+                    ['sp-ui', 'sp-doctor-account__mount', 'sp-doctor-account__mount--management']
                 );
             }
         }
@@ -257,9 +257,11 @@ final class DoctorAccountShortcode
                 'doctor-account',
                 self::render_delete_account_section(),
                 [],
-                ['sp-ui']
+                ['sp-ui', 'sp-doctor-account__mount', 'sp-doctor-account__mount--danger']
             );
         }
+
+        $content .= '</div>';
 
         return ScreenFrame::screen('doctor-account', $content, [], ['sp-ui']);
     }

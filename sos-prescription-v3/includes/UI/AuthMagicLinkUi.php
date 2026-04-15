@@ -105,7 +105,7 @@ final class AuthMagicLinkUi
         $startUrl = esc_url(home_url('/demande-ordonnance/'));
 
         $content = '';
-        $content .= '<div class="sp-auth-entry sp-app-stack sp-stack">';
+        $content .= '<div class="sp-auth-entry sp-auth-entry--patient sp-auth-surface sp-app-stack sp-stack">';
         $content .= '<header class="sp-auth-entry__header sp-app-header sp-app-header--compact">';
         $content .= '<p class="sp-app-header__eyebrow">Espace patient sécurisé</p>';
         $content .= '<h1 class="sp-app-header__title">Choisissez votre parcours</h1>';
@@ -169,7 +169,7 @@ final class AuthMagicLinkUi
         string $submitLabel = 'Recevoir un lien de connexion'
     ): string {
         $content = '';
-        $content .= '<div class="sp-auth-entry sp-auth-entry--guarded sp-app-stack sp-stack">';
+        $content .= '<div class="sp-auth-entry sp-auth-entry--' . esc_attr(sanitize_html_class($screen)) . ' sp-auth-entry--guarded sp-auth-surface sp-auth-surface--' . esc_attr(sanitize_html_class($screen)) . ' sp-auth-surface--guarded sp-app-stack sp-stack">';
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-surface="1">';
         $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';
@@ -201,7 +201,7 @@ final class AuthMagicLinkUi
     public static function render_verify_screen(): string
     {
         $content = '';
-        $content .= '<div class="sp-auth-entry sp-auth-entry--guarded sp-app-stack sp-stack">';
+        $content .= '<div class="sp-auth-entry sp-auth-entry--verify sp-auth-entry--guarded sp-auth-surface sp-auth-surface--verify sp-auth-surface--guarded sp-app-stack sp-stack">';
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-verify="1">';
         $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';

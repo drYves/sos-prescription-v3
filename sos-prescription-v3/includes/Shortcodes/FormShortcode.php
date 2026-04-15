@@ -89,7 +89,7 @@ final class FormShortcode
         );
         $content .= ScreenFrame::mount(
             'request',
-            '<div id="sosprescription-root-form" data-app="form">'
+            '<div id="sosprescription-root-form" class="sp-app-surface sp-app-surface--request" data-app="form" data-sp-surface="request">'
             . self::renderLoadingSkeleton('Préparation du formulaire', 'Chargement sécurisé de l\'application patient…')
             . '</div>'
         );

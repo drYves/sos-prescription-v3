@@ -1,6 +1,6 @@
 <?php
 /**
- * Bootstrap minimal du thème enfant SOS Prescription V6.5.5.
+ * Bootstrap minimal du thème enfant SOS Prescription V7.0.0.
  *
  * @package gp-sos-prescription
  */
@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('SP_THEME_VERSION')) {
-    define('SP_THEME_VERSION', '6.5.5');
+    define('SP_THEME_VERSION', '7.0.0');
 }
 
 if (! defined('SP_THEME_PATH')) {
@@ -45,13 +45,13 @@ foreach ($sp_theme_bootstrap as $sp_theme_file) {
 }
 
 /**
- * Snippet v6.5.5 — Enqueue conditionnel du skin applicatif premium unifié.
+ * Snippet v7.0.0 — Enqueue conditionnel du skin structurel applicatif.
  *
  * À placer dans functions.php du thème enfant gp-sos-prescription
  * ou dans un fichier inclus depuis functions.php.
  */
 
-add_action('wp_enqueue_scripts', 'sp_enqueue_app_skin_v481', 90);
+add_action('wp_enqueue_scripts', 'sp_enqueue_app_skin_v700', 90);
 
 /**
  * Charge app-skin.css uniquement sur les templates applicatifs.
@@ -62,7 +62,7 @@ add_action('wp_enqueue_scripts', 'sp_enqueue_app_skin_v481', 90);
  *
  * @return void
  */
-function sp_enqueue_app_skin_v481()
+function sp_enqueue_app_skin_v700()
 {
     if (is_admin()) {
         return;

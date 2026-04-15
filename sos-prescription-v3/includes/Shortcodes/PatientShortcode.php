@@ -68,7 +68,7 @@ final class PatientShortcode
         );
         $content .= ScreenFrame::mount(
             'patient',
-            '<div id="sosprescription-root-form" data-app="patient">'
+            '<div id="sosprescription-root-form" class="sp-app-surface sp-app-surface--patient" data-app="patient" data-sp-surface="patient">'
             . ScreenFrame::loadingCard(
                 'Préparation de votre espace patient',
                 'Chargement sécurisé de vos demandes en cours…'

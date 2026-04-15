@@ -1461,22 +1461,24 @@ function HeroBanner({
       </div>
 
       <div className="sp-patient-hero__body">
-        <div className="sp-patient-hero__content">
-          <div className="sp-patient-hero__headline">
-            <h2 className="sp-patient-hero__title">{title}</h2>
-            <p className="sp-patient-hero__lead">{lead}</p>
-          </div>
-          {support ? <p className="sp-patient-hero__support">{support}</p> : null}
-
-          {decisionReason && isRejectedStatus(normalizedStatus) ? (
-            <div className="sp-patient-hero__decision">
-              <div className="sp-patient-hero__decision-label">Motif médical</div>
-              <div className="sp-prewrap">{decisionReason}</div>
+        <div className="sp-patient-hero__main">
+          <div className="sp-patient-hero__content">
+            <div className="sp-patient-hero__headline">
+              <h2 className="sp-patient-hero__title">{title}</h2>
+              <p className="sp-patient-hero__lead">{lead}</p>
             </div>
-          ) : null}
+            {support ? <p className="sp-patient-hero__support">{support}</p> : null}
+
+            {decisionReason && isRejectedStatus(normalizedStatus) ? (
+              <div className="sp-patient-hero__decision">
+                <div className="sp-patient-hero__decision-label">Motif médical</div>
+                <div className="sp-prewrap">{decisionReason}</div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <aside className="sp-patient-hero__aside" aria-label={actionLabel}>
+        <aside className="sp-patient-hero__aside sp-patient-hero__rail" aria-label={actionLabel}>
           <div className="sp-patient-hero__action-card">
             <div className="sp-patient-hero__action-label">{actionLabel}</div>
             <div className="sp-patient-hero__actions">{action}</div>
@@ -2329,12 +2331,12 @@ export default function PatientConsole() {
       ) : (
         <div
           id="sp-workspace-panel-requests"
-          className="sp-console-grid"
+          className="sp-console-grid sp-patient-console__workspace"
           role="tabpanel"
           aria-labelledby="sp-workspace-tab-requests"
         >
-          <aside className="sp-console-grid__sidebar">
-            <div className="sp-panel">
+          <aside className="sp-console-grid__sidebar sp-patient-console__sidebar">
+            <div className="sp-panel sp-patient-console__sidebar-panel">
               <div className="sp-panel__header">
                 <div className="sp-panel__title">Mes demandes</div>
               </div>
@@ -2342,7 +2344,7 @@ export default function PatientConsole() {
                 {prescriptions.length === 0 ? (
                   <div className="sp-panel__empty">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
                 ) : (
-                  <div className="sp-list">
+                  <div className="sp-list sp-patient-console__request-list">
                     {prescriptions.map((row) => {
                       const info = statusInfo(row.status);
                       const selected = Number(row.id) === Number(selectedId);
@@ -2369,114 +2371,116 @@ export default function PatientConsole() {
             </div>
           </aside>
 
-          <section className="sp-console-grid__content">
-            <div className="sp-panel">
-              <div className="sp-panel__body">
-                {!selectedId ? <div className="sp-panel__empty">Sélectionnez une demande à gauche.</div> : null}
+          <section className="sp-console-grid__content sp-patient-console__detail">
+            {!selectedId ? (
+              <div className="sp-card sp-patient-console__detail-state">Sélectionnez une demande à gauche.</div>
+            ) : null}
 
-                {selectedId && detailLoading ? (
-                  <div className="sp-loading-row">
-                    <Spinner />
-                    <span>Chargement…</span>
-                  </div>
-                ) : null}
+            {selectedId && detailLoading ? (
+              <div className="sp-card sp-patient-console__detail-state sp-patient-console__detail-state--loading">
+                <div className="sp-loading-row">
+                  <Spinner />
+                  <span>Chargement…</span>
+                </div>
+              </div>
+            ) : null}
 
-                {selectedId && detail ? (
-                  <div className="sp-detail-stack">
-                    <HeroBanner
-                      title={requestTitle}
-                      status={detail.status}
-                      createdAt={detail.created_at || selectedSummary?.created_at || ''}
-                      pdf={selectedPdf}
-                      paymentPreview={paymentPreview}
-                      decisionReason={detail.decision_reason}
-                      onDownloadPrescription={openSelectedPrescriptionPdf}
-                      onScrollToPayment={scrollToPayment}
-                    />
+            {selectedId && detail ? (
+              <div className="sp-patient-console__detail-shell">
+                <div className="sp-patient-console__detail-stack">
+                  <HeroBanner
+                    title={requestTitle}
+                    status={detail.status}
+                    createdAt={detail.created_at || selectedSummary?.created_at || ''}
+                    pdf={selectedPdf}
+                    paymentPreview={paymentPreview}
+                    decisionReason={detail.decision_reason}
+                    onDownloadPrescription={openSelectedPrescriptionPdf}
+                    onScrollToPayment={scrollToPayment}
+                  />
 
-                    <RequestDetailsDisclosure fields={requestDetails} />
+                  <RequestDetailsDisclosure fields={requestDetails} />
 
-                    {isPaymentPendingStatus(detail.status) ? (
-                      <div ref={paymentSectionRef} className="sp-section">
-                        <PaymentCard
-                          prescriptionId={detail.id}
-                          priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
-                          onIntentReady={setPaymentPreview}
-                          onPaid={() => {
-                            setPaymentPreview(null);
-                            void loadDetail(detail.id);
-                            void refreshList();
-                          }}
-                        />
-                      </div>
-                    ) : null}
-
-                    {(detail.files || []).length > 0 ? (
-                      <div className="sp-section">
-                        <div className="sp-section__title">Documents</div>
-                        <div className="sp-stack sp-stack--compact">
-                          {(detail.files || []).map((file) => (
-                            <div key={file.id} className="sp-inline-card">
-                              <div className="sp-inline-card__row">
-                                <div className="sp-inline-card__content">
-                                  <div className="sp-inline-card__title sp-truncate">{file.original_name}</div>
-                                  <div className="sp-inline-card__meta">
-                                    {filePurposeLabel(file.purpose)} • {formatFileSize(file.size_bytes)}
-                                  </div>
-                                </div>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}
-                                >
-                                  Télécharger
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {detail.items.length > 0 ? (
-                      <div className="sp-section">
-                        <div className="sp-section__title">Médicaments</div>
-                        <div className="sp-stack sp-stack--compact">
-                          {detail.items.map((item, index) => (
-                            <div key={`${item.denomination}-${index}`} className="sp-inline-card">
-                              <div className="sp-inline-card__title">{item.denomination}</div>
-                              {item.posologie ? <div className="sp-inline-card__meta">Posologie : {item.posologie}</div> : null}
-                              {item.quantite ? <div className="sp-inline-card__meta">Quantité : {item.quantite}</div> : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="sp-section">
-                      <MessageThread
+                  {isPaymentPendingStatus(detail.status) ? (
+                    <div ref={paymentSectionRef} className="sp-section">
+                      <PaymentCard
                         prescriptionId={detail.id}
-                        viewerRole="PATIENT"
-                        currentUserRoles={cfg.currentUser?.roles}
-                        title="Échanges avec le médecin"
-                        subtitle={messagingSubtitle}
-                        loading={messagesLoading}
-                        emptyText={messagingLocked ? '' : messagingEmptyText}
-                        messages={messages}
-                        fileIndex={fileIndex}
-                        onDownloadFile={handleMessageAttachmentDownload}
-                        canCompose={!messagingLocked}
-                        readOnlyNotice={messagingReadOnlyNotice}
-                        hideComposerWhenReadOnly={messagingLocked}
-                        postMessage={postPatientMessage}
-                        onMessageCreated={handleMessageCreated}
-                        onSurfaceError={setError}
+                        priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
+                        onIntentReady={setPaymentPreview}
+                        onPaid={() => {
+                          setPaymentPreview(null);
+                          void loadDetail(detail.id);
+                          void refreshList();
+                        }}
                       />
                     </div>
+                  ) : null}
+
+                  {(detail.files || []).length > 0 ? (
+                    <div className="sp-section">
+                      <div className="sp-section__title">Documents</div>
+                      <div className="sp-stack sp-stack--compact">
+                        {(detail.files || []).map((file) => (
+                          <div key={file.id} className="sp-inline-card">
+                            <div className="sp-inline-card__row">
+                              <div className="sp-inline-card__content">
+                                <div className="sp-inline-card__title sp-truncate">{file.original_name}</div>
+                                <div className="sp-inline-card__meta">
+                                  {filePurposeLabel(file.purpose)} • {formatFileSize(file.size_bytes)}
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void downloadProtectedFile(file.download_url, file.original_name)}
+                              >
+                                Télécharger
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {detail.items.length > 0 ? (
+                    <div className="sp-section">
+                      <div className="sp-section__title">Médicaments</div>
+                      <div className="sp-stack sp-stack--compact">
+                        {detail.items.map((item, index) => (
+                          <div key={`${item.denomination}-${index}`} className="sp-inline-card">
+                            <div className="sp-inline-card__title">{item.denomination}</div>
+                            {item.posologie ? <div className="sp-inline-card__meta">Posologie : {item.posologie}</div> : null}
+                            {item.quantite ? <div className="sp-inline-card__meta">Quantité : {item.quantite}</div> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="sp-section">
+                    <MessageThread
+                      prescriptionId={detail.id}
+                      viewerRole="PATIENT"
+                      currentUserRoles={cfg.currentUser?.roles}
+                      title="Échanges avec le médecin"
+                      subtitle={messagingSubtitle}
+                      loading={messagesLoading}
+                      emptyText={messagingLocked ? '' : messagingEmptyText}
+                      messages={messages}
+                      fileIndex={fileIndex}
+                      onDownloadFile={handleMessageAttachmentDownload}
+                      canCompose={!messagingLocked}
+                      readOnlyNotice={messagingReadOnlyNotice}
+                      hideComposerWhenReadOnly={messagingLocked}
+                      postMessage={postPatientMessage}
+                      onMessageCreated={handleMessageCreated}
+                      onSurfaceError={setError}
+                    />
                   </div>
-                ) : null}
+                </div>
               </div>
-            </div>
+            ) : null}
           </section>
         </div>
       )}

@@ -21,10 +21,10 @@ final class ScreenFrame
      */
     public static function screen(string $screen, string $content, array $rootClasses = [], array $shellClasses = []): string
     {
-        $root = self::implode_classes(array_merge(['sp-plugin-root', 'sp-plugin-root--' . $screen], $rootClasses));
+        $root = self::implode_classes(array_merge(['sp-screen-root', 'sp-plugin-root', 'sp-plugin-root--' . $screen], $rootClasses));
         $shell = self::implode_classes(array_merge(['sp-plugin-shell', 'sp-plugin-shell--' . $screen], $shellClasses));
 
-        return '<section class="' . esc_attr($root) . '" data-sp-screen="' . esc_attr($screen) . '">'
+        return '<section class="' . esc_attr($root) . '" data-sp-screen="' . esc_attr($screen) . '" data-sp-screen-root="' . esc_attr($screen) . '">'
             . '<div class="' . esc_attr($shell) . '">'
             . $content
             . '</div>'
@@ -33,21 +33,21 @@ final class ScreenFrame
 
     public static function statusSurface(string $screen, string $innerHtml = ''): string
     {
-        return '<div class="sp-plugin-status-surface sp-plugin-status-surface--' . esc_attr($screen) . '">'
+        return '<div class="sp-plugin-slot sp-plugin-slot--status sp-plugin-status-surface sp-plugin-status-surface--' . esc_attr($screen) . '">'
             . $innerHtml
             . '</div>';
     }
 
     public static function toolbarMeta(string $screen, string $innerHtml): string
     {
-        return '<div class="sp-plugin-toolbar-meta sp-plugin-toolbar-meta--' . esc_attr($screen) . '">'
+        return '<div class="sp-plugin-slot sp-plugin-slot--toolbar-meta sp-plugin-toolbar-meta sp-plugin-toolbar-meta--' . esc_attr($screen) . '">'
             . $innerHtml
             . '</div>';
     }
 
     public static function profileSlot(string $screen, string $slotHtml): string
     {
-        return '<div class="sp-plugin-profile-slot sp-plugin-profile-slot--' . esc_attr($screen) . '">'
+        return '<div class="sp-plugin-slot sp-plugin-slot--profile sp-plugin-profile-slot sp-plugin-profile-slot--' . esc_attr($screen) . '">'
             . $slotHtml
             . '</div>';
     }
@@ -58,7 +58,7 @@ final class ScreenFrame
      */
     public static function mount(string $screen, string $innerHtml, array $attrs = [], array $classes = []): string
     {
-        $allClasses = self::implode_classes(array_merge(['sp-plugin-mount', 'sp-plugin-mount--' . $screen], $classes));
+        $allClasses = self::implode_classes(array_merge(['sp-plugin-slot', 'sp-plugin-slot--mount', 'sp-plugin-mount', 'sp-plugin-mount--' . $screen], $classes));
         $attrs = array_merge(['class' => $allClasses], $attrs);
 
         return '<div ' . self::render_attrs($attrs) . '>'
@@ -96,7 +96,7 @@ final class ScreenFrame
             $eyebrow = 'Accès médecin sécurisé';
         }
 
-        $content = '<div class="sp-plugin-guard sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
+        $content = '<div class="sp-plugin-guard sp-guard-surface sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
         $content .= '<div class="sp-plugin-guard__shell">';
         $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
         $content .= '<div class="sp-plugin-guard__header">';

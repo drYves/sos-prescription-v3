@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account V6.5.6 (Signature upload + premium hierarchy) */
+/* SOS Prescription – Doctor Account V7.0.0 (Structural isolation, no legacy .wrap dependency) */
 
 .sp-signature-upload-wrap {
   max-width: 540px;
@@ -309,4 +309,49 @@
 
 .sp-plugin-root--doctor-account .sp-doctor-account__subsection > :where(h3, p) {
   margin: 0;
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.0 — Structural P0: compte médecin autonome
+   Le bridge ne porte plus la hiérarchie fine ; la page se structure localement.
+   -------------------------------------------------------------------------- */
+.sp-plugin-root--doctor-account .sp-doctor-account__screen {
+  width: min(100%, var(--sp-workspace-max, 1080px));
+  margin-inline: auto;
+  display: grid;
+  gap: clamp(1rem, 0.92rem + 0.4vw, 1.35rem);
+  min-width: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__mount,
+.sp-plugin-root--doctor-account .sp-plugin-toolbar-meta--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-mount--doctor-account {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section,
+.sp-plugin-root--doctor-account .sp-doctor-account__session-card,
+.sp-plugin-root--doctor-account .sp-doctor-account__subsection,
+.sp-plugin-root--doctor-account .sp-doctor-account__table {
+  min-width: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__table {
+  overflow: auto;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__table .sp-data-table {
+  width: 100%;
+  min-width: 40rem;
+}
+
+@media (max-width: 900px) {
+  .sp-plugin-root--doctor-account .sp-doctor-account__table .sp-data-table {
+    min-width: 0;
+  }
 }

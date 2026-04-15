@@ -4394,3 +4394,165 @@ a.sp-app-button.sp-app-button--secondary:hover {
     padding-inline-end: 0;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V7.0.0 — Structural P0: workspace patient souverain
+   Le shell n'intervient plus sur les internals ; cette section fige la géométrie
+   locale du workspace patient et du hero dossier.
+   -------------------------------------------------------------------------- */
+.sp-patient-console {
+  --sp-patient-sidebar-width: 19.5rem;
+  --sp-patient-hero-rail-width: clamp(17rem, 24vw, 19.5rem);
+}
+
+.sp-patient-console .sp-patient-console__workspace {
+  grid-template-columns: var(--sp-patient-sidebar-width) minmax(0, 1fr);
+  gap: clamp(1rem, 0.86rem + 0.45vw, 1.35rem);
+  align-items: start;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-console__sidebar,
+.sp-patient-console .sp-patient-console__detail,
+.sp-patient-console .sp-patient-console__detail-shell,
+.sp-patient-console .sp-patient-console__detail-stack,
+.sp-patient-console .sp-patient-hero__main,
+.sp-patient-console .sp-patient-hero__rail {
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-console__sidebar {
+  inline-size: var(--sp-patient-sidebar-width);
+  min-inline-size: var(--sp-patient-sidebar-width);
+  max-inline-size: var(--sp-patient-sidebar-width);
+}
+
+.sp-patient-console .sp-patient-console__sidebar-panel {
+  position: sticky;
+  top: clamp(0.85rem, 0.7rem + 0.45vw, 1.1rem);
+}
+
+.sp-patient-console .sp-patient-console__sidebar-panel > .sp-panel__body {
+  max-block-size: min(70vh, 44rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline-end: 0.25rem;
+}
+
+.sp-patient-console .sp-patient-console__detail {
+  display: grid;
+  gap: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
+  align-content: start;
+}
+
+.sp-patient-console .sp-patient-console__detail-shell,
+.sp-patient-console .sp-patient-console__detail-stack {
+  display: grid;
+  gap: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
+  align-content: start;
+}
+
+.sp-patient-console .sp-patient-console__detail-state {
+  min-height: 9rem;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.sp-patient-console .sp-patient-console__detail-state--loading {
+  place-items: stretch;
+}
+
+.sp-patient-console .sp-patient-console__detail-state--loading .sp-loading-row {
+  justify-content: center;
+}
+
+.sp-patient-console .sp-patient-hero {
+  min-width: 0;
+  overflow: clip;
+}
+
+.sp-patient-console .sp-patient-hero__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sp-patient-hero-rail-width);
+  gap: clamp(1rem, 0.92rem + 0.4vw, 1.35rem);
+  align-items: stretch;
+}
+
+.sp-patient-console .sp-patient-hero__main {
+  display: grid;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__content,
+.sp-patient-console .sp-patient-hero__headline {
+  min-width: 0;
+  max-inline-size: none;
+}
+
+.sp-patient-console .sp-patient-hero__title,
+.sp-patient-console .sp-patient-hero__lead,
+.sp-patient-console .sp-patient-hero__support,
+.sp-patient-console .sp-patient-hero__decision {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.sp-patient-console .sp-patient-hero__aside,
+.sp-patient-console .sp-patient-hero__rail {
+  inline-size: var(--sp-patient-hero-rail-width);
+  max-inline-size: 100%;
+  align-self: stretch;
+}
+
+.sp-patient-console .sp-patient-hero__action-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  min-block-size: 100%;
+}
+
+.sp-patient-console .sp-patient-hero__actions {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__button,
+.sp-patient-console .sp-patient-hero__note {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .sp-patient-console .sp-patient-console__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-patient-console .sp-patient-console__sidebar {
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: none;
+  }
+
+  .sp-patient-console .sp-patient-console__sidebar-panel {
+    position: static;
+  }
+
+  .sp-patient-console .sp-patient-console__sidebar-panel > .sp-panel__body {
+    max-block-size: none;
+    overflow: visible;
+    padding-inline-end: 0;
+  }
+
+  .sp-patient-console .sp-patient-hero__body {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-patient-console .sp-patient-hero__aside,
+  .sp-patient-console .sp-patient-hero__rail {
+    inline-size: 100%;
+  }
+}

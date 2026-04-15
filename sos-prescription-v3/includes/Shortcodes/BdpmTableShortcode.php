@@ -53,7 +53,7 @@ final class BdpmTableShortcode
         $content .= ScreenFrame::mount(
             'doctor-catalog',
             sprintf(
-                '<div id="sosprescription-bdpm-table-root" class="sosprescription-bdpm" data-api-url="%s" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div>',
+                '<div id="sosprescription-bdpm-table-root" class="sosprescription-bdpm sp-app-surface sp-app-surface--doctor-catalog" data-sp-surface="doctor-catalog" data-api-url="%s" data-per-page="%d" data-bdpm-version="%s" data-bdpm-imported="%s" data-icon="%s"></div>',
                 esc_attr($api_url),
                 (int) $per_page,
                 esc_attr($version),

@@ -76,7 +76,7 @@ final class AdminShortcode
         $content = ScreenFrame::toolbarMeta('console', $toolbar);
         $content .= ScreenFrame::mount(
             'console',
-            '<div id="sosprescription-doctor-console-root" class="sosprescription-doctor sp-ui" data-sp-screen="console">'
+            '<div id="sosprescription-doctor-console-root" class="sosprescription-doctor sp-ui sp-app-surface sp-app-surface--console" data-sp-screen="console" data-sp-surface="console">'
             . ScreenFrame::loadingCard(
                 'Chargement de la console médecin…',
                 'Si l’interface reste bloquée, vérifiez les logs / une erreur 403/500, puis rafraîchissez la page.'
