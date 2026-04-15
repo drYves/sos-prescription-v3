@@ -1,3 +1,4 @@
+// assets/bdpm-table.js · V6.5.5
 (function () {
   var root = document.getElementById('sosprescription-bdpm-table-root')
   if (!root) return
@@ -64,12 +65,13 @@
   function render() {
     var version = root.getAttribute('data-bdpm-version') || ''
     var imported = root.getAttribute('data-bdpm-imported') || ''
+    var iconUrl = escHtml(String(root.getAttribute('data-icon') || ''))
 
     var meta = ''
     if (version || imported) {
-      meta = '<div class="sp-meta-badges">'
-        + (version ? '<span class="sp-meta-pill">BDPM ' + escHtml(version) + '</span>' : '')
-        + (imported ? '<span class="sp-meta-pill">Import : ' + escHtml(imported) + '</span>' : '')
+      meta = '<div class="sp-catalog-meta">'
+        + (version ? '<span class="sp-meta-pill sp-meta-pill--version">Référentiel ' + escHtml(version) + '</span>' : '')
+        + (imported ? '<span class="sp-meta-pill sp-meta-pill--import">Mis à jour ' + escHtml(imported) + '</span>' : '')
         + '</div>'
     }
 
@@ -77,22 +79,27 @@
     var wrap = document.createElement('div')
     wrap.className = 'sosprescription-bdpm'
     wrap.innerHTML = ''
-      + '<div class="sp-card">'
-      + '  <div class="sp-title">'
-      + '    <img alt="" src="' + escHtml(String(root.getAttribute('data-icon') || '')) + '" style="width:22px;height:22px;" />'
-      + '    <h2>Catalogue médicaments (BDPM)</h2>'
-      + '  </div>'
+      + '<div class="sp-card sp-catalog-shell">'
+      + '  <div class="sp-catalog-head">'
+      + '    <div class="sp-title sp-catalog-title">'
+      + '      <img alt="" src="' + iconUrl + '" style="width:22px;height:22px;" />'
+      + '      <div class="sp-catalog-title__copy">'
+      + '        <p class="sp-catalog-title__eyebrow">Référentiel médicaments</p>'
+      + '        <h2>Catalogue BDPM</h2>'
+      + '      </div>'
+      + '    </div>'
       + meta
-      + '  <div class="sp-toolbar">'
+      + '  </div>'
+      + '  <div class="sp-toolbar sp-catalog-toolbar">'
       + '    <input class="sp-input" id="sp-q" type="text" placeholder="Rechercher : nom, CIS, CIP7, CIP13…" />'
-      + '    <select class="sp-select" id="sp-per">'
+      + '    <select class="sp-select" id="sp-per" aria-label="Résultats par page">'
       + '      <option value="10">10 / page</option>'
       + '      <option value="20">20 / page</option>'
       + '      <option value="50">50 / page</option>'
       + '    </select>'
       + '    <button class="sp-btn sp-btn-secondary" id="sp-clear">Réinitialiser</button>'
       + '  </div>'
-      + '  <div class="sp-muted" style="margin-top:8px;">Astuce : tapez au moins 2 caractères (ou un code CIS/CIP) pour interroger la base.</div>'
+      + '  <p class="sp-muted sp-catalog-note">Saisissez au moins 2 caractères ou un code CIS/CIP pour afficher les spécialités disponibles.</p>'
       + '  <div id="sp-msg" role="status" aria-live="polite"></div>'
       + '  <div class="sp-table-wrap">'
       + '    <table>'

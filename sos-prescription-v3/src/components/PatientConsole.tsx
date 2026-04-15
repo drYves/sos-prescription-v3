@@ -1395,10 +1395,12 @@ function HeroBanner({
   let lead = info.hint;
   let support = createdAt ? `Demande déposée le ${formatHumanDateTime(createdAt)}.` : '';
   let action: React.ReactNode = null;
+  let actionLabel = 'État du dossier';
 
   if (isPaymentPendingStatus(normalizedStatus)) {
     lead = 'Une seule étape reste à compléter pour lancer l’analyse médicale de votre demande.';
     support = 'Aucun prélèvement n’est effectué en cas de refus médical.';
+    actionLabel = 'Action requise';
     action = (
       <Button type="button" onClick={onScrollToPayment} className="sp-patient-hero__button">
         {paymentPreview ? `Payer ${formatMoney(paymentPreview.amountCents, paymentPreview.currency)}` : 'Payer ma demande'}
@@ -1407,8 +1409,10 @@ function HeroBanner({
   } else if (isWaitingStatus(normalizedStatus)) {
     lead = 'Aucune action n’est requise pour le moment. Un médecin analyse votre dossier.';
     support = 'Vous serez averti ici si une précision ou un document complémentaire est nécessaire.';
+    actionLabel = 'Analyse médicale';
     action = <div className="sp-patient-hero__note">Nous vous tenons informé de chaque évolution.</div>;
   } else if (isApprovedStatus(normalizedStatus)) {
+    actionLabel = 'Document sécurisé';
     if (canDownload) {
       lead = 'Votre ordonnance est prête. Vous pouvez la télécharger en un seul geste.';
       support = 'Le lien de téléchargement est sécurisé et régénéré automatiquement.';
@@ -1438,24 +1442,30 @@ function HeroBanner({
   } else if (isRejectedStatus(normalizedStatus)) {
     lead = 'Votre demande n’a pas pu être validée à l’issue de l’analyse médicale.';
     support = 'Le motif médical, lorsqu’il est renseigné, apparaît ci-dessous.';
+    actionLabel = 'Décision médicale';
     action = <div className="sp-patient-hero__note">Aucune action requise</div>;
   } else if (isClosedStatus(normalizedStatus)) {
     lead = 'Ce dossier est clôturé. Veuillez initier une nouvelle demande si nécessaire.';
     support = 'La messagerie associée à ce dossier est désormais en lecture seule.';
+    actionLabel = 'Dossier clôturé';
     action = <div className="sp-patient-hero__note">Dossier clôturé</div>;
   }
 
   return (
     <section className="sp-card sp-patient-hero" data-tone={statusTone(status)}>
-      <div className="sp-patient-hero__eyebrow">
-        <StatusPill status={status} />
-        {createdAt ? <span className="sp-patient-hero__date">{formatHumanDate(createdAt)}</span> : null}
+      <div className="sp-patient-hero__header">
+        <div className="sp-patient-hero__eyebrow">
+          <StatusPill status={status} />
+        </div>
+        {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
       </div>
 
       <div className="sp-patient-hero__body">
         <div className="sp-patient-hero__content">
-          <h2 className="sp-patient-hero__title">{title}</h2>
-          <p className="sp-patient-hero__lead">{lead}</p>
+          <div className="sp-patient-hero__headline">
+            <h2 className="sp-patient-hero__title">{title}</h2>
+            <p className="sp-patient-hero__lead">{lead}</p>
+          </div>
           {support ? <p className="sp-patient-hero__support">{support}</p> : null}
 
           {decisionReason && isRejectedStatus(normalizedStatus) ? (
@@ -1466,7 +1476,12 @@ function HeroBanner({
           ) : null}
         </div>
 
-        <div className="sp-patient-hero__actions">{action}</div>
+        <aside className="sp-patient-hero__aside" aria-label={actionLabel}>
+          <div className="sp-patient-hero__action-card">
+            <div className="sp-patient-hero__action-label">{actionLabel}</div>
+            <div className="sp-patient-hero__actions">{action}</div>
+          </div>
+        </aside>
       </div>
 
       <div className="sp-patient-hero__footer">

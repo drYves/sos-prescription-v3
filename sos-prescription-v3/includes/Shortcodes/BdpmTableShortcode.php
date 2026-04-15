@@ -49,22 +49,7 @@ final class BdpmTableShortcode
             'style_enqueued' => wp_style_is('sosprescription-bdpm-table', 'enqueued'),
         ]);
 
-        $metaHtml = '';
-        if ($version !== '' || $imported !== '') {
-            $metaHtml .= '<div class="sp-bdpm-toolbar-badges">';
-            if ($version !== '') {
-                $metaHtml .= '<div class="sp-badge sp-badge-success sp-bdpm-toolbar-badge sp-bdpm-toolbar-badge--version">BDPM ' . esc_html($version) . '</div>';
-            }
-            if ($imported !== '') {
-                $metaHtml .= '<div class="sp-badge sp-bdpm-toolbar-badge sp-bdpm-toolbar-badge--import">Import : ' . esc_html($imported) . '</div>';
-            }
-            $metaHtml .= '</div>';
-        }
-
         $content = '';
-        if ($metaHtml !== '') {
-            $content .= ScreenFrame::toolbarMeta('doctor-catalog', $metaHtml);
-        }
         $content .= ScreenFrame::mount(
             'doctor-catalog',
             sprintf(

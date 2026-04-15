@@ -169,17 +169,19 @@ final class AuthMagicLinkUi
         string $submitLabel = 'Recevoir un lien de connexion'
     ): string {
         $content = '';
-        $content .= '<div class="sp-card sp-app-card">';
-        $content .= '<div class="sp-stack sp-app-stack" data-sp-auth-surface="1">';
-        $content .= '<div class="sp-stack sp-app-stack sp-app-stack--compact">';
+        $content .= '<div class="sp-auth-entry sp-auth-entry--guarded sp-app-stack sp-stack">';
+        $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
+        $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-surface="1">';
+        $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Accès médecin sécurisé</p>';
         $content .= '<h1>' . esc_html($title) . '</h1>';
-        $content .= '<p>' . esc_html($message) . '</p>';
-        $content .= '</div>';
-        $content .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="idle">';
+        $content .= '<p class="sp-auth-entry__text">' . esc_html($message) . '</p>';
+        $content .= '</header>';
+        $content .= '<div class="sp-auth-entry__status sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="idle">';
         $content .= '<p class="sp-alert__title">Connexion sans mot de passe</p>';
         $content .= '<p class="sp-alert__body">Recevez un lien de connexion sécurisé valable 15 minutes.</p>';
         $content .= '</div>';
-        $content .= '<form class="sp-form sp-app-stack sp-stack" method="post" novalidate data-sp-auth-request-form="1" data-sp-auth-screen="' . esc_attr($screen) . '">';
+        $content .= '<form class="sp-auth-entry__form sp-form sp-app-stack sp-stack" method="post" novalidate data-sp-auth-request-form="1" data-sp-auth-screen="' . esc_attr($screen) . '">';
         $content .= '<div class="sp-field sp-app-field">';
         $content .= '<label class="sp-field__label sp-app-field__label" for="sp-auth-email-' . esc_attr($screen) . '">Adresse e-mail</label>';
         $content .= '<input class="sp-input sp-app-input" id="sp-auth-email-' . esc_attr($screen) . '" name="email" type="email" autocomplete="email" inputmode="email" required />';
@@ -190,6 +192,7 @@ final class AuthMagicLinkUi
         $content .= '</div>';
         $content .= '</form>';
         $content .= '</div>';
+        $content .= '</article>';
         $content .= '</div>';
 
         return ScreenFrame::screen($screen, $content, [], ['sp-ui', 'sp-page-shell', 'sp-app-container']);
@@ -198,13 +201,15 @@ final class AuthMagicLinkUi
     public static function render_verify_screen(): string
     {
         $content = '';
-        $content .= '<div class="sp-card sp-app-card">';
-        $content .= '<div class="sp-stack sp-app-stack" data-sp-auth-verify="1">';
-        $content .= '<div class="sp-stack sp-app-stack sp-app-stack--compact">';
+        $content .= '<div class="sp-auth-entry sp-auth-entry--guarded sp-app-stack sp-stack">';
+        $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
+        $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-verify="1">';
+        $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Compte professionnel sécurisé</p>';
         $content .= '<h1>Connexion sécurisée</h1>';
-        $content .= '<p>Nous vérifions votre lien de connexion et ouvrons votre session sécurisée.</p>';
-        $content .= '</div>';
-        $content .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="verify">';
+        $content .= '<p class="sp-auth-entry__text">Nous vérifions votre lien de connexion et ouvrons votre session sécurisée.</p>';
+        $content .= '</header>';
+        $content .= '<div class="sp-auth-entry__status sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="verify">';
         $content .= '<p class="sp-alert__title">Vérification du lien</p>';
         $content .= '<p class="sp-alert__body">Connexion sécurisée en cours…</p>';
         $content .= '</div>';
@@ -212,6 +217,7 @@ final class AuthMagicLinkUi
         $content .= '<a class="sp-button sp-button--secondary sp-app-button sp-app-button--secondary" href="' . esc_url(home_url('/')) . '">Retour à l’accueil</a>';
         $content .= '</div>';
         $content .= '</div>';
+        $content .= '</article>';
         $content .= '</div>';
 
         return ScreenFrame::screen('verify', $content, [], ['sp-ui', 'sp-page-shell', 'sp-app-container']);

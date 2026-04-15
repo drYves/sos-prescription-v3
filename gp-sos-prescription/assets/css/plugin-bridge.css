@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : Plugin Bridge V6.5.4
+ * SOS Prescription : Plugin Bridge V6.5.5
  * Pont limité aux surfaces legacy. Le shell garde le layout,
  * l'application garde ses cartes métiers.
  */
@@ -44,8 +44,6 @@
   border-radius: var(--sp-radius-lg);
   background: var(--sp-glass-surface-strong);
   box-shadow: var(--sp-shadow-premium);
-  -webkit-backdrop-filter: var(--sp-glass-effect);
-  backdrop-filter: var(--sp-glass-effect);
 }
 
 :where(.sosprescription-bdpm, .sp-plugin-root--verify) .sp-card {
@@ -234,8 +232,6 @@
   border-radius: var(--sp-radius-lg) !important;
   background: var(--sp-glass-surface-strong) !important;
   box-shadow: var(--sp-shadow-premium);
-  -webkit-backdrop-filter: var(--sp-glass-effect);
-  backdrop-filter: var(--sp-glass-effect);
 }
 
 .sp-page-doctor-account .wrap .notice {
@@ -570,4 +566,115 @@
     color-mix(in srgb, var(--sp-color-surface, #ffffff) 88%, var(--sp-color-success-soft, #ecfdf5) 12%)
   );
   color: color-mix(in srgb, var(--sp-color-success, #16a34a) 74%, var(--sp-color-text-1, #111827) 26%);
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.5 — Guard premium cards, secure auth surfaces and calmer legacy shells
+   -------------------------------------------------------------------------- */
+:where(.sosprescription-guard, .sp-plugin-guard, .sp-session-surface, .sp-logout-card, .sp-access-card) {
+  gap: 1rem;
+  max-inline-size: min(100%, 46rem);
+  padding: clamp(1.45rem, 1.18rem + 0.8vw, 1.95rem);
+}
+
+.sp-plugin-guard__shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.sp-plugin-guard__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0;
+  color: var(--sp-color-accent-ink, #0a4d87);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-guard__header {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.sp-plugin-guard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 !important;
+}
+
+.sp-plugin-guard__actions > * {
+  min-height: 44px;
+}
+
+.sp-plugin-root--verify .sp-auth-entry,
+.sp-plugin-root--console .sp-auth-entry,
+.sp-plugin-root--doctor-account .sp-auth-entry {
+  width: min(100%, 46rem);
+  margin-inline: auto;
+}
+
+.sp-plugin-root--doctor-account .sp-plugin-toolbar-meta--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-mount--doctor-account {
+  width: min(100%, var(--sp-workspace-max, 1080px));
+  margin-inline: auto;
+}
+
+.sp-plugin-root--doctor-account .sp-plugin-toolbar-meta--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account,
+.sp-plugin-root--doctor-account .sp-plugin-mount--doctor-account {
+  display: grid;
+  gap: 1rem;
+}
+
+.sp-plugin-root--doctor-account .sp-plugin-toolbar-meta--doctor-account .sp-card,
+.sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account .sp-alert,
+.sp-plugin-root--doctor-account .sp-plugin-mount--doctor-account .sp-card {
+  padding: clamp(1.05rem, 0.95rem + 0.45vw, 1.35rem);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-card .sp-stack {
+  gap: 0.9rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__table {
+  overflow: auto;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__table .sp-data-table th {
+  white-space: nowrap;
+}
+
+.sp-plugin-root--doctor-catalog .sp-plugin-mount--doctor-catalog,
+.sp-plugin-root--doctor-catalog .sosprescription-bdpm {
+  width: min(100%, var(--sp-workspace-max, 1120px));
+  margin-inline: auto;
+}
+
+.sp-plugin-root--doctor-catalog .sosprescription-bdpm .sp-card {
+  padding: clamp(1.1rem, 1rem + 0.4vw, 1.35rem);
+}
+
+.sp-plugin-root--doctor-catalog .sosprescription-bdpm .sp-title img {
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .sp-plugin-guard__actions > * {
+    width: 100%;
+  }
+
+  .sp-plugin-root--doctor-account .sp-plugin-toolbar-meta--doctor-account,
+  .sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account,
+  .sp-plugin-root--doctor-account .sp-plugin-mount--doctor-account,
+  .sp-plugin-root--doctor-catalog .sp-plugin-mount--doctor-catalog,
+  .sp-plugin-root--doctor-catalog .sosprescription-bdpm {
+    width: 100%;
+  }
 }

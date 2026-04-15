@@ -1153,9 +1153,11 @@ function sp_render_sidebar_card($card)
     $body    = ! empty($card['body']) ? (string) $card['body'] : '';
     $actions = ! empty($card['actions']) && is_array($card['actions']) ? $card['actions'] : array();
 
-    echo '<section class="sp-widget-card sp-widget-card--' . esc_attr($tone) . '">';
+    echo '<section class="sp-widget-card sp-widget-card--' . esc_attr($tone) . '" data-tone="' . esc_attr($tone) . '">';
     if ($title !== '') {
+        echo '<div class="sp-widget-card__header">';
         echo '<h3 class="sp-widget-card__title">' . esc_html($title) . '</h3>';
+        echo '</div>';
     }
     if (! empty($card['body_html']) && is_string($card['body_html'])) {
         $body_html = do_shortcode((string) $card['body_html']);

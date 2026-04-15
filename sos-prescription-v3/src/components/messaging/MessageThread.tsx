@@ -378,21 +378,23 @@ export default function MessageThread({
 
           {!isReadOnly && shouldStackComposerActions ? (
             <div className="sp-thread-composer__actions sp-thread-composer__actions--below">
-              {composerActionButtons}
+              <div className="sp-thread-composer__actions-group">
+                {composerActionButtons}
+              </div>
             </div>
           ) : null}
 
           {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (
             <>
               <div className="sp-thread-composer__hint">Suggestions de réponse</div>
-              <div className="sp-inline-actions">
+              <div className="sp-inline-actions sp-thread-composer__smart-replies">
                 {visibleReplies.map((reply, index) => {
                   const label = String(reply.title || reply.body || '').trim() || `Suggestion ${index + 1}`;
                   return (
                     <button
                       key={`${reply.type || 'reply'}-${index}`}
                       type="button"
-                      className="sp-button sp-button--secondary"
+                      className="sp-button sp-button--secondary sp-thread-composer__smart-reply"
                       onClick={() => applySmartReply(reply.body)}
                     >
                       {label}

@@ -1,4 +1,4 @@
-/* SOS Prescription : BDPM Table V6.5.4 */
+/* SOS Prescription : BDPM Table V6.5.5 */
 .sosprescription-bdpm {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: #111;
@@ -402,4 +402,119 @@
 
 .sosprescription-bdpm table tbody tr:hover {
   background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 30%, var(--sp-shell-color-surface, #ffffff) 70%);
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.5 — Shared surfaces finish: calmer premium catalogue shell
+   -------------------------------------------------------------------------- */
+.sosprescription-bdpm .sp-catalog-shell {
+  gap: 1.05rem;
+}
+
+.sosprescription-bdpm .sp-catalog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.sosprescription-bdpm .sp-catalog-title {
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.sosprescription-bdpm .sp-catalog-title img {
+  margin-top: 0.2rem;
+}
+
+.sosprescription-bdpm .sp-catalog-title__copy {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.sosprescription-bdpm .sp-catalog-title__eyebrow {
+  margin: 0;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sosprescription-bdpm .sp-catalog-title h2 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sosprescription-bdpm .sp-catalog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.sosprescription-bdpm .sp-meta-pill--version {
+  border-color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 20%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-success-soft, #ecfdf5) 68%, #ffffff 32%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-success-soft, #ecfdf5) 12%)
+  );
+  color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 70%, var(--sp-shell-color-text-1, #111827) 30%);
+}
+
+.sosprescription-bdpm .sp-meta-pill--import {
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+.sosprescription-bdpm .sp-catalog-toolbar {
+  margin-top: 0.2rem;
+}
+
+.sosprescription-bdpm .sp-catalog-note {
+  margin: 0;
+  max-inline-size: 72ch;
+  line-height: 1.6;
+}
+
+.sosprescription-bdpm tbody td:first-child strong {
+  display: inline-block;
+  max-inline-size: 32ch;
+  line-height: 1.45;
+  text-wrap: balance;
+}
+
+.sosprescription-bdpm tbody td .sp-pill {
+  min-height: 30px;
+}
+
+.sosprescription-bdpm .sp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .sosprescription-bdpm .sp-catalog-head {
+    flex-direction: column;
+  }
+
+  .sosprescription-bdpm .sp-catalog-meta {
+    justify-content: flex-start;
+  }
+
+  .sosprescription-bdpm .sp-footer {
+    align-items: stretch;
+  }
+
+  .sosprescription-bdpm .sp-pagination {
+    width: 100%;
+    justify-content: space-between;
+  }
 }

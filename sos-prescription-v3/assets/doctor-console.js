@@ -1,4 +1,4 @@
-// assets/doctor-console.js
+// assets/doctor-console.js · V6.5.5
 (function () {
   'use strict';
 
@@ -75,12 +75,6 @@
   ].join('');
   var DOCTOR_CONSOLE_POLISH_STYLE_ID = 'sp-doctor-console-polish-styles';
   var DOCTOR_CONSOLE_POLISH_CSS = [
-    '.sosprescription-doctor .dc-detail-tabs{background:transparent !important;padding:0 20px 14px;gap:18px;border-bottom:1px solid #eef2f7;}',
-    '.sosprescription-doctor .dc-detail-tab{padding:0 0 12px;border:0;background:transparent !important;border-radius:0;color:#64748b;font-size:13px;font-weight:600;position:relative;}',
-    '.sosprescription-doctor .dc-detail-tab::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:999px;background:transparent;transition:background-color .15s ease;}',
-    '.sosprescription-doctor .dc-detail-tab:hover{border-color:transparent;color:#0f172a;background:transparent !important;}',
-    '.sosprescription-doctor .dc-detail-tab.is-active{border-color:transparent;background:transparent !important;color:#0f172a;font-weight:800;}',
-    '.sosprescription-doctor .dc-detail-tab.is-active::after{background:var(--sp-color-primary,#2b6df8);}',
     '.sosprescription-doctor .dc-item--urgent{background:linear-gradient(180deg, rgba(217,119,6,.08), rgba(255,255,255,1));}',
     '.sosprescription-doctor .dc-item--urgent:hover{background:linear-gradient(180deg, rgba(217,119,6,.14), rgba(255,255,255,1));}',
     '.sosprescription-doctor .dc-item--urgent.is-selected{border-left-color:var(--sp-color-warning,#d97706);}',
@@ -92,7 +86,7 @@
     '.sosprescription-doctor .dc-proof-viewer__image-button,.sosprescription-doctor .dc-inline-proof-card__image-button{display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in;}',
     '.sosprescription-doctor .dc-proof-lightbox{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;}',
     '.sosprescription-doctor .dc-proof-lightbox[hidden]{display:none !important;}',
-    '.sosprescription-doctor .dc-proof-lightbox__backdrop{position:absolute;inset:0;background:rgba(15,23,42,.74);backdrop-filter:blur(3px);}',
+    '.sosprescription-doctor .dc-proof-lightbox__backdrop{position:absolute;inset:0;background:rgba(15,23,42,.74);}',
     '.sosprescription-doctor .dc-proof-lightbox__dialog{position:relative;z-index:1;width:min(100%, 1180px);max-height:calc(100vh - 48px);display:flex;flex-direction:column;gap:14px;padding:20px;border-radius:20px;background:#ffffff;box-shadow:0 24px 70px rgba(15,23,42,.28);}',
     '.sosprescription-doctor .dc-proof-lightbox__meta{padding-right:44px;font-size:13px;font-weight:700;color:#334155;}',
     '.sosprescription-doctor .dc-proof-lightbox__viewport{display:flex;align-items:center;justify-content:center;overflow:auto;}',
@@ -2462,7 +2456,7 @@
         '  <div class="dc-med__head">',
         '    <div class="dc-med__label">' + escHtml(med.label) + '</div>',
         canEdit
-          ? '    <button type="button" class="sp-button sp-button--ghost" data-action="edit-med" data-index="' + String(index) + '" aria-label="Éditer la posologie de ' + escHtml(med.label) + '">' + buildButtonIcon('square-pen') + '<span>Éditer</span></button>'
+          ? '    <button type="button" class="sp-button sp-button--ghost dc-inline-action" data-action="edit-med" data-index="' + String(index) + '" aria-label="Éditer la posologie de ' + escHtml(med.label) + '"><span class="dc-inline-action__icon">' + buildButtonIcon('square-pen') + '</span><span class="dc-inline-action__label">Éditer</span></button>'
           : '',
         '  </div>',
         '  <div class="dc-med__posology">' + escHtml(med.posology) + '</div>',

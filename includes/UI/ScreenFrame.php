@@ -87,25 +87,40 @@ final class ScreenFrame
      */
     public static function guard(string $screen, string $variant, string $title, string $message, array $actions = []): string
     {
-        $content = '<div class="sp-plugin-guard sp-plugin-guard--' . esc_attr(sanitize_html_class($variant)) . '">';
+        $variant = sanitize_html_class($variant);
+        $eyebrow = 'Compte professionnel sécurisé';
+
+        if ($variant === 'error') {
+            $eyebrow = 'Accès temporairement indisponible';
+        } elseif ($variant === 'access' || $variant === 'restricted') {
+            $eyebrow = 'Accès médecin sécurisé';
+        }
+
+        $content = '<div class="sp-plugin-guard sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
+        $content .= '<div class="sp-plugin-guard__shell">';
+        $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
+        $content .= '<div class="sp-plugin-guard__header">';
         $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
         $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
+        $content .= '</div>';
 
         if ($actions !== []) {
-            $content .= '<p class="sp-plugin-guard__actions" style="margin:0;display:flex;gap:10px;flex-wrap:wrap;">';
+            $content .= '<div class="sp-plugin-guard__actions">';
             foreach ($actions as $action) {
                 $label = isset($action['label']) ? (string) $action['label'] : '';
                 $url = isset($action['url']) ? (string) $action['url'] : '#';
                 $class = isset($action['class']) ? (string) $action['class'] : 'sp-button sp-button--secondary';
                 $content .= '<a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a>';
             }
-            $content .= '</p>';
+            $content .= '</div>';
         }
 
+        $content .= '</div>';
         $content .= '</div>';
 
         return self::screen($screen, $content);
     }
+
 
     /**
      * @param array<string, string> $attrs

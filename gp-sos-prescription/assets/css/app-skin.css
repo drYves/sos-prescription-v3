@@ -1,6 +1,6 @@
-/* SOS Prescription : App Skin V6.5.4 */
+/* SOS Prescription : App Skin V6.5.5 */
 /*
- * SOS Prescription — App Skin v6.5.4
+ * SOS Prescription — App Skin v6.5.5
  * Finition Diamond Grade pour les surfaces patient et console médecin
  * Cible: pages utilisant page-sos-app.php et page-sos-console.php
  */
@@ -1038,4 +1038,133 @@
 .sp-shell--app #sp-delete-account-btn,
 .sp-shell--console #sp-delete-account-btn {
   align-self: flex-start;
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.5 — Shared surfaces finish: widgets and shell proxy cards
+   -------------------------------------------------------------------------- */
+.sp-shell--app .sp-sidebar-stack,
+.sp-shell--console .sp-sidebar-stack {
+  gap: 1.1rem;
+}
+
+.sp-shell--app :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card),
+.sp-shell--console :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card) {
+  position: relative;
+  display: grid;
+  gap: 0.95rem;
+  padding: clamp(1.05rem, 0.98rem + 0.35vw, 1.28rem) !important;
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 14%, transparent) !important;
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 96%, #ffffff 4%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 20%, var(--sp-shell-color-surface, #ffffff) 80%)
+  ) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), 0 16px 34px rgba(15, 23, 42, 0.07) !important;
+  overflow: hidden;
+}
+
+.sp-shell--app :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card)::before,
+.sp-shell--console :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card)::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: inherit 0 0 inherit;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 70%, white 30%), color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent));
+}
+
+.sp-shell--app .sp-widget-card[data-tone='neutral']::before,
+.sp-shell--console .sp-widget-card[data-tone='neutral']::before,
+.sp-shell--app .sp-widget-card--neutral::before,
+.sp-shell--console .sp-widget-card--neutral::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-text-3, #64748b) 48%, white 52%), color-mix(in srgb, var(--sp-shell-color-text-3, #64748b) 14%, transparent));
+}
+
+.sp-shell--app .sp-widget-card[data-tone='soft']::before,
+.sp-shell--console .sp-widget-card[data-tone='soft']::before,
+.sp-shell--app .sp-widget-card--soft::before,
+.sp-shell--console .sp-widget-card--soft::before,
+.sp-shell--app .sp-plugin-profile-slot .sp-card::before,
+.sp-shell--console .sp-plugin-profile-slot .sp-card::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 54%, white 46%), color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 16%, transparent));
+}
+
+.sp-shell--app .sp-plugin-status-surface .sp-card::before,
+.sp-shell--console .sp-plugin-status-surface .sp-card::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 62%, white 38%), color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent));
+}
+
+.sp-shell--app .sp-widget-card__header,
+.sp-shell--console .sp-widget-card__header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sp-shell--app .sp-widget-card__title,
+.sp-shell--console .sp-widget-card__title {
+  margin: 0;
+  color: var(--sp-shell-color-text-1, #0f172a);
+  font-size: 1rem;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.sp-shell--app .sp-widget-card__body,
+.sp-shell--console .sp-widget-card__body {
+  margin: 0;
+  color: var(--sp-shell-color-text-3, #64748b);
+  line-height: 1.65;
+}
+
+.sp-shell--app .sp-widget-card__body--html,
+.sp-shell--console .sp-widget-card__body--html {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sp-shell--app .sp-widget-card__actions,
+.sp-shell--console .sp-widget-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: auto;
+}
+
+.sp-shell--app .sp-widget-card__actions .sp-button,
+.sp-shell--console .sp-widget-card__actions .sp-button {
+  min-height: 44px !important;
+}
+
+.sp-shell--app .sp-plugin-toolbar-meta .sp-card > .sp-stack,
+.sp-shell--console .sp-plugin-toolbar-meta .sp-card > .sp-stack,
+.sp-shell--app .sp-plugin-status-surface .sp-card > .sp-stack,
+.sp-shell--console .sp-plugin-status-surface .sp-card > .sp-stack,
+.sp-shell--app .sp-plugin-profile-slot .sp-card > .sp-stack,
+.sp-shell--console .sp-plugin-profile-slot .sp-card > .sp-stack {
+  gap: 0.85rem;
+}
+
+.sp-shell--app .sp-plugin-toolbar-meta .sp-alert,
+.sp-shell--console .sp-plugin-toolbar-meta .sp-alert,
+.sp-shell--app .sp-plugin-status-surface .sp-alert,
+.sp-shell--console .sp-plugin-status-surface .sp-alert,
+.sp-shell--app .sp-plugin-profile-slot .sp-alert,
+.sp-shell--console .sp-plugin-profile-slot .sp-alert {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .sp-shell--app .sp-widget-card__actions,
+  .sp-shell--console .sp-widget-card__actions {
+    align-items: stretch;
+  }
+
+  .sp-shell--app .sp-widget-card__actions > *,
+  .sp-shell--console .sp-widget-card__actions > * {
+    width: 100%;
+  }
 }
