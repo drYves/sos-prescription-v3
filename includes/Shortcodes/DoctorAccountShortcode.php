@@ -26,6 +26,8 @@ final class DoctorAccountShortcode
     public const META_ADDRESS = 'sosprescription_professional_address';
     public const META_PHONE = 'sosprescription_professional_phone';
     public const META_SIG_FILE_ID = 'sosprescription_signature_file_id';
+    public const META_RPPS_VERIFIED = 'sosprescription_rpps_verified';
+    public const META_RPPS_DATA = 'sosprescription_rpps_data';
 
     // "Premium" ordonnance
     public const META_DIPLOMA_LABEL = 'sosprescription_diploma_label';
@@ -59,6 +61,11 @@ final class DoctorAccountShortcode
         return current_user_can('sosprescription_manage') || current_user_can('manage_options');
     }
 
+    private static function can_self_delete_account(): bool
+    {
+        return current_user_can('sosprescription_validate');
+    }
+
     /**
      * @param array<string, mixed> $atts
      */
@@ -80,31 +87,11 @@ final class DoctorAccountShortcode
 
         if (function_exists('wp_enqueue_script')) {
             wp_enqueue_script(
-                'sosprescription-doctor-account',
-                SOSPRESCRIPTION_URL . 'assets/doctor-account.js',
+                'sosprescription-doctor-profile-enhancements',
+                SOSPRESCRIPTION_URL . 'assets/doctor-profile-enhancements.js',
                 [],
                 SOSPRESCRIPTION_VERSION,
                 true
-            );
-
-            $doctor_account_front_config = [
-                'verifyRppsEndpoint' => esc_url_raw(rest_url('sosprescription/v4/doctor/verify-rpps')),
-                'restNonce' => wp_create_nonce('wp_rest'),
-                'strings' => [
-                    'verifyLabel' => 'Vérifier',
-                    'verifyingLabel' => 'Vérification…',
-                    'invalidLength' => 'RPPS invalide : 11 chiffres requis.',
-                    'successPrefix' => 'Identité vérifiée : Dr. ',
-                    'successUnknown' => 'RPPS valide.',
-                    'invalidLookup' => 'RPPS invalide ou introuvable.',
-                    'serviceUnavailable' => 'Vérification RPPS temporairement indisponible.',
-                ],
-            ];
-
-            wp_add_inline_script(
-                'sosprescription-doctor-account',
-                'window.SOSPrescriptionDoctorAccount = ' . wp_json_encode($doctor_account_front_config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';',
-                'before'
             );
         }
 
@@ -113,7 +100,7 @@ final class DoctorAccountShortcode
                 'doctor-account',
                 'access',
                 'Accès réservé',
-                'Cette page est destinée aux médecins et administrateurs.'
+                'Cette page est accessible uniquement aux médecins connectés à leur compte professionnel sécurisé.'
             );
         }
 
@@ -154,6 +141,8 @@ final class DoctorAccountShortcode
         $address = self::read_user_meta_bridge((int) $user->ID, [self::META_ADDRESS], '');
         $phone = self::read_user_meta_bridge((int) $user->ID, [self::META_PHONE], '');
         $sig_file_id = (int) self::read_user_meta_bridge((int) $user->ID, [self::META_SIG_FILE_ID], '0');
+        $rpps_verified = self::read_user_meta_bool((int) $user->ID, [self::META_RPPS_VERIFIED], false);
+        $rpps_data = self::read_user_meta_json((int) $user->ID, [self::META_RPPS_DATA], []);
 
         $updated = isset($_GET['updated']) && (string) $_GET['updated'] === '1';
         $created = isset($_GET['created']) && (string) $_GET['created'] === '1';
@@ -178,6 +167,7 @@ final class DoctorAccountShortcode
 
         $screen_title = $is_self ? 'Mon compte médecin' : ('Compte médecin : ' . (string) $user->display_name);
         $profile_values = [
+            'email' => (string) $user->user_email,
             'doctor_title' => $doctor_title,
             'rpps' => $rpps,
             'specialty' => $specialty,
@@ -188,7 +178,49 @@ final class DoctorAccountShortcode
             'address' => $address,
             'phone' => $phone,
             'sig_file_id' => $sig_file_id,
+            'rpps_verified' => $rpps_verified,
+            'rpps_data' => $rpps_data,
         ];
+
+        if (function_exists('wp_add_inline_script')) {
+            $doctor_profile_front_config = [
+                'profileEndpoint' => esc_url_raw(rest_url('sosprescription/v4/doctor/profile')),
+                'verifyRppsEndpoint' => esc_url_raw(rest_url('sosprescription/v4/doctor/verify-rpps')),
+                'deleteAccountEndpoint' => esc_url_raw(rest_url('sosprescription/v4/account/delete')),
+                'restNonce' => wp_create_nonce('wp_rest'),
+                'targetUserId' => (int) $user->ID,
+                'initialProfile' => [
+                    'email' => (string) $user->user_email,
+                    'rpps_verified' => $rpps_verified,
+                    'rpps_data' => $rpps_data,
+                ],
+                'strings' => [
+                    'verifyLabel' => 'Vérifier',
+                    'verifyingLabel' => 'Vérification…',
+                    'saveLabel' => 'Enregistrer les modifications',
+                    'savingLabel' => 'Enregistrement…',
+                    'saveSuccess' => 'Les modifications ont été enregistrées.',
+                    'saveError' => 'Les modifications n\'ont pas pu être enregistrées.',
+                    'invalidLength' => 'Identifiant RPPS inconnu ou invalide. Veuillez vérifier votre saisie ou consulter l\'Annuaire Santé officiel.',
+                    'invalidLookup' => 'Identifiant RPPS inconnu ou invalide. Veuillez vérifier votre saisie ou consulter l\'Annuaire Santé officiel.',
+                    'serviceUnavailable' => 'La vérification RPPS est temporairement indisponible.',
+                    'initialHelp' => 'Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.',
+                    'verifiedTitle' => '✓ Identité professionnelle certifiée',
+                    'verifiedFooterPrefix' => 'Vérification effectuée avec succès via l\'Annuaire Santé le ',
+                    'deleteAccountConfirm' => 'Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d\'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?',
+                    'deleteAccountBusy' => 'Suppression…',
+                    'deleteAccountError' => 'La suppression du compte a échoué. Merci de réessayer.',
+                    'signatureInvalidType' => 'Format non supporté. Merci d\'utiliser JPG ou PNG uniquement.',
+                    'signatureTooLarge' => 'Fichier trop lourd. La limite est de 1 Mo.',
+                ],
+            ];
+
+            wp_add_inline_script(
+                'sosprescription-doctor-profile-enhancements',
+                'window.SOSPrescriptionDoctorProfile = ' . wp_json_encode($doctor_profile_front_config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';',
+                'before'
+            );
+        }
 
         $content = '';
         $content .= ScreenFrame::toolbarMeta(
@@ -212,6 +244,15 @@ final class DoctorAccountShortcode
             $content .= ScreenFrame::mount(
                 'doctor-account',
                 self::render_management_section(),
+                [],
+                ['sp-ui']
+            );
+        }
+
+        if ($is_self && self::can_self_delete_account()) {
+            $content .= ScreenFrame::mount(
+                'doctor-account',
+                self::render_delete_account_section(),
                 [],
                 ['sp-ui']
             );
@@ -282,11 +323,27 @@ final class DoctorAccountShortcode
             . '</div>';
     }
 
+    private static function render_delete_account_section(): string
+    {
+        $html = '';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h2>Suppression de compte</h2>';
+        $html .= '<p class="sp-field__help">Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.</p>';
+        $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
+        $html .= '<button type="button" class="sp-button sp-button--secondary" style="color: var(--sp-color-warning, #c2410c); border-color: currentColor;" id="sp-delete-account-btn">Supprimer mon compte</button>';
+        $html .= '</div>';
+        $html .= '</div>';
+
+        return $html;
+    }
+
     /**
      * @param array<string, mixed> $profile_values
      */
     private static function render_profile_section(string $screen_title, \WP_User $user, array $profile_values, bool $is_self, bool $is_admin_view): string
     {
+        $email = isset($profile_values['email']) ? (string) $profile_values['email'] : (string) $user->user_email;
         $doctor_title = isset($profile_values['doctor_title']) ? (string) $profile_values['doctor_title'] : '';
         $rpps = isset($profile_values['rpps']) ? (string) $profile_values['rpps'] : '';
         $specialty = isset($profile_values['specialty']) ? (string) $profile_values['specialty'] : '';
@@ -297,6 +354,12 @@ final class DoctorAccountShortcode
         $address = isset($profile_values['address']) ? (string) $profile_values['address'] : '';
         $phone = isset($profile_values['phone']) ? (string) $profile_values['phone'] : '';
         $sig_file_id = isset($profile_values['sig_file_id']) ? (int) $profile_values['sig_file_id'] : 0;
+        $rpps_verified = !empty($profile_values['rpps_verified']);
+        $rpps_data = isset($profile_values['rpps_data']) && is_array($profile_values['rpps_data']) ? $profile_values['rpps_data'] : [];
+        $rpps_data_json = wp_json_encode($rpps_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($rpps_data_json)) {
+            $rpps_data_json = '{}';
+        }
 
         $html = '';
         $html .= '<div class="sp-card">';
@@ -309,20 +372,28 @@ final class DoctorAccountShortcode
         if ($is_admin_view && !$is_self) {
             $html .= self::render_alert(
                 'info',
-                'Mode administration',
-                'Vous modifiez actuellement le profil professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
+                'Gestion du compte médecin',
+                'Vous consultez actuellement le compte professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
             );
         }
 
-        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
+        $html .= '<form id="sp_doc_profile_form" class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';
         $html .= wp_nonce_field('sosprescription_doctor_profile_save', '_wpnonce', true, false);
+        $html .= '<input type="hidden" id="sp_doc_rpps_verified" name="rpps_verified" value="' . esc_attr($rpps_verified ? '1' : '0') . '" />';
+        $html .= '<input type="hidden" id="sp_doc_rpps_data" name="rpps_data" value="' . esc_attr($rpps_data_json) . '" />';
 
         if ($is_admin_view && !$is_self) {
             $html .= '<input type="hidden" name="target_user_id" value="' . esc_attr((string) $user->ID) . '" />';
         }
 
         $html .= '<div class="sp-stack">';
+
+        $html .= '<div class="sp-field">';
+        $html .= '<label class="sp-field__label" for="sp_doc_email_current">Adresse e-mail de connexion</label>';
+        $html .= '<input class="sp-input" type="email" id="sp_doc_email_current" name="email_current" value="' . esc_attr($email) . '" autocomplete="email" />';
+        $html .= '<p class="sp-field__help">Cette adresse est utilisée pour vos notifications et votre connexion sécurisée par Magic Link.</p>';
+        $html .= '</div>';
 
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_display_name">Nom affiché</label>';
@@ -340,9 +411,10 @@ final class DoctorAccountShortcode
 
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_rpps">Numéro RPPS</label>';
-        $html .= '<input class="sp-input" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex : 10001234567" />';
+        $html .= '<input class="sp-input" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex : 10001234567" inputmode="numeric" maxlength="11" autocomplete="off" data-sp-rpps-managed="1" />';
         $html .= '<div class="sp-stack" data-sp-rpps-actions="1"></div>';
-        $html .= '<p class="sp-field__help">Identifiant professionnel du prescripteur. Recommandé pour la conformité et la vérification d’identité.</p>';
+        $html .= '<div id="sp_doc_rpps_verify_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
+        $html .= '<p id="sp_doc_rpps_verify_footer" class="sp-field__help">Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.</p>';
         $html .= '</div>';
 
         $html .= '<div class="sp-field">';
@@ -388,8 +460,10 @@ final class DoctorAccountShortcode
 
         $html .= self::render_signature_field($sig_file_id);
 
+        $html .= '<div id="sp_doc_profile_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
+
         $html .= '<div class="sp-stack">';
-        $html .= '<button type="submit" class="sp-button sp-button--primary">Enregistrer le profil</button>';
+        $html .= '<button type="submit" id="sp_doc_profile_save" class="sp-button sp-button--primary">Enregistrer les modifications</button>';
         if (!$is_self && $is_admin_view) {
             $back = remove_query_arg('doctor_user_id');
             $html .= '<a class="sp-button sp-button--secondary" href="' . esc_url($back) . '">Retour à la liste des médecins</a>';
@@ -590,6 +664,7 @@ final class DoctorAccountShortcode
         }
 
         $display_name = isset($_POST['display_name']) ? sanitize_text_field((string) wp_unslash($_POST['display_name'])) : '';
+        $email_current = isset($_POST['email_current']) ? sanitize_email((string) wp_unslash($_POST['email_current'])) : '';
         $doctor_title = isset($_POST['doctor_title']) ? sanitize_text_field((string) wp_unslash($_POST['doctor_title'])) : 'docteur';
         $rpps = isset($_POST['rpps']) ? preg_replace('/[^0-9]/', '', (string) wp_unslash($_POST['rpps'])) : '';
         $specialty = isset($_POST['specialty']) ? sanitize_text_field((string) wp_unslash($_POST['specialty'])) : '';
@@ -606,11 +681,49 @@ final class DoctorAccountShortcode
             $doctor_title = 'docteur';
         }
 
+        if ($email_current !== '') {
+            if (!is_email($email_current)) {
+                $url = add_query_arg([
+                    'error' => rawurlencode('Adresse e-mail invalide.'),
+                ], wp_get_referer() ?: home_url('/'));
+                wp_safe_redirect($url);
+                exit;
+            }
+
+            $email_owner = email_exists($email_current);
+            if ($email_owner && (int) $email_owner !== $target_id) {
+                $url = add_query_arg([
+                    'error' => rawurlencode('Cette adresse e-mail est déjà utilisée par un autre compte.'),
+                ], wp_get_referer() ?: home_url('/'));
+                wp_safe_redirect($url);
+                exit;
+            }
+        }
+
+        $user_update = [
+            'ID' => $target_id,
+        ];
+        $has_user_update = false;
+
         if ($display_name !== '') {
-            wp_update_user([
-                'ID' => $target_id,
-                'display_name' => $display_name,
-            ]);
+            $user_update['display_name'] = $display_name;
+            $has_user_update = true;
+        }
+
+        if ($email_current !== '') {
+            $user_update['user_email'] = $email_current;
+            $has_user_update = true;
+        }
+
+        if ($has_user_update) {
+            $updated_user = wp_update_user($user_update);
+            if (is_wp_error($updated_user)) {
+                $url = add_query_arg([
+                    'error' => rawurlencode($updated_user->get_error_message()),
+                ], wp_get_referer() ?: home_url('/'));
+                wp_safe_redirect($url);
+                exit;
+            }
         }
 
         self::write_user_meta_bridge($target_id, [self::META_TITLE], (string) $doctor_title);
@@ -623,6 +736,23 @@ final class DoctorAccountShortcode
         self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_UNIVERSITY_LOCATION], (string) $diploma_university_location);
         self::write_user_meta_bridge($target_id, [self::META_DIPLOMA_HONORS], (string) $diploma_honors);
         self::write_user_meta_bridge($target_id, [self::META_ISSUE_PLACE, self::LEGACY_META_ISSUE_PLACE], (string) $issue_place);
+
+        $rpps_verified = isset($_POST['rpps_verified']) && (string) wp_unslash($_POST['rpps_verified']) === '1';
+        $rpps_data = self::sanitize_rpps_data_payload(isset($_POST['rpps_data']) ? wp_unslash((string) $_POST['rpps_data']) : null);
+        $rpps_payload_rpps = isset($rpps_data['rpps']) && is_scalar($rpps_data['rpps'])
+            ? preg_replace('/\D+/', '', (string) $rpps_data['rpps'])
+            : '';
+        if (!$rpps_verified || $rpps_payload_rpps === '' || $rpps_payload_rpps !== (string) $rpps) {
+            $rpps_verified = false;
+            $rpps_data = [];
+        }
+
+        self::write_user_meta_bridge($target_id, [self::META_RPPS_VERIFIED], $rpps_verified ? '1' : '0');
+        if ($rpps_verified && $rpps_data !== []) {
+            self::write_user_meta_json($target_id, self::META_RPPS_DATA, $rpps_data);
+        } else {
+            delete_user_meta($target_id, self::META_RPPS_DATA);
+        }
 
         $remove_signature = isset($_POST['remove_signature']) && (string) wp_unslash($_POST['remove_signature']) === '1';
         if ($remove_signature) {
@@ -820,6 +950,122 @@ final class DoctorAccountShortcode
         fpassthru($fp);
         fclose($fp);
         exit;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private static function read_user_meta_bool(int $user_id, array $keys, bool $default = false): bool
+    {
+        foreach ($keys as $key) {
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+
+            $value = get_user_meta($user_id, $key, true);
+            if ($value === '' || $value === null) {
+                continue;
+            }
+
+            if (is_bool($value)) {
+                return $value;
+            }
+
+            if (is_scalar($value)) {
+                $normalized = strtolower(trim((string) $value));
+                if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+                    return true;
+                }
+                if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+                    return false;
+                }
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     * @return array<string, mixed>
+     */
+    private static function read_user_meta_json(int $user_id, array $keys, array $default = []): array
+    {
+        foreach ($keys as $key) {
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+
+            $value = get_user_meta($user_id, $key, true);
+            if (is_array($value)) {
+                return $value;
+            }
+
+            if (is_string($value) && trim($value) !== '') {
+                $decoded = json_decode($value, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     */
+    private static function write_user_meta_json(int $user_id, string $key, array $value): void
+    {
+        $json = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        update_user_meta($user_id, $key, is_string($json) ? $json : '{}');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function sanitize_rpps_data_payload(?string $raw): array
+    {
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $payload = [];
+        foreach ([
+            'valid',
+            'rpps',
+            'firstName',
+            'lastName',
+            'profession',
+            'specialty',
+            'city',
+            'locationLabel',
+            'verified_at',
+        ] as $key) {
+            if (!array_key_exists($key, $decoded)) {
+                continue;
+            }
+
+            if ($key === 'valid') {
+                $payload[$key] = (bool) $decoded[$key];
+                continue;
+            }
+
+            if (is_scalar($decoded[$key])) {
+                $value = trim((string) $decoded[$key]);
+                if ($key === 'rpps') {
+                    $value = preg_replace('/\D+/', '', $value) ?: '';
+                }
+                $payload[$key] = $value;
+            }
+        }
+
+        return $payload;
     }
 
     /**

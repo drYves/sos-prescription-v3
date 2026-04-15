@@ -519,6 +519,14 @@
 
   function buildLucideIcon(name) {
     var iconName = normalizeText(name).toLowerCase();
+    if (iconName === 'square-pen') {
+      return [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '  <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>',
+        '  <path d="M18.37 2.63a2.12 2.12 0 1 1 3 3L12 15l-4 1 1-4Z"></path>',
+        '</svg>'
+      ].join('');
+    }
     if (iconName === 'pencil') {
       return [
         '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
@@ -2454,7 +2462,7 @@
         '  <div class="dc-med__head">',
         '    <div class="dc-med__label">' + escHtml(med.label) + '</div>',
         canEdit
-          ? '    <button type="button" class="sp-button sp-button--ghost" data-action="edit-med" data-index="' + String(index) + '" aria-label="Éditer la posologie de ' + escHtml(med.label) + '">' + buildButtonIcon('pencil') + '<span>Éditer</span></button>'
+          ? '    <button type="button" class="sp-button sp-button--ghost" data-action="edit-med" data-index="' + String(index) + '" aria-label="Éditer la posologie de ' + escHtml(med.label) + '">' + buildButtonIcon('square-pen') + '<span>Éditer</span></button>'
           : '',
         '  </div>',
         '  <div class="dc-med__posology">' + escHtml(med.posology) + '</div>',

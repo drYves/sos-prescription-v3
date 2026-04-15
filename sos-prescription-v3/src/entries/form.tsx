@@ -2663,7 +2663,7 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
         <div>
           <h2 className="sp-app-section__title">Choisissez votre situation</h2>
           <p className="sp-app-section__hint">
-            Sélectionnez le scénario qui correspond à votre besoin. Nous adaptons ensuite le dossier à votre situation.
+            Sélectionnez le scénario qui correspond à votre besoin.
           </p>
         </div>
       </div>
@@ -3321,7 +3321,7 @@ function StepPrioritySelection({
 
         <div className="sp-app-block">
           <Notice variant="info">
-            Les frais affichés correspondent à l’<strong>analyse médicale</strong>. Votre délai sélectionné sera rappelé à l’étape suivante.
+            Les frais correspondent à l’<strong>analyse médicale</strong>. Le délai choisi sera rappelé à l’étape suivante.
           </Notice>
         </div>
 
@@ -3781,7 +3781,6 @@ function StepPaymentAuth({
         <div className="sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
           <div className="sp-app-inline-note sp-app-inline-note--payment">
             Carte bancaire sécurisée par Stripe • Autorisation uniquement • Aucun débit avant validation médicale
-            {amountCents != null ? ` • Montant autorisé : ${formatMoney(amountCents, currency)}` : ''}
           </div>
 
           {error ? (

@@ -88,8 +88,8 @@ final class ScreenFrame
     public static function guard(string $screen, string $variant, string $title, string $message, array $actions = []): string
     {
         $content = '<div class="sp-plugin-guard sp-plugin-guard--' . esc_attr(sanitize_html_class($variant)) . '">';
-        $content .= '<h3>' . esc_html($title) . '</h3>';
-        $content .= '<p>' . esc_html($message) . '</p>';
+        $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
+        $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
 
         if ($actions !== []) {
             $content .= '<p class="sp-plugin-guard__actions" style="margin:0;display:flex;gap:10px;flex-wrap:wrap;">';

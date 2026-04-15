@@ -359,6 +359,11 @@
   }
 
   function performJsonRequest(url, options) {
+    options = options || {};
+    options.headers = Object.assign({
+      'X-Sos-Scope': 'sosprescription_doctor_account'
+    }, options.headers || {});
+
     return fetch(url, options).then(function (response) {
       return response.text().then(function (text) {
         var data = safeJsonParse(text) || {};

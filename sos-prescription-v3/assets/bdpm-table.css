@@ -1,4 +1,4 @@
-/* SOS Prescription : BDPM Table V6.5.3 */
+/* SOS Prescription : BDPM Table V6.5.4 */
 .sosprescription-bdpm {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: #111;
@@ -356,4 +356,50 @@
   border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
   border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 14px 32px rgba(15, 23, 42, 0.06);
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.4 — BDPM final polish: premium badges, stronger inputs and lighter UI
+   -------------------------------------------------------------------------- */
+.sosprescription-bdpm .sp-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.sosprescription-bdpm .sp-toolbar {
+  gap: 15px;
+  margin-top: 18px;
+  align-items: end;
+}
+
+.sosprescription-bdpm .sp-input,
+.sosprescription-bdpm .sp-select {
+  min-height: 46px;
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 38%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), 0 0 0 1px color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent), 0 2px 4px rgba(15, 23, 42, 0.05);
+}
+
+.sosprescription-bdpm .sp-input:focus-visible,
+.sosprescription-bdpm .sp-select:focus-visible {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 12%, transparent), 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.sosprescription-bdpm .sp-meta-pill,
+.sosprescription-bdpm .sp-pill {
+  min-height: 30px;
+  padding: 0 0.88rem;
+  font-weight: 700;
+}
+
+.sosprescription-bdpm .sp-table-wrap {
+  overflow: auto;
+}
+
+.sosprescription-bdpm table thead th {
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
+}
+
+.sosprescription-bdpm table tbody tr:hover {
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 30%, var(--sp-shell-color-surface, #ffffff) 70%);
 }

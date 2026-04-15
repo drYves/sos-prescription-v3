@@ -1,6 +1,6 @@
-/* SOS Prescription : App Skin V6.5.3 */
+/* SOS Prescription : App Skin V6.5.4 */
 /*
- * SOS Prescription — App Skin v4.8.1
+ * SOS Prescription — App Skin v6.5.4
  * Finition Diamond Grade pour les surfaces patient et console médecin
  * Cible: pages utilisant page-sos-app.php et page-sos-console.php
  */
@@ -752,7 +752,7 @@
   }
 }
 
-/* --- v4.8.1 · Diamond Grade patient and console finish with expanded workspace comfort --- */
+/* --- v6.5.4 · QA finale, surfaces patient/console unifiées et respiration premium --- */
 .sp-shell--app, .sp-shell--console{
   --sp-app-surface: var(--sp-shell-glass-surface);
   --sp-app-surface-soft: color-mix(in srgb, var(--sp-shell-color-surface) 90%, var(--sp-shell-color-canvas) 10%);
@@ -966,4 +966,76 @@
 .sp-shell--app #sp-delete-account-feedback,
 .sp-shell--console #sp-delete-account-feedback {
   margin-top: 0.85rem;
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.4 — Shell QA finish: widgets, patient status surfaces and danger zones
+   -------------------------------------------------------------------------- */
+.sp-shell--app .sp-sidebar-stack,
+.sp-shell--console .sp-sidebar-stack {
+  gap: 1rem;
+}
+
+.sp-shell--app :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card),
+.sp-shell--console :where(.sp-widget-card, .sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card) {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 14%, transparent) !important;
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, #ffffff 5%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
+  ) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 16px 34px rgba(15, 23, 42, 0.07) !important;
+}
+
+.sp-shell--app .sp-widget-card,
+.sp-shell--console .sp-widget-card {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.05rem 1.1rem;
+}
+
+.sp-shell--app .sp-widget-card__title,
+.sp-shell--console .sp-widget-card__title {
+  margin: 0;
+  color: var(--sp-shell-color-text-1, #0f172a);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.sp-shell--app .sp-widget-card__body,
+.sp-shell--console .sp-widget-card__body {
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-shell--app .sp-widget-card__actions,
+.sp-shell--console .sp-widget-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.sp-shell--app .sp-plugin-status-surface--patient .sp-card,
+.sp-shell--console .sp-plugin-status-surface--patient .sp-card {
+  min-width: 0;
+  padding: clamp(1rem, 0.94rem + 0.28vw, 1.2rem) !important;
+}
+
+.sp-shell--app .sp-profile-actions__submit,
+.sp-shell--console .sp-profile-actions__submit {
+  min-height: 46px !important;
+  padding-inline: 1rem !important;
+  border-radius: 15px !important;
+}
+
+.sp-shell--app :where(.sp-profile-card, .sp-card, .sp-auth-hint):has(#sp-delete-account-btn),
+.sp-shell--console :where(.sp-profile-card, .sp-card, .sp-auth-hint):has(#sp-delete-account-btn) {
+  padding: 1.05rem 1.1rem !important;
+}
+
+.sp-shell--app #sp-delete-account-btn,
+.sp-shell--console #sp-delete-account-btn {
+  align-self: flex-start;
 }

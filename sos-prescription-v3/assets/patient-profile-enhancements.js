@@ -367,7 +367,7 @@
       '<div class="sp-profile-card">' +
       '  <div class="sp-profile-card__header">' +
       '    <div class="sp-profile-card__title">Mon Profil</div>' +
-      '    <div class="sp-profile-card__meta">Ces informations peuvent préremplir votre prochaine demande d’ordonnance. Vous pourrez toujours les modifier si la demande concerne un proche.</div>' +
+      '    <div class="sp-profile-card__meta">Ces informations peuvent préremplir vos prochaines demandes si nécessaire.</div>' +
       '  </div>' +
       '  <div id="sp-profile-feedback" class="sp-flash" style="display:none"></div>' +
       '  <form id="sp-patient-profile-form" novalidate>' +
@@ -380,10 +380,9 @@
       '      <label class="sp-field"><span>Taille (cm)</span><input type="number" name="height_cm" min="30" max="300" step="0.1" inputmode="decimal" value="' + escapeHtml(seed.heightCm) + '" /></label>' +
       '      <div class="sp-field sp-field--readonly"><span>IMC</span><div id="sp-profile-bmi" class="sp-profile-bmi">' + escapeHtml(seed.bmiLabel || 'IMC —') + '</div></div>' +
       '    </div>' +
-      '    <div class="mt-3"><label class="mb-1 block text-xs font-medium text-gray-700">Précisions médicales (optionnel)</label><textarea id="sp-profile-medical-notes" name="note" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin....">' + escapeHtml(seed.note) + '</textarea></div>' +
-      '    <div class="sp-profile-actions"><button class="sp-btn sp-btn--primary" type="submit">Enregistrer mes informations</button></div>' +
+      '    <div class="sp-field sp-field--full"><label class="sp-field__label" for="sp-profile-medical-notes">Précisions médicales (optionnel)</label><textarea id="sp-profile-medical-notes" name="note" class="sp-textarea" rows="4" placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin…">' + escapeHtml(seed.note) + '</textarea></div>' +
+      '    <div class="sp-profile-actions"><button class="sp-btn sp-btn--primary sp-profile-actions__submit" type="submit">Enregistrer mes informations</button></div>' +
       '  </form>' +
-      '  <div class="sp-profile-hint">Les champs Nom, Prénom et Date de naissance servent à préremplir le formulaire, mais restent toujours modifiables avant l’envoi d’une demande.</div>' +
       '</div>';
   }
 
@@ -422,7 +421,8 @@
     var upperMethod = String(method || 'GET').toUpperCase();
     var headers = {
       'Accept': 'application/json',
-      'X-WP-Nonce': nonce
+      'X-WP-Nonce': nonce,
+      'X-Sos-Scope': 'sosprescription_patient'
     };
 
     var options = {

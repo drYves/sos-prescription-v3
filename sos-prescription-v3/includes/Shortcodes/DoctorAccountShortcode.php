@@ -100,7 +100,7 @@ final class DoctorAccountShortcode
                 'doctor-account',
                 'access',
                 'Accès réservé',
-                'Cette page est destinée aux médecins et administrateurs.'
+                'Cette page est accessible uniquement aux médecins connectés à leur compte professionnel sécurisé.'
             );
         }
 
@@ -372,8 +372,8 @@ final class DoctorAccountShortcode
         if ($is_admin_view && !$is_self) {
             $html .= self::render_alert(
                 'info',
-                'Mode administration',
-                'Vous modifiez actuellement le profil professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
+                'Gestion du compte médecin',
+                'Vous consultez actuellement le compte professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
             );
         }
 

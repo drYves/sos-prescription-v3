@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace SOSPrescription\UI;
@@ -70,10 +69,8 @@ final class ScreenFrame
     public static function loadingCard(string $title, string $message): string
     {
         return '<div class="sp-card">'
-            . '<div class="sp-stack">'
             . '<div class="sp-card-title">' . esc_html($title) . '</div>'
-            . '<p class="sp-field__help">' . esc_html($message) . '</p>'
-            . '</div>'
+            . '<div class="sp-muted" style="margin-top:6px;">' . esc_html($message) . '</div>'
             . '</div>';
     }
 
@@ -91,22 +88,20 @@ final class ScreenFrame
     public static function guard(string $screen, string $variant, string $title, string $message, array $actions = []): string
     {
         $content = '<div class="sp-plugin-guard sp-plugin-guard--' . esc_attr(sanitize_html_class($variant)) . '">';
-        $content .= '<div class="sp-stack">';
-        $content .= '<h3>' . esc_html($title) . '</h3>';
-        $content .= '<p>' . esc_html($message) . '</p>';
+        $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
+        $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
 
         if ($actions !== []) {
-            $content .= '<div class="sp-plugin-guard__actions sp-stack">';
+            $content .= '<p class="sp-plugin-guard__actions" style="margin:0;display:flex;gap:10px;flex-wrap:wrap;">';
             foreach ($actions as $action) {
                 $label = isset($action['label']) ? (string) $action['label'] : '';
                 $url = isset($action['url']) ? (string) $action['url'] : '#';
                 $class = isset($action['class']) ? (string) $action['class'] : 'sp-button sp-button--secondary';
                 $content .= '<a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a>';
             }
-            $content .= '</div>';
+            $content .= '</p>';
         }
 
-        $content .= '</div>';
         $content .= '</div>';
 
         return self::screen($screen, $content);

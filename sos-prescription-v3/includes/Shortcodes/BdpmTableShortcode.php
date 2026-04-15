@@ -50,11 +50,15 @@ final class BdpmTableShortcode
         ]);
 
         $metaHtml = '';
-        if ($version !== '') {
-            $metaHtml .= '<div class="sp-badge sp-badge-success">BDPM ' . esc_html($version) . '</div>';
-        }
-        if ($imported !== '') {
-            $metaHtml .= '<div class="sp-badge">Import : ' . esc_html($imported) . '</div>';
+        if ($version !== '' || $imported !== '') {
+            $metaHtml .= '<div class="sp-bdpm-toolbar-badges">';
+            if ($version !== '') {
+                $metaHtml .= '<div class="sp-badge sp-badge-success sp-bdpm-toolbar-badge sp-bdpm-toolbar-badge--version">BDPM ' . esc_html($version) . '</div>';
+            }
+            if ($imported !== '') {
+                $metaHtml .= '<div class="sp-badge sp-bdpm-toolbar-badge sp-bdpm-toolbar-badge--import">Import : ' . esc_html($imported) . '</div>';
+            }
+            $metaHtml .= '</div>';
         }
 
         $content = '';

@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : Plugin Bridge V6.5.3
+ * SOS Prescription : Plugin Bridge V6.5.4
  * Pont limité aux surfaces legacy. Le shell garde le layout,
  * l'application garde ses cartes métiers.
  */
@@ -422,4 +422,152 @@
 
 :where(.sosprescription-guard p, .sp-plugin-guard p, .sp-access-card__body, .sp-logout-card__body) {
   color: var(--sp-color-text-3);
+}
+
+
+/* --------------------------------------------------------------------------
+   V6.5.4 — Guards, doctor account and BDPM shell unification
+   -------------------------------------------------------------------------- */
+:where(.sosprescription-guard, .sp-plugin-guard, .sp-session-surface, .sp-logout-card, .sp-access-card) {
+  display: grid;
+  gap: 0.9rem;
+  max-inline-size: 44rem;
+  padding: clamp(1.35rem, 1.12rem + 0.7vw, 1.75rem);
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:where(.sp-plugin-guard__title, .sosprescription-guard h3, .sp-plugin-guard h3) {
+  margin: 0;
+  color: var(--sp-color-text-1, #0f172a);
+  font-size: clamp(1.15rem, 1.02rem + 0.42vw, 1.4rem);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+:where(.sp-plugin-guard__body, .sosprescription-guard p:not(.sp-plugin-guard__actions), .sp-plugin-guard p:not(.sp-plugin-guard__actions)) {
+  margin: 0;
+  max-inline-size: 62ch;
+  color: var(--sp-color-text-3, #64748b);
+}
+
+:where(.sp-plugin-guard__actions) {
+  margin-top: 0.15rem !important;
+  align-items: center;
+}
+
+.sp-page-doctor-account .wrap > div:not(.notice),
+.sp-plugin-root--doctor-account .sp-card,
+.sp-plugin-root--doctor-account .sp-alert,
+.sp-plugin-root--doctor-account .sp-data-grid {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.sp-plugin-root--doctor-account .sp-card {
+  border-color: color-mix(in srgb, var(--sp-color-text-1, #111827) 14%, transparent);
+  border-radius: calc(var(--sp-radius-xl, 22px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-color-surface, #ffffff) 95%, white 5%),
+    color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 18%, var(--sp-color-surface, #ffffff) 82%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 16px 34px rgba(15, 23, 42, 0.07);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-input, .sp-select, .sp-textarea) {
+  border-color: color-mix(in srgb, var(--sp-color-text-1, #111827) 36%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), 0 0 0 1px color-mix(in srgb, var(--sp-color-text-1, #111827) 8%, transparent), 0 2px 4px rgba(15, 23, 42, 0.05);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-input, .sp-select, .sp-textarea):focus-visible {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 0 0 4px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 12%, transparent), 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.sp-plugin-root--doctor-account .sp-form,
+.sp-plugin-root--doctor-account .sp-stack {
+  gap: 1rem;
+}
+
+.sp-plugin-root--doctor-account .sp-data-grid {
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--sp-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-radius-lg, 18px) - 2px);
+  background: color-mix(in srgb, var(--sp-color-surface, #ffffff) 97%, var(--sp-color-surface-alt, #f6f8fb) 3%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84);
+}
+
+.sp-plugin-root--doctor-account .sp-data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sp-plugin-root--doctor-account .sp-data-table th,
+.sp-plugin-root--doctor-account .sp-data-table td {
+  padding: 0.92rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--sp-color-text-1, #111827) 8%, transparent);
+  vertical-align: middle;
+}
+
+.sp-plugin-root--doctor-account .sp-data-table th {
+  background: color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 70%, var(--sp-color-surface, #ffffff) 30%);
+  color: var(--sp-color-text-3, #64748b);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.sp-plugin-root--doctor-account .sp-data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-data-table tbody tr:hover {
+  background: color-mix(in srgb, var(--sp-color-accent-soft, #eff6ff) 34%, var(--sp-color-surface, #ffffff) 66%);
+}
+
+.sp-plugin-root--doctor-account :where(.sp-card, .sp-profile-card, .sp-auth-hint):has(#sp-delete-account-btn) {
+  border-color: color-mix(in srgb, var(--sp-color-danger, #dc2626) 14%, rgba(15, 23, 42, 0.12)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-color-danger-soft, #fef2f2) 28%, var(--sp-color-surface, #ffffff) 72%),
+    color-mix(in srgb, var(--sp-color-surface, #ffffff) 96%, var(--sp-color-danger-soft, #fef2f2) 4%)
+  ) !important;
+}
+
+.sp-plugin-toolbar-meta--doctor-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sp-plugin-toolbar-meta--doctor-catalog .sp-bdpm-toolbar-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sp-plugin-toolbar-meta--doctor-catalog .sp-bdpm-toolbar-badge {
+  min-height: 34px;
+  padding-inline: 0.92rem;
+  border: 1px solid color-mix(in srgb, var(--sp-color-text-1, #111827) 12%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-color-surface, #ffffff) 96%, white 4%),
+    color-mix(in srgb, var(--sp-color-surface-alt, #f6f8fb) 42%, var(--sp-color-surface, #ffffff) 58%)
+  );
+  color: var(--sp-color-text-3, #64748b);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84);
+}
+
+.sp-plugin-toolbar-meta--doctor-catalog .sp-bdpm-toolbar-badge--version {
+  border-color: color-mix(in srgb, var(--sp-color-success, #16a34a) 22%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-color-success-soft, #ecfdf5) 78%, white 22%),
+    color-mix(in srgb, var(--sp-color-surface, #ffffff) 88%, var(--sp-color-success-soft, #ecfdf5) 12%)
+  );
+  color: color-mix(in srgb, var(--sp-color-success, #16a34a) 74%, var(--sp-color-text-1, #111827) 26%);
 }

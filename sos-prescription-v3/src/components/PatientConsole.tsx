@@ -15,10 +15,14 @@ type AppConfig = {
   };
   patientProfile?: {
     fullname?: string;
+    full_name?: string;
+    fullName?: string;
+    birthdate?: string;
     birthdate_fr?: string;
     birthdate_iso?: string;
     first_name?: string;
     last_name?: string;
+    email?: string;
     note?: string;
     medical_notes?: string;
     medicalNotes?: string;
@@ -501,10 +505,15 @@ function formatFileSize(sizeBytes: number | undefined): string {
 
 function isPatientProfileComplete(profile: AppConfig['patientProfile'] | undefined, currentUser: AppConfig['currentUser'] | undefined): boolean {
   const fullName = cleanHumanText(profile?.fullname)
+    || cleanHumanText(profile?.full_name)
+    || cleanHumanText(profile?.fullName)
     || cleanHumanText([profile?.first_name, profile?.last_name].filter(Boolean).join(' '))
     || (currentUser?.displayName && !isEmailLike(String(currentUser.displayName)) ? cleanHumanText(currentUser.displayName) : undefined);
 
-  const birthdate = cleanHumanText(profile?.birthdate_fr) || cleanHumanText(profile?.birthdate_iso);
+  const birthdate = cleanHumanText(profile?.birthdate_fr)
+    || cleanHumanText(profile?.birthdate_iso)
+    || cleanHumanText(profile?.birthdate);
+
   return Boolean(fullName && birthdate);
 }
 

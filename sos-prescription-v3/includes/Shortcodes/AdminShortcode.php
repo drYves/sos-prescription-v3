@@ -40,7 +40,7 @@ final class AdminShortcode
                 'console',
                 'access',
                 'Accès réservé',
-                'Cette page est réservée aux médecins et administrateurs de la plateforme.'
+                'Cette page est accessible uniquement aux médecins connectés à leur compte professionnel sécurisé.'
             );
         }
 
