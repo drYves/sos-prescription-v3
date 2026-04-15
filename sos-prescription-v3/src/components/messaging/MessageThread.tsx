@@ -287,10 +287,12 @@ export default function MessageThread({
 
   return (
     <div className="sp-stack">
-      <div className="sp-page-heading">
-        <div className="sp-page-title sp-page-title--section">{title}</div>
-        <div className="sp-page-subtitle">{subtitle}</div>
-      </div>
+      {title || subtitle ? (
+        <div className="sp-page-heading">
+          {title ? <div className="sp-page-title sp-page-title--section">{title}</div> : null}
+          {subtitle ? <div className="sp-page-subtitle">{subtitle}</div> : null}
+        </div>
+      ) : null}
 
       {loading && messages.length === 0 ? (
         <div className="sp-loading-row">
@@ -298,7 +300,7 @@ export default function MessageThread({
           <span>Chargement…</span>
         </div>
       ) : messages.length === 0 ? (
-        <div className="sp-empty-note">{emptyText}</div>
+        emptyText ? <div className="sp-empty-note">{emptyText}</div> : null
       ) : (
         <MessageList
           messages={normalizedMessages}
@@ -324,7 +326,7 @@ export default function MessageThread({
               value={draftBody}
               onChange={(event) => setDraftBody(event.target.value)}
               rows={2}
-              placeholder={isReadOnly ? readOnlyNotice : composerPlaceholder(viewerRole)}
+              placeholder={isReadOnly ? '' : composerPlaceholder(viewerRole)}
               className="sp-textarea sp-thread-composer__textarea"
               disabled={isReadOnly}
               aria-disabled={isReadOnly}
@@ -332,8 +334,9 @@ export default function MessageThread({
             />
           </div>
 
-          <div className="sp-thread-composer__actions">
-            {showWritingAssistant ? (
+          {!isReadOnly ? (
+            <div className="sp-thread-composer__actions">
+              {showWritingAssistant ? (
               <button
                 type="button"
                 className="sp-app-icon-button"
@@ -350,15 +353,16 @@ export default function MessageThread({
               </button>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => void handleSend()}
-              disabled={isReadOnly || sending || draftBody.trim().length < 1}
-              className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
-            >
-              {sending ? <InlineSpinner /> : 'Envoyer'}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={sending || draftBody.trim().length < 1}
+                className={cx('sp-button', 'sp-button--primary', sending && 'is-loading')}
+              >
+                {sending ? <InlineSpinner /> : 'Envoyer'}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {isDoctorCurrentUser && visibleReplies.length > 0 && !isReadOnly ? (

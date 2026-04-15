@@ -153,3 +153,48 @@
 .sp-signature-clear:hover {
   background: #f9fafb;
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.1 — Doctor account field polish
+   -------------------------------------------------------------------------- */
+.sp-signature-upload-wrap {
+  border-radius: var(--sp-shell-radius-lg, 18px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 66%, var(--sp-shell-color-surface, #ffffff) 34%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.82);
+}
+
+.sp-custom-file-upload.dragover {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 28%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 48%, #ffffff 52%);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 12%, transparent);
+}
+
+.sp-signature-meta,
+.sp-signature-upload-text span {
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-signature-meta strong,
+.sp-signature-upload-text strong {
+  color: var(--sp-shell-color-text-1, #111827);
+}
+
+.sp-signature-preview {
+  border-radius: var(--sp-shell-radius-md, 14px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: var(--sp-shell-color-surface, #ffffff);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.sp-signature-clear {
+  border-radius: var(--sp-shell-radius-sm, 12px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
+  color: var(--sp-shell-color-text-1, #111827);
+}
+
+.sp-signature-clear:hover {
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 36%, var(--sp-shell-color-surface, #ffffff) 64%);
+}

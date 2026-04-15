@@ -350,3 +350,45 @@
     width: 100%;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.1 — Guard / logout / doctor-account finish
+   -------------------------------------------------------------------------- */
+.sosprescription-guard,
+.sp-plugin-guard,
+.sp-session-surface,
+.sp-logout-card {
+  border: var(--sp-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  border-radius: var(--sp-radius-xl, 22px);
+  background: var(--sp-glass-surface-strong, rgba(255,255,255,0.96));
+  box-shadow: var(--sp-shadow-premium, 0 16px 38px rgba(15, 23, 42, 0.08));
+}
+
+.sp-page-doctor-account .wrap {
+  gap: clamp(1rem, 0.95rem + 0.5vw, 1.5rem);
+}
+
+.sp-page-doctor-account .wrap > h1 {
+  font-size: clamp(1.9rem, 1.6rem + 0.8vw, 2.4rem);
+  line-height: 1.05;
+}
+
+.sp-page-doctor-account .wrap > p {
+  max-width: 70ch;
+}
+
+.sp-page-doctor-account .wrap > div:not(.notice) {
+  padding: clamp(1.1rem, 1rem + 0.4vw, 1.4rem);
+}
+
+.sp-page-doctor-account .wrap .form-table th {
+  color: var(--sp-color-text-3);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sp-page-doctor-account .wrap .notice {
+  box-shadow: none;
+}

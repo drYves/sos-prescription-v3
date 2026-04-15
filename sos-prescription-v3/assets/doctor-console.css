@@ -629,3 +629,209 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.1 — Doctor console premium polish
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor {
+  font-family: var(--sp-shell-font-body, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  color: var(--sp-shell-color-text-1, #111827);
+}
+
+.sosprescription-doctor .dc-shell {
+  grid-template-columns: minmax(26rem, 28rem) minmax(0, 1fr);
+  gap: 24px;
+  min-height: auto;
+}
+
+.sosprescription-doctor .dc-inbox,
+.sosprescription-doctor .dc-detail {
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  border-radius: var(--sp-shell-radius-xl, 22px);
+  background: var(--sp-shell-glass-surface-strong, rgba(255,255,255,0.96));
+  box-shadow: var(--sp-shell-shadow-premium, 0 16px 38px rgba(15, 23, 42, 0.08));
+}
+
+.sosprescription-doctor .dc-detail {
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 42%, var(--sp-shell-color-surface, #ffffff) 58%);
+}
+
+.sosprescription-doctor .dc-inbox__head,
+.sosprescription-doctor .dc-detail-head {
+  padding: 22px 24px;
+  border-bottom: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, transparent);
+}
+
+.sosprescription-doctor .dc-title {
+  font-family: var(--sp-shell-font-display, var(--sp-shell-font-body, inherit));
+  font-size: clamp(1.3rem, 1.1rem + 0.4vw, 1.7rem);
+  letter-spacing: -0.02em;
+}
+
+.sosprescription-doctor .dc-subtitle {
+  margin-top: 8px;
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.sosprescription-doctor .dc-inbox__actions {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.sosprescription-doctor .dc-inbox__list {
+  max-height: min(72vh, 58rem);
+}
+
+.sosprescription-doctor .dc-item {
+  padding: 18px 20px;
+  border-bottom: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: transparent;
+  transition: background-color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.sosprescription-doctor .dc-item:hover {
+  background: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 4%, var(--sp-shell-color-surface, #ffffff));
+}
+
+.sosprescription-doctor .dc-item.is-selected {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 44%, #ffffff 56%), var(--sp-shell-color-surface, #ffffff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 16%, transparent);
+}
+
+.sosprescription-doctor .dc-item__patient {
+  font-family: var(--sp-shell-font-display, var(--sp-shell-font-body, inherit));
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+.sosprescription-doctor .dc-item__meta,
+.sosprescription-doctor .dc-item__meds {
+  color: var(--sp-shell-color-text-3, #64748b);
+  line-height: 1.55;
+}
+
+.sosprescription-doctor .dc-item__meds {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+.sosprescription-doctor .dc-pill,
+.sosprescription-doctor .dc-detail-tab,
+.sosprescription-doctor .dc-filter-tab {
+  border-radius: 999px;
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.76);
+}
+
+.sosprescription-doctor .dc-detail-tabs,
+.sosprescription-doctor .dc-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sosprescription-doctor .dc-detail-tab,
+.sosprescription-doctor .dc-filter-tab {
+  min-height: 42px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, var(--sp-shell-color-surface, #ffffff) 26%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-weight: 800;
+}
+
+.sosprescription-doctor .dc-detail-tab:hover,
+.sosprescription-doctor .dc-filter-tab:hover {
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 38%, var(--sp-shell-color-surface, #ffffff) 62%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+.sosprescription-doctor .dc-detail-tab.is-active,
+.sosprescription-doctor .dc-filter-tab.is-active {
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 66%, #ffffff 34%);
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 24%, transparent);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.sosprescription-doctor .dc-btn {
+  min-height: 44px;
+  border-radius: var(--sp-shell-radius-md, 14px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.76), 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.sosprescription-doctor .dc-btn:hover {
+  transform: none;
+}
+
+.sosprescription-doctor .dc-summary-card,
+.sosprescription-doctor .dc-meds-card,
+.sosprescription-doctor .dc-pdf-card,
+.sosprescription-doctor .dc-refusal-panel,
+.sosprescription-doctor .dc-inline-proof-card,
+.sosprescription-doctor .dc-proof-viewer {
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  border-radius: var(--sp-shell-radius-lg, 18px);
+  background: var(--sp-shell-color-surface, #ffffff);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-page-heading {
+  margin-bottom: 14px;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-page-title--section {
+  font-family: var(--sp-shell-font-display, var(--sp-shell-font-body, inherit));
+  font-size: 1.08rem;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer {
+  border-radius: var(--sp-shell-radius-lg, 18px);
+  border: var(--sp-shell-border-hairline, 1px solid rgba(15, 23, 42, 0.12));
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 92%, var(--sp-shell-color-surface-alt, #f6f8fb) 8%);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions {
+  align-items: stretch;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-app-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 14px;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-app-button--primary {
+  min-height: 46px;
+}
+
+@media (max-width: 1280px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: minmax(22rem, 24rem) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sosprescription-doctor .dc-inbox__actions {
+    width: 100%;
+  }
+
+  .sosprescription-doctor .dc-item__row,
+  .sosprescription-doctor .dc-item__foot,
+  .sosprescription-doctor .dc-detail-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

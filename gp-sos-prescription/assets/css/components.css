@@ -939,3 +939,25 @@ body.sp-context-public :is(.sp-button, .sp-btn, .sp-card, .sp-trust-box, .sp-fin
   position: relative;
   isolation: isolate;
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.1 — CTA paint stability guard (load-order safe)
+   -------------------------------------------------------------------------- */
+body.sp-context-public :is(.sp-hero-actions, .sp-final-cta, .sp-trust-box, .sp-trust-box__actions) {
+  overflow: visible !important;
+  isolation: isolate;
+}
+
+body.sp-context-public :is(.sp-button--hero, .sp-trust-box__actions .sp-button) {
+  transform: none !important;
+  translate: none !important;
+  will-change: auto !important;
+}
+
+body.sp-context-public :is(.sp-button--hero, .sp-trust-box__actions .sp-button):hover,
+body.sp-context-public :is(.sp-button--hero, .sp-trust-box__actions .sp-button):focus-visible,
+body.sp-context-public :is(.sp-button--hero, .sp-trust-box__actions .sp-button):active {
+  transform: none !important;
+  translate: none !important;
+}

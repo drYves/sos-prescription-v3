@@ -1773,6 +1773,9 @@ export default function PatientConsole() {
   const messagingEmptyText = detail
     ? patientMessagingEmptyText(detail.status, messagingState)
     : "Le médecin n'a pas encore sollicité d'information. Cet espace s'ouvrira automatiquement dès qu'un message médical sera envoyé.";
+  const messagingSubtitle = messagingState === 'OPEN'
+    ? 'Messagerie sécurisée associée à votre dossier.'
+    : '';
 
   const fileIndex = useMemo(() => {
     const index: Record<number, PrescriptionFile> = {};
@@ -2395,9 +2398,9 @@ export default function PatientConsole() {
                         viewerRole="PATIENT"
                         currentUserRoles={cfg.currentUser?.roles}
                         title="Échanges avec le médecin"
-                        subtitle="Messagerie sécurisée associée à votre dossier."
+                        subtitle={messagingSubtitle}
                         loading={messagesLoading}
-                        emptyText={messagingEmptyText}
+                        emptyText={messagingLocked ? '' : messagingEmptyText}
                         messages={messages}
                         fileIndex={fileIndex}
                         onDownloadFile={handleMessageAttachmentDownload}

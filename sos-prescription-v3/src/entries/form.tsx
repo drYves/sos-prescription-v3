@@ -2576,17 +2576,17 @@ type StepFlowChoiceProps = {
 
 function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
   return (
-    <section className="sp-app-card">
+    <section className="sp-app-card sp-app-card--step-choice">
       <div className="sp-app-section__header">
         <div>
           <h2 className="sp-app-section__title">Choisissez votre situation</h2>
           <p className="sp-app-section__hint">
-            Nous vous guidons ensuite vers les informations à renseigner.
+            Sélectionnez le scénario qui correspond à votre besoin. Nous adaptons ensuite le dossier à votre situation.
           </p>
         </div>
       </div>
 
-      <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir votre situation">
+      <div className="sp-app-choice-grid sp-app-choice-grid--flow" role="radiogroup" aria-label="Choisir votre situation">
         <button
           type="button"
           role="radio"
@@ -2599,7 +2599,7 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           <div className="sp-app-choice-card__text">
             Vous disposez d’une ordonnance antérieure, d’une photo de boîte ou d’un justificatif médical.
           </div>
-          <div className="sp-app-choice-card__meta">Pré-remplissage assisté disponible.</div>
+          <div className="sp-app-choice-card__meta">Pré-remplissage du dossier disponible.</div>
         </button>
 
         <button
@@ -2614,7 +2614,7 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
           <div className="sp-app-choice-card__text">
             En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
           </div>
-          <div className="sp-app-choice-card__meta">Attestation sur l’honneur requise.</div>
+          <div className="sp-app-choice-card__meta">Attestation sur l’honneur demandée.</div>
         </button>
       </div>
     </section>
@@ -3018,12 +3018,12 @@ function StepClinicalData({
       ) : null}
 
       {consentRequired ? (
-        <section className="sp-app-card">
+        <section className="sp-app-card sp-app-card--consent">
           <div className="sp-app-section__header">
             <div>
-              <h2 className="sp-app-section__title">Points à valider</h2>
+              <h2 className="sp-app-section__title">Vérifications et consentements</h2>
               <p className="sp-app-section__hint">
-                Avant de poursuivre, merci de valider les éléments ci-dessous.
+                Avant l’envoi du dossier, merci de confirmer les éléments essentiels ci-dessous.
               </p>
             </div>
           </div>
@@ -3057,7 +3057,7 @@ function StepClinicalData({
               <span className="sp-app-checkbox__text">Je confirme l’exactitude des informations.</span>
             </label>
 
-            <div className="sp-app-checkbox sp-app-checkbox--with-action">
+            <div className="sp-app-checkbox sp-app-checkbox--with-action sp-app-checkbox--legal">
               <label className="sp-app-checkbox__label" htmlFor="sp-consent-cgu">
                 <span className="sp-app-checkbox__control">
                   <input
@@ -3080,7 +3080,7 @@ function StepClinicalData({
               </a>
             </div>
 
-            <div className="sp-app-checkbox sp-app-checkbox--with-action">
+            <div className="sp-app-checkbox sp-app-checkbox--with-action sp-app-checkbox--legal">
               <label className="sp-app-checkbox__label" htmlFor="sp-consent-privacy">
                 <span className="sp-app-checkbox__control">
                   <input
@@ -3152,12 +3152,12 @@ function StepPrioritySelection({
 }: StepPrioritySelectionProps) {
   return (
     <div className="sp-app-stack">
-      <section className="sp-app-card">
+      <section className="sp-app-card sp-app-card--priority">
         <div className="sp-app-section__header">
           <div>
-            <h2 className="sp-app-section__title">Choisissez la rapidité de traitement</h2>
+            <h2 className="sp-app-section__title">Choisissez le délai de traitement</h2>
             <p className="sp-app-section__hint">
-              Choisissez une option avant le paiement sécurisé.
+              Sélectionnez l’option qui vous convient avant le règlement sécurisé.
             </p>
           </div>
         </div>
@@ -3222,7 +3222,7 @@ function StepPrioritySelection({
 
         <div className="sp-app-block">
           <Notice variant="info">
-            Les montants correspondent aux <strong>frais d’analyse médicale</strong>. Votre choix sera rappelé avant le paiement sécurisé.
+            Les montants correspondent aux <strong>frais d’analyse médicale</strong>. Votre choix sera rappelé avant la validation sécurisée.
           </Notice>
         </div>
 
@@ -3651,19 +3651,19 @@ function StepPaymentAuth({
 
   return (
     <div className="sp-app-stack">
-      <section className="sp-app-card">
+      <section className="sp-app-card sp-app-card--payment">
         <div className="sp-app-section__header">
           <div>
             <h2 className="sp-app-section__title">Paiement sécurisé</h2>
             <p className="sp-app-section__hint">
-              Votre carte est vérifiée avant l’envoi de votre demande.
+              Votre carte est vérifiée de manière sécurisée avant l’envoi de votre demande.
             </p>
           </div>
         </div>
 
         <div className="sp-app-block">
           <Notice variant="info">
-            <strong>Votre carte est vérifiée uniquement. Elle ne sera débitée qu’après validation médicale. Aucun frais en cas de refus.</strong>
+            <strong>Votre carte est uniquement autorisée. Elle ne sera débitée qu’après validation médicale. Aucun frais n’est appliqué en cas de refus.</strong>
           </Notice>
         </div>
 
@@ -3718,6 +3718,11 @@ function StepPaymentAuth({
         ) : null}
 
         <div className="sp-app-card sp-app-card--nested sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
+          <div className="sp-app-payment-panel__trust" role="list" aria-label="Garanties de paiement">
+            <span className="sp-app-payment-panel__trust-pill" role="listitem">Validation bancaire sécurisée</span>
+            <span className="sp-app-payment-panel__trust-pill" role="listitem">Aucun débit avant validation médicale</span>
+            <span className="sp-app-payment-panel__trust-pill" role="listitem">Conforme aux standards Stripe</span>
+          </div>
           <div className="sp-app-section__header">
             <div>
               <h3 className="sp-app-section__title">Carte bancaire sécurisée</h3>
@@ -3734,7 +3739,7 @@ function StepPaymentAuth({
           ) : null}
 
           <div className="sp-app-block">
-            <div className="sp-app-card">
+            <div className="sp-app-payment-panel__mount-frame">
               {initializing ? (
                 <div className="sp-app-inline-status">
                   <Spinner />
@@ -3745,7 +3750,7 @@ function StepPaymentAuth({
             </div>
           </div>
 
-          <div className="sp-app-inline-note">
+          <div className="sp-app-inline-note sp-app-inline-note--payment">
             Paiement sécurisé
             {amountCents != null ? ` • Aucun débit avant validation médicale • Autorisation temporaire : ${formatMoney(amountCents, currency)}` : ' • Aucun débit avant validation médicale'}
           </div>
@@ -3820,18 +3825,18 @@ function StepSuccess({
             </button>
           </div>
           <div className="sp-app-confirmation__text">
-            Conservez ce numéro pour suivre votre demande et échanger avec le médecin.
+            Conservez ce numéro pour retrouver votre dossier et suivre son évolution depuis votre espace patient.
           </div>
         </div>
       </section>
 
       {patientPortalUrl ? (
-        <section className="sp-app-card">
+        <section className="sp-app-card sp-app-card--followup">
           <div className="sp-app-section__header">
             <div>
-              <h2 className="sp-app-section__title">Suite de la demande</h2>
+              <h2 className="sp-app-section__title">Suite de votre dossier</h2>
               <p className="sp-app-section__hint">
-                Suivez votre demande et échangez avec le médecin depuis votre espace patient.
+                Retrouvez votre suivi et les prochains échanges depuis votre espace patient sécurisé.
               </p>
             </div>
           </div>
@@ -3842,15 +3847,6 @@ function StepSuccess({
           </div>
         </section>
       ) : null}
-
-      <div className="sp-app-actions">
-        <Button type="button" variant="secondary" onClick={onReset}>
-          Faire une nouvelle demande
-        </Button>
-        <div className="sp-app-inline-note">
-          Vous pouvez compléter votre demande à tout moment via la messagerie.
-        </div>
-      </div>
     </div>
   );
 }

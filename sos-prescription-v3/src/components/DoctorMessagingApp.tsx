@@ -676,16 +676,6 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       {error ? <Notice variant="error">{error}</Notice> : null}
       {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
 
-      <div className="sp-inline-actions">
-        <button
-          type="button"
-          className="sp-button sp-button--secondary"
-          onClick={() => void loadThread(false)}
-          disabled={loading}
-        >
-          {loading ? <InlineSpinner /> : 'Actualiser'}
-        </button>
-      </div>
 
       <div className="sp-top-gap">
         <MessageThread

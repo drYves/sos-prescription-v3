@@ -67,7 +67,10 @@
 
     var meta = ''
     if (version || imported) {
-      meta = '<div class="sp-muted">BDPM en base : ' + escHtml(version || '—') + (imported ? ' • importé le ' + escHtml(imported) : '') + '</div>'
+      meta = '<div class="sp-meta-badges">'
+        + (version ? '<span class="sp-meta-pill">BDPM ' + escHtml(version) + '</span>' : '')
+        + (imported ? '<span class="sp-meta-pill">Import : ' + escHtml(imported) + '</span>' : '')
+        + '</div>'
     }
 
     root.innerHTML = ''
@@ -87,11 +90,10 @@
       + '      <option value="20">20 / page</option>'
       + '      <option value="50">50 / page</option>'
       + '    </select>'
-      + '    <button class="sp-btn" id="sp-search">Rechercher</button>'
       + '    <button class="sp-btn sp-btn-secondary" id="sp-clear">Réinitialiser</button>'
       + '  </div>'
       + '  <div class="sp-muted" style="margin-top:8px;">Astuce : tapez au moins 2 caractères (ou un code CIS/CIP) pour interroger la base.</div>'
-      + '  <div id="sp-msg"></div>'
+      + '  <div id="sp-msg" role="status" aria-live="polite"></div>'
       + '  <div class="sp-table-wrap">'
       + '    <table>'
       + '      <thead>'
@@ -108,7 +110,7 @@
       + '    </table>'
       + '  </div>'
       + '  <div class="sp-footer">'
-      + '    <div class="sp-muted" id="sp-count">—</div>'
+      + '    <div class="sp-muted" id="sp-count" aria-live="polite">—</div>'
       + '    <div class="sp-pagination">'
       + '      <button class="sp-btn sp-btn-secondary" id="sp-prev">Précédent</button>'
       + '      <span class="sp-muted" id="sp-page">Page 1</span>'
@@ -121,7 +123,6 @@
 
     var qEl = document.getElementById('sp-q')
     var perEl = document.getElementById('sp-per')
-    var searchBtn = document.getElementById('sp-search')
     var clearBtn = document.getElementById('sp-clear')
     var prevBtn = document.getElementById('sp-prev')
     var nextBtn = document.getElementById('sp-next')
@@ -129,7 +130,6 @@
     if (qEl) qEl.value = state.q
     if (perEl) perEl.value = String(state.perPage)
 
-    if (searchBtn) searchBtn.disabled = state.loading
     if (clearBtn) clearBtn.disabled = state.loading
     if (prevBtn) prevBtn.disabled = state.loading || state.page <= 1
 
@@ -171,13 +171,6 @@
         } else {
           renderTable()
         }
-      })
-    }
-
-    if (searchBtn) {
-      searchBtn.addEventListener('click', function (e) {
-        e.preventDefault()
-        doSearch()
       })
     }
 

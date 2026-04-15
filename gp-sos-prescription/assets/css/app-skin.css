@@ -875,3 +875,32 @@
 .sp-shell--console :where(.sp-button:focus-visible, .sp-btn:focus-visible, .dc-filter-tab:focus-visible, .dc-detail-tab:focus-visible, .dc-proof-item:focus-visible) {
   box-shadow: 0 0 0 4px var(--sp-app-focus) !important;
 }
+
+
+/* --------------------------------------------------------------------------
+   V6.5.1 — Shell-owned widgets, guards and doctor account rhythm
+   -------------------------------------------------------------------------- */
+.sp-shell--app :is(.sp-plugin-toolbar-meta, .sp-plugin-status-surface, .sp-plugin-profile-slot),
+.sp-shell--console :is(.sp-plugin-toolbar-meta, .sp-plugin-status-surface, .sp-plugin-profile-slot) {
+  gap: 18px;
+}
+
+.sp-shell--app :where(.sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card),
+.sp-shell--console :where(.sp-plugin-toolbar-meta .sp-card, .sp-plugin-status-surface .sp-card, .sp-plugin-profile-slot .sp-card) {
+  border: var(--sp-shell-border-hairline) !important;
+  border-radius: var(--sp-shell-radius-lg) !important;
+  background: var(--sp-shell-glass-surface-strong) !important;
+  box-shadow: var(--sp-shell-shadow-premium) !important;
+  padding: clamp(1rem, 0.92rem + 0.3vw, 1.25rem) !important;
+}
+
+.sp-shell--console .dc-item.is-selected {
+  border-left: 0 !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 46%, #ffffff 54%), var(--sp-shell-color-surface, #ffffff)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent), 0 8px 20px rgba(15, 23, 42, 0.05) !important;
+}
+
+.sp-shell--console .dc-item__status .dc-pill,
+.sp-shell--console .dc-detail-head__aside .dc-pill {
+  box-shadow: none !important;
+}
