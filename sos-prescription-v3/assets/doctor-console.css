@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V7.0.4 */
+/* SOS Prescription : Doctor Console V7.0.5 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -1634,4 +1634,26 @@
   .sosprescription-doctor .dc-shell {
     grid-template-columns: minmax(28rem, 32rem) minmax(0, 1fr);
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.5 — Fast track : hover des actions horaires de la modale.
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-reset-times'],
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-enable-auto'] {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 16%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 76%, #ffffff 24%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-reset-times']:hover,
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-reset-times']:focus-visible,
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-enable-auto']:hover,
+.sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-enable-auto']:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 28%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, transparent), inset 0 1px 0 rgba(255,255,255,0.92), 0 10px 20px rgba(15, 23, 42, 0.06);
 }

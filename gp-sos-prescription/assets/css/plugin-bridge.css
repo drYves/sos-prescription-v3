@@ -1,6 +1,6 @@
-/* SOS Prescription : Plugin Bridge V7.0.4 */
+/* SOS Prescription : Plugin Bridge V7.0.5 */
 /*
- * SOS Prescription — Plugin Bridge v7.0.3
+ * SOS Prescription — Plugin Bridge v7.0.5
  * Adaptateur léger entre shell et racines plugin.
  * Le bridge reste structurel, avec un contrat visuel limité aux entrées sécurisées.
  */
@@ -353,4 +353,42 @@
 
 .sp-plugin-guard__hero-icon {
   display: none !important;
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.5 — Fast track : favicon SOS recentré et chips guards stabilisées.
+   -------------------------------------------------------------------------- */
+.sp-plugin-guard__brand {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 0.95rem;
+}
+
+.sp-plugin-guard__favicon {
+  display: grid;
+  place-items: center;
+  inline-size: 6.2rem;
+  block-size: 6.2rem;
+  margin-inline: auto;
+}
+
+.sp-plugin-guard__favicon img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
+
+.sp-plugin-guard__icons {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.sp-plugin-guard__icon-chip svg {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
 }

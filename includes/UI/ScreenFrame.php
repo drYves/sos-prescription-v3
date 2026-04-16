@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V7.0.4 — final guard QA: centered SOS favicon restored with secure icon chips.
+ * V7.0.5 — fast-track guards: centered SOS favicon path hardened with shield-plus chip.
  */
 final class ScreenFrame
 {
@@ -123,7 +123,7 @@ final class ScreenFrame
         }
 
         $content .= '<div class="sp-plugin-guard__icons" aria-hidden="true">';
-        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('stethoscope') . '</span>';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('shield-plus') . '</span>';
         $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('lock') . '</span>';
         $content .= '</div>';
         $content .= '</div>';
@@ -137,11 +137,27 @@ final class ScreenFrame
 
     private static function guard_favicon_url(): string
     {
-        if (function_exists('get_theme_file_uri')) {
-            return (string) get_theme_file_uri('assets/img/brand/sos-favicon.svg');
+        $relative = 'assets/img/brand/sos-favicon.svg';
+
+        if (function_exists('get_stylesheet_directory') && function_exists('get_stylesheet_directory_uri')) {
+            $child_path = trailingslashit((string) get_stylesheet_directory()) . $relative;
+            if (@is_readable($child_path)) {
+                return trailingslashit((string) get_stylesheet_directory_uri()) . $relative;
+            }
         }
 
-        return defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL . 'assets/img/brand/sos-favicon.svg' : '';
+        if (function_exists('get_template_directory') && function_exists('get_template_directory_uri')) {
+            $parent_path = trailingslashit((string) get_template_directory()) . $relative;
+            if (@is_readable($parent_path)) {
+                return trailingslashit((string) get_template_directory_uri()) . $relative;
+            }
+        }
+
+        if (function_exists('get_theme_file_uri')) {
+            return (string) get_theme_file_uri($relative);
+        }
+
+        return defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL . $relative : '';
     }
 
     private static function guard_icon(string $name): string
@@ -150,6 +166,10 @@ final class ScreenFrame
 
         if ($name === 'stethoscope') {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a4 4 0 0 0 8 0V3"/><path d="M8 3v5"/><path d="M16 11v2a4 4 0 0 0 8 0 4 4 0 0 0-4-4h-1"/><circle cx="20" cy="9" r="2"/></svg>';
+        }
+
+        if ($name === 'shield-plus') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg>';
         }
 
         if ($name === 'lock') {

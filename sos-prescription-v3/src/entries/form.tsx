@@ -1,4 +1,4 @@
-// src/entries/form.tsx · V7.0.4
+// src/entries/form.tsx · V7.0.5
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -358,11 +358,13 @@ function TimerIcon({ className = '' }: LucideIconProps) {
   );
 }
 
-function Settings2Icon({ className = "" }: LucideIconProps) {
+function Settings2Icon({ className = '' }: LucideIconProps) {
   return (
-    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82 2 2 0 1 1-2.82 2.82 1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51 2 2 0 1 1-4 0 1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33 2 2 0 1 1-2.82-2.82 1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1 2 2 0 1 1 0-4 1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82 2 2 0 1 1 2.82-2.82 1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 10 2.6a2 2 0 1 1 4 0 1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33 2 2 0 1 1 2.82 2.82 1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1 2 2 0 1 1 0 4 1.65 1.65 0 0 0-1.51 1Z" />
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 17H5" />
+      <path d="M19 7h-9" />
+      <circle cx="17" cy="17" r="3" />
+      <circle cx="7" cy="7" r="3" />
     </svg>
   );
 }
@@ -2612,7 +2614,6 @@ function ScheduleEditor({
             <div className="sp-app-schedule sp-app-schedule--grouped sp-app-schedule--advanced">
               <div className="sp-app-schedule__header">
                 <div className="sp-app-schedule__title">
-                  <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
                   <span>Réglages avancés de planification</span>
                 </div>
                 <div className="sp-app-schedule__actions">

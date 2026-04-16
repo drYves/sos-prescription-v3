@@ -1,4 +1,4 @@
-/* SOS Prescription : BDPM Table V7.0.3 */
+/* SOS Prescription : BDPM Table V7.0.5 */
 
 .sosprescription-bdpm {
   --sp-bdpm-border: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
@@ -367,4 +367,14 @@
 .sosprescription-bdpm .sp-catalog-title img {
   inline-size: 2.08rem;
   block-size: 2.08rem;
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.5 — Fast track : caduceus title encore renforcé.
+   -------------------------------------------------------------------------- */
+.sosprescription-bdpm .sp-catalog-title__icon,
+.sosprescription-bdpm .sp-catalog-title img {
+  inline-size: 2.34rem;
+  block-size: 2.34rem;
 }

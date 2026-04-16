@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V7.0.4
+// PatientConsole.tsx · V7.0.5
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1437,7 +1437,7 @@ function HeroBanner({
           <div className="sp-patient-hero__eyebrow">
             <StatusPill status={status} />
           </div>
-          {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
+          {createdAt ? <span className="sp-patient-hero__date-chip">{formatDateShort(createdAt)}</span> : null}
         </div>
 
         <div className="sp-patient-hero__copy-block">
