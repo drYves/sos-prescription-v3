@@ -1,6 +1,6 @@
 /*
- * SOS Prescription : Base V4.8.0
- * Fondations typographiques et reset léger.
+ * SOS Prescription : Base V7.0.9
+ * Fondations typographiques, reset léger et neutralisation stricte du logo principal.
  */
 
 html {
@@ -366,4 +366,45 @@ pre {
 
 :is(h1, h2, h3, h4, h5, h6) strong {
   color: inherit;
+}
+
+/* V7.0.9 · Neutralisation stricte du logo principal au niveau du socle shell */
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+),
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+):is(:hover, :focus, :focus-visible, :active) {
+  text-decoration: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+)::before,
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+)::after {
+  content: none !important;
+  display: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }

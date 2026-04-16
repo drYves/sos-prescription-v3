@@ -1,6 +1,6 @@
 <?php
 /**
- * Bootstrap minimal du thème enfant SOS Prescription V7.0.4.
+ * Bootstrap minimal du thème enfant SOS Prescription V7.0.9.
  *
  * @package gp-sos-prescription
  */
@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('SP_THEME_VERSION')) {
-    define('SP_THEME_VERSION', '7.0.4');
+    define('SP_THEME_VERSION', '7.0.9');
 }
 
 if (! defined('SP_THEME_PATH')) {

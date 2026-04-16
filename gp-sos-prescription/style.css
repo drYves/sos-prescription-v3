@@ -1,15 +1,15 @@
 /*
 Theme Name: gp-sos-prescription
 Theme URI: https://sosprescription.fr/
-Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress natif, aura Noble Blue SaaS, header glass universel, menu harmonisé global, version v7.0.4 – final QA local, compte médecin premium et hero patient Plan B stabilisé.
+Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress natif, aura Noble Blue SaaS, header glass universel, menu harmonisé global, version v7.0.9 – final doc, neutralisation du logo principal et bible technique UI V7.
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 7.0.4
+Version: 7.0.9
 Text Domain: gp-sos-prescription
 */
 
-/* V7.0.4 · Final QA local : compte médecin premium, hero patient Plan B, guards et console finalisés */
+/* V7.0.9 · Final doc : neutralisation stricte du logo principal et bible technique UI V7 */
 
 :root {
   --sp-shell-frame-max: 1200px;
@@ -541,4 +541,45 @@ body:not(.sp-context-public) .sp-widget-card,
 body:not(.sp-context-public) .sp-final-cta-card,
 body:not(.sp-context-public) .sp-faq-item {
   transition: none;
+}
+
+/* V7.0.9 · Neutralisation radicale du logo principal */
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+),
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+):is(:hover, :focus, :focus-visible, :active) {
+  text-decoration: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+)::before,
+:is(
+  .inside-header a[rel="home"],
+  .inside-header .custom-logo-link,
+  .inside-header .site-logo a,
+  .inside-header .site-branding a,
+  .inside-header .site-title a
+)::after {
+  content: none !important;
+  display: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
