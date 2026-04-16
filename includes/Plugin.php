@@ -33,6 +33,7 @@ use SosPrescription\Shortcodes\AdminShortcode;
 use SosPrescription\Shortcodes\BdpmTableShortcode;
 use SosPrescription\Shortcodes\DoctorAccountShortcode;
 use SosPrescription\Shortcodes\FormShortcode;
+use SosPrescription\Shortcodes\LogoutShortcode;
 use SosPrescription\Shortcodes\PatientShortcode;
 use SosPrescription\Shortcodes\PricingShortcode;
 use SosPrescription\Frontend\VerificationPage;
@@ -290,25 +291,47 @@ final class Plugin
         DoctorAccountShortcode::register();
         BdpmTableShortcode::register();
         PricingShortcode::register();
+        LogoutShortcode::register();
     }
 
-    public static function handle_logout(): void
-    {
+    
+public static function handle_logout(): void
+{
+    $redirect = isset($_REQUEST['redirect_to']) && is_scalar($_REQUEST['redirect_to'])
+        ? trim((string) wp_unslash((string) $_REQUEST['redirect_to']))
+        : '';
+
+    if ($redirect === '' || !wp_validate_redirect($redirect, false)) {
         $redirect = home_url('/');
+    }
 
-        if (is_user_logged_in()) {
-            $nonce = isset($_REQUEST['_wpnonce']) ? (string) wp_unslash($_REQUEST['_wpnonce']) : '';
-            if ($nonce === '' || !wp_verify_nonce($nonce, 'sosprescription_logout')) {
-                wp_safe_redirect($redirect);
-                exit;
-            }
-
-            wp_logout();
+    if (is_user_logged_in()) {
+        $nonce = isset($_REQUEST['_wpnonce']) ? (string) wp_unslash((string) $_REQUEST['_wpnonce']) : '';
+        if ($nonce === '' || !wp_verify_nonce($nonce, 'sosprescription_logout')) {
+            self::logout_safe_redirect($redirect);
         }
 
+        wp_logout();
+    }
+
+    self::logout_safe_redirect($redirect);
+}
+
+private static function logout_safe_redirect(string $redirect): void
+{
+    if (!headers_sent()) {
         wp_safe_redirect($redirect);
         exit;
     }
+
+    $escapedUrl = esc_url($redirect);
+    $escapedJs = wp_json_encode($redirect, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo '<!doctype html><html lang="fr"><head><meta charset="' . esc_attr((string) get_option('blog_charset')) . '"><meta http-equiv="refresh" content="0;url=' . $escapedUrl . '"><title>Redirection…</title></head><body>';
+    echo '<p>Redirection sécurisée… <a href="' . $escapedUrl . '">Continuer</a></p>';
+    echo '<script>window.location.replace(' . $escapedJs . ');</script>';
+    echo '</body></html>';
+    exit;
+}
 
     private static function is_sosprescription_rest_route($route): bool
     {

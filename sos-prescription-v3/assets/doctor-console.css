@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V6.5.6 */
+/* SOS Prescription : Doctor Console V7.0.1 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -1124,12 +1124,146 @@
 
 
 /* --------------------------------------------------------------------------
-   V6.5.5 — Shared surfaces finish: edit action, modal rhythm and stacked composer
+   V7.0.1 — Authoritative local finish: inbox header, edit action, composeur
+   et modale d’édition dans le seul périmètre de la console médecin.
    -------------------------------------------------------------------------- */
-.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions--below {
+.sosprescription-doctor .dc-inbox__head {
+  align-items: stretch;
+  padding: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 4px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 14px 28px rgba(15, 23, 42, 0.05);
+}
+
+.sosprescription-doctor .dc-inbox__head > div {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.sosprescription-doctor .dc-overline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  margin: 0;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sosprescription-doctor .dc-title {
+  margin: 0;
+  color: var(--sp-shell-color-text-1, #111827);
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.sosprescription-doctor .dc-subtitle {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 0;
+  padding: 0.42rem 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 76%, var(--sp-shell-color-surface, #ffffff) 24%);
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sosprescription-doctor .dc-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.sosprescription-doctor .dc-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 11%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, var(--sp-shell-color-surface-alt, #f6f8fb) 2%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.sosprescription-doctor .dc-filter-tab.is-active {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 22%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 70%, #ffffff 30%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+.sosprescription-doctor .dc-meds-card .dc-med {
+  position: relative;
+  padding: 1rem 1rem 0.95rem;
+}
+
+.sosprescription-doctor .dc-meds-card .dc-med__head {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 2.8rem;
+  padding-inline-end: 8.75rem;
+}
+
+.sosprescription-doctor .dc-meds-card .dc-med__label {
+  max-inline-size: 100%;
+  text-wrap: balance;
+}
+
+.sosprescription-doctor .dc-meds-card .dc-inline-action {
+  position: absolute;
+  inset-inline-end: 1rem;
+  inset-block-start: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.88rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, #ffffff 26%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88);
+}
+
+.sosprescription-doctor .dc-meds-card .dc-inline-action__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.sosprescription-doctor .dc-meds-card .dc-inline-action__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.sosprescription-doctor .dc-message-react-panel .sp-thread-composer--stacked .sp-thread-composer__actions--below {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 0.75rem;
+  width: 100%;
   margin-top: 0.95rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  padding-top: 0.95rem;
+  border-top: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
 }
 
 .sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions-group {
@@ -1149,43 +1283,36 @@
   min-height: 2.45rem;
 }
 
-.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__action--assist,
-.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__action--send {
-  min-height: 46px;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-inline-action {
-  display: inline-flex;
+.sosprescription-doctor .dc-message-react-panel :is(.sp-thread-composer__action--assist, .sp-thread-composer__action--send, .sp-app-icon-button, .sp-button--primary) {
+  min-height: 46px !important;
+  height: 46px;
   align-items: center;
-  gap: 0.55rem;
-  min-height: 40px;
-  padding-inline: 0.85rem;
   border-radius: 999px;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-inline-action__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1rem;
-  height: 1rem;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-inline-action__icon svg {
-  width: 1rem;
-  height: 1rem;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-inline-action__label {
-  line-height: 1;
 }
 
 .sosprescription-doctor .dc-modal__dialog {
   gap: 1rem;
 }
 
+.sosprescription-doctor .dc-modal__card {
+  display: grid;
+  gap: 1rem;
+  max-width: min(100%, 46rem);
+  padding: clamp(1rem, 0.94rem + 0.32vw, 1.25rem);
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, #ffffff 2%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 22px 42px rgba(15, 23, 42, 0.12);
+}
+
+.sosprescription-doctor .dc-modal__head,
 .sosprescription-doctor .dc-modal__header,
-.sosprescription-doctor .dc-modal__footer {
+.sosprescription-doctor .dc-modal__footer,
+.sosprescription-doctor .dc-modal__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1193,9 +1320,71 @@
   gap: 0.75rem;
 }
 
-.sosprescription-doctor .dc-modal__body {
+.sosprescription-doctor .dc-modal__title {
+  color: var(--sp-shell-color-text-1, #111827);
+  font-weight: 800;
+}
+
+.sosprescription-doctor .dc-modal__subtitle {
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sosprescription-doctor .dc-modal__body,
+.sosprescription-doctor .dc-modal__fields,
+.sosprescription-doctor .dc-modal__panel {
   display: grid;
   gap: 1rem;
+}
+
+.sosprescription-doctor .dc-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+}
+
+.sosprescription-doctor .dc-modal__inline,
+.sosprescription-doctor .dc-modal__schedule-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.sosprescription-doctor .dc-modal__schedule-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sosprescription-doctor .dc-modal__schedule-hint {
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.sosprescription-doctor .dc-modal__schedule-rows {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.sosprescription-doctor .dc-modal__schedule-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.sosprescription-doctor .dc-modal__schedule-row-label {
+  color: var(--sp-shell-color-text-2, #334155);
+  font-weight: 700;
+}
+
+.sosprescription-doctor .dc-modal__schedule-warnings {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #9a3412;
 }
 
 @media (max-width: 900px) {
@@ -1206,88 +1395,21 @@
   .sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions-group > * {
     width: 100%;
   }
-}
 
-
-/* --------------------------------------------------------------------------
-   V6.5.6 — QA pass: inbox header, ordonnance edit action and calmer composeur
-   -------------------------------------------------------------------------- */
-.sosprescription-doctor .dc-inbox__head {
-  align-items: stretch;
-  padding: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
-  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
-    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
-  );
-}
-
-.sosprescription-doctor .dc-inbox__head > div {
-  display: grid;
-  gap: 0.45rem;
-  width: 100%;
-}
-
-.sosprescription-doctor .dc-subtitle {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-top: 0;
-  padding: 0.4rem 0.72rem;
-  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, var(--sp-shell-color-surface, #ffffff) 26%);
-  color: var(--sp-shell-color-text-3, #64748b);
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-med {
-  position: relative;
-  padding: 0.95rem 0.98rem 0.9rem;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-med__head {
-  display: block;
-  min-height: 2.5rem;
-  padding-inline-end: 8rem;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-med__label {
-  max-inline-size: calc(100% - 0.25rem);
-  text-wrap: balance;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-inline-action {
-  position: absolute;
-  inset-inline-end: 0.95rem;
-  inset-block-start: 0.9rem;
-}
-
-.sosprescription-doctor .dc-meds-card .dc-med__posology {
-  margin-top: 0.72rem;
-}
-
-.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions--below {
-  margin-top: 1rem;
-}
-
-.sosprescription-doctor .dc-message-react-panel .sp-thread-composer__actions-group {
-  gap: 0.75rem;
+  .sosprescription-doctor .dc-modal__grid,
+  .sosprescription-doctor .dc-modal__schedule-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
-  .sosprescription-doctor .dc-meds-card .dc-med {
-    padding-top: 0.95rem;
-  }
-
   .sosprescription-doctor .dc-meds-card .dc-med__head {
     padding-inline-end: 0;
   }
 
   .sosprescription-doctor .dc-meds-card .dc-inline-action {
     position: static;
-    margin-top: 0.75rem;
+    margin-top: 0.7rem;
+    width: fit-content;
   }
 }

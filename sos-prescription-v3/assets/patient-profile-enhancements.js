@@ -1,3 +1,4 @@
+// assets/patient-profile-enhancements.js · V7.0.1
 (function () {
   var cfg = window.SOSPrescription || window.SosPrescription || {};
   if (!cfg || typeof cfg !== 'object') {
@@ -680,6 +681,12 @@
       .then(function (data) {
         if (data && data.profile && typeof data.profile === 'object') {
           updateGlobalProfile(data.profile);
+          window.dispatchEvent(new CustomEvent('sosprescription:patient-profile-updated', {
+            detail: {
+              profile: data.profile,
+              response: data
+            }
+          }));
         }
       })
       .catch(function () {

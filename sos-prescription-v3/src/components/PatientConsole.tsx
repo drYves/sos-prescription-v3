@@ -1,3 +1,4 @@
+// PatientConsole.tsx · V7.0.1
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -504,17 +505,37 @@ function formatFileSize(sizeBytes: number | undefined): string {
 }
 
 function isPatientProfileComplete(profile: AppConfig['patientProfile'] | undefined, currentUser: AppConfig['currentUser'] | undefined): boolean {
+  const firstName = cleanHumanText(profile?.first_name)
+    || cleanHumanText(currentUser?.firstName)
+    || cleanHumanText(currentUser?.first_name);
+
+  const lastName = cleanHumanText(profile?.last_name)
+    || cleanHumanText(currentUser?.lastName)
+    || cleanHumanText(currentUser?.last_name);
+
   const fullName = cleanHumanText(profile?.fullname)
     || cleanHumanText(profile?.full_name)
     || cleanHumanText(profile?.fullName)
-    || cleanHumanText([profile?.first_name, profile?.last_name].filter(Boolean).join(' '))
-    || (currentUser?.displayName && !isEmailLike(String(currentUser.displayName)) ? cleanHumanText(currentUser.displayName) : undefined);
+    || cleanHumanText([firstName, lastName].filter(Boolean).join(' '))
+    || (currentUser?.displayName && !isEmailLike(String(currentUser.displayName)) ? cleanHumanText(String(currentUser.displayName)) : undefined);
 
   const birthdate = cleanHumanText(profile?.birthdate_fr)
     || cleanHumanText(profile?.birthdate_iso)
-    || cleanHumanText(profile?.birthdate);
+    || cleanHumanText(profile?.birthdate)
+    || cleanHumanText(currentUser?.birthDate)
+    || cleanHumanText(currentUser?.birthdate)
+    || cleanHumanText(currentUser?.sosp_birthdate);
 
-  return Boolean(fullName && birthdate);
+  const email = cleanHumanText(profile?.email)
+    || cleanHumanText(currentUser?.email);
+
+  const weightKg = cleanHumanText(profile?.weight_kg)
+    || cleanHumanText(profile?.weightKg);
+
+  const heightCm = cleanHumanText(profile?.height_cm)
+    || cleanHumanText(profile?.heightCm);
+
+  return Boolean(fullName && birthdate && email && weightKg && heightCm);
 }
 
 function normalizeAttachmentIds(value: unknown): number[] | undefined {

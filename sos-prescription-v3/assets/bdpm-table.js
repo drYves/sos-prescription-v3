@@ -1,4 +1,4 @@
-// assets/bdpm-table.js · V6.5.6
+// assets/bdpm-table.js · V7.0.1
 (function () {
   var root = document.getElementById('sosprescription-bdpm-table-root')
   if (!root) return

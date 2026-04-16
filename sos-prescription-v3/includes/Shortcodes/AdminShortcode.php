@@ -88,15 +88,14 @@ final class AdminShortcode
             . '<noscript>Activez JavaScript pour utiliser la console médecin.</noscript>';
     }
 
-    private static function render_logout_form(): string
+    
+private static function render_logout_form(): string
     {
-        $action = esc_url(admin_url('admin-post.php'));
-        $nonce = wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
-
-        return '<form class="sp-form" method="post" action="' . $action . '">'
-            . '<input type="hidden" name="action" value="sosprescription_logout" />'
-            . $nonce
-            . '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>'
-            . '</form>';
+        return LogoutShortcode::render([
+            'class' => 'sp-button sp-button--secondary',
+            'form_class' => 'sp-form sp-logout-form',
+            'redirect' => home_url('/'),
+        ]);
     }
+
 }

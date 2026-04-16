@@ -1,7 +1,8 @@
+/* SOS Prescription : Plugin Bridge V7.0.1 */
 /*
- * SOS Prescription : Plugin Bridge V7.0.0
- * Adaptateur structurel uniquement.
- * Le bridge raccorde les racines au shell, sans repeindre les composants métier.
+ * SOS Prescription — Plugin Bridge v7.0.1
+ * Adaptateur léger entre shell et racines plugin.
+ * Le bridge reste structurel, avec un contrat visuel limité aux entrées sécurisées.
  */
 
 :where(
@@ -79,41 +80,126 @@
   justify-items: stretch;
 }
 
-.sp-plugin-guard {
+.sp-plugin-guard,
+.sp-auth-entry {
   width: min(100%, 46rem);
   margin-inline: auto;
-  display: grid;
-  gap: 1rem;
-}
-
-.sp-plugin-guard__shell {
   display: grid;
   gap: 1rem;
   min-width: 0;
 }
 
-.sp-plugin-guard__header,
-.sp-plugin-guard__brand {
+.sp-plugin-guard__shell,
+.sp-auth-entry__panel--secure {
+  position: relative;
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
+  min-width: 0;
+  padding: clamp(1.15rem, 1.02rem + 0.48vw, 1.45rem);
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 11%, transparent);
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 22%, var(--sp-shell-color-surface, #ffffff) 78%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 18px 34px rgba(15, 23, 42, 0.07);
 }
 
-.sp-plugin-guard__actions {
+.sp-plugin-guard__header,
+.sp-auth-entry__header {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.sp-plugin-guard__eyebrow,
+.sp-auth-entry__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-guard__title {
+  margin: 0;
+  color: var(--sp-shell-color-text-1, #111827);
+  font-size: clamp(1.45rem, 1.28rem + 0.52vw, 1.8rem);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.sp-plugin-guard__body,
+.sp-auth-entry__text {
+  margin: 0;
+  max-inline-size: 64ch;
+  color: var(--sp-shell-color-text-2, #334155);
+  line-height: 1.65;
+}
+
+.sp-plugin-guard__brand {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding-block: 0.2rem 0.1rem;
+  text-align: center;
+}
+
+.sp-plugin-guard__favicon {
+  inline-size: 4.5rem;
+  block-size: 4.5rem;
+  border-radius: 1.35rem;
+  padding: 0.8rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 78%, #ffffff 22%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-surface-alt, #f6f8fb) 12%)
+  );
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.sp-plugin-guard__icons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+}
+
+.sp-plugin-guard__icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.6rem;
+  block-size: 2.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 84%, #ffffff 16%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.sp-plugin-guard__icon-chip svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.sp-plugin-guard__actions,
+.sp-auth-entry__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
 }
 
-.sp-plugin-guard__actions > * {
-  min-width: 0;
-}
-
-.sp-auth-entry {
-  width: min(100%, 46rem);
-  margin-inline: auto;
-  display: grid;
-  gap: 1rem;
+.sp-plugin-guard__actions > *,
+.sp-auth-entry__actions > * {
   min-width: 0;
 }
 
@@ -125,6 +211,20 @@
 .sp-auth-entry__panel,
 .sp-auth-entry__panel-body {
   min-width: 0;
+}
+
+.sp-auth-entry__panel--secure .sp-auth-entry__panel-body {
+  gap: 1rem;
+}
+
+.sp-auth-entry__status {
+  margin: 0;
+  border-radius: calc(var(--sp-shell-radius-md, 14px) - 2px);
+}
+
+.sp-auth-entry__form {
+  display: grid;
+  gap: 1rem;
 }
 
 @media (min-width: 860px) {
@@ -140,7 +240,14 @@
     width: 100%;
   }
 
-  .sp-plugin-guard__actions > * {
+  .sp-plugin-guard__actions,
+  .sp-auth-entry__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sp-plugin-guard__actions > *,
+  .sp-auth-entry__actions > * {
     width: 100%;
   }
 }

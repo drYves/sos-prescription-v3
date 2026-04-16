@@ -29,21 +29,22 @@ final class PatientShortcode
         if (!is_user_logged_in()) {
             AuthMagicLinkUi::enqueue_assets();
 
-            return AuthMagicLinkUi::render_request_screen(
-                'patient',
-                'Connexion patient',
-                'Saisissez votre adresse e-mail pour recevoir un lien de connexion sécurisé vers votre espace patient.'
-            );
+            return AuthMagicLinkUi::render_patient_request_screen();
         }
 
         Assets::enqueue_form_app();
 
-        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_VERSION')) {
+        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_PATH')) {
+            $patientChatEnhancementsPath = SOSPRESCRIPTION_PATH . 'assets/patient-chat-enhancements.js';
+            $patientChatEnhancementsVersion = file_exists($patientChatEnhancementsPath)
+                ? (string) filemtime($patientChatEnhancementsPath)
+                : (defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null);
+
             wp_enqueue_script(
                 'sosprescription-patient-chat-enhancements',
                 SOSPRESCRIPTION_URL . 'assets/patient-chat-enhancements.js',
                 [],
-                SOSPRESCRIPTION_VERSION,
+                $patientChatEnhancementsVersion,
                 true
             );
         }
@@ -75,18 +76,43 @@ final class PatientShortcode
             . '</div>'
         );
 
+        if (self::can_self_delete_account()) {
+            $content .= ScreenFrame::mount('patient', self::render_delete_account_section(), [], ['sp-ui']);
+        }
+
         return ScreenFrame::screen('patient', $content, [], ['sp-ui'])
             . '<noscript>Activez JavaScript pour accéder à votre espace patient.</noscript>';
     }
 
-    private static function render_logout_form(): string
+    
+private static function render_logout_form(): string
+    {
+        return LogoutShortcode::render([
+            'class' => 'sp-button sp-button--secondary',
+            'form_class' => 'sp-form sp-logout-form',
+            'redirect' => home_url('/'),
+        ]);
+    }
+
+
+    private static function can_self_delete_account(): bool
+    {
+        return !current_user_can('sosprescription_validate')
+            && !current_user_can('sosprescription_manage')
+            && !current_user_can('manage_options');
+    }
+
+    private static function render_delete_account_section(): string
     {
         $html = '';
-        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        $html .= '<input type="hidden" name="action" value="sosprescription_logout" />';
-        $html .= wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
-        $html .= '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>';
-        $html .= '</form>';
+        $html .= '<div class="sp-card">';
+        $html .= '<div class="sp-stack">';
+        $html .= '<h2>Suppression de compte</h2>';
+        $html .= '<p class="sp-field__help">Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.</p>';
+        $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
+        $html .= '<button type="button" class="sp-button sp-button--secondary" style="color: var(--sp-color-warning, #c2410c); border-color: currentColor;" id="sp-delete-account-btn">Supprimer mon compte</button>';
+        $html .= '</div>';
+        $html .= '</div>';
 
         return $html;
     }

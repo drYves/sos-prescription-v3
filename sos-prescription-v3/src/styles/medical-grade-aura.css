@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V6.5.6 */
+/* SOS Prescription : Medical-Grade Aura V7.0.1 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -3980,231 +3980,100 @@ a.sp-app-button.sp-app-button--secondary:hover {
 
 
 /* --------------------------------------------------------------------------
-   V6.5.5 — Shared components finish: patient hero, secure auth and stacked composer
+   V7.0.1 — Local harmonization authority block
+   Formulaire, espace patient et composants transverses strictement scoppés
+   sur leurs racines souveraines.
    -------------------------------------------------------------------------- */
-.sp-patient-console .sp-patient-hero__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+#sosprescription-root-form,
+.sp-patient-console {
+  --sp-control-bg: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, var(--sp-shell-color-surface-alt, #f6f8fb) 2%);
+  --sp-control-border-rest: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 18%, transparent);
+  --sp-control-border-hover: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 24%, transparent);
+  --sp-control-border-focus: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 42%, transparent);
+  --sp-control-shadow-rest: inset 0 1px 0 rgba(255,255,255,0.88), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --sp-control-shadow-focus: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 76%, transparent);
 }
 
-.sp-patient-console .sp-patient-hero__date-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.42rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+#sosprescription-root-form :is(.sp-app-input, .sp-app-select, .sp-app-textarea, .sp-input, .sp-select, .sp-textarea),
+.sp-patient-console :is(.sp-input, .sp-select, .sp-textarea) {
+  border-color: var(--sp-control-border-rest);
+  background: var(--sp-control-bg);
+  box-shadow: var(--sp-control-shadow-rest);
+}
+
+#sosprescription-root-form :is(.sp-app-input, .sp-app-select, .sp-app-textarea, .sp-input, .sp-select, .sp-textarea):hover,
+.sp-patient-console :is(.sp-input, .sp-select, .sp-textarea):hover {
+  border-color: var(--sp-control-border-hover);
+}
+
+#sosprescription-root-form :is(.sp-app-input, .sp-app-select, .sp-app-textarea, .sp-input, .sp-select, .sp-textarea):focus-visible,
+.sp-patient-console :is(.sp-input, .sp-select, .sp-textarea):focus-visible {
+  outline: none;
+  border-color: var(--sp-control-border-focus);
+  box-shadow: var(--sp-control-shadow-focus), inset 0 1px 0 rgba(255,255,255,0.88);
+}
+
+#sosprescription-root-form :is(.sp-button, .sp-app-actions .sp-button),
+.sp-patient-console :is(.sp-button, .sp-btn) {
   border-radius: 999px;
-  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
-  color: var(--sp-shell-color-text-3, #64748b);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
-.sp-patient-console .sp-patient-hero__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.85fr) minmax(17.5rem, 19.75rem);
-  gap: clamp(1rem, 0.9rem + 0.5vw, 1.35rem);
-  align-items: stretch;
+#sosprescription-root-form .sp-app-stagebar {
+  gap: 0.85rem;
 }
 
-.sp-patient-console .sp-patient-hero__content {
-  gap: 0.95rem;
-}
-
-.sp-patient-console .sp-patient-hero__headline {
-  display: grid;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.sp-patient-console .sp-patient-hero__title {
-  max-inline-size: min(100%, 42rem);
-  line-height: 1.08;
-  text-wrap: balance;
-}
-
-.sp-patient-console .sp-patient-hero__lead {
-  max-inline-size: 64ch;
-  line-height: 1.55;
-}
-
-.sp-patient-console .sp-patient-hero__support {
-  max-inline-size: 68ch;
-  line-height: 1.65;
-}
-
-.sp-patient-console .sp-patient-hero__aside {
-  min-width: 0;
-}
-
-.sp-patient-console .sp-patient-hero__action-card {
-  display: grid;
-  gap: 0.72rem;
-  min-height: 100%;
-  padding: clamp(0.95rem, 0.9rem + 0.25vw, 1.15rem);
-  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
-  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 1px);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
-    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 30%, var(--sp-shell-color-surface, #ffffff) 70%)
-  );
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 12px 26px rgba(15, 23, 42, 0.05);
-}
-
-.sp-patient-console .sp-patient-hero[data-tone="success"] .sp-patient-hero__action-card {
-  border-color: color-mix(in srgb, var(--sp-color-success, #159f6e) 18%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-color-success, #159f6e) 8%, #ffffff 92%),
-    color-mix(in srgb, var(--sp-color-success, #159f6e) 4%, var(--sp-shell-color-surface, #ffffff) 96%)
-  );
-}
-
-.sp-patient-console .sp-patient-hero[data-tone="warning"] .sp-patient-hero__action-card {
-  border-color: color-mix(in srgb, var(--sp-color-warning, #d68f12) 20%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-color-warning, #d68f12) 10%, #ffffff 90%),
-    color-mix(in srgb, var(--sp-color-warning, #d68f12) 4%, var(--sp-shell-color-surface, #ffffff) 96%)
-  );
-}
-
-.sp-patient-console .sp-patient-hero__action-label {
-  color: var(--sp-shell-color-text-3, #64748b);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.sp-patient-console .sp-patient-hero__actions {
-  gap: 0.8rem;
-}
-
-.sp-patient-console .sp-patient-hero__button,
-.sp-patient-console .sp-patient-hero__note {
-  min-height: 54px;
-}
-
-.sp-patient-console .sp-patient-hero__note {
-  text-align: left;
-  justify-content: flex-start;
-  padding-inline: 0.95rem;
-}
-
-.sp-patient-console .sp-patient-hero__decision {
-  max-inline-size: min(100%, 46rem);
-  gap: 0.45rem;
-}
-
-.sp-patient-console .sp-patient-hero__footer {
-  padding-top: 0.75rem;
-}
-
-.sp-thread-composer__actions-group {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  inline-size: 100%;
-}
-
-.sp-thread-composer__smart-replies {
-  gap: 0.6rem;
-}
-
-.sp-thread-composer__smart-reply {
-  min-height: 2.5rem;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry--guarded {
-  gap: 1rem;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__panel--secure {
-  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
-  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 96%, #ffffff 4%),
-    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
-  );
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.84), 0 16px 34px rgba(15, 23, 42, 0.07);
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__header {
-  display: grid;
-  gap: 0.7rem;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0;
-  color: var(--sp-shell-color-accent-ink, #0a4d87);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__text {
-  margin: 0;
-  max-inline-size: 62ch;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__status {
-  margin: 0;
-}
-
-:where(.sp-plugin-root--verify, .sp-plugin-root--console, .sp-plugin-root--doctor-account) .sp-auth-entry__form {
-  gap: 1rem;
-}
-
-@media (max-width: 980px) {
-  .sp-patient-console .sp-patient-hero__body {
-    grid-template-columns: 1fr;
-  }
-
-  .sp-patient-console .sp-patient-hero__aside {
-    inline-size: 100%;
-  }
-}
-
-
-/* --------------------------------------------------------------------------
-   V6.5.6 — QA pass: stepper geometry, simplified planning, patient hero and
-   stable workspace columns (strictly local container scoping)
-   -------------------------------------------------------------------------- */
 #sosprescription-root-form .sp-app-stagebar__item {
   min-width: 0;
+  gap: 0.55rem;
 }
 
 #sosprescription-root-form .sp-app-stagebar__badge {
   flex: 0 0 2.55rem;
   inline-size: 2.55rem;
-  min-inline-size: 2.55rem;
-  max-inline-size: 2.55rem;
   block-size: 2.55rem;
-  min-block-size: 2.55rem;
-  max-block-size: 2.55rem;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 15%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 96%, var(--sp-shell-color-surface-alt, #f6f8fb) 4%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-weight: 800;
   line-height: 1;
   text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+#sosprescription-root-form .sp-app-stagebar__item.is-active .sp-app-stagebar__badge,
+#sosprescription-root-form .sp-app-stagebar__item.is-complete .sp-app-stagebar__badge {
+  border-color: transparent;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 82%, #ffffff 18%),
+    color-mix(in srgb, var(--sp-shell-color-accent-ink, #0a4d87) 88%, var(--sp-shell-color-accent, #0f6cbd) 12%)
+  );
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+#sosprescription-root-form .sp-app-card--step-choice .sp-app-section__hint {
+  margin-bottom: 0.55rem;
 }
 
 #sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
-  margin-top: 0.15rem;
+  margin-top: 0.4rem;
+}
+
+#sosprescription-root-form .sp-app-card--step-choice,
+#sosprescription-root-form .sp-app-card--priority,
+#sosprescription-root-form .sp-app-card--payment,
+#sosprescription-root-form .sp-app-card--consent {
+  padding: clamp(1rem, 0.94rem + 0.3vw, 1.25rem);
+}
+
+#sosprescription-root-form .sp-app-card--priority,
+#sosprescription-root-form .sp-app-card--payment {
+  gap: 1rem;
 }
 
 #sosprescription-root-form .sp-app-schedule-editor {
@@ -4213,40 +4082,65 @@ a.sp-app-button.sp-app-button--secondary:hover {
 
 #sosprescription-root-form .sp-app-schedule__header {
   align-items: center;
+  gap: 0.8rem;
 }
 
 #sosprescription-root-form .sp-app-schedule__actions {
   align-items: center;
+  gap: 0.7rem;
   flex-wrap: wrap;
 }
 
 #sosprescription-root-form .sp-app-schedule-editor__advanced {
   display: grid;
-  gap: 0.85rem;
-  margin-top: 0.15rem;
+  gap: 0.9rem;
 }
 
 #sosprescription-root-form .sp-app-schedule-editor__advanced-toggle {
   display: flex;
-  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.7rem;
 }
 
 #sosprescription-root-form .sp-app-schedule--advanced {
   margin-top: 0.1rem;
-  padding: 1rem;
-  border: 1px dashed color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  padding: 1rem 1.05rem;
+  border: 1px dashed color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 20%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 4px);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 62%, var(--sp-shell-color-surface, #ffffff) 38%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 68%, var(--sp-shell-color-surface, #ffffff) 32%),
     color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, var(--sp-shell-color-surface-alt, #f6f8fb) 5%)
   );
 }
 
-#sosprescription-root-form .sp-app-checkbox__label {
+#sosprescription-root-form .sp-app-card--consent {
+  gap: 0.95rem;
+}
+
+#sosprescription-root-form .sp-app-consent-list {
+  gap: 0.72rem;
+}
+
+#sosprescription-root-form .sp-app-checkbox {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
+  gap: 0.8rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 4px);
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, var(--sp-shell-color-surface, #ffffff) 26%);
+}
+
+#sosprescription-root-form .sp-app-checkbox__label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
 }
 
 #sosprescription-root-form .sp-app-checkbox__control {
@@ -4269,81 +4163,65 @@ a.sp-app-button.sp-app-button--secondary:hover {
   transform-origin: center;
 }
 
-#sosprescription-root-form .sp-app-card--priority .sp-app-inline-note {
-  margin-top: 0.15rem;
-}
-
-.sp-patient-console .sp-patient-hero {
-  padding: clamp(1.05rem, 0.96rem + 0.45vw, 1.35rem);
-}
-
-.sp-patient-console .sp-patient-hero__body {
-  grid-template-columns: minmax(0, 1fr) clamp(18rem, 26vw, 20.5rem);
-  gap: clamp(1rem, 0.92rem + 0.45vw, 1.4rem);
-  align-items: stretch;
-}
-
-.sp-patient-console .sp-patient-hero__headline,
-.sp-patient-console .sp-patient-hero__content {
+#sosprescription-root-form .sp-app-checkbox__text {
   min-width: 0;
+  line-height: 1.55;
 }
 
-.sp-patient-console .sp-patient-hero__title {
-  max-inline-size: min(100%, 40rem);
-  white-space: normal;
-  text-wrap: pretty;
-  overflow-wrap: anywhere;
+#sosprescription-root-form .sp-app-checkbox--legal {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding-block: 0.7rem;
+  border-style: dashed;
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, var(--sp-shell-color-surface-alt, #f6f8fb) 2%);
 }
 
-.sp-patient-console .sp-patient-hero__lead,
-.sp-patient-console .sp-patient-hero__support {
-  max-inline-size: 64ch;
+#sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action {
+  margin-inline-start: 0.75rem;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.sp-patient-console .sp-patient-hero__aside {
-  inline-size: clamp(18rem, 26vw, 20.5rem);
-  max-inline-size: 100%;
-  align-self: stretch;
+#sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action:hover,
+#sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
 }
 
-.sp-patient-console .sp-patient-hero__action-card {
-  grid-template-rows: auto 1fr;
-  align-content: start;
+#sosprescription-root-form .sp-app-card--priority .sp-app-inline-note,
+#sosprescription-root-form .sp-app-card--payment .sp-app-inline-note {
+  margin-top: 0.2rem;
 }
 
-.sp-patient-console .sp-patient-hero__actions {
-  display: grid;
-  gap: 0.8rem;
-  align-content: start;
-  min-width: 0;
+.sp-patient-console {
+  --sp-patient-sidebar-width: 19.5rem;
+  --sp-patient-hero-rail-width: clamp(17.5rem, 24vw, 20rem);
 }
 
-.sp-patient-console .sp-patient-hero__button,
-.sp-patient-console .sp-patient-hero__note {
-  width: 100%;
-  min-width: 0;
+.sp-patient-console .sp-patient-console__workspace-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.sp-patient-console .sp-console-grid {
-  grid-template-columns: 19.5rem minmax(0, 1fr);
-  align-items: start;
+.sp-patient-console .sp-patient-console__workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 3rem;
+  padding: 0.72rem 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, var(--sp-shell-color-surface-alt, #f6f8fb) 3%);
 }
 
-.sp-patient-console .sp-console-grid__sidebar {
-  inline-size: 19.5rem;
-  min-inline-size: 19.5rem;
-  max-inline-size: 19.5rem;
-}
-
-.sp-patient-console .sp-console-grid__sidebar > .sp-panel {
-  position: sticky;
-  top: clamp(0.85rem, 0.7rem + 0.45vw, 1.1rem);
-}
-
-.sp-patient-console .sp-console-grid__sidebar > .sp-panel > .sp-panel__body {
-  max-block-size: min(70vh, 44rem);
-  overflow-y: auto;
-  padding-inline-end: 0.25rem;
+.sp-patient-console .sp-patient-console__workspace-tab.is-active {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 24%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 68%, #ffffff 32%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
 }
 
 .sp-patient-console .sp-patient-console__workspace-badge {
@@ -4351,59 +4229,24 @@ a.sp-app-button.sp-app-button--secondary:hover {
   align-items: center;
   justify-content: center;
   min-height: 1.7rem;
-  padding-inline: 0.7rem;
+  padding: 0.2rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .sp-patient-console .sp-patient-console__workspace-badge[data-state='success'] {
   border-color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 24%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sp-shell-color-success-soft, #ecfdf5) 72%, #ffffff 28%),
-    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-success-soft, #ecfdf5) 12%)
-  );
-  color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 74%, var(--sp-shell-color-text-1, #111827) 26%);
+  background: color-mix(in srgb, var(--sp-shell-color-success-soft, #ecfdf5) 74%, #ffffff 26%);
+  color: color-mix(in srgb, var(--sp-shell-color-success, #159f6e) 72%, var(--sp-shell-color-text-1, #111827) 28%);
 }
 
-.sp-patient-console .sp-patient-console__profile-panel .sp-profile-card--embedded,
-.sp-patient-console .sp-patient-console__profile-host .sp-profile-card--embedded {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-
-@media (max-width: 1100px) {
-  .sp-patient-console .sp-console-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .sp-patient-console .sp-console-grid__sidebar {
-    inline-size: 100%;
-    min-inline-size: 0;
-    max-inline-size: none;
-  }
-
-  .sp-patient-console .sp-console-grid__sidebar > .sp-panel {
-    position: static;
-  }
-
-  .sp-patient-console .sp-console-grid__sidebar > .sp-panel > .sp-panel__body {
-    max-block-size: none;
-    overflow: visible;
-    padding-inline-end: 0;
-  }
-}
-
-
-/* --------------------------------------------------------------------------
-   V7.0.0 — Structural P0: workspace patient souverain
-   Le shell n'intervient plus sur les internals ; cette section fige la géométrie
-   locale du workspace patient et du hero dossier.
-   -------------------------------------------------------------------------- */
-.sp-patient-console {
-  --sp-patient-sidebar-width: 19.5rem;
-  --sp-patient-hero-rail-width: clamp(17rem, 24vw, 19.5rem);
+.sp-patient-console .sp-patient-console__workspace-badge[data-state='warning'] {
+  border-color: color-mix(in srgb, var(--sp-shell-color-warning, #d68f12) 26%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-warning-soft, #fff7ed) 76%, #ffffff 24%);
+  color: color-mix(in srgb, var(--sp-shell-color-warning, #d68f12) 68%, var(--sp-shell-color-text-1, #111827) 32%);
 }
 
 .sp-patient-console .sp-patient-console__workspace {
@@ -4413,12 +4256,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
   min-width: 0;
 }
 
-.sp-patient-console .sp-patient-console__sidebar,
-.sp-patient-console .sp-patient-console__detail,
-.sp-patient-console .sp-patient-console__detail-shell,
-.sp-patient-console .sp-patient-console__detail-stack,
-.sp-patient-console .sp-patient-hero__main,
-.sp-patient-console .sp-patient-hero__rail {
+.sp-patient-console :is(.sp-patient-console__sidebar, .sp-patient-console__detail, .sp-patient-console__detail-shell, .sp-patient-console__detail-stack, .sp-patient-hero__main, .sp-patient-hero__rail) {
   min-width: 0;
 }
 
@@ -4440,12 +4278,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
   padding-inline-end: 0.25rem;
 }
 
-.sp-patient-console .sp-patient-console__detail {
-  display: grid;
-  gap: clamp(1rem, 0.92rem + 0.4vw, 1.25rem);
-  align-content: start;
-}
-
+.sp-patient-console .sp-patient-console__detail,
 .sp-patient-console .sp-patient-console__detail-shell,
 .sp-patient-console .sp-patient-console__detail-stack {
   display: grid;
@@ -4453,24 +4286,41 @@ a.sp-app-button.sp-app-button--secondary:hover {
   align-content: start;
 }
 
-.sp-patient-console .sp-patient-console__detail-state {
-  min-height: 9rem;
-  display: grid;
-  place-items: center;
-  text-align: center;
-}
-
-.sp-patient-console .sp-patient-console__detail-state--loading {
-  place-items: stretch;
-}
-
-.sp-patient-console .sp-patient-console__detail-state--loading .sp-loading-row {
-  justify-content: center;
-}
-
 .sp-patient-console .sp-patient-hero {
   min-width: 0;
   overflow: clip;
+  padding: clamp(1.1rem, 1rem + 0.44vw, 1.4rem);
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, #ffffff 2%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 20%, var(--sp-shell-color-surface, #ffffff) 80%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 18px 34px rgba(15, 23, 42, 0.06);
+}
+
+.sp-patient-console .sp-patient-hero__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sp-patient-console .sp-patient-hero__date-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, var(--sp-shell-color-surface, #ffffff) 26%);
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .sp-patient-console .sp-patient-hero__body {
@@ -4480,18 +4330,20 @@ a.sp-app-button.sp-app-button--secondary:hover {
   align-items: stretch;
 }
 
-.sp-patient-console .sp-patient-hero__main {
-  display: grid;
-  min-width: 0;
-}
-
 .sp-patient-console .sp-patient-hero__content,
 .sp-patient-console .sp-patient-hero__headline {
   min-width: 0;
-  max-inline-size: none;
+  display: grid;
+  gap: 0.75rem;
 }
 
-.sp-patient-console .sp-patient-hero__title,
+.sp-patient-console .sp-patient-hero__title {
+  max-inline-size: 100%;
+  line-height: 1.08;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
 .sp-patient-console .sp-patient-hero__lead,
 .sp-patient-console .sp-patient-hero__support,
 .sp-patient-console .sp-patient-hero__decision {
@@ -4509,8 +4361,21 @@ a.sp-app-button.sp-app-button--secondary:hover {
 .sp-patient-console .sp-patient-hero__action-card {
   display: grid;
   grid-template-rows: auto 1fr;
+  gap: 0.75rem;
   align-content: start;
   min-block-size: 100%;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 2px);
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, var(--sp-shell-color-surface-alt, #f6f8fb) 3%);
+}
+
+.sp-patient-console .sp-patient-hero__action-label {
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .sp-patient-console .sp-patient-hero__actions {
@@ -4524,6 +4389,62 @@ a.sp-app-button.sp-app-button--secondary:hover {
 .sp-patient-console .sp-patient-hero__note {
   width: 100%;
   min-width: 0;
+  min-height: 54px;
+}
+
+.sp-patient-console .sp-patient-hero__note {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-card--embedded,
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-card--embedded {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-actions,
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-actions__submit,
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-actions__submit {
+  min-height: 2.95rem;
+  padding-inline: 1.1rem;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.sp-thread-composer__actions-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.sp-thread-composer__smart-replies {
+  gap: 0.6rem;
+}
+
+.sp-thread-composer__smart-reply {
+  min-height: 2.5rem;
+}
+
+@media (max-width: 980px) {
+  #sosprescription-root-form .sp-app-checkbox--legal {
+    grid-template-columns: 1fr;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action {
+    margin-inline-start: 0;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -4554,5 +4475,17 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-patient-console .sp-patient-hero__aside,
   .sp-patient-console .sp-patient-hero__rail {
     inline-size: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .sp-patient-console .sp-patient-console__workspace-nav {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sp-patient-console .sp-patient-console__workspace-tab {
+    width: 100%;
+    justify-content: space-between;
   }
 }

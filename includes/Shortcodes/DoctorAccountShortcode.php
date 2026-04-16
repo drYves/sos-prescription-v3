@@ -241,7 +241,7 @@ final class DoctorAccountShortcode
         );
 
         if ($is_admin_view) {
-            $management = self::render_management_section();
+            $management = self::render_management_section($user, $rpps_verified, $rpps);
             if ($management !== '') {
                 $content .= ScreenFrame::mount(
                     'doctor-account',
@@ -288,17 +288,16 @@ final class DoctorAccountShortcode
         return $html;
     }
 
-    private static function render_logout_form(): string
+    
+private static function render_logout_form(): string
     {
-        $html = '';
-        $html .= '<form class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        $html .= '<input type="hidden" name="action" value="sosprescription_logout" />';
-        $html .= wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
-        $html .= '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>';
-        $html .= '</form>';
-
-        return $html;
+        return LogoutShortcode::render([
+            'class' => 'sp-button sp-button--secondary',
+            'form_class' => 'sp-form sp-doctor-account__form sp-logout-form',
+            'redirect' => home_url('/'),
+        ]);
     }
+
 
     private static function render_status_alerts(bool $updated, bool $created, string $error, string $notice_created): string
     {
@@ -531,8 +530,34 @@ final class DoctorAccountShortcode
         return $html;
     }
 
-    private static function render_management_section(): string
+    
+private static function doctor_account_is_established(int $user_id, bool $rpps_verified, string $rpps): bool
     {
+        $user = get_userdata($user_id);
+        if ($user instanceof \WP_User) {
+            $roles = is_array($user->roles) ? array_filter(array_map('strval', $user->roles)) : [];
+            if (in_array('sosprescription_doctor', $roles, true)) {
+                return true;
+            }
+        }
+
+        if ($rpps_verified) {
+            return true;
+        }
+
+        return trim($rpps) !== '';
+    }
+
+    private static function render_management_section(\WP_User $user, bool $rpps_verified, string $rpps): string
+    {
+        if (!self::can_manage_doctors()) {
+            return '';
+        }
+
+        if (self::doctor_account_is_established((int) $user->ID, $rpps_verified, $rpps)) {
+            return '';
+        }
+
         $doctors = get_users([
             'role__in' => ['sosprescription_doctor'],
             'orderby' => 'display_name',
@@ -548,12 +573,12 @@ final class DoctorAccountShortcode
         $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--management">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
         $html .= '<div class="sp-doctor-account__section-heading">';
-        $html .= '<h2>Ajouter un médecin ultérieurement</h2>';
-        $html .= '<p class="sp-field__help">Cet espace pourra servir plus tard à préparer l’ajout d’un autre praticien si l’organisation évolue. Il reste volontairement discret tant qu’aucun second compte n’est nécessaire.</p>';
+        $html .= '<h2>Préparer un autre accès médecin</h2>';
+        $html .= '<p class="sp-field__help">Ce bloc reste volontairement discret. Il servira plus tard à préparer l’ajout d’un autre praticien si l’organisation en a réellement besoin.</p>';
         $html .= '</div>';
 
         $html .= '<div class="sp-stack sp-doctor-account__subsection">';
-        $html .= '<h3>Préparer un compte médecin</h3>';
+        $html .= '<h3>Préparer un compte complémentaire</h3>';
         $html .= '<form class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_create" />';
         $html .= wp_nonce_field('sosprescription_doctor_create', '_wpnonce', true, false);
@@ -562,7 +587,7 @@ final class DoctorAccountShortcode
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_new_doc_email">Adresse e-mail</label>';
         $html .= '<input class="sp-input" type="email" id="sp_new_doc_email" name="email" required />';
-        $html .= '<p class="sp-field__help">Cette adresse servira à la connexion Magic Link du praticien.</p>';
+        $html .= '<p class="sp-field__help">Cette adresse sera utilisée pour la connexion sécurisée par Magic Link.</p>';
         $html .= '</div>';
 
         $html .= '<div class="sp-field">';

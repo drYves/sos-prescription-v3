@@ -1,3 +1,4 @@
+// DoctorMessagingApp.tsx · V7.0.1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 
@@ -683,7 +684,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
           viewerRole={viewerRole}
           currentUserRoles={currentUserRoles}
           title="Échanges avec le patient"
-          subtitle="Messagerie sécurisée associée à ce dossier."
+          subtitle="Initiez ici l’échange sécurisé avec le patient si une précision médicale ou documentaire est nécessaire."
           loading={loading}
           emptyText="Aucun message pour le moment."
           messages={messages}

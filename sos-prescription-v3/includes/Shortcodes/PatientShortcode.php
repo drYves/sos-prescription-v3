@@ -84,17 +84,16 @@ final class PatientShortcode
             . '<noscript>Activez JavaScript pour accéder à votre espace patient.</noscript>';
     }
 
-    private static function render_logout_form(): string
+    
+private static function render_logout_form(): string
     {
-        $html = '';
-        $html .= '<form class="sp-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        $html .= '<input type="hidden" name="action" value="sosprescription_logout" />';
-        $html .= wp_nonce_field('sosprescription_logout', '_wpnonce', true, false);
-        $html .= '<button type="submit" class="sp-button sp-button--secondary">Se déconnecter</button>';
-        $html .= '</form>';
-
-        return $html;
+        return LogoutShortcode::render([
+            'class' => 'sp-button sp-button--secondary',
+            'form_class' => 'sp-form sp-logout-form',
+            'redirect' => home_url('/'),
+        ]);
     }
+
 
     private static function can_self_delete_account(): bool
     {

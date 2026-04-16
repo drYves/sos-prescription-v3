@@ -1,6 +1,7 @@
 <?php
 /**
  * Template Name: SOS App Layout V2
+ * Version: 7.0.1
  *
  * Shell applicatif standard :
  * - Demande d’ordonnance
@@ -21,6 +22,9 @@ $sp_variant             = sp_get_page_shell_variant();
 $sp_has_sidebar         = sp_page_has_context_sidebar($sp_variant);
 $sp_container_class     = 'sp-container sp-container--app';
 $sp_plugin_shell_class  = 'sp-plugin-shell sp-plugin-shell--app sp-plugin-shell--' . sanitize_html_class($sp_variant);
+$sp_compliance          = get_option('sosprescription_compliance', []);
+$sp_cgu_url             = is_array($sp_compliance) && isset($sp_compliance['cgu_url']) ? trim((string) $sp_compliance['cgu_url']) : '';
+$sp_privacy_url         = is_array($sp_compliance) && isset($sp_compliance['privacy_url']) ? trim((string) $sp_compliance['privacy_url']) : '';
 
 if (sp_uses_compact_app_container($sp_variant)) {
     $sp_container_class .= ' sp-container--app-compact';
@@ -49,6 +53,22 @@ if (sp_uses_compact_app_container($sp_variant)) {
             </aside>
             <?php endif; ?>
         </div>
+
+        <?php if ($sp_cgu_url !== '' || $sp_privacy_url !== '') : ?>
+        <div class="sp-app-legal-footer" aria-label="Informations juridiques applicatives">
+            <div class="sp-app-legal-footer__inner">
+                <span class="sp-app-legal-footer__eyebrow">Cadre sécurisé</span>
+                <nav class="sp-app-legal-footer__links" aria-label="Liens juridiques applicatifs">
+                    <?php if ($sp_cgu_url !== '') : ?>
+                    <a href="<?php echo esc_url($sp_cgu_url); ?>" target="_blank" rel="noreferrer noopener">CGU</a>
+                    <?php endif; ?>
+                    <?php if ($sp_privacy_url !== '') : ?>
+                    <a href="<?php echo esc_url($sp_privacy_url); ?>" target="_blank" rel="noreferrer noopener">Politique de confidentialité</a>
+                    <?php endif; ?>
+                </nav>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

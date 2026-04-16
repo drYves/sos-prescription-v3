@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SosPrescription
  * Description: Delivrance et validation d'ordonnances (SOS Prescription V3).
- * Version: 7.0.0
+ * Version: 7.0.1
  * Author: SOS Prescription
  * Requires at least: 6.0
  * Requires PHP: 8.2
@@ -13,7 +13,7 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-define('SOSPRESCRIPTION_VERSION', '7.0.0');
+define('SOSPRESCRIPTION_VERSION', '7.0.1');
 define('SOSPRESCRIPTION_PATH', plugin_dir_path(__FILE__));
 define('SOSPRESCRIPTION_URL', plugin_dir_url(__FILE__));
 
@@ -25,20 +25,6 @@ require_once SOSPRESCRIPTION_PATH . 'includes/Autoloader.php';
 register_activation_hook(__FILE__, ['\\SOSPrescription\\Installer', 'activate']);
 register_uninstall_hook(__FILE__, ['\\SOSPrescription\\Installer', 'uninstall_hook']);
 
-
-foreach (['admin_post_sosprescription_logout', 'admin_post_nopriv_sosprescription_logout'] as $sp_logout_hook) {
-    add_action($sp_logout_hook, static function (): void {
-        $nonce = isset($_REQUEST['_wpnonce']) ? sanitize_text_field(wp_unslash((string) $_REQUEST['_wpnonce'])) : '';
-        if ($nonce === '' || !wp_verify_nonce($nonce, 'sosprescription_logout')) {
-            wp_safe_redirect(home_url('/'));
-            exit;
-        }
-
-        wp_logout();
-        wp_safe_redirect(home_url('/'));
-        exit;
-    });
-}
 
 
 add_action('plugins_loaded', static function (): void {
