@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V7.0.7 — favicon guards fixé avec une URL thème absolue unique.
+ * V7.0.8 — contournement guards : stethoscope inline centré, sans dépendance image.
  */
 final class ScreenFrame
 {
@@ -100,10 +100,7 @@ final class ScreenFrame
         $content = '<div class="sp-plugin-guard sp-guard-surface sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
         $content .= '<div class="sp-plugin-guard__shell">';
         $content .= '<div class="sp-plugin-guard__brand" aria-hidden="true">';
-        $favicon = self::guard_favicon_url();
-        if ($favicon !== '') {
-            $content .= '<span class="sp-plugin-guard__favicon"><img src="' . esc_url($favicon) . '" alt="" loading="eager" decoding="async" /></span>';
-        }
+        $content .= '<span class="sp-plugin-guard__favicon">' . self::guard_icon('stethoscope') . '</span>';
         $content .= '</div>';
         $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
         $content .= '<div class="sp-plugin-guard__header">';
@@ -131,17 +128,13 @@ final class ScreenFrame
 
         return self::screen($screen, $content);
     }
-    private static function guard_favicon_url(): string
-    {
-        return get_stylesheet_directory_uri() . '/assets/img/brand/sos-favicon.svg';
-    }
 
     private static function guard_icon(string $name): string
     {
         $name = strtolower(trim($name));
 
         if ($name === 'stethoscope') {
-            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a4 4 0 0 0 8 0V3"/><path d="M8 3v5"/><path d="M16 11v2a4 4 0 0 0 8 0 4 4 0 0 0-4-4h-1"/><circle cx="20" cy="9" r="2"/></svg>';
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>';
         }
 
         if ($name === 'shield-plus') {

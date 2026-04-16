@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account V7.0.7 */
+/* SOS Prescription – Doctor Account V7.0.8 */
 
 .sp-plugin-root--doctor-account {
   --sp-doctor-gap: clamp(1rem, 0.9rem + 0.35vw, 1.35rem);
@@ -262,6 +262,10 @@
   align-items: start;
 }
 
+.sp-plugin-root--doctor-account .sp-doctor-account__layout--stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .sp-plugin-root--doctor-account .sp-doctor-account__group {
   display: grid;
   gap: 1rem;
@@ -281,6 +285,15 @@
 .sp-plugin-root--doctor-account .sp-doctor-account__group-fields--document,
 .sp-plugin-root--doctor-account .sp-doctor-account__group-fields--contact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__group--contact {
+  inline-size: 100%;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__group-fields--stacked,
+.sp-plugin-root--doctor-account .sp-doctor-account__group--contact .sp-doctor-account__group-fields--contact {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__field--wide {

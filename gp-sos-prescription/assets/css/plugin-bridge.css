@@ -392,3 +392,21 @@
   inline-size: 1.2rem;
   block-size: 1.2rem;
 }
+
+
+/* --------------------------------------------------------------------------
+   V7.0.8 — Contournement définitif : stethoscope inline au centre des guards.
+   -------------------------------------------------------------------------- */
+.sp-plugin-guard__favicon {
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+.sp-plugin-guard__favicon img {
+  display: none;
+}
+
+.sp-plugin-guard__favicon svg {
+  display: block;
+  inline-size: 3rem;
+  block-size: 3rem;
+}

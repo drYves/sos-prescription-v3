@@ -12,7 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
- * V7.0.7 — refonte réelle du DOM Compte Médecin + chargement CSS local anticipé.
+ * V7.0.8 — ajustements de grille : sections principales empilées et contact réaligné.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -477,9 +477,9 @@ final class DoctorAccountShortcode
 
         $html .= '<div class="sp-doctor-account__content">';
         $html .= '<div class="sp-doctor-account__content-main">';
-        $html .= '<div class="sp-doctor-account__layout">';
+        $html .= '<div class="sp-doctor-account__layout sp-doctor-account__layout--stacked">';
 
-        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--identity">';
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--identity sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Identité professionnelle</h2>';
         $html .= '<p class="sp-doctor-account__group-copy">Ces informations pilotent votre présence dans l’espace sécurisé et sur les documents générés.</p>';
@@ -509,7 +509,7 @@ final class DoctorAccountShortcode
         $html .= '</div>';
         $html .= '</section>';
 
-        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--professional">';
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--professional sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Conformité RPPS</h2>';
         $html .= '<p class="sp-doctor-account__group-copy">Votre identifiant RPPS certifie votre profil et sécurise la conformité des prescriptions.</p>';
@@ -567,12 +567,12 @@ final class DoctorAccountShortcode
         $html .= '</div>';
         $html .= '</section>';
 
-        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--contact">';
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--contact sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
-        $html .= '<h2 class="sp-doctor-account__group-title">Coordonnées métier</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Renseignez vos coordonnées professionnelles utiles sans exposer de données personnelles sur les ordonnances.</p>';
+        $html .= '<h2 class="sp-doctor-account__group-title">Informations de contact</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Renseignez les coordonnées professionnelles utiles au cabinet ou à la structure, sans exposer de données personnelles sur les ordonnances.</p>';
         $html .= '</div>';
-        $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--contact">';
+        $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--contact sp-doctor-account__group-fields--stacked">';
 
         $html .= '<div class="sp-field sp-doctor-account__field--wide">';
         $html .= '<label class="sp-field__label" for="sp_doc_address">Adresse professionnelle</label>';
