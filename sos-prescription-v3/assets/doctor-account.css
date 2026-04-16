@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account V7.0.1 */
+/* SOS Prescription – Doctor Account V7.0.2 */
 
 .sp-plugin-root--doctor-account {
   --sp-doctor-card-pad: clamp(1.05rem, 0.96rem + 0.36vw, 1.35rem);
@@ -282,5 +282,105 @@
 
   .sp-plugin-root--doctor-account .sp-data-table {
     min-width: 30rem;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.2 — Final premium polish local du compte médecin.
+   -------------------------------------------------------------------------- */
+.sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-copy {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-logout-form {
+  margin: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-button {
+  min-height: 2.9rem;
+  border-radius: 999px;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__hero {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section-stack {
+  gap: clamp(1rem, 0.92rem + 0.38vw, 1.35rem);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section--profile {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, #ffffff 2%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 28%, var(--sp-shell-color-surface, #ffffff) 72%)
+  );
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section-heading {
+  gap: 0.5rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__subsection {
+  padding: 1.05rem 1.1rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__fields {
+  gap: 1.05rem 1.1rem;
+}
+
+.sp-plugin-root--doctor-account #sp_signature_preview {
+  padding: 1.05rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__section--danger {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.75), 0 18px 34px rgba(217, 119, 6, 0.06);
+}
+
+@media (max-width: 860px) {
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
+    justify-content: flex-start;
   }
 }

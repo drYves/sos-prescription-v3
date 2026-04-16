@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V7.0.1
+// PatientConsole.tsx · V7.0.2
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1378,11 +1378,13 @@ function StatusPillIcon({ tone }: { tone: 'success' | 'warning' | 'neutral' }) {
 function StatusPill({ status }: { status: string }) {
   const info = statusInfo(status);
   const tone = statusTone(status);
+  const showIcon = tone !== 'warning';
+  const showDot = !showIcon;
 
   return (
-    <span className={cx('sp-status-pill', `is-${tone}`)}>
-      <span className="sp-status-pill__dot" aria-hidden="true" />
-      <StatusPillIcon tone={tone} />
+    <span className={cx('sp-status-pill', `is-${tone}`, showIcon ? 'has-icon' : 'has-dot-only')}>
+      {showDot ? <span className="sp-status-pill__dot" aria-hidden="true" /> : null}
+      {showIcon ? <StatusPillIcon tone={tone} /> : null}
       <span>{info.label}</span>
     </span>
   );
@@ -1474,15 +1476,15 @@ function HeroBanner({
 
   return (
     <section className="sp-card sp-patient-hero" data-tone={statusTone(status)}>
-      <div className="sp-patient-hero__header">
-        <div className="sp-patient-hero__eyebrow">
-          <StatusPill status={status} />
-        </div>
-        {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
-      </div>
-
-      <div className="sp-patient-hero__body">
+      <div className="sp-patient-hero__layout">
         <div className="sp-patient-hero__main">
+          <div className="sp-patient-hero__header">
+            <div className="sp-patient-hero__eyebrow">
+              <StatusPill status={status} />
+            </div>
+            {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
+          </div>
+
           <div className="sp-patient-hero__content">
             <div className="sp-patient-hero__headline">
               <h2 className="sp-patient-hero__title">{title}</h2>
@@ -1497,6 +1499,10 @@ function HeroBanner({
               </div>
             ) : null}
           </div>
+
+          <div className="sp-patient-hero__footer">
+            <StatusTimeline status={status} />
+          </div>
         </div>
 
         <aside className="sp-patient-hero__aside sp-patient-hero__rail" aria-label={actionLabel}>
@@ -1505,10 +1511,6 @@ function HeroBanner({
             <div className="sp-patient-hero__actions">{action}</div>
           </div>
         </aside>
-      </div>
-
-      <div className="sp-patient-hero__footer">
-        <StatusTimeline status={status} />
       </div>
     </section>
   );

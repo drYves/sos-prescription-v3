@@ -1,6 +1,6 @@
 <?php
 /**
- * Bootstrap minimal du thème enfant SOS Prescription V7.0.0.
+ * Bootstrap minimal du thème enfant SOS Prescription V7.0.2.
  *
  * @package gp-sos-prescription
  */
@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('SP_THEME_VERSION')) {
-    define('SP_THEME_VERSION', '7.0.0');
+    define('SP_THEME_VERSION', '7.0.2');
 }
 
 if (! defined('SP_THEME_PATH')) {
@@ -45,7 +45,7 @@ foreach ($sp_theme_bootstrap as $sp_theme_file) {
 }
 
 /**
- * Snippet v7.0.0 — Enqueue conditionnel du skin structurel applicatif.
+ * Snippet v7.0.2 — Enqueue conditionnel du skin structurel applicatif.
  *
  * À placer dans functions.php du thème enfant gp-sos-prescription
  * ou dans un fichier inclus depuis functions.php.

@@ -1,6 +1,6 @@
-/* SOS Prescription : Plugin Bridge V7.0.1 */
+/* SOS Prescription : Plugin Bridge V7.0.2 */
 /*
- * SOS Prescription — Plugin Bridge v7.0.1
+ * SOS Prescription — Plugin Bridge v7.0.2
  * Adaptateur léger entre shell et racines plugin.
  * Le bridge reste structurel, avec un contrat visuel limité aux entrées sécurisées.
  */
@@ -250,4 +250,29 @@
   .sp-auth-entry__actions > * {
     width: 100%;
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.2 — Secure-entry polish local : stethoscope centré dans les guards.
+   -------------------------------------------------------------------------- */
+.sp-plugin-guard__hero-icon {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 5rem;
+  block-size: 5rem;
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 82%, #ffffff 18%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-accent-soft, #eff6ff) 12%)
+  );
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.sp-plugin-guard__hero-icon svg {
+  inline-size: 2rem;
+  block-size: 2rem;
 }

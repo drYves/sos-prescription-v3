@@ -8,6 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
+ * V7.0.2 — secure-entry polish local for guarded screens.
  */
 final class ScreenFrame
 {
@@ -104,10 +105,9 @@ final class ScreenFrame
         $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
         $content .= '</div>';
         $content .= '<div class="sp-plugin-guard__brand" aria-hidden="true">';
-        $content .= '<img class="sp-plugin-guard__favicon" src="' . esc_url(self::guard_favicon_url()) . '" alt="" loading="lazy" decoding="async" />';
+        $content .= '<span class="sp-plugin-guard__hero-icon">' . self::guard_icon('stethoscope') . '</span>';
         $content .= '<div class="sp-plugin-guard__icons">';
         $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('shield') . '</span>';
-        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('stethoscope') . '</span>';
         $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('lock') . '</span>';
         $content .= '</div>';
         $content .= '</div>';

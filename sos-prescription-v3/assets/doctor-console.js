@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V6.5.6
+// assets/doctor-console.js · V7.0.2
 (function () {
   'use strict';
 
@@ -2811,6 +2811,7 @@
     }
 
     body.innerHTML = [
+      '<div class="dc-modal__dialog">',
       '<div class="dc-modal__card">',
       '  <div class="dc-modal__head">',
       '    <div class="dc-modal__title">Modifier la posologie</div>',
@@ -2831,6 +2832,7 @@
       '    <button type="button" class="sp-button sp-button--secondary" data-action="close-med-modal">Annuler</button>',
       '    <button type="button" class="sp-button sp-button--primary" data-action="save-med-modal">Enregistrer</button>',
       '  </div>',
+      '</div>',
       '</div>'
     ].join('');
 
@@ -3447,7 +3449,7 @@
       '        <div>',
       '          <div class="dc-overline">Console médecin</div>',
       '          <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
-      '          <div class="dc-subtitle">Connecté : ' + escHtml(currentUserName) + '</div>',
+      '          <div class="dc-session-pill"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">Connecté : ' + escHtml(currentUserName) + '</span></div>',
       '          <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '        </div>',
       '      </div>',

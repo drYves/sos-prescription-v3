@@ -12,6 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
+ * V7.0.2 — premium polish local du compte professionnel.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -274,14 +275,21 @@ final class DoctorAccountShortcode
 
         $html = '';
         $html .= '<div class="sp-card sp-doctor-account__session-card">';
-        $html .= '<div class="sp-stack">';
+        $html .= '<div class="sp-doctor-account__session-shell">';
+        $html .= '<div class="sp-doctor-account__session-copy">';
+        $html .= '<p class="sp-doctor-account__session-eyebrow">Session active</p>';
+        $html .= '<div class="sp-doctor-account__session-badges">';
         $html .= ScreenFrame::badge('Connecté : ' . $current_label, 'success', true);
 
         if ($is_admin_view && !$is_self) {
             $html .= ScreenFrame::badge('Profil affiché : ' . $target_label, 'info', false);
         }
 
+        $html .= '</div>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__session-actions">';
         $html .= self::render_logout_form();
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
 

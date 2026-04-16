@@ -1,4 +1,4 @@
-// assets/bdpm-table.js · V7.0.1
+// assets/bdpm-table.js · V7.0.2
 (function () {
   var root = document.getElementById('sosprescription-bdpm-table-root')
   if (!root) return
@@ -82,7 +82,7 @@
       + '<div class="sp-card sp-catalog-shell">'
       + '  <div class="sp-catalog-head">'
       + '    <div class="sp-title sp-catalog-title">'
-      + '      <img alt="" src="' + iconUrl + '" style="width:22px;height:22px;" />'
+      + '      <img class="sp-catalog-title__icon" alt="" src="' + iconUrl + '" />'
       + '      <div class="sp-catalog-title__copy">'
       + '        <p class="sp-catalog-title__eyebrow">Référentiel médicaments</p>'
       + '        <h2>Catalogue BDPM</h2>'

@@ -1,3 +1,4 @@
+// src/entries/form.tsx · V7.0.2
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2555,15 +2556,6 @@ function ScheduleEditor({
         </div>
       </div>
 
-      {freqUnit === 'jour' ? (
-        <div className="sp-app-schedule sp-app-schedule--grouped">
-          <div className="sp-app-schedule__header">
-            <div className="sp-app-schedule__title">
-              {autoTimesEnabled ? 'Horaires suggérés' : 'Horaires personnalisés'}
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {warnings.length > 0 ? (
         <div className="sp-app-block">
@@ -2652,18 +2644,18 @@ function ScheduleEditor({
             </div>
           ) : (
             <div className="sp-app-schedule-editor__advanced-toggle">
-              <Button type="button" variant="secondary" onClick={openAdvancedPlanning}>
-                <Settings2Icon />
+              <Button type="button" variant="secondary" className="sp-app-schedule-editor__personalize-button" onClick={openAdvancedPlanning}>
+                <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
                 Personnaliser
               </Button>
               <button
                 type="button"
-                className="sp-app-icon-button"
-                aria-label="Ouvrir les réglages de planification"
-                title="Ouvrir les réglages de planification"
+                className="sp-app-icon-button sp-app-schedule-editor__settings-button"
+                aria-label="Ouvrir les réglages avancés de planification"
+                title="Réglages avancés"
                 onClick={openAdvancedPlanning}
               >
-                <Settings2Icon />
+                <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
               </button>
             </div>
           )}
@@ -2789,7 +2781,6 @@ function StepClinicalData({
   fullName,
   birthdate,
   draftEmail,
-  draftEmailLocked,
   ageLabel,
   medicalNotes,
   items,
@@ -2808,7 +2799,6 @@ function StepClinicalData({
   onFullNameChange,
   onBirthdateChange,
   onDraftEmailChange,
-  onUnlockDraftEmail,
   onMedicalNotesChange,
   onFilesSelected,
   onRemoveFile,
@@ -2827,7 +2817,7 @@ function StepClinicalData({
 
   return (
     <div className="sp-app-stack">
-      <section className="sp-app-card">
+      <section className="sp-app-card sp-app-card--patient-info">
         <div className="sp-app-section__header">
           <div>
             <h2 className="sp-app-section__title">Informations patient</h2>
@@ -2908,24 +2898,15 @@ function StepClinicalData({
           </div>
         </div>
 
-        <div className="sp-app-field">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-            <label className="sp-app-field__label" htmlFor="sp-patient-email">
-              Adresse e-mail
-            </label>
-            {draftEmailLocked ? (
-              <Button type="button" variant="ghost" onClick={onUnlockDraftEmail}>
-                Modifier
-              </Button>
-            ) : null}
-          </div>
+        <div className={cx('sp-app-field', 'sp-app-field--email', draftEmailLocked && 'is-prefilled')}>
+          <label className="sp-app-field__label" htmlFor="sp-patient-email">
+            Adresse e-mail
+          </label>
           <TextInput
             id="sp-patient-email"
             type="email"
             autoComplete="email"
             inputMode="email"
-            readOnly={draftEmailLocked}
-            aria-readonly={draftEmailLocked}
             value={draftEmail}
             onChange={(event) => onDraftEmailChange(event.target.value)}
             placeholder="vous@exemple.fr"
@@ -3051,7 +3032,7 @@ function StepClinicalData({
       ) : null}
 
       {showMedicationSection ? (
-        <section className="sp-app-card">
+        <section className="sp-app-card sp-app-card--medication-request">
           <div className="sp-app-section__header">
             <div>
               <h2 className="sp-app-section__title">Traitement demandé</h2>

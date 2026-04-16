@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V7.0.1 */
+/* SOS Prescription : Doctor Console V7.0.2 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -1411,5 +1411,75 @@
     position: static;
     margin-top: 0.7rem;
     width: fit-content;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.2 — Surgical polish local : session active, inbox plus large
+   et modale réellement centrée dans la console médecin.
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor .dc-shell {
+  grid-template-columns: minmax(26rem, 30rem) minmax(0, 1fr);
+}
+
+.sosprescription-doctor .dc-session-pill {
+  display: inline-grid;
+  gap: 0.18rem;
+  width: fit-content;
+  margin: 0;
+  padding: 0.58rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  border-radius: 1rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, #ffffff 26%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 92%, var(--sp-shell-color-accent-soft, #eff6ff) 8%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 10px 20px rgba(15, 23, 42, 0.05);
+}
+
+.sosprescription-doctor .dc-session-pill__eyebrow {
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sosprescription-doctor .dc-session-pill__value {
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.sosprescription-doctor .dc-modal {
+  padding: clamp(1rem, 0.9rem + 0.7vw, 1.6rem);
+}
+
+.sosprescription-doctor .dc-modal[open] {
+  display: grid;
+  place-items: center;
+}
+
+.sosprescription-doctor .dc-modal::backdrop {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.sosprescription-doctor .dc-modal__dialog {
+  display: grid;
+  width: min(100%, 56rem);
+  margin: auto;
+}
+
+.sosprescription-doctor .dc-modal__card {
+  width: min(100%, 54rem);
+  margin-inline: auto;
+}
+
+@media (max-width: 1180px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: 1fr;
   }
 }

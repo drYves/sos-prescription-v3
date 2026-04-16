@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V7.0.1 */
+/* SOS Prescription : Medical-Grade Aura V7.0.2 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -4487,5 +4487,257 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-patient-console .sp-patient-console__workspace-tab {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.2 — Surgical polish local : hero patient résilient et ajustements ciblés
+   du step 2 du tunnel, sans dépendance au body.
+   -------------------------------------------------------------------------- */
+.sp-patient-console {
+  --sp-patient-sidebar-width: clamp(18rem, 24vw, 20.5rem);
+  --sp-patient-hero-rail-width: clamp(15.5rem, 22vw, 18.25rem);
+}
+
+.sp-patient-console .sp-patient-console__sidebar-panel {
+  display: grid;
+  align-content: start;
+}
+
+.sp-patient-console .sp-patient-console__sidebar-panel > .sp-panel__body {
+  max-block-size: min(72vh, calc(100vh - 13rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sp-patient-console .sp-patient-console__request-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.sp-patient-console .sp-patient-hero {
+  padding: clamp(1.15rem, 1.02rem + 0.5vw, 1.55rem);
+}
+
+.sp-patient-console .sp-patient-hero__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sp-patient-hero-rail-width);
+  gap: clamp(1rem, 0.9rem + 0.45vw, 1.4rem);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__main {
+  display: grid;
+  align-content: start;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__header {
+  align-items: flex-start;
+}
+
+.sp-patient-console .sp-patient-hero__content {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__headline {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__title {
+  margin: 0;
+  max-inline-size: min(100%, 36rem);
+  line-height: 1.08;
+  text-wrap: pretty;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.sp-patient-console .sp-patient-hero__lead,
+.sp-patient-console .sp-patient-hero__support,
+.sp-patient-console .sp-patient-hero__decision {
+  max-inline-size: 62ch;
+  overflow-wrap: break-word;
+}
+
+.sp-patient-console .sp-patient-hero__decision {
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 9%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 4px);
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
+}
+
+.sp-patient-console .sp-patient-hero__footer {
+  margin-top: 0.15rem;
+}
+
+.sp-patient-console .sp-patient-hero__rail,
+.sp-patient-console .sp-patient-hero__aside {
+  display: grid;
+  align-content: stretch;
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+.sp-patient-console .sp-patient-hero__action-card {
+  display: grid;
+  align-content: start;
+  gap: 0.85rem;
+  min-block-size: 100%;
+  padding: 1rem 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: calc(var(--sp-shell-radius-lg, 18px) - 2px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, #ffffff 2%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 26%, var(--sp-shell-color-surface, #ffffff) 74%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.sp-patient-console .sp-patient-hero__actions {
+  gap: 0.75rem;
+}
+
+.sp-patient-console .sp-patient-hero__button,
+.sp-patient-console .sp-patient-hero__note {
+  min-height: 3.25rem;
+}
+
+.sp-patient-console .sp-patient-hero__note {
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 9%, transparent);
+  border-radius: calc(var(--sp-shell-radius-md, 14px) - 2px);
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, var(--sp-shell-color-surface, #ffffff) 28%);
+}
+
+.sp-patient-console .sp-status-pill.has-dot-only {
+  gap: 0.55rem;
+}
+
+.sp-patient-console .sp-status-pill.has-dot-only .sp-status-pill__dot {
+  inline-size: 0.62rem;
+  block-size: 0.62rem;
+}
+
+.sp-patient-console .sp-status-pill.has-icon .sp-status-pill__dot {
+  display: none;
+}
+
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-actions__submit,
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-actions__submit {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 24%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 84%, #ffffff 16%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-accent-soft, #eff6ff) 12%)
+  );
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-actions__submit:hover,
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-actions__submit:hover,
+.sp-patient-console .sp-patient-console__profile-host .sp-profile-actions__submit:focus-visible,
+.sp-patient-console .sp-patient-console__profile-panel .sp-profile-actions__submit:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 34%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 78%, transparent), inset 0 1px 0 rgba(255,255,255,0.16), 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+#sosprescription-root-form .sp-app-card--patient-info,
+#sosprescription-root-form .sp-app-card--medication-request {
+  gap: 1rem;
+}
+
+#sosprescription-root-form .sp-app-card--medication-request .sp-app-field--search {
+  margin-bottom: 0.15rem;
+}
+
+#sosprescription-root-form .sp-app-medication-list {
+  display: grid;
+  gap: 1rem;
+}
+
+#sosprescription-root-form .sp-app-medication-card--stacked {
+  gap: 1rem;
+}
+
+#sosprescription-root-form .sp-app-medication-card--stacked > .sp-app-block {
+  margin-top: 0.15rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor {
+  gap: 1.1rem;
+}
+
+#sosprescription-root-form .sp-app-dose-list--grouped {
+  gap: 0.85rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__advanced-toggle {
+  justify-content: flex-end;
+  gap: 0.85rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__personalize-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-inline: 1rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__settings-button,
+#sosprescription-root-form .sp-app-schedule-editor__personalize-button {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 22%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, #ffffff 26%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__settings-button {
+  inline-size: 3rem;
+  block-size: 3rem;
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__settings-icon {
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+}
+
+#sosprescription-root-form .sp-app-card--consent {
+  gap: 0.9rem;
+}
+
+#sosprescription-root-form .sp-app-card--consent .sp-app-checkbox {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 14%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 98%, var(--sp-shell-color-surface-alt, #f6f8fb) 2%);
+}
+
+#sosprescription-root-form .sp-app-card--consent .sp-app-checkbox__box {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 20%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 2px 4px rgba(15, 23, 42, 0.06);
+}
+
+#sosprescription-root-form .sp-app-card--consent .sp-app-checkbox input:checked + .sp-app-checkbox__box {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 18%, transparent), 0 10px 20px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 20%, transparent);
+}
+
+@media (max-width: 1100px) {
+  .sp-patient-console .sp-patient-hero__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-patient-console .sp-patient-hero__title,
+  .sp-patient-console .sp-patient-hero__lead,
+  .sp-patient-console .sp-patient-hero__support,
+  .sp-patient-console .sp-patient-hero__decision {
+    max-inline-size: 100%;
   }
 }
