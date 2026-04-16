@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V7.0.6 — guards hotfix: hardened favicon URL generation without double-domain collisions.
+ * V7.0.7 — favicon guards fixé avec une URL thème absolue unique.
  */
 final class ScreenFrame
 {
@@ -131,70 +131,9 @@ final class ScreenFrame
 
         return self::screen($screen, $content);
     }
-
-
-
-
     private static function guard_favicon_url(): string
     {
-        $relative = ltrim('assets/img/brand/sos-favicon.svg', '/');
-        $candidates = [];
-
-        if (function_exists('get_stylesheet_directory')) {
-            $child_dir = (string) get_stylesheet_directory();
-            $child_path = trailingslashit($child_dir) . $relative;
-            if ($child_dir !== '' && @is_readable($child_path) && function_exists('content_url')) {
-                $child_slug = basename($child_dir);
-                if ($child_slug !== '') {
-                    $candidates[] = content_url('themes/' . $child_slug . '/' . $relative);
-                }
-            }
-        }
-
-        if (function_exists('get_template_directory')) {
-            $parent_dir = (string) get_template_directory();
-            $parent_path = trailingslashit($parent_dir) . $relative;
-            if ($parent_dir !== '' && @is_readable($parent_path) && function_exists('content_url')) {
-                $parent_slug = basename($parent_dir);
-                if ($parent_slug !== '') {
-                    $candidates[] = content_url('themes/' . $parent_slug . '/' . $relative);
-                }
-            }
-        }
-
-        if (function_exists('get_theme_file_path') && function_exists('get_theme_file_uri')) {
-            $theme_path = (string) get_theme_file_path($relative);
-            if ($theme_path !== '' && @is_readable($theme_path)) {
-                $candidates[] = (string) get_theme_file_uri($relative);
-            }
-        }
-
-        foreach ($candidates as $candidate) {
-            $normalized = self::normalize_guard_asset_url((string) $candidate);
-            if ($normalized !== '') {
-                return $normalized;
-            }
-        }
-
-        return '';
-    }
-
-    private static function normalize_guard_asset_url(string $url): string
-    {
-        $url = trim($url);
-        if ($url === '') {
-            return '';
-        }
-
-        if (preg_match('#^(https?://[^/]+)(https?://.+)$#i', $url, $matches) === 1) {
-            $url = (string) ($matches[2] ?? $url);
-        }
-
-        if (function_exists('esc_url_raw')) {
-            return (string) esc_url_raw($url);
-        }
-
-        return $url;
+        return get_stylesheet_directory_uri() . '/assets/img/brand/sos-favicon.svg';
     }
 
     private static function guard_icon(string $name): string

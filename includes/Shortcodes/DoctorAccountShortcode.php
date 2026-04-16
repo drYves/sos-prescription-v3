@@ -12,7 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
- * V7.0.6 — opération cœur ouvert : architecture premium locale et hiérarchie stabilisée.
+ * V7.0.7 — refonte réelle du DOM Compte Médecin + chargement CSS local anticipé.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -43,6 +43,7 @@ final class DoctorAccountShortcode
     public static function register(): void
     {
         add_shortcode('sosprescription_doctor_account', [self::class, 'render']);
+        add_action('wp_enqueue_scripts', [self::class, 'enqueue_front_assets'], 30);
 
         // Form handlers (front) via admin-post
         add_action('admin_post_sosprescription_doctor_profile_save', [self::class, 'handle_profile_save']);
@@ -65,6 +66,45 @@ final class DoctorAccountShortcode
     private static function can_self_delete_account(): bool
     {
         return current_user_can('sosprescription_validate');
+    }
+
+    public static function enqueue_front_assets(): void
+    {
+        if (is_admin()) {
+            return;
+        }
+
+        if (!self::should_enqueue_assets()) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'sosprescription-ui-kit',
+            SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
+            [],
+            SOSPRESCRIPTION_VERSION
+        );
+
+        wp_enqueue_style(
+            'sosprescription-doctor-account',
+            SOSPRESCRIPTION_URL . 'assets/doctor-account.css',
+            ['sosprescription-ui-kit'],
+            SOSPRESCRIPTION_VERSION
+        );
+    }
+
+    private static function should_enqueue_assets(): bool
+    {
+        if (function_exists('sp_current_page_is') && sp_current_page_is('doctor-account')) {
+            return true;
+        }
+
+        $post = get_post();
+        if ($post instanceof \WP_Post) {
+            return has_shortcode((string) $post->post_content, 'sosprescription_doctor_account');
+        }
+
+        return false;
     }
 
     /**
@@ -223,11 +263,9 @@ final class DoctorAccountShortcode
             );
         }
 
+        $session_html = self::render_session_toolbar($current_id, $user, $is_admin_view, $is_self);
+
         $content = '<div class="sp-doctor-account__screen">';
-        $content .= ScreenFrame::toolbarMeta(
-            'doctor-account',
-            self::render_session_toolbar($current_id, $user, $is_admin_view, $is_self)
-        );
 
         $alerts = self::render_status_alerts($updated, $created, $error, $notice_created);
         if ($alerts !== '') {
@@ -236,7 +274,7 @@ final class DoctorAccountShortcode
 
         $content .= ScreenFrame::mount(
             'doctor-account',
-            self::render_profile_section($screen_title, $user, $profile_values, $is_self, $is_admin_view),
+            self::render_profile_section($screen_title, $user, $profile_values, $is_self, $is_admin_view, $session_html),
             [],
             ['sp-ui', 'sp-doctor-account__mount', 'sp-doctor-account__mount--profile']
         );
@@ -274,7 +312,7 @@ final class DoctorAccountShortcode
         $target_label = self::resolve_doctor_label($target_user, (int) $target_user->ID);
 
         $html = '';
-        $html .= '<div class="sp-card sp-doctor-account__session-card">';
+        $html .= '<section class="sp-doctor-account__session-card">';
         $html .= '<div class="sp-doctor-account__session-shell">';
         $html .= '<div class="sp-doctor-account__session-copy">';
         $html .= '<p class="sp-doctor-account__session-eyebrow">Session active</p>';
@@ -292,7 +330,7 @@ final class DoctorAccountShortcode
         $html .= self::render_logout_form();
         $html .= '</div>';
         $html .= '</div>';
-        $html .= '</div>';
+        $html .= '</section>';
 
         return $html;
     }
@@ -338,7 +376,7 @@ final class DoctorAccountShortcode
     private static function render_delete_account_section(): string
     {
         $html = '';
-        $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--danger">';
+        $html .= '<section class="sp-doctor-account__section sp-doctor-account__section--danger">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
         $html .= '<div class="sp-doctor-account__section-heading">';
         $html .= '<h2>Suppression de compte</h2>';
@@ -347,7 +385,7 @@ final class DoctorAccountShortcode
         $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
         $html .= '<button type="button" class="sp-button sp-button--secondary sp-doctor-account__danger-button" id="sp-delete-account-btn">Supprimer mon compte</button>';
         $html .= '</div>';
-        $html .= '</div>';
+        $html .= '</section>';
 
         return $html;
     }
@@ -355,7 +393,7 @@ final class DoctorAccountShortcode
     /**
      * @param array<string, mixed> $profile_values
      */
-    private static function render_profile_section(string $screen_title, \WP_User $user, array $profile_values, bool $is_self, bool $is_admin_view): string
+    private static function render_profile_section(string $screen_title, \WP_User $user, array $profile_values, bool $is_self, bool $is_admin_view, string $session_html = ''): string
     {
         $email = isset($profile_values['email']) ? (string) $profile_values['email'] : (string) $user->user_email;
         $doctor_title = isset($profile_values['doctor_title']) ? (string) $profile_values['doctor_title'] : '';
@@ -387,34 +425,45 @@ final class DoctorAccountShortcode
         $connection_meta = $is_self
             ? 'Connexion sécurisée par Magic Link et notifications métier vers cette adresse.'
             : 'Adresse utilisée pour la connexion professionnelle sécurisée du praticien.';
+        $profile_label = self::resolve_doctor_label($user, (int) $user->ID);
 
         $html = '';
-        $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--profile">';
-        $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
-        $html .= '<div class="sp-doctor-account__overview">';
-        $html .= '<div class="sp-doctor-account__overview-copy">';
-        $html .= '<div class="sp-doctor-account__hero">';
+        $html .= '<div class="sp-doctor-account__surface">';
+        $html .= '<div class="sp-doctor-account__masthead">';
+        if ($session_html !== '') {
+            $html .= '<div class="sp-doctor-account__masthead-session">' . $session_html . '</div>';
+        }
+        $html .= '<section class="sp-doctor-account__header-card">';
+        $html .= '<div class="sp-doctor-account__header">';
+        $html .= '<div class="sp-doctor-account__header-main">';
         $html .= '<p class="sp-doctor-account__eyebrow">Compte professionnel sécurisé</p>';
         $html .= '<h1>' . esc_html($screen_title) . '</h1>';
         $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles, certifiez votre profil RPPS et préparez votre signature privée. Ces données structurent vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '<div class="sp-doctor-account__header-meta">';
+        $html .= '<span class="sp-doctor-account__profile-pill">' . esc_html($profile_label) . '</span>';
+        if ($is_self) {
+            $html .= '<span class="sp-doctor-account__profile-pill sp-doctor-account__profile-pill--subtle">Compte personnel sécurisé</span>';
+        }
         $html .= '</div>';
+
+        if ($is_admin_view && !$is_self) {
+            $html .= '<div class="sp-alert sp-alert--info sp-doctor-account__context-alert" role="status" aria-live="polite">';
+            $html .= '<p class="sp-alert__title">Gestion du compte médecin</p>';
+            $html .= '<p class="sp-alert__body">Vous consultez actuellement le compte professionnel de ' . esc_html($profile_label) . '.</p>';
+            $html .= '</div>';
+        }
+
         $html .= '</div>';
-        $html .= '<div class="sp-doctor-account__overview-metrics">';
+        $html .= '<aside class="sp-doctor-account__header-aside">';
         $html .= '<div class="sp-doctor-account__summary-grid">';
         $html .= self::render_summary_card('Connexion sécurisée', $email, $connection_meta, 'neutral');
         $html .= self::render_summary_card('Conformité RPPS', $rpps_status_value, $rpps_status_meta, $rpps_verified ? 'success' : 'warning');
         $html .= self::render_summary_card('Signature privée', $signature_value, $signature_meta, $signature_ready ? 'success' : 'neutral');
         $html .= '</div>';
+        $html .= '</aside>';
         $html .= '</div>';
+        $html .= '</section>';
         $html .= '</div>';
-
-        if ($is_admin_view && !$is_self) {
-            $html .= self::render_alert(
-                'info',
-                'Gestion du compte médecin',
-                'Vous consultez actuellement le compte professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
-            );
-        }
 
         $html .= '<form id="sp_doc_profile_form" class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';
@@ -426,6 +475,8 @@ final class DoctorAccountShortcode
             $html .= '<input type="hidden" name="target_user_id" value="' . esc_attr((string) $user->ID) . '" />';
         }
 
+        $html .= '<div class="sp-doctor-account__content">';
+        $html .= '<div class="sp-doctor-account__content-main">';
         $html .= '<div class="sp-doctor-account__layout">';
 
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--identity">';
@@ -547,6 +598,7 @@ final class DoctorAccountShortcode
         $html .= '</section>';
 
         $html .= '</div>';
+        $html .= '</div>';
 
         $html .= '<div id="sp_doc_profile_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
 
@@ -559,7 +611,6 @@ final class DoctorAccountShortcode
         $html .= '</div>';
 
         $html .= '</form>';
-        $html .= '</div>';
         $html .= '</div>';
 
         return $html;
@@ -598,7 +649,7 @@ final class DoctorAccountShortcode
         $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, largeur 600 à 1000 px, hauteur 120 à 250 px, idéalement moins de 200 ko.</p>';
         $html .= '<div id="sp_signature_feedback" class="sp-alert sp-alert--info" hidden role="status" aria-live="polite"></div>';
         $html .= '<p id="sp_signature_meta" class="sp-field__help" hidden></p>';
-        $html .= '<div id="sp_signature_preview" class="sp-card" hidden>';
+        $html .= '<div id="sp_signature_preview" class="sp-doctor-account__signature-preview-card" hidden>';
         $html .= '<div class="sp-doctor-account__signature-preview">';
         $html .= '<p class="sp-field__help">Prévisualisation locale avant enregistrement.</p>';
         $html .= '<img id="sp_signature_preview_img" alt="Prévisualisation de la signature" />';
@@ -614,7 +665,7 @@ final class DoctorAccountShortcode
 
     private static function render_summary_card(string $label, string $value, string $meta, string $tone = 'neutral'): string
     {
-        return '<article class="sp-card sp-doctor-account__summary-card" data-tone="' . esc_attr(sanitize_html_class($tone)) . '">'
+        return '<article class="sp-doctor-account__summary-card" data-tone="' . esc_attr(sanitize_html_class($tone)) . '">'
             . '<p class="sp-doctor-account__summary-label">' . esc_html($label) . '</p>'
             . '<p class="sp-doctor-account__summary-value">' . esc_html($value) . '</p>'
             . '<p class="sp-doctor-account__summary-meta">' . esc_html($meta) . '</p>'
@@ -660,7 +711,7 @@ final class DoctorAccountShortcode
         }
 
         $html = '';
-        $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--management">';
+        $html .= '<section class="sp-doctor-account__section sp-doctor-account__section--management">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
         $html .= '<div class="sp-doctor-account__section-heading">';
         $html .= '<h2>Préparer un autre accès médecin</h2>';
@@ -700,7 +751,7 @@ final class DoctorAccountShortcode
         $html .= '</div>';
 
         $html .= '</div>';
-        $html .= '</div>';
+        $html .= '</section>';
 
         return $html;
     }
