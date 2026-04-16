@@ -12,7 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
- * V7.0.2 — premium polish local du compte professionnel.
+ * V7.0.4 — premium medical-grade final du compte professionnel.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -286,6 +286,7 @@ final class DoctorAccountShortcode
         }
 
         $html .= '</div>';
+        $html .= '<p class="sp-field__help sp-doctor-account__session-note">Votre identité professionnelle, votre RPPS et votre signature restent réservés aux documents médicaux sécurisés générés par la plateforme.</p>';
         $html .= '</div>';
         $html .= '<div class="sp-doctor-account__session-actions">';
         $html .= self::render_logout_form();
@@ -296,8 +297,7 @@ final class DoctorAccountShortcode
         return $html;
     }
 
-    
-private static function render_logout_form(): string
+    private static function render_logout_form(): string
     {
         return LogoutShortcode::render([
             'class' => 'sp-button sp-button--secondary',
@@ -375,13 +375,26 @@ private static function render_logout_form(): string
             $rpps_data_json = '{}';
         }
 
+        $signature_ready = $sig_file_id > 0;
+        $rpps_status_value = $rpps_verified ? 'Vérifié' : ($rpps !== '' ? 'En attente de validation' : 'À renseigner');
+        $rpps_status_meta = $rpps !== ''
+            ? 'RPPS : ' . $rpps
+            : 'Ajoutez votre identifiant RPPS pour certifier votre profil professionnel.';
+        $signature_value = $signature_ready ? 'Signature prête' : 'Signature à ajouter';
+        $signature_meta = $signature_ready
+            ? 'Une signature privée est déjà enregistrée pour vos documents sécurisés.'
+            : 'Ajoutez une signature PNG ou JPG pour finaliser vos ordonnances et comptes-rendus.';
+        $connection_meta = $is_self
+            ? 'Connexion sécurisée par Magic Link et notifications métier vers cette adresse.'
+            : 'Adresse utilisée pour la connexion professionnelle sécurisée du praticien.';
+
         $html = '';
         $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--profile">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
         $html .= '<div class="sp-doctor-account__hero">';
         $html .= '<p class="sp-doctor-account__eyebrow">Compte professionnel sécurisé</p>';
         $html .= '<h1>' . esc_html($screen_title) . '</h1>';
-        $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles et votre signature. Ces données sont utilisées pour générer vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles, certifiez votre profil RPPS et préparez votre signature privée. Ces données structurent vos ordonnances et comptes-rendus sécurisés.</p>';
         $html .= '</div>';
 
         if ($is_admin_view && !$is_self) {
@@ -391,6 +404,12 @@ private static function render_logout_form(): string
                 'Vous consultez actuellement le compte professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
             );
         }
+
+        $html .= '<div class="sp-doctor-account__summary-grid">';
+        $html .= self::render_summary_card('Connexion sécurisée', $email, $connection_meta, 'neutral');
+        $html .= self::render_summary_card('Conformité RPPS', $rpps_status_value, $rpps_status_meta, $rpps_verified ? 'success' : 'warning');
+        $html .= self::render_summary_card('Signature privée', $signature_value, $signature_meta, $signature_ready ? 'success' : 'neutral');
+        $html .= '</div>';
 
         $html .= '<form id="sp_doc_profile_form" class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';
@@ -402,7 +421,14 @@ private static function render_logout_form(): string
             $html .= '<input type="hidden" name="target_user_id" value="' . esc_attr((string) $user->ID) . '" />';
         }
 
-        $html .= '<div class="sp-stack sp-doctor-account__fields">';
+        $html .= '<div class="sp-doctor-account__layout">';
+
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--identity">';
+        $html .= '<div class="sp-doctor-account__group-head">';
+        $html .= '<h2 class="sp-doctor-account__group-title">Identité professionnelle</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Ces informations pilotent votre présence dans l’espace sécurisé et sur les documents générés.</p>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__group-fields">';
 
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_email_current">Adresse e-mail de connexion</label>';
@@ -424,6 +450,16 @@ private static function render_logout_form(): string
         $html .= '</select>';
         $html .= '</div>';
 
+        $html .= '</div>';
+        $html .= '</section>';
+
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--professional">';
+        $html .= '<div class="sp-doctor-account__group-head">';
+        $html .= '<h2 class="sp-doctor-account__group-title">Conformité RPPS</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Votre identifiant RPPS certifie votre profil et sécurise la conformité des prescriptions.</p>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__group-fields">';
+
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_rpps">Numéro RPPS</label>';
         $html .= '<input class="sp-input" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex : 10001234567" inputmode="numeric" maxlength="11" autocomplete="off" data-sp-rpps-managed="1" />';
@@ -435,7 +471,18 @@ private static function render_logout_form(): string
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_specialty">Spécialité / qualification</label>';
         $html .= '<input class="sp-input" type="text" id="sp_doc_specialty" name="specialty" value="' . esc_attr($specialty) . '" placeholder="Ex : Médecin généraliste" />';
+        $html .= '<p class="sp-field__help">La spécialité affichée sur vos documents et dans votre espace sécurisé.</p>';
         $html .= '</div>';
+
+        $html .= '</div>';
+        $html .= '</section>';
+
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--document sp-doctor-account__group--wide">';
+        $html .= '<div class="sp-doctor-account__group-head">';
+        $html .= '<h2 class="sp-doctor-account__group-title">Mentions de document</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Structurez les informations qui seront reprises sur l’ordonnance et les comptes-rendus sécurisés.</p>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--document">';
 
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_diploma_label">Diplôme (libellé)</label>';
@@ -461,7 +508,17 @@ private static function render_logout_form(): string
         $html .= '<p class="sp-field__help">Utilisé dans la mention « Fait à …, le … ».</p>';
         $html .= '</div>';
 
-        $html .= '<div class="sp-field">';
+        $html .= '</div>';
+        $html .= '</section>';
+
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--contact">';
+        $html .= '<div class="sp-doctor-account__group-head">';
+        $html .= '<h2 class="sp-doctor-account__group-title">Coordonnées métier</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Renseignez vos coordonnées professionnelles utiles sans exposer de données personnelles sur les ordonnances.</p>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--contact">';
+
+        $html .= '<div class="sp-field sp-doctor-account__field--wide">';
         $html .= '<label class="sp-field__label" for="sp_doc_address">Adresse professionnelle</label>';
         $html .= '<textarea class="sp-textarea" rows="4" id="sp_doc_address" name="address" placeholder="Adresse du cabinet ou de la structure">' . esc_textarea($address) . '</textarea>';
         $html .= '<p class="sp-field__help">Cette adresse peut apparaître sur vos ordonnances et comptes-rendus sécurisés.</p>';
@@ -473,7 +530,18 @@ private static function render_logout_form(): string
         $html .= '<p class="sp-field__help">Pour protéger votre vie privée, ce numéro ne sera jamais imprimé sur vos ordonnances. La plateforme génèrera un numéro de standard sécurisé (09) qui redirigera les appels des pharmaciens vers cette ligne.</p>';
         $html .= '</div>';
 
+        $html .= '</div>';
+        $html .= '</section>';
+
+        $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--signature sp-doctor-account__group--full">';
+        $html .= '<div class="sp-doctor-account__group-head">';
+        $html .= '<h2 class="sp-doctor-account__group-title">Signature privée</h2>';
+        $html .= '<p class="sp-doctor-account__group-copy">Votre signature reste stockée en privé et sera réutilisée dans les documents sécurisés générés après validation médicale.</p>';
+        $html .= '</div>';
         $html .= self::render_signature_field($sig_file_id);
+        $html .= '</section>';
+
+        $html .= '</div>';
 
         $html .= '<div id="sp_doc_profile_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
 
@@ -485,7 +553,6 @@ private static function render_logout_form(): string
         }
         $html .= '</div>';
 
-        $html .= '</div>';
         $html .= '</form>';
         $html .= '</div>';
         $html .= '</div>';
@@ -496,8 +563,7 @@ private static function render_logout_form(): string
     private static function render_signature_field(int $sig_file_id): string
     {
         $html = '';
-        $html .= '<div class="sp-field sp-doctor-account__subsection sp-doctor-account__signature-field">';
-        $html .= '<span class="sp-field__label">Signature</span>';
+        $html .= '<div class="sp-doctor-account__signature-field">';
 
         if ($sig_file_id > 0) {
             $download_url = wp_nonce_url(
@@ -520,15 +586,18 @@ private static function render_logout_form(): string
             $html .= '</div>';
         }
 
+        $html .= '<label class="sp-field">';
+        $html .= '<span class="sp-field__label">Fichier de signature</span>';
         $html .= '<input class="sp-input" type="file" id="signature_file" name="signature_file" accept="image/png,image/jpeg" />';
+        $html .= '</label>';
         $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, largeur 600 à 1000 px, hauteur 120 à 250 px, idéalement moins de 200 ko.</p>';
         $html .= '<div id="sp_signature_feedback" class="sp-alert sp-alert--info" hidden role="status" aria-live="polite"></div>';
         $html .= '<p id="sp_signature_meta" class="sp-field__help" hidden></p>';
         $html .= '<div id="sp_signature_preview" class="sp-card" hidden>';
-        $html .= '<div class="sp-stack sp-doctor-account__fields">';
+        $html .= '<div class="sp-doctor-account__signature-preview">';
         $html .= '<p class="sp-field__help">Prévisualisation locale avant enregistrement.</p>';
         $html .= '<img id="sp_signature_preview_img" alt="Prévisualisation de la signature" />';
-        $html .= '<div class="sp-stack">';
+        $html .= '<div class="sp-doctor-account__signature-actions">';
         $html .= '<button type="button" id="sp_signature_clear" class="sp-button sp-button--secondary">Retirer le fichier sélectionné</button>';
         $html .= '</div>';
         $html .= '</div>';
@@ -538,8 +607,16 @@ private static function render_logout_form(): string
         return $html;
     }
 
-    
-private static function doctor_account_is_established(int $user_id, bool $rpps_verified, string $rpps): bool
+    private static function render_summary_card(string $label, string $value, string $meta, string $tone = 'neutral'): string
+    {
+        return '<article class="sp-card sp-doctor-account__summary-card" data-tone="' . esc_attr(sanitize_html_class($tone)) . '">'
+            . '<p class="sp-doctor-account__summary-label">' . esc_html($label) . '</p>'
+            . '<p class="sp-doctor-account__summary-value">' . esc_html($value) . '</p>'
+            . '<p class="sp-doctor-account__summary-meta">' . esc_html($meta) . '</p>'
+            . '</article>';
+    }
+
+    private static function doctor_account_is_established(int $user_id, bool $rpps_verified, string $rpps): bool
     {
         $user = get_userdata($user_id);
         if ($user instanceof \WP_User) {

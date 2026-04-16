@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V7.0.3
+// PatientConsole.tsx · V7.0.4
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1395,124 +1395,59 @@ function HeroBanner({
   status,
   createdAt,
   pdf,
-  paymentPreview,
   decisionReason,
-  onDownloadPrescription,
-  onScrollToPayment,
 }: {
   title: string;
   status: string;
   createdAt: string;
   pdf: PdfState | null;
-  paymentPreview: { amountCents: number; currency: string } | null;
   decisionReason?: string;
-  onDownloadPrescription: () => void;
-  onScrollToPayment: () => void;
 }) {
-  const info = statusInfo(status);
   const normalizedStatus = normalizeStatusValue(status);
   const pdfStatus = normalizeStatusValue(String(pdf?.status || ''));
-  const downloadUrl = String(pdf?.download_url || '');
-  const canDownload = Boolean(pdf?.can_download && downloadUrl);
 
-  let lead = info.hint;
-  let support = createdAt ? `Demande déposée le ${formatHumanDateTime(createdAt)}.` : '';
-  let action: React.ReactNode = null;
-  let actionLabel = 'État du dossier';
+  let message = statusInfo(status).hint;
 
-  if (isPaymentPendingStatus(normalizedStatus)) {
-    lead = 'Une seule étape reste à compléter pour lancer l’analyse médicale de votre demande.';
-    support = 'Aucun prélèvement n’est effectué en cas de refus médical.';
-    actionLabel = 'Action requise';
-    action = (
-      <Button type="button" onClick={onScrollToPayment} className="sp-patient-hero__button">
-        {paymentPreview ? `Payer ${formatMoney(paymentPreview.amountCents, paymentPreview.currency)}` : 'Payer ma demande'}
-      </Button>
-    );
+  if (normalizedStatus === 'payment_pending') {
+    message = 'Une seule étape reste à compléter avant le lancement de l’analyse médicale de votre demande.';
   } else if (isWaitingStatus(normalizedStatus)) {
-    lead = 'Aucune action n’est requise pour le moment. Un médecin analyse votre dossier.';
-    support = 'Vous serez averti ici si une précision ou un document complémentaire est nécessaire.';
-    actionLabel = 'Analyse médicale';
-    action = <div className="sp-patient-hero__note">Nous vous tenons informé de chaque évolution.</div>;
+    message = 'Aucune action n’est requise pour le moment. Un médecin analyse votre dossier et vous préviendra si un complément est nécessaire.';
   } else if (isApprovedStatus(normalizedStatus)) {
-    actionLabel = 'Document sécurisé';
-    if (canDownload) {
-      lead = 'Votre ordonnance est prête. Vous pouvez la télécharger en un seul geste.';
-      support = 'Le lien de téléchargement est sécurisé et régénéré automatiquement.';
-      action = (
-        <Button type="button" onClick={onDownloadPrescription} className="sp-patient-hero__button">
-          Télécharger l’ordonnance
-        </Button>
-      );
-    } else if (pdfStatus === 'failed') {
-      lead = pdf?.last_error_message || pdf?.message || 'Votre ordonnance est validée, mais le document n’est pas encore téléchargeable.';
-      support = 'Le téléchargement réapparaîtra automatiquement dès que le PDF sécurisé sera prêt.';
-      action = (
-        <Button type="button" disabled className="sp-patient-hero__button">
-          Préparation du PDF…
-        </Button>
-      );
+    if (pdfStatus === 'failed') {
+      message = pdf?.last_error_message || pdf?.message || 'Votre demande est validée, mais le document sécurisé n’est pas encore téléchargeable.';
+    } else if (pdfStatus === 'done' && !pdf?.download_url) {
+      message = 'Votre demande est validée. Le lien sécurisé est en cours de synchronisation.';
+    } else if (Boolean(pdf?.can_download && pdf?.download_url)) {
+      message = 'Votre ordonnance validée est prête et disponible dans le bloc de téléchargement sécurisé ci-dessous.';
     } else {
-      lead = pdf?.message || 'Votre ordonnance est validée. Le PDF sécurisé est en cours de préparation.';
-      support = 'Le bouton de téléchargement s’activera automatiquement dès que le document sera prêt.';
-      action = (
-        <Button type="button" disabled className="sp-patient-hero__button">
-          <Spinner className="sp-patient-hero__spinner" />
-          Préparation du PDF…
-        </Button>
-      );
+      message = pdf?.message || 'Votre ordonnance est validée. Le PDF sécurisé est en cours de préparation.';
     }
   } else if (isRejectedStatus(normalizedStatus)) {
-    lead = 'Votre demande n’a pas pu être validée à l’issue de l’analyse médicale.';
-    support = 'Le motif médical, lorsqu’il est renseigné, apparaît ci-dessous.';
-    actionLabel = 'Décision médicale';
-    action = <div className="sp-patient-hero__note">Aucune action requise</div>;
+    message = decisionReason
+      ? `Motif médical : ${decisionReason}`
+      : 'La demande n’a pas pu être validée à l’issue de l’analyse médicale.';
   } else if (isClosedStatus(normalizedStatus)) {
-    lead = 'Ce dossier est clôturé. Veuillez initier une nouvelle demande si nécessaire.';
-    support = 'La messagerie associée à ce dossier est désormais en lecture seule.';
-    actionLabel = 'Dossier clôturé';
-    action = <div className="sp-patient-hero__note">Dossier clôturé</div>;
+    message = 'Ce dossier est clôturé. Veuillez initier une nouvelle demande si nécessaire.';
   }
 
   return (
     <section className="sp-card sp-patient-hero" data-tone={statusTone(status)}>
-      <div className="sp-patient-hero__layout">
-        <div className="sp-patient-hero__main">
-          <div className="sp-patient-hero__copy">
-            <div className="sp-patient-hero__header">
-              <div className="sp-patient-hero__eyebrow">
-                <StatusPill status={status} />
-              </div>
-              {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
-            </div>
-
-            <div className="sp-patient-hero__content">
-              <div className="sp-patient-hero__headline">
-                <h2 className="sp-patient-hero__title">{title}</h2>
-                <p className="sp-patient-hero__lead">{lead}</p>
-              </div>
-              {support ? <p className="sp-patient-hero__support">{support}</p> : null}
-
-              {decisionReason && isRejectedStatus(normalizedStatus) ? (
-                <div className="sp-patient-hero__decision">
-                  <div className="sp-patient-hero__decision-label">Motif médical</div>
-                  <div className="sp-prewrap">{decisionReason}</div>
-                </div>
-              ) : null}
-            </div>
+      <div className="sp-patient-hero__shell">
+        <div className="sp-patient-hero__meta-row">
+          <div className="sp-patient-hero__eyebrow">
+            <StatusPill status={status} />
           </div>
-
-          <div className="sp-patient-hero__footer">
-            <StatusTimeline status={status} />
-          </div>
+          {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
         </div>
 
-        <aside className="sp-patient-hero__aside sp-patient-hero__rail" aria-label={actionLabel}>
-          <div className="sp-patient-hero__action-card">
-            <div className="sp-patient-hero__action-label">{actionLabel}</div>
-            <div className="sp-patient-hero__actions">{action}</div>
-          </div>
-        </aside>
+        <div className="sp-patient-hero__copy-block">
+          <h2 className="sp-patient-hero__title">{title}</h2>
+          {message ? <p className="sp-patient-hero__message">{message}</p> : null}
+        </div>
+
+        <div className="sp-patient-hero__footer">
+          <StatusTimeline status={status} />
+        </div>
       </div>
     </section>
   );
@@ -2418,11 +2353,10 @@ export default function PatientConsole() {
                     status={detail.status}
                     createdAt={detail.created_at || selectedSummary?.created_at || ''}
                     pdf={selectedPdf}
-                    paymentPreview={paymentPreview}
                     decisionReason={detail.decision_reason}
-                    onDownloadPrescription={openSelectedPrescriptionPdf}
-                    onScrollToPayment={scrollToPayment}
                   />
+
+                  <PdfCard status={detail.status} pdf={selectedPdf} />
 
                   <RequestDetailsDisclosure fields={requestDetails} />
 

@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V7.0.3 — emergency guard fix: centered SOS favicon, no legacy icon cluster.
+ * V7.0.4 — final guard QA: centered SOS favicon restored with secure icon chips.
  */
 final class ScreenFrame
 {
@@ -99,16 +99,16 @@ final class ScreenFrame
 
         $content = '<div class="sp-plugin-guard sp-guard-surface sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
         $content .= '<div class="sp-plugin-guard__shell">';
-        $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
-        $content .= '<div class="sp-plugin-guard__header">';
-        $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
-        $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
-        $content .= '</div>';
         $content .= '<div class="sp-plugin-guard__brand" aria-hidden="true">';
         $favicon = self::guard_favicon_url();
         if ($favicon !== '') {
             $content .= '<span class="sp-plugin-guard__favicon"><img src="' . esc_url($favicon) . '" alt="" loading="eager" decoding="async" /></span>';
         }
+        $content .= '</div>';
+        $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
+        $content .= '<div class="sp-plugin-guard__header">';
+        $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
+        $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
         $content .= '</div>';
 
         if ($actions !== []) {
@@ -122,6 +122,10 @@ final class ScreenFrame
             $content .= '</div>';
         }
 
+        $content .= '<div class="sp-plugin-guard__icons" aria-hidden="true">';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('stethoscope') . '</span>';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('lock') . '</span>';
+        $content .= '</div>';
         $content .= '</div>';
         $content .= '</div>';
 
@@ -137,7 +141,7 @@ final class ScreenFrame
             return (string) get_theme_file_uri('assets/img/brand/sos-favicon.svg');
         }
 
-        return defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL . 'assets/caduceus.svg' : '';
+        return defined('SOSPRESCRIPTION_URL') ? (string) SOSPRESCRIPTION_URL . 'assets/img/brand/sos-favicon.svg' : '';
     }
 
     private static function guard_icon(string $name): string

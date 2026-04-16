@@ -1,4 +1,4 @@
-// src/entries/form.tsx · V7.0.3
+// src/entries/form.tsx · V7.0.4
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -363,6 +363,15 @@ function Settings2Icon({ className = "" }: LucideIconProps) {
     <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82 2 2 0 1 1-2.82 2.82 1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51 2 2 0 1 1-4 0 1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33 2 2 0 1 1-2.82-2.82 1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1 2 2 0 1 1 0-4 1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82 2 2 0 1 1 2.82-2.82 1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 10 2.6a2 2 0 1 1 4 0 1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33 2 2 0 1 1 2.82 2.82 1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1 2 2 0 1 1 0 4 1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
+function XIcon({ className = '' }: LucideIconProps) {
+  return (
+    <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   );
 }
@@ -2602,18 +2611,27 @@ function ScheduleEditor({
           {advancedOpen ? (
             <div className="sp-app-schedule sp-app-schedule--grouped sp-app-schedule--advanced">
               <div className="sp-app-schedule__header">
-                <div className="sp-app-schedule__title">Réglages avancés de planification</div>
+                <div className="sp-app-schedule__title">
+                  <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
+                  <span>Réglages avancés de planification</span>
+                </div>
                 <div className="sp-app-schedule__actions">
                   {autoTimesEnabled ? (
-                    <Button type="button" variant="secondary" onClick={disableAutomaticTimes}>
+                    <Button type="button" variant="secondary" className="sp-app-schedule__toggle-auto" onClick={disableAutomaticTimes}>
                       Passer en manuel
                     </Button>
                   ) : (
-                    <Button type="button" variant="secondary" onClick={enableAutomaticTimes}>
+                    <Button type="button" variant="secondary" className="sp-app-schedule__toggle-auto" onClick={enableAutomaticTimes}>
                       Utiliser les horaires suggérés
                     </Button>
                   )}
-                  <Button type="button" variant="ghost" onClick={() => setAdvancedOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="sp-app-schedule__close-button"
+                    onClick={() => setAdvancedOpen(false)}
+                  >
+                    <XIcon className="sp-app-schedule-editor__close-icon" />
                     Fermer
                   </Button>
                 </div>
@@ -2648,15 +2666,6 @@ function ScheduleEditor({
                 <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
                 Personnaliser
               </Button>
-              <button
-                type="button"
-                className="sp-app-icon-button sp-app-schedule-editor__settings-button"
-                aria-label="Ouvrir les réglages avancés de planification"
-                title="Réglages avancés"
-                onClick={openAdvancedPlanning}
-              >
-                <Settings2Icon className="sp-app-schedule-editor__settings-icon" />
-              </button>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V7.0.3 */
+/* SOS Prescription : Medical-Grade Aura V7.0.4 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -4903,4 +4903,130 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-patient-console .sp-patient-console__sidebar-panel > .sp-panel__body {
     max-block-size: min(22rem, 48vh);
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.4 — Final QA : hero patient Plan B robuste + tunnel étape 2.
+   -------------------------------------------------------------------------- */
+.sp-patient-console .sp-patient-hero {
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__shell {
+  display: grid;
+  gap: clamp(0.95rem, 0.9rem + 0.28vw, 1.2rem);
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__eyebrow,
+.sp-patient-console .sp-patient-hero__copy-block,
+.sp-patient-console .sp-patient-hero__footer {
+  min-width: 0;
+}
+
+.sp-patient-console .sp-patient-hero__copy-block {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.sp-patient-console .sp-patient-hero__date-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-inline-size: 100%;
+  padding: 0.48rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, var(--sp-shell-color-surface, #ffffff) 26%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.sp-patient-console .sp-patient-hero__title {
+  margin: 0;
+  min-width: 0;
+  max-inline-size: min(100%, 22ch);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.sp-patient-console .sp-patient-hero__message {
+  margin: 0;
+  max-inline-size: 64ch;
+  color: var(--sp-shell-color-text-2, #334155);
+  line-height: 1.68;
+}
+
+.sp-patient-console .sp-patient-hero__footer {
+  padding-top: 0.2rem;
+}
+
+@media (max-width: 900px) {
+  .sp-patient-console .sp-patient-hero__meta-row {
+    align-items: flex-start;
+  }
+
+  .sp-patient-console .sp-patient-hero__title,
+  .sp-patient-console .sp-patient-hero__message {
+    max-inline-size: 100%;
+  }
+}
+
+#sosprescription-root-form .sp-app-card--medication-request .sp-app-field--search {
+  margin-bottom: 0.7rem;
+}
+
+#sosprescription-root-form .sp-app-medication-card--stacked > .sp-app-block,
+#sosprescription-root-form .sp-app-medication-card--stacked > .sp-app-chip-list,
+#sosprescription-root-form .sp-app-medication-card--stacked > .sp-app-inline-note {
+  margin-top: 0.35rem;
+}
+
+#sosprescription-root-form .sp-app-schedule {
+  gap: 1rem;
+}
+
+#sosprescription-root-form .sp-app-schedule__header {
+  gap: 0.95rem;
+}
+
+#sosprescription-root-form .sp-app-schedule__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#sosprescription-root-form .sp-app-schedule__close-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+#sosprescription-root-form .sp-app-schedule__close-button:hover,
+#sosprescription-root-form .sp-app-schedule__close-button:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 20%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 70%, #ffffff 30%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__close-icon {
+  inline-size: 1rem;
+  block-size: 1rem;
 }

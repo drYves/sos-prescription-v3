@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V7.0.2
+// assets/doctor-console.js · V7.0.4
 (function () {
   'use strict';
 
@@ -2826,7 +2826,9 @@
       '      </div>',
       '    </div>',
            rowsHtml,
-      '    <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '    <div class="dc-modal__panel dc-modal__panel--note">',
+      '      <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '    </div>',
       '  </div>',
       '  <div class="dc-modal__actions">',
       '    <button type="button" class="sp-button sp-button--secondary" data-action="close-med-modal">Annuler</button>',
@@ -3445,11 +3447,17 @@
       '  <div data-dc-notice></div>',
       '  <div class="dc-shell">',
       '    <aside class="dc-inbox">',
-      '      <div class="dc-inbox__head">',
-      '        <div>',
-      '          <div class="dc-overline">Console médecin</div>',
-      '          <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
+      '      <div class="dc-inbox__stack">',
+      '        <div class="dc-session-card">',
       '          <div class="dc-session-pill"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">Connecté : ' + escHtml(currentUserName) + '</span></div>',
+      '        </div>',
+      '        <div class="dc-inbox__summary">',
+      '          <div class="dc-inbox__head">',
+      '            <div>',
+      '              <div class="dc-overline">Console médecin</div>',
+      '              <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
+      '            </div>',
+      '          </div>',
       '          <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '        </div>',
       '      </div>',
