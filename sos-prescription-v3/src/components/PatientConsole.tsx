@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V7.0.2
+// PatientConsole.tsx · V7.0.3
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1478,26 +1478,28 @@ function HeroBanner({
     <section className="sp-card sp-patient-hero" data-tone={statusTone(status)}>
       <div className="sp-patient-hero__layout">
         <div className="sp-patient-hero__main">
-          <div className="sp-patient-hero__header">
-            <div className="sp-patient-hero__eyebrow">
-              <StatusPill status={status} />
-            </div>
-            {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
-          </div>
-
-          <div className="sp-patient-hero__content">
-            <div className="sp-patient-hero__headline">
-              <h2 className="sp-patient-hero__title">{title}</h2>
-              <p className="sp-patient-hero__lead">{lead}</p>
-            </div>
-            {support ? <p className="sp-patient-hero__support">{support}</p> : null}
-
-            {decisionReason && isRejectedStatus(normalizedStatus) ? (
-              <div className="sp-patient-hero__decision">
-                <div className="sp-patient-hero__decision-label">Motif médical</div>
-                <div className="sp-prewrap">{decisionReason}</div>
+          <div className="sp-patient-hero__copy">
+            <div className="sp-patient-hero__header">
+              <div className="sp-patient-hero__eyebrow">
+                <StatusPill status={status} />
               </div>
-            ) : null}
+              {createdAt ? <span className="sp-patient-hero__date-chip">Ouvert le {formatHumanDate(createdAt)}</span> : null}
+            </div>
+
+            <div className="sp-patient-hero__content">
+              <div className="sp-patient-hero__headline">
+                <h2 className="sp-patient-hero__title">{title}</h2>
+                <p className="sp-patient-hero__lead">{lead}</p>
+              </div>
+              {support ? <p className="sp-patient-hero__support">{support}</p> : null}
+
+              {decisionReason && isRejectedStatus(normalizedStatus) ? (
+                <div className="sp-patient-hero__decision">
+                  <div className="sp-patient-hero__decision-label">Motif médical</div>
+                  <div className="sp-prewrap">{decisionReason}</div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="sp-patient-hero__footer">

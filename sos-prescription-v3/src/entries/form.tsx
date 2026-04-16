@@ -1,4 +1,4 @@
-// src/entries/form.tsx · V7.0.2
+// src/entries/form.tsx · V7.0.3
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2781,6 +2781,7 @@ function StepClinicalData({
   fullName,
   birthdate,
   draftEmail,
+  draftEmailLocked,
   ageLabel,
   medicalNotes,
   items,

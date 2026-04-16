@@ -1,6 +1,6 @@
-/* SOS Prescription : Plugin Bridge V7.0.2 */
+/* SOS Prescription : Plugin Bridge V7.0.3 */
 /*
- * SOS Prescription — Plugin Bridge v7.0.2
+ * SOS Prescription — Plugin Bridge v7.0.3
  * Adaptateur léger entre shell et racines plugin.
  * Le bridge reste structurel, avec un contrat visuel limité aux entrées sécurisées.
  */
@@ -275,4 +275,41 @@
 .sp-plugin-guard__hero-icon svg {
   inline-size: 2rem;
   block-size: 2rem;
+}
+
+
+/* --------------------------------------------------------------------------
+   V7.0.3 — Guards finalisés : favicon SOS centré, sans bloc d’icônes legacy.
+   -------------------------------------------------------------------------- */
+.sp-plugin-guard__brand {
+  padding-block: 0.25rem 0.1rem;
+}
+
+.sp-plugin-guard__favicon {
+  display: grid;
+  place-items: center;
+  inline-size: 6rem;
+  block-size: 6rem;
+  margin-inline: auto;
+  border-radius: 1.8rem;
+  padding: 1rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 82%, #ffffff 18%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, var(--sp-shell-color-surface-alt, #f6f8fb) 10%)
+  );
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 16%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.sp-plugin-guard__favicon img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
+
+.sp-plugin-guard__hero-icon,
+.sp-plugin-guard__icons {
+  display: none;
 }
