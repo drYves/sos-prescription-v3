@@ -12,7 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
- * V7.0.4 — premium medical-grade final du compte professionnel.
+ * V7.0.6 — opération cœur ouvert : architecture premium locale et hiérarchie stabilisée.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -279,7 +279,7 @@ final class DoctorAccountShortcode
         $html .= '<div class="sp-doctor-account__session-copy">';
         $html .= '<p class="sp-doctor-account__session-eyebrow">Session active</p>';
         $html .= '<div class="sp-doctor-account__session-badges">';
-        $html .= ScreenFrame::badge('Connecté : ' . $current_label, 'success', true);
+        $html .= ScreenFrame::badge($current_label, 'success', true);
 
         if ($is_admin_view && !$is_self) {
             $html .= ScreenFrame::badge('Profil affiché : ' . $target_label, 'info', false);
@@ -345,7 +345,7 @@ final class DoctorAccountShortcode
         $html .= '<p class="sp-field__help">Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.</p>';
         $html .= '</div>';
         $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
-        $html .= '<button type="button" class="sp-button sp-button--secondary" style="color: var(--sp-color-warning, #c2410c); border-color: currentColor;" id="sp-delete-account-btn">Supprimer mon compte</button>';
+        $html .= '<button type="button" class="sp-button sp-button--secondary sp-doctor-account__danger-button" id="sp-delete-account-btn">Supprimer mon compte</button>';
         $html .= '</div>';
         $html .= '</div>';
 
@@ -391,10 +391,21 @@ final class DoctorAccountShortcode
         $html = '';
         $html .= '<div class="sp-card sp-doctor-account__section sp-doctor-account__section--profile">';
         $html .= '<div class="sp-stack sp-doctor-account__section-stack">';
+        $html .= '<div class="sp-doctor-account__overview">';
+        $html .= '<div class="sp-doctor-account__overview-copy">';
         $html .= '<div class="sp-doctor-account__hero">';
         $html .= '<p class="sp-doctor-account__eyebrow">Compte professionnel sécurisé</p>';
         $html .= '<h1>' . esc_html($screen_title) . '</h1>';
         $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles, certifiez votre profil RPPS et préparez votre signature privée. Ces données structurent vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '</div>';
+        $html .= '</div>';
+        $html .= '<div class="sp-doctor-account__overview-metrics">';
+        $html .= '<div class="sp-doctor-account__summary-grid">';
+        $html .= self::render_summary_card('Connexion sécurisée', $email, $connection_meta, 'neutral');
+        $html .= self::render_summary_card('Conformité RPPS', $rpps_status_value, $rpps_status_meta, $rpps_verified ? 'success' : 'warning');
+        $html .= self::render_summary_card('Signature privée', $signature_value, $signature_meta, $signature_ready ? 'success' : 'neutral');
+        $html .= '</div>';
+        $html .= '</div>';
         $html .= '</div>';
 
         if ($is_admin_view && !$is_self) {
@@ -404,12 +415,6 @@ final class DoctorAccountShortcode
                 'Vous consultez actuellement le compte professionnel de ' . self::resolve_doctor_label($user, (int) $user->ID) . '.'
             );
         }
-
-        $html .= '<div class="sp-doctor-account__summary-grid">';
-        $html .= self::render_summary_card('Connexion sécurisée', $email, $connection_meta, 'neutral');
-        $html .= self::render_summary_card('Conformité RPPS', $rpps_status_value, $rpps_status_meta, $rpps_verified ? 'success' : 'warning');
-        $html .= self::render_summary_card('Signature privée', $signature_value, $signature_meta, $signature_ready ? 'success' : 'neutral');
-        $html .= '</div>';
 
         $html .= '<form id="sp_doc_profile_form" class="sp-form sp-doctor-account__form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
         $html .= '<input type="hidden" name="action" value="sosprescription_doctor_profile_save" />';

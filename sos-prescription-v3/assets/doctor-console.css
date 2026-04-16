@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V7.0.5 */
+/* SOS Prescription : Doctor Console V7.0.6 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -1569,11 +1569,6 @@
   gap: 1rem;
 }
 
-.sosprescription-doctor .dc-inbox__stack {
-  display: grid;
-  gap: 0.9rem;
-}
-
 .sosprescription-doctor .dc-session-card,
 .sosprescription-doctor .dc-inbox__summary {
   width: 100%;
@@ -1638,7 +1633,7 @@
 
 
 /* --------------------------------------------------------------------------
-   V7.0.5 — Fast track : hover des actions horaires de la modale.
+   V7.0.6 — Hover robuste des actions horaires de la modale.
    -------------------------------------------------------------------------- */
 .sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-reset-times'],
 .sosprescription-doctor .dc-modal__schedule-toolbar [data-action='med-enable-auto'] {
@@ -1656,4 +1651,95 @@
   background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%);
   color: var(--sp-shell-color-accent-ink, #0a4d87);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, transparent), inset 0 1px 0 rgba(255,255,255,0.92), 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+/* --------------------------------------------------------------------------
+   V7.0.6 — Operation cœur ouvert : colonne inbox unifiée et session active
+   directement exploitable à l’ouverture.
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor .dc-shell {
+  grid-template-columns: minmax(32rem, 36rem) minmax(0, 1fr);
+}
+
+.sosprescription-doctor .dc-inbox {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+}
+
+.sosprescription-doctor .dc-inbox__summary {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem 1rem 1.05rem;
+  border-bottom: 1px solid #eef2f7;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 20%, var(--sp-shell-color-surface, #ffffff) 80%)
+  );
+}
+
+.sosprescription-doctor .dc-session-card {
+  width: 100%;
+}
+
+.sosprescription-doctor .dc-session-pill {
+  display: grid;
+  gap: 0.22rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 20%, transparent);
+  border-radius: 1.05rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 74%, #ffffff 26%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 92%, var(--sp-shell-color-accent-soft, #eff6ff) 8%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.sosprescription-doctor .dc-session-pill__eyebrow {
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sosprescription-doctor .dc-session-pill__value {
+  color: var(--sp-shell-color-text-1, #111827);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.sosprescription-doctor .dc-inbox__head {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.sosprescription-doctor .dc-filter-tabs {
+  margin-top: 0;
+}
+
+.sosprescription-doctor .dc-inbox__list {
+  max-height: calc(100vh - 255px);
+}
+
+@media (max-width: 1260px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: minmax(28rem, 32rem) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1160px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sosprescription-doctor .dc-inbox__list {
+    max-height: none;
+  }
 }

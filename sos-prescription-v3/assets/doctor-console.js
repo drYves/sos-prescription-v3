@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V7.0.4
+// assets/doctor-console.js · V7.0.6
 (function () {
   'use strict';
 
@@ -3447,19 +3447,17 @@
       '  <div data-dc-notice></div>',
       '  <div class="dc-shell">',
       '    <aside class="dc-inbox">',
-      '      <div class="dc-inbox__stack">',
+      '      <div class="dc-inbox__summary">',
       '        <div class="dc-session-card">',
-      '          <div class="dc-session-pill"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">Connecté : ' + escHtml(currentUserName) + '</span></div>',
+      '          <div class="dc-session-pill"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">' + escHtml(currentUserName) + '</span></div>',
       '        </div>',
-      '        <div class="dc-inbox__summary">',
-      '          <div class="dc-inbox__head">',
-      '            <div>',
-      '              <div class="dc-overline">Console médecin</div>',
-      '              <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
-      '            </div>',
+      '        <div class="dc-inbox__head">',
+      '          <div>',
+      '            <div class="dc-overline">Console médecin</div>',
+      '            <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
       '          </div>',
-      '          <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '        </div>',
+      '        <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
       '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
       '    </aside>',
