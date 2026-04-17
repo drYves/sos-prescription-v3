@@ -39,6 +39,10 @@ use SosPrescription\Shortcodes\LogoutShortcode;
 use SosPrescription\Shortcodes\MagicRedirectShortcode;
 use SosPrescription\Shortcodes\PatientShortcode;
 use SosPrescription\Shortcodes\PricingShortcode;
+use SosPrescription\Shortcodes\LegalMentionsShortcode;
+use SosPrescription\Shortcodes\LegalCguShortcode;
+use SosPrescription\Shortcodes\LegalPrivacyShortcode;
+use SosPrescription\Shortcodes\LegalCookiesShortcode;
 use SosPrescription\Frontend\VerificationPage;
 use SosPrescription\Frontend\AuthVerifyPage;
 use SosPrescription\Services\Notifications;
@@ -298,6 +302,10 @@ final class Plugin
         PricingShortcode::register();
         LogoutShortcode::register();
         MagicRedirectShortcode::register();
+        LegalMentionsShortcode::register();
+        LegalCguShortcode::register();
+        LegalPrivacyShortcode::register();
+        LegalCookiesShortcode::register();
     }
 
 
