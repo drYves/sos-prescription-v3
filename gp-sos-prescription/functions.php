@@ -10,7 +10,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('SP_THEME_VERSION')) {
-    define('SP_THEME_VERSION', '7.0.9');
+    define('SP_THEME_VERSION', '7.2.2');
 }
 
 if (! defined('SP_THEME_PATH')) {

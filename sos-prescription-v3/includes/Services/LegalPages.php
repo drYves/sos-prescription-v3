@@ -535,7 +535,7 @@ final class LegalPages
 
         $html = '<div class="sp-legal-document sp-legal-document--mentions">';
         $html .= self::render_meta_block('mentions', $state, 'Document public d’identification', 'Informations relatives à l’éditeur du site, à l’hébergement du site public et aux principaux liens de contact.');
-        $html .= self::lead('Les présentes mentions légales identifient l’éditeur du site et du service SOS Prescription, l’hébergement du site public ainsi que les principaux contacts associés à la publication.');
+        $html .= self::lead('Les présentes mentions légales ont pour objet d’identifier l’éditeur du site et du service SOS Prescription, les principaux intervenants techniques publiquement déclarés, ainsi que les documents de référence accessibles depuis le site.');
         $html .= self::callout([
             'Service privé de continuité thérapeutique',
             'Service non urgent et asynchrone',
@@ -568,6 +568,15 @@ final class LegalPages
         ]);
         $html .= '</section>';
 
+        $html .= '<section>';
+        $html .= '<h2>Cadre public du service et documents associés</h2>';
+        $html .= self::paragraph('Le site public constitue une façade d’information, d’accès au parcours et de publication documentaire. Les conditions du service, les règles de confidentialité et les informations relatives aux cookies sont détaillées dans les pages juridiques associées.');
+        $html .= self::render_internal_links([
+            [self::page_url('conditions', $state), 'Consulter les conditions du service, tarifs et paiement'],
+            [self::page_url('privacy', $state), 'Consulter la page confidentialité, données de santé et cookies'],
+        ]);
+        $html .= '</section>';
+
         if ($doctorEnabled) {
             $html .= '<section>';
             $html .= '<h2>Médecin référent mentionné</h2>';
@@ -578,14 +587,6 @@ final class LegalPages
         $html .= '<section>';
         $html .= '<h2>Propriété intellectuelle</h2>';
         $html .= self::paragraph('Les contenus, signes distinctifs, marques, textes, éléments graphiques et éléments de présentation du site relèvent du droit applicable. Sauf autorisation préalable, toute reproduction, représentation ou réutilisation non autorisée est interdite.');
-        $html .= '</section>';
-
-        $html .= '<section>';
-        $html .= '<h2>Documents associés</h2>';
-        $html .= self::render_internal_links([
-            [self::page_url('conditions', $state), 'Consulter les conditions du service, tarifs et paiement'],
-            [self::page_url('privacy', $state), 'Consulter la page confidentialité, données de santé et cookies'],
-        ]);
         $html .= '</section>';
 
         $html .= '<section>';
@@ -622,9 +623,21 @@ final class LegalPages
         ]);
 
         $html .= '<section>';
-        $html .= '<h2>Objet et périmètre</h2>';
+        $html .= '<h2>Définitions</h2>';
+        $html .= self::unordered_list([
+            '<strong>Service</strong> : désigne le service SOS Prescription, accessible via le site, dans le cadre d’une demande de continuité thérapeutique.',
+            '<strong>Patient</strong> : désigne la personne qui soumet une demande pour elle-même dans les conditions prévues par le service.',
+            '<strong>Dossier</strong> : désigne l’ensemble des informations, déclarations, justificatifs et échanges transmis dans le cadre d’une demande.',
+            '<strong>Médecin</strong> : désigne le praticien qui examine le dossier et décide, en toute indépendance, de la suite à lui donner.',
+            '<strong>Ordonnance de relais</strong> : désigne, lorsqu’elle est effectivement émise, l’ordonnance établie par le médecin à l’issue de son analyse.',
+        ]);
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Déroulement d’une demande</h2>';
         $html .= self::paragraph('La plateforme a pour objet de faciliter un parcours de continuité thérapeutique dans un cadre non urgent. Elle ne constitue pas un service d’urgence, n’assure pas de consultation instantanée et ne remplace pas l’orientation vers une prise en charge adaptée lorsque l’état du patient l’exige.');
         $html .= self::paragraph(esc_html($eligibility));
+        $html .= self::paragraph('Le patient doit transmettre des informations exactes, à jour et sincères. Le service peut refuser, suspendre ou interrompre le traitement d’un dossier manifestement incomplet, incohérent, trompeur, inadapté au périmètre du service ou incompatible avec la sécurité du patient.');
         $html .= '</section>';
 
         $html .= '<section>';
@@ -653,9 +666,27 @@ final class LegalPages
         $html .= '</section>';
 
         $html .= '<section>';
-        $html .= '<h2>Réclamations et litiges</h2>';
+        $html .= '<h2>Accès aux documents, ordonnances et réversibilité d’accès</h2>';
+        $html .= self::paragraph('Lorsqu’un document ou une ordonnance est effectivement émis dans le cadre du service, il est mis à disposition du patient selon les modalités techniques prévues par la plateforme. L’accès peut être limité dans le temps pour des raisons de sécurité, d’organisation technique ou de conformité documentaire.');
+        $html .= self::paragraph('Le patient est invité à conserver les documents qui lui sont remis. La plateforme n’a pas vocation à garantir un archivage permanent, illimité et autonome des documents au-delà des durées de conservation et des contraintes techniques ou légales applicables.');
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Responsabilité, disponibilité et force majeure</h2>';
+        $html .= self::paragraph('Le service est fourni dans le cadre d’une obligation de moyens, compatible avec un traitement asynchrone, non urgent et dépendant notamment de la disponibilité du médecin, de la complétude du dossier et des contraintes techniques. Aucune disponibilité absolue ni aucun temps de réponse fixe ne sont garantis.');
+        $html .= self::paragraph('Le service peut être temporairement interrompu, limité ou ralenti pour maintenance, sécurité, mise à jour, incident technique ou événement extérieur raisonnablement hors du contrôle de l’exploitant. La responsabilité du service ne saurait être engagée lorsque l’interruption résulte d’un cas de force majeure, d’une indisponibilité d’un prestataire critique, d’un incident réseau, d’une attaque informatique, d’un acte d’un tiers, d’un comportement fautif de l’utilisateur ou d’une situation incompatible avec le périmètre du service.');
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Réclamations, litiges et droit applicable</h2>';
         $html .= self::paragraph(esc_html($disputesSummary));
         $html .= self::paragraph('Contact réclamations : <a href="mailto:' . esc_attr($complaintContact) . '">' . esc_html($complaintContact) . '</a>.');
+        $html .= self::paragraph('Le service ne doit pas être assimilé à une prestation standard de commerce électronique. Lorsque la demande relève d’un acte ou d’une appréciation médicale, la décision clinique demeure distincte d’une logique de vente automatisée. Le droit applicable demeure le droit français, sous réserve des dispositions impératives éventuellement applicables.');
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Modification des conditions</h2>';
+        $html .= self::paragraph('Les présentes conditions peuvent être mises à jour afin de tenir compte d’évolutions légales, réglementaires, techniques, organisationnelles ou médicales. La version publiée sur le site à la date de consultation fait foi pour l’information générale du public.');
         $html .= '</section>';
 
         $html .= '<section>';
@@ -690,7 +721,7 @@ final class LegalPages
 
         $html = '<div class="sp-legal-document sp-legal-document--privacy">';
         $html .= self::render_meta_block('privacy', $state, 'Document public — confidentialité', 'Protection des données personnelles, données de santé, architecture déclarée et cookies utilisés par le site.');
-        $html .= self::lead('Cette page décrit les principes de confidentialité applicables au service SOS Prescription, la manière dont les données peuvent être traitées, ainsi que le rôle des principaux prestataires techniques déclarés.');
+        $html .= self::lead('Cette page décrit les principes de confidentialité applicables au service SOS Prescription, la manière dont les données personnelles — y compris les données concernant la santé — peuvent être traitées, la chaîne technique publiée du service, ainsi que les règles relatives aux cookies et autres traceurs.');
         $html .= self::callout([
             'Les données de santé sont des données sensibles',
             'Le site public WordPress agit comme façade',
@@ -741,9 +772,15 @@ final class LegalPages
         $html .= '</section>';
 
         $html .= '<section>';
-        $html .= '<h2>Conservation et droits</h2>';
+        $html .= '<h2>Violation de données, incidents et continuité</h2>';
+        $html .= self::paragraph('En cas d’incident de sécurité ou de violation de données personnelles, SOS Prescription agit avec ses prestataires techniques pour qualifier l’incident, le contenir, en mesurer l’impact, restaurer le service et satisfaire, le cas échéant, aux obligations d’information ou de notification prévues par le cadre applicable.');
+        $html .= self::paragraph('Des mesures de continuité, de restauration et de sécurisation peuvent être activées afin de préserver l’intégrité des traitements, la disponibilité raisonnable du service et la protection des données concernées.');
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Conservation, suppression et droits des personnes</h2>';
         $html .= self::paragraph('Les données sont conservées pendant la durée nécessaire à la gestion du dossier, au respect des obligations légales, à la sécurité du service et au traitement des réclamations, selon la nature des données concernées.');
-        $html .= self::paragraph('Vous pouvez demander l’accès à vos données, leur rectification, l’effacement lorsque cela est applicable, la limitation de certains traitements ou l’exercice de tout autre droit prévu par le cadre applicable. Vous pouvez également introduire une réclamation auprès de la CNIL.');
+        $html .= self::paragraph('Vous pouvez demander l’accès à vos données, leur rectification, l’effacement lorsque cela est applicable, la limitation de certains traitements ou l’exercice de tout autre droit prévu par le cadre applicable. SOS Prescription peut, lorsque cela est nécessaire, s’appuyer sur ses prestataires techniques pour traiter correctement ces demandes. Vous pouvez également introduire une réclamation auprès de la CNIL.');
         $html .= '</section>';
 
         $html .= '<section>';
@@ -953,8 +990,8 @@ final class LegalPages
                 'dpo_identity' => '',
                 'purposes_summary' => 'Gestion des demandes, analyse du dossier, continuité de traitement, échanges patient-médecin, sécurisation de la plateforme, gestion administrative et financière, prévention des abus et respect des obligations légales.',
                 'processor_summary' => 'Le site public WordPress est hébergé chez Hostinger. L’exécution métier sensible est opérée sur Scalingo France. Le stockage objet est assuré sur AWS Paris. Les opérations de paiement sont réalisées via Stripe. D’autres prestataires techniques peuvent intervenir pour l’email, la protection antispam/captcha et, si activée, l’assistance documentaire.',
-                'cookies_list' => "Cookies strictement nécessaires au fonctionnement du site et à la sécurité des sessions\nCookies techniques permettant le maintien du parcours utilisateur\nTraceurs complémentaires uniquement lorsqu’ils sont activés et, le cas échéant, soumis à un mécanisme de consentement",
-                'ai_summary' => 'Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs ou l’aide à la lecture de documents transmis. Elle n’emporte pas de décision médicale automatisée. La décision finale reste humaine et médicale.',
+                'cookies_list' => "Cookies strictement nécessaires au fonctionnement du site et à la sécurité des sessions\nCookies techniques permettant le maintien du parcours utilisateur\nCookies ou traceurs complémentaires uniquement lorsqu’ils sont effectivement activés et, le cas échéant, soumis à un mécanisme de consentement conforme",
+                'ai_summary' => 'Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs, la lecture de documents transmis ou l’assistance documentaire. Elle n’emporte pas de décision médicale automatisée. La décision finale reste humaine et médicale.',
                 'consent_required' => true,
                 'privacy_page_sync' => true,
                 'worker_runtime' => 'Scalingo France',
@@ -963,35 +1000,36 @@ final class LegalPages
             ],
             'mentions' => [
                 'page_id' => 0,
-                'version' => '1.0.0',
+                'version' => '1.1.0',
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
-                    ['label' => 'Digital Pacifika', 'url' => 'https://digitalpacifika.com', 'note' => 'Prestataire et exploitant juridique de travail affiché.'],
+                    ['label' => 'Digital Pacifika', 'url' => 'https://digitalpacifika.com', 'note' => 'Exploitant public déclaré du service.'],
                     ['label' => 'Hostinger', 'url' => 'https://www.hostinger.fr/', 'note' => 'Hébergeur déclaré du site public WordPress.'],
                 ],
             ],
             'conditions' => [
                 'page_id' => 0,
-                'version' => '1.0.0',
+                'version' => '1.1.0',
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
+                    ['label' => 'Article L221-2 du code de la consommation — Légifrance', 'url' => 'https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000044563156', 'note' => 'Référence publique utile pour le cadrage du service et de son régime juridique.'],
+                    ['label' => 'DGCCRF — facturation des professionnels et établissements de santé', 'url' => 'https://www.economie.gouv.fr/dgccrf/les-fiches-pratiques/facturation-des-professionnels-et-etablissements-de-sante-quest-ce-qui-peut-vous-etre-facture', 'note' => 'Référence publique sur litiges et médiation de la consommation dans le secteur de la santé.'],
                     ['label' => 'Stripe', 'url' => 'https://stripe.com/fr', 'note' => 'Prestataire de paiement déclaré pour la préautorisation et la capture.'],
-                    ['label' => 'Service-Public.fr', 'url' => 'https://www.service-public.fr/', 'note' => 'Référentiel public de droit usager et d’information administrative.'],
                 ],
             ],
             'privacy' => [
                 'page_id' => 0,
-                'version' => '1.0.0',
+                'version' => '1.1.0',
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
-                    ['label' => 'CNIL', 'url' => 'https://www.cnil.fr/', 'note' => 'Référentiel public sur les données personnelles et les traceurs.'],
-                    ['label' => 'Agence du Numérique en Santé', 'url' => 'https://esante.gouv.fr/', 'note' => 'Référentiel public de l’écosystème numérique en santé et du cadre HDS.'],
-                    ['label' => 'Scalingo', 'url' => 'https://scalingo.com/fr', 'note' => 'Exécution métier déclarée.'],
-                    ['label' => 'AWS Paris', 'url' => 'https://aws.amazon.com/fr/local/paris/', 'note' => 'Région déclarée pour le stockage objet.'],
-                    ['label' => 'Stripe', 'url' => 'https://stripe.com/fr', 'note' => 'Prestataire de paiement déclaré.'],
+                    ['label' => 'CNIL — Santé', 'url' => 'https://www.cnil.fr/sante', 'note' => 'Référence publique relative aux données personnelles dans le domaine de la santé.'],
+                    ['label' => 'CNIL — Violations de données personnelles', 'url' => 'https://www.cnil.fr/fr/violations-de-donnees-personnelles-les-regles-suivre', 'note' => 'Référence publique sur la gestion des violations de données.'],
+                    ['label' => 'CNIL — Cookies et traceurs : que dit la loi ?', 'url' => 'https://www.cnil.fr/cookies-et-traceurs-que-dit-la-loi', 'note' => 'Référence publique sur le cadre applicable aux traceurs.'],
+                    ['label' => 'CNIL — Les règles à suivre pour les cookies', 'url' => 'https://www.cnil.fr/fr/cookies-et-autres-traceurs/regles/cookies', 'note' => 'Référence publique complémentaire sur les règles cookies.'],
+                    ['label' => 'Agence du Numérique en Santé — certification HDS', 'url' => 'https://esante.gouv.fr/ens/offre/hds', 'note' => 'Référence publique sur le cadre HDS.'],
                 ],
             ],
         ];
