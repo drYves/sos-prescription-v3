@@ -1882,20 +1882,27 @@ function sp_render_documentary_legal_layout($content)
         ? __('Sécurité HDS · confidentialité · accès contrôlés', 'gp-sos-prescription')
         : __('Document certifié', 'gp-sos-prescription');
 
-    $summary = sp_get_legal_toc_markup($headings);
+    $summaryLabel = __('Navigation dans le document', 'gp-sos-prescription');
+    $summaryHint  = __('Accédez directement aux sections principales de cette page.', 'gp-sos-prescription');
+    $summary      = sp_get_legal_toc_markup($headings);
 
     return '<section class="sp-legal-shell">'
         . '<div class="sp-legal-layout">'
-            . '<aside class="sp-legal-nav" aria-label="' . esc_attr__('Sommaire', 'gp-sos-prescription') . '">'
-                . '<div class="sp-legal-nav__card">'
-                    . '<p class="sp-legal-nav__eyebrow">' . esc_html__('Sommaire', 'gp-sos-prescription') . '</p>'
-                    . $summary
-                . '</div>'
-            . '</aside>'
             . '<div class="sp-legal-main">'
                 . '<header class="sp-legal-hero">'
-                    . '<p class="sp-eyebrow">' . esc_html($eyebrow) . '</p>'
-                    . '<h1>' . esc_html($title) . '</h1>'
+                    . '<div class="sp-legal-hero__intro">'
+                        . '<p class="sp-eyebrow">' . esc_html($eyebrow) . '</p>'
+                        . '<h1>' . esc_html($title) . '</h1>'
+                    . '</div>'
+                    . '<aside class="sp-legal-toc" aria-label="' . esc_attr($summaryLabel) . '">'
+                        . '<div class="sp-legal-toc__card">'
+                            . '<div class="sp-legal-toc__header">'
+                                . '<p class="sp-legal-toc__eyebrow">' . esc_html($summaryLabel) . '</p>'
+                                . '<p class="sp-legal-toc__hint">' . esc_html($summaryHint) . '</p>'
+                            . '</div>'
+                            . $summary
+                        . '</div>'
+                    . '</aside>'
                 . '</header>'
                 . '<article class="sp-legal-content">' . $structured . '</article>'
             . '</div>'
@@ -1904,61 +1911,68 @@ function sp_render_documentary_legal_layout($content)
 }
 
 /**
- * Transforme le HTML brut d’un document légal en sections ancrées.
+ * Prépare le HTML brut d’un document légal pour le rendu public.
  *
- * @param string                               $content  HTML brut.
- * @param array<int, array<string, string>>    $headings Références du sommaire.
+ * @param string                            $content  HTML brut.
+ * @param array<int, array<string, string>> $headings Références du sommaire.
  * @return string
  */
 function sp_build_legal_document_sections($content, &$headings)
 {
     $content = trim((string) $content);
     $content = preg_replace('/^\s*<h1[^>]*>.*?<\/h1>\s*/is', '', $content, 1);
+    $content = sp_highlight_legal_note_paragraphs($content);
 
-    $parts = preg_split('/(?=<h2\b)/i', $content, 2);
-    $lead  = isset($parts[0]) ? trim((string) $parts[0]) : '';
-    $rest  = isset($parts[1]) ? (string) $parts[1] : '';
+    $seen_ids = array();
+    $counter  = 0;
 
-    $output = '';
+    return (string) preg_replace_callback(
+        '/<h2\b([^>]*)>(.*?)<\/h2>/is',
+        static function ($matches) use (&$headings, &$seen_ids, &$counter) {
+            $counter++;
 
-    if ($lead !== '') {
-        $output .= '<div class="sp-legal-card sp-legal-card--lead">' . sp_highlight_legal_note_paragraphs($lead) . '</div>';
-    }
+            $attributes   = isset($matches[1]) ? (string) $matches[1] : '';
+            $heading_html = isset($matches[2]) ? (string) $matches[2] : '';
+            $heading_text = trim(wp_strip_all_tags($heading_html));
 
-    if (trim($rest) === '') {
-        return $output;
-    }
+            if ($heading_text === '') {
+                return (string) ($matches[0] ?? '');
+            }
 
-    $chunks = preg_split('/(?=<h2\b)/i', $rest, -1, PREG_SPLIT_NO_EMPTY);
+            $anchor_id = '';
+            if (preg_match('/\bid=("|\')(.*?)\1/i', $attributes, $id_matches)) {
+                $anchor_id = trim((string) ($id_matches[2] ?? ''));
+            }
 
-    foreach ($chunks as $index => $chunk) {
-        if (! preg_match('/^\s*<h2([^>]*)>(.*?)<\/h2>(.*)$/is', $chunk, $matches)) {
-            $output .= $chunk;
-            continue;
-        }
+            if ($anchor_id === '') {
+                $anchor_id = 'sp-legal-' . sanitize_title($heading_text);
+            }
 
-        $heading_text = trim(wp_strip_all_tags($matches[2]));
-        $anchor_id    = 'sp-legal-' . sanitize_title($heading_text);
+            if ($anchor_id === 'sp-legal-' || $anchor_id === '') {
+                $anchor_id = 'sp-legal-section-' . (string) $counter;
+            }
 
-        if ($anchor_id === 'sp-legal-') {
-            $anchor_id = 'sp-legal-section-' . (string) ($index + 1);
-        }
+            $base_id = $anchor_id;
+            $suffix  = 2;
+            while (isset($seen_ids[$anchor_id])) {
+                $anchor_id = $base_id . '-' . (string) $suffix;
+                $suffix++;
+            }
+            $seen_ids[$anchor_id] = true;
 
-        $headings[] = array(
-            'id'    => $anchor_id,
-            'label' => $heading_text,
-        );
+            $headings[] = array(
+                'id'    => $anchor_id,
+                'label' => $heading_text,
+            );
 
-        $body = trim((string) $matches[3]);
-        $body = sp_highlight_legal_note_paragraphs($body);
+            $attributes = preg_replace('/\s*\bid=("|\').*?\1/i', '', $attributes);
+            $attributes = trim((string) $attributes);
+            $attributes = $attributes === '' ? '' : ' ' . $attributes;
 
-        $output .= '<section class="sp-legal-section">'
-            . '<h2 id="' . esc_attr($anchor_id) . '">' . wp_kses_post($matches[2]) . '</h2>'
-            . $body
-        . '</section>';
-    }
-
-    return $output;
+            return '<h2 id="' . esc_attr($anchor_id) . '"' . $attributes . '>' . wp_kses_post($heading_html) . '</h2>';
+        },
+        $content
+    );
 }
 
 /**
@@ -2000,10 +2014,11 @@ function sp_highlight_legal_note_paragraphs($html)
 function sp_get_legal_toc_markup($headings)
 {
     if (empty($headings)) {
-        return '<p class="sp-legal-nav__empty">' . esc_html__('Aucune section détectée.', 'gp-sos-prescription') . '</p>';
+        return '<p class="sp-legal-toc__empty">' . esc_html__('Aucune section détectée.', 'gp-sos-prescription') . '</p>';
     }
 
-    $html = '<nav class="sp-legal-nav__toc"><ul class="sp-legal-nav__list">';
+    $html     = '<nav class="sp-legal-toc__nav" aria-label="' . esc_attr__('Sections du document', 'gp-sos-prescription') . '"><ol class="sp-legal-toc__list">';
+    $position = 0;
 
     foreach ($headings as $heading) {
         $id    = isset($heading['id']) ? (string) $heading['id'] : '';
@@ -2013,10 +2028,18 @@ function sp_get_legal_toc_markup($headings)
             continue;
         }
 
-        $html .= '<li><a href="#' . esc_attr($id) . '">' . esc_html($label) . '</a></li>';
+        $position++;
+        $index = str_pad((string) $position, 2, '0', STR_PAD_LEFT);
+
+        $html .= '<li class="sp-legal-toc__item">'
+            . '<a class="sp-legal-toc__link" href="#' . esc_attr($id) . '">'
+                . '<span class="sp-legal-toc__index">' . esc_html($index) . '</span>'
+                . '<span class="sp-legal-toc__label">' . esc_html($label) . '</span>'
+            . '</a>'
+        . '</li>';
     }
 
-    $html .= '</ul></nav>';
+    $html .= '</ol></nav>';
 
     return $html;
 }

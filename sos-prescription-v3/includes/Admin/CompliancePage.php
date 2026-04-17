@@ -34,7 +34,7 @@ final class CompliancePage
 
         echo '<div class="sp-legal-admin__header">';
         echo '<div>';
-        echo '<h1>Générateur de pages légales <span class="sp-legal-admin__badge">V7.2.0</span></h1>';
+        echo '<h1>Générateur de pages légales <span class="sp-legal-admin__badge">V7.2.1</span></h1>';
         echo '<p class="sp-legal-admin__intro">Complétez les champs structurés, mettez à jour l’onglet actif et publiez automatiquement trois pages publiques theme-owned, sans régression sur la projection front existante.</p>';
         echo '</div>';
         echo '<div class="sp-legal-admin__header-actions">';
