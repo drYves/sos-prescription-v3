@@ -28,6 +28,7 @@ import { SubmissionRepo, SubmissionRepoError } from "../submissions/submissionRe
 import { PatientRepo, PatientRepoError, type PatientProfileRecord } from "../patients/patientRepo";
 import { DoctorReadRepo } from "../prescriptions/doctorReadRepo";
 import { PatientReadRepo } from "../prescriptions/patientReadRepo";
+import { PatientPulseRepo } from "../prescriptions/patientPulseRepo";
 import { PrescriptionReadRepoError } from "../prescriptions/prescriptionReadMapper";
 import { StripeGateway, type StripePaymentIntentRecord } from "../payments/stripeClient";
 import { WordPressPaymentBridge } from "../payments/wordpressPaymentBridge";
@@ -184,6 +185,19 @@ interface LegacyReadListRequestBody {
   offset?: unknown;
 }
 
+interface PatientPulseRequestBody {
+  req_id?: unknown;
+  ts_ms?: unknown;
+  site_id?: unknown;
+  nonce?: unknown;
+  actor?: {
+    role?: unknown;
+    wp_user_id?: unknown;
+  };
+  known_collection_hash?: unknown;
+  knownCollectionHash?: unknown;
+}
+
 interface PrescriptionGetRequestBody {
   req_id?: unknown;
   ts_ms?: unknown;
@@ -271,6 +285,7 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
   const annuaireSanteService = new AnnuaireSanteService({ logger: deps.logger });
   const doctorReadRepo = new DoctorReadRepo({ logger: deps.logger });
   const patientReadRepo = new PatientReadRepo({ logger: deps.logger });
+  const patientPulseRepo = new PatientPulseRepo({ logger: deps.logger });
 
   const server = http.createServer(async (req, res) => {
     setResponseReqId(res, buildRequestId());
@@ -353,6 +368,10 @@ export function startPulseServer(deps: PulseServerDeps): http.Server {
 
       if (method === "POST" && path === "/api/v2/patient/prescriptions/query") {
         return await handlePatientPrescriptionsQuery(req, res, deps, signingSecret, patientReadRepo);
+      }
+
+      if (method === "POST" && path === "/api/v2/patient/prescriptions/pulse") {
+        return await handlePatientPrescriptionsPulse(req, res, deps, signingSecret, patientPulseRepo);
       }
 
       if (method === "POST" && path === "/api/v2/prescriptions/get") {
@@ -1822,6 +1841,73 @@ async function handlePatientPrescriptionsQuery(
         route: "/api/v2/patient/prescriptions/query",
       },
       "ML_PATIENT_PRESCRIPTIONS_FAILED",
+    );
+  }
+}
+
+async function handlePatientPrescriptionsPulse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: PulseServerDeps,
+  signingSecret: string,
+  patientPulseRepo: PatientPulseRepo,
+): Promise<void> {
+  const parsedBody = await parseSignedActionBody(req, res, deps, "/api/v2/patient/prescriptions/pulse");
+  if (parsedBody.ok !== true) {
+    return sendJson(res, parsedBody.statusCode, { ok: false, code: parsedBody.code }, signingSecret);
+  }
+
+  const reqId = parsedBody.reqId;
+  try {
+    const body = parsedBody.body as PatientPulseRequestBody;
+    const actor = normalizePatientReadActorInput(body.actor);
+    const knownCollectionHash = normalizePatientPulseKnownCollectionHash(
+      pickFirstDefined(body.known_collection_hash, body.knownCollectionHash),
+    );
+
+    const result = await patientPulseRepo.queryPulse({
+      actor,
+      knownCollectionHash,
+    });
+
+    deps.logger.info(
+      "patient.pulse.fetched",
+      {
+        actor_wp_user_id: actor.wpUserId,
+        known_collection_hash_present: knownCollectionHash !== null,
+        count: result.count,
+        unchanged: result.unchanged,
+        returned_count: result.unchanged ? 0 : result.items.length,
+      },
+      reqId,
+    );
+
+    const responseBody: Record<string, unknown> = {
+      ok: true,
+      schema_version: CURRENT_SCHEMA_VERSION,
+      count: result.count,
+      max_updated_at: result.max_updated_at,
+      collection_hash: result.collection_hash,
+      unchanged: result.unchanged,
+    };
+
+    if (!result.unchanged) {
+      responseBody.items = result.items;
+    }
+
+    return sendJson(res, 200, responseBody, signingSecret);
+  } catch (err: unknown) {
+    return sendPrescriptionReadRepoError(
+      res,
+      deps,
+      signingSecret,
+      err,
+      reqId,
+      "patient.pulse.failed",
+      {
+        route: "/api/v2/patient/prescriptions/pulse",
+      },
+      "ML_PATIENT_PULSE_FAILED",
     );
   }
 }
@@ -3614,6 +3700,23 @@ function normalizeLegacyReadListFilters(body: LegacyReadListRequestBody): {
   };
 }
 
+function normalizePatientPulseKnownCollectionHash(value: unknown): string | null {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "known_collection_hash_invalid");
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "" || normalized.length > 128 || !/^[a-f0-9]{12,128}$/.test(normalized)) {
+    throw new PrescriptionReadRepoError("ML_READ_BAD_REQUEST", 400, "known_collection_hash_invalid");
+  }
+
+  return normalized;
+}
+
 function normalizeLegacyReadStatus(value: unknown): string | null {
   if (value == null || value === "") {
     return null;
@@ -5107,6 +5210,8 @@ function normalizePublicErrorMessage(code: string, status: number, providedMessa
       return "La lecture sécurisée des dossiers médecin est temporairement indisponible.";
     case "ML_PATIENT_PRESCRIPTIONS_FAILED":
       return "La lecture sécurisée des dossiers patient est temporairement indisponible.";
+    case "ML_PATIENT_PULSE_FAILED":
+      return "La lecture sécurisée du pulse patient est temporairement indisponible.";
     case "ML_PRESCRIPTION_GET_FAILED":
       return "La lecture sécurisée du dossier est temporairement indisponible.";
     case "ML_BODY_TOO_LARGE":
