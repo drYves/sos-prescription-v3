@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V7.0.6
+// assets/doctor-console.js · V7.5.0
 (function () {
   'use strict';
 
@@ -550,6 +550,99 @@
     var icon = buildLucideIcon(iconName);
     if (!icon) return '';
     return '<span class="sp-button__icon" aria-hidden="true">' + icon + '</span>';
+  }
+
+  function getConsoleToolbarHost() {
+    var host = document.querySelector('.sp-plugin-toolbar-meta--console [data-dc-toolbar-meta]');
+    if (host) {
+      return host;
+    }
+    return document.querySelector('.sp-plugin-toolbar-meta--console');
+  }
+
+  function getConsoleToolbarDisplayName() {
+    var host = getConsoleToolbarHost();
+    var serverLabel = host ? normalizeText(host.getAttribute('data-dc-connected-label')) : '';
+    return serverLabel || currentUserName;
+  }
+
+  function ensureConsoleToolbarMount() {
+    var host = getConsoleToolbarHost();
+    if (!host) {
+      return null;
+    }
+
+    if (!host.__dcToolbarBound) {
+      host.addEventListener('change', function (event) {
+        var target = event.target;
+        if (!target || !target.getAttribute) {
+          return;
+        }
+
+        var role = normalizeText(target.getAttribute('data-role')).toLowerCase();
+        if (role === 'toolbar-filter-select') {
+          closeMedicationEditor();
+          setListFilter(target.value || 'pending');
+        }
+      });
+      host.__dcToolbarBound = true;
+    }
+
+    var mount = host.querySelector('[data-dc-toolbar-main]');
+    if (mount) {
+      return mount;
+    }
+
+    mount = document.createElement('div');
+    mount.className = 'dc-toolbar-meta__main';
+    mount.setAttribute('data-dc-toolbar-main', '1');
+    host.insertBefore(mount, host.firstChild || null);
+    return mount;
+  }
+
+  function renderToolbarFilterSelect() {
+    return [
+      '<label class="dc-toolbar-console__field">',
+      '  <span class="dc-toolbar-console__label">Filtre de file</span>',
+      '  <select class="dc-toolbar-console__select" data-role="toolbar-filter-select" aria-label="Filtrer la file de demandes">',
+      LIST_FILTERS.map(function (filter) {
+        var selected = filter.key === state.listFilter ? ' selected' : '';
+        return '<option value="' + escHtml(filter.key) + '"' + selected + '>' + escHtml(filter.label) + '</option>';
+      }).join(''),
+      '  </select>',
+      '</label>'
+    ].join('');
+  }
+
+  function renderToolbarMetaMarkup() {
+    var meta = getActiveFilterMeta();
+    var visibleCount = safeArray(state.list).length;
+    var countLabel = state.listLoading && visibleCount < 1
+      ? 'Chargement de la file active…'
+      : (visibleCount === 1 ? '1 dossier visible' : String(visibleCount) + ' dossiers visibles');
+
+    return [
+      '<div class="dc-toolbar-console">',
+      '  <div class="dc-toolbar-console__context">',
+      '    <div class="dc-toolbar-console__eyebrow">Console médecin</div>',
+      '    <div class="dc-toolbar-console__title">' + escHtml(meta.title) + '</div>',
+      '    <div class="dc-toolbar-console__caption">' + escHtml(countLabel) + '</div>',
+      '  </div>',
+      '  <div class="dc-toolbar-console__session">',
+      '    <div class="dc-session-pill dc-session-pill--toolbar"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">' + escHtml(getConsoleToolbarDisplayName()) + '</span></div>',
+      '  </div>',
+      '  <div class="dc-toolbar-console__filters">' + renderToolbarFilterSelect() + '</div>',
+      '</div>'
+    ].join('');
+  }
+
+  function renderToolbarMetaInto() {
+    var mount = ensureConsoleToolbarMount();
+    if (!mount) {
+      return;
+    }
+
+    setHtmlIfChanged(mount, renderToolbarMetaMarkup());
   }
 
 
@@ -1530,6 +1623,14 @@
     return formatDateDisplay(raw);
   }
 
+  function joinDisplayParts(parts) {
+    return safeArray(parts).map(function (value) {
+      return normalizeText(value);
+    }).filter(function (value) {
+      return value && value !== '—';
+    }).join(' • ') || '—';
+  }
+
   function formatMessageTimestamp(value) {
     var raw = normalizeText(value);
     if (!raw) return 'Date inconnue';
@@ -1585,16 +1686,304 @@
     return (firstName + ' ' + lastName).trim();
   }
 
-  function formatWeight(value) {
-    var raw = normalizeText(value).replace(',', '.');
-    if (!raw) return '';
-    var num = Number(raw);
-    if (!Number.isFinite(num) || num <= 0) return '';
-    var rounded = Math.round(num * 10) / 10;
-    var txt = Math.abs(rounded - Math.round(rounded)) < 0.001
+  function flattenPatientValue(value) {
+    if (value == null) {
+      return '';
+    }
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return normalizeText(value);
+    }
+
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i += 1) {
+        var nested = flattenPatientValue(value[i]);
+        if (nested) {
+          return nested;
+        }
+      }
+      return '';
+    }
+
+    var record = asObject(value);
+    return firstText([
+      record.value,
+      record.text,
+      record.label,
+      record.name,
+      record.title,
+      record.description,
+      record.content,
+      record.raw
+    ]);
+  }
+
+  function buildPatientContainers(rx) {
+    var row = asObject(rx);
+    var payload = asObject(row.payload);
+    var patient = asObject(payload.patient);
+    var requestPayload = asObject(payload.request);
+    var prescription = asObject(payload.prescription);
+    var form = asObject(payload.form);
+    var summary = asObject(payload.summary);
+    var metadata = asObject(payload.metadata);
+    var medicalData = asObject(payload.medical_data || payload.medicalData);
+    var context = asObject(payload.context);
+    var submission = asObject(payload.submission);
+    var patientProfile = asObject(payload.patient_profile || payload.patientProfile);
+
+    return [
+      patient,
+      asObject(patient.measurements),
+      requestPayload,
+      asObject(requestPayload.measurements),
+      prescription,
+      form,
+      summary,
+      metadata,
+      asObject(metadata.measurements),
+      medicalData,
+      asObject(medicalData.measurements),
+      context,
+      submission,
+      patientProfile,
+      payload,
+      row
+    ];
+  }
+
+  function readPatientFieldText(rx, keys) {
+    var containers = buildPatientContainers(rx);
+    for (var i = 0; i < containers.length; i += 1) {
+      var container = asObject(containers[i]);
+      for (var j = 0; j < keys.length; j += 1) {
+        var key = keys[j];
+        if (!(key in container)) {
+          continue;
+        }
+        var candidate = flattenPatientValue(container[key]);
+        if (candidate) {
+          return candidate;
+        }
+      }
+    }
+    return '';
+  }
+
+  function parseAgeNumber(value) {
+    var raw = normalizeText(value);
+    if (!raw) {
+      return null;
+    }
+    var match = raw.match(/(\d{1,3})/);
+    if (!match) {
+      return null;
+    }
+    var age = Number(match[1]);
+    if (!Number.isFinite(age) || age < 0 || age > 130) {
+      return null;
+    }
+    return age;
+  }
+
+  function parseBirthdateParts(value) {
+    var raw = normalizeText(value);
+    if (!raw) {
+      return null;
+    }
+
+    var isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return {
+        year: Number(isoMatch[1]),
+        month: Number(isoMatch[2]),
+        day: Number(isoMatch[3])
+      };
+    }
+
+    var frMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (frMatch) {
+      return {
+        year: Number(frMatch[3]),
+        month: Number(frMatch[2]),
+        day: Number(frMatch[1])
+      };
+    }
+
+    var dotMatch = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (dotMatch) {
+      return {
+        year: Number(dotMatch[3]),
+        month: Number(dotMatch[2]),
+        day: Number(dotMatch[1])
+      };
+    }
+
+    var parsed = new Date(raw);
+    if (!Number.isFinite(parsed.getTime())) {
+      return null;
+    }
+
+    return {
+      year: parsed.getUTCFullYear(),
+      month: parsed.getUTCMonth() + 1,
+      day: parsed.getUTCDate()
+    };
+  }
+
+  function computeAgeFromBirthdate(value) {
+    var parts = parseBirthdateParts(value);
+    if (!parts) {
+      return null;
+    }
+
+    var today = new Date();
+    var age = today.getFullYear() - parts.year;
+    var currentMonth = today.getMonth() + 1;
+    var currentDay = today.getDate();
+
+    if (currentMonth < parts.month || (currentMonth === parts.month && currentDay < parts.day)) {
+      age -= 1;
+    }
+
+    if (!Number.isFinite(age) || age < 0 || age > 130) {
+      return null;
+    }
+
+    return age;
+  }
+
+  function parseMetricNumber(value) {
+    var raw = normalizeText(flattenPatientValue(value)).replace(',', '.');
+    if (!raw) {
+      return null;
+    }
+
+    var match = raw.match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+      return null;
+    }
+
+    var parsed = Number(match[0]);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  function parseWeightKg(value) {
+    var parsed = parseMetricNumber(value);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 500) {
+      return null;
+    }
+    return Math.round(parsed * 10) / 10;
+  }
+
+  function parseHeightCm(value) {
+    var raw = normalizeText(flattenPatientValue(value)).toLowerCase();
+    if (!raw) {
+      return null;
+    }
+
+    var compact = raw.replace(/\s+/g, '');
+    var meterMatch = compact.match(/^(\d)(?:m)(\d{1,2})(?:cm)?$/);
+    if (meterMatch) {
+      var cmPart = meterMatch[2].length === 1 ? meterMatch[2] + '0' : meterMatch[2];
+      var literalHeight = (Number(meterMatch[1]) * 100) + Number(cmPart);
+      if (Number.isFinite(literalHeight) && literalHeight >= 30 && literalHeight <= 300) {
+        return Math.round(literalHeight * 10) / 10;
+      }
+    }
+
+    var parsed = parseMetricNumber(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+
+    if (compact.indexOf('cm') !== -1) {
+      return (parsed >= 30 && parsed <= 300) ? Math.round(parsed * 10) / 10 : null;
+    }
+
+    if (compact.indexOf('m') !== -1 && compact.indexOf('cm') === -1) {
+      return (parsed >= 0.4 && parsed <= 3) ? Math.round(parsed * 1000) / 10 : null;
+    }
+
+    if (parsed >= 0.4 && parsed <= 3) {
+      return Math.round(parsed * 1000) / 10;
+    }
+
+    if (parsed >= 30 && parsed <= 300) {
+      return Math.round(parsed * 10) / 10;
+    }
+
+    return null;
+  }
+
+  function computeBmiValue(weightKg, heightCm) {
+    if (!Number.isFinite(weightKg) || !Number.isFinite(heightCm) || weightKg <= 0 || heightCm <= 0) {
+      return null;
+    }
+
+    var meters = heightCm / 100;
+    if (!Number.isFinite(meters) || meters <= 0) {
+      return null;
+    }
+
+    var bmi = weightKg / (meters * meters);
+    if (!Number.isFinite(bmi) || bmi <= 0) {
+      return null;
+    }
+
+    return Math.round(bmi * 10) / 10;
+  }
+
+  function interpretBmiValue(value) {
+    var bmi = Number(value);
+    if (!Number.isFinite(bmi) || bmi <= 0) {
+      return '';
+    }
+    if (bmi < 18.5) {
+      return 'Maigreur';
+    }
+    if (bmi < 25) {
+      return 'Corpulence normale';
+    }
+    if (bmi < 30) {
+      return 'Surpoids';
+    }
+    return 'Obésité';
+  }
+
+  function formatMetricNumber(value) {
+    var numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '';
+    }
+    var rounded = Math.round(numeric * 10) / 10;
+    return Math.abs(rounded - Math.round(rounded)) < 0.001
       ? String(Math.round(rounded))
       : String(rounded).replace('.', ',');
-    return txt + ' Kgs';
+  }
+
+  function formatWeight(value) {
+    var numeric = parseWeightKg(value);
+    if (!Number.isFinite(numeric)) return '';
+    return formatMetricNumber(numeric) + ' kg';
+  }
+
+  function formatHeight(value) {
+    var numeric = parseHeightCm(value);
+    if (!Number.isFinite(numeric)) return '';
+    return formatMetricNumber(numeric) + ' cm';
+  }
+
+  function formatBmi(value) {
+    var numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return '';
+    }
+    return formatMetricNumber(numeric);
   }
 
   function statusBadge(label, variant) {
@@ -1675,24 +2064,48 @@
       [patient.firstName, patient.lastName].filter(Boolean).join(' '),
       rx && rx.patient_name
     ]);
-    var birthDate = firstText([
-      patient.birthdate,
-      patient.birthDate,
+    var birthDateRaw = firstText([
+      readPatientFieldText(rx, ['birthdate', 'birthDate', 'dob', 'birth_date', 'date_of_birth', 'dateOfBirth', 'date_naissance', 'naissance']),
       rx && rx.patient_birthdate,
       rx && rx.patient_dob
     ]);
-    var weight = firstText([
-      patient.weight,
-      patient.weight_kg,
-      patient.weightKg,
+    var fallbackAge = parseAgeNumber(firstText([
+      rx && rx.patient_age_label,
+      readPatientFieldText(rx, ['age_label', 'ageLabel', 'age'])
+    ]));
+    var ageYears = computeAgeFromBirthdate(birthDateRaw);
+    if (!Number.isFinite(ageYears)) {
+      ageYears = fallbackAge;
+    }
+
+    var weightRaw = firstText([
+      readPatientFieldText(rx, ['weight_kg', 'weightKg', 'weight', 'poids_kg', 'poidsKg', 'poids']),
       rx && rx.patient_weight_kg,
       rx && rx.weight_kg
     ]);
+    var heightRaw = firstText([
+      readPatientFieldText(rx, ['height_cm', 'heightCm', 'height', 'height_m', 'heightM', 'taille_cm', 'tailleCm', 'taille', 'size_cm', 'sizeCm', 'size']),
+      rx && rx.patient_height_cm,
+      rx && rx.height_cm
+    ]);
+
+    var weightKg = parseWeightKg(weightRaw);
+    var heightCm = parseHeightCm(heightRaw);
+    var bmiValue = computeBmiValue(weightKg, heightCm);
 
     return {
       fullname: formatPatientHeadline(fullname),
-      birthDate: formatDateDisplay(birthDate),
-      weight: formatWeight(weight),
+      birthDateRaw: birthDateRaw,
+      birthDate: formatDateDisplay(birthDateRaw),
+      ageYears: Number.isFinite(ageYears) ? ageYears : null,
+      age: Number.isFinite(ageYears) ? String(ageYears) + ' ans' : 'Non renseigné',
+      weightKg: Number.isFinite(weightKg) ? weightKg : null,
+      weight: Number.isFinite(weightKg) ? formatWeight(weightKg) : 'Non renseigné',
+      heightCm: Number.isFinite(heightCm) ? heightCm : null,
+      height: Number.isFinite(heightCm) ? formatHeight(heightCm) : 'Non renseigné',
+      bmiValue: Number.isFinite(bmiValue) ? bmiValue : null,
+      bmi: Number.isFinite(bmiValue) ? formatBmi(bmiValue) : '',
+      bmiLabel: Number.isFinite(bmiValue) ? interpretBmiValue(bmiValue) : '',
       createdAt: formatDateDisplay(rx && rx.created_at),
       createdAgo: formatRelativeDate(rx && rx.created_at),
       verifyCode: extractVerifyCode(rx),
@@ -1785,14 +2198,28 @@
   }
 
   function extractProofArtifactIds(source) {
+    var row = asObject(source);
     var evidence = extractEvidenceShadowState(source);
-    var payload = asObject(asObject(source).payload);
+    var payload = asObject(row.payload);
     var raw = [];
     if (Array.isArray(evidence.proof_artifact_ids)) {
-      raw = evidence.proof_artifact_ids;
+      raw = evidence.proof_artifact_ids.slice();
     } else if (Array.isArray(payload.proof_artifact_ids)) {
-      raw = payload.proof_artifact_ids;
+      raw = payload.proof_artifact_ids.slice();
     }
+
+    [row.proofs, payload.proofs, row.documents, payload.documents, row.files, payload.files].forEach(function (collection) {
+      safeArray(collection).forEach(function (entry) {
+        var record = asObject(entry);
+        var artifactId = firstText([
+          record.artifact_id,
+          record.artifactId
+        ]);
+        if (artifactId) {
+          raw.push(artifactId);
+        }
+      });
+    });
 
     var out = [];
     for (var i = 0; i < raw.length; i += 1) {
@@ -1802,6 +2229,20 @@
       out.push(current);
     }
     return out;
+  }
+
+  function hasDocumentaryProof(source) {
+    var row = asObject(source);
+    var payload = asObject(row.payload);
+    var evidence = extractEvidenceShadowState(source);
+
+    if (!!evidence.has_proof || Number(evidence.proof_count || 0) > 0 || extractProofArtifactIds(source).length > 0) {
+      return true;
+    }
+
+    return [row.proofs, payload.proofs, row.documents, payload.documents, row.files, payload.files].some(function (collection) {
+      return safeArray(collection).length > 0;
+    });
   }
 
   function computeInboxUrgency(source) {
@@ -1846,9 +2287,9 @@
       badges.push(statusBadge(unread > 9 ? '9+' : String(unread), 'danger'));
     }
 
-    var hasProof = !!evidence.has_proof || Number(evidence.proof_count || 0) > 0 || extractProofArtifactIds(source).length > 0;
+    var hasProof = hasDocumentaryProof(source);
     if (hasProof) {
-      badges.push(statusBadge('Avec preuve', 'info'));
+      badges.push(statusBadge('Avec preuve', 'success'));
     } else if (extractFlowKey(source) === 'depannage_no_proof') {
       badges.push(statusBadge('Sans preuve', 'soft'));
     }
@@ -2325,14 +2766,8 @@
   }
 
   function renderHeaderInto() {
-    var ui = ensureShell();
-    var meta = getActiveFilterMeta();
-    if (ui.title) {
-      ui.title.textContent = meta.title;
-    }
-    if (ui.filterTabs) {
-      setHtmlIfChanged(ui.filterTabs, renderFilterTabs());
-    }
+    ensureShell();
+    renderToolbarMetaInto();
   }
 
   function renderInboxItemMarkup(row) {
@@ -3081,7 +3516,7 @@
     var thread = extractThreadShadowState(detail);
     var evidence = extractEvidenceShadowState(detail);
     var unread = Number(thread.unread_count_doctor || 0);
-    var hasProof = !!evidence.has_proof || Number(evidence.proof_count || 0) > 0 || extractProofArtifactIds(detail).length > 0;
+    var hasProof = hasDocumentaryProof(detail);
     var tabs = [
       { key: 'prescription', label: 'Ordonnance' },
       { key: 'proofs', label: 'Preuves', badge: hasProof ? '•' : '' },
@@ -3264,7 +3699,10 @@
       '        <div class="dc-summary-card" data-dc-summary-card hidden>',
       '          <div class="dc-card__title">Patient</div>',
       '          <div class="dc-summary-grid">',
-      '            <div class="dc-summary-row" data-dc-summary-weight-row hidden><span>POIDS</span><strong data-dc-summary-weight></strong></div>',
+      '            <div class="dc-summary-row" data-dc-summary-age-row><span>ÂGE</span><strong data-dc-summary-age>Non renseigné</strong></div>',
+      '            <div class="dc-summary-row" data-dc-summary-weight-row><span>POIDS</span><strong data-dc-summary-weight>Non renseigné</strong></div>',
+      '            <div class="dc-summary-row" data-dc-summary-height-row><span>TAILLE</span><strong data-dc-summary-height>Non renseignée</strong></div>',
+      '            <div class="dc-summary-row dc-summary-row--bmi" data-dc-summary-bmi-row hidden><span>IMC</span><strong data-dc-summary-bmi></strong><small data-dc-summary-bmi-label></small></div>',
       '            <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row hidden><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
       '          </div>',
       '        </div>',
@@ -3305,15 +3743,19 @@
     if (nameEl) nameEl.textContent = patient.fullname;
 
     var metaEl = detailEl.querySelector('[data-dc-patient-meta]');
-    if (metaEl) metaEl.textContent = patient.birthDate + ' • ' + patient.createdAt;
+    if (metaEl) {
+      metaEl.textContent = joinDisplayParts([patient.birthDate, patient.createdAt]);
+    }
 
     var caseUid = extractCaseUid(detail);
+    var hasProof = hasDocumentaryProof(detail);
     var headerBadges = detailEl.querySelector('[data-dc-header-badges]');
     if (headerBadges) {
       setHtmlIfChanged(headerBadges, [
         caseUid ? statusBadge('Demande : ' + caseUid, 'soft') : '',
         code ? statusBadge('Code délivrance : ' + code, 'soft') : '',
-        statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft')
+        statusBadge(patient.priority, patient.priority === 'Express' ? 'warn' : 'soft'),
+        statusBadge(hasProof ? 'Preuves' : 'Sans preuve', hasProof ? 'success' : 'warn')
       ].join(''));
     }
 
@@ -3327,17 +3769,43 @@
     });
 
     var summaryCard = detailEl.querySelector('[data-dc-summary-card]');
+    var ageRow = detailEl.querySelector('[data-dc-summary-age-row]');
+    var ageEl = detailEl.querySelector('[data-dc-summary-age]');
     var weightRow = detailEl.querySelector('[data-dc-summary-weight-row]');
     var weightEl = detailEl.querySelector('[data-dc-summary-weight]');
+    var heightRow = detailEl.querySelector('[data-dc-summary-height-row]');
+    var heightEl = detailEl.querySelector('[data-dc-summary-height]');
+    var bmiRow = detailEl.querySelector('[data-dc-summary-bmi-row]');
+    var bmiEl = detailEl.querySelector('[data-dc-summary-bmi]');
+    var bmiLabelEl = detailEl.querySelector('[data-dc-summary-bmi-label]');
     var notesRow = detailEl.querySelector('[data-dc-summary-notes-row]');
     var notesEl = detailEl.querySelector('[data-dc-summary-notes]');
     var medicalNotes = extractMedicalNotes(detail);
     if (summaryCard) {
       summaryCard.hidden = false;
     }
+    if (ageRow && ageEl) {
+      ageEl.textContent = patient.age || 'Non renseigné';
+      ageRow.hidden = false;
+    }
     if (weightRow && weightEl) {
       weightEl.textContent = patient.weight || 'Non renseigné';
       weightRow.hidden = false;
+    }
+    if (heightRow && heightEl) {
+      heightEl.textContent = patient.height || 'Non renseigné';
+      heightRow.hidden = false;
+    }
+    if (bmiRow && bmiEl && bmiLabelEl) {
+      if (Number.isFinite(patient.bmiValue) && patient.bmi && patient.bmiLabel) {
+        bmiEl.textContent = patient.bmi;
+        bmiLabelEl.textContent = patient.bmiLabel;
+        bmiRow.hidden = false;
+      } else {
+        bmiEl.textContent = '';
+        bmiLabelEl.textContent = '';
+        bmiRow.hidden = true;
+      }
     }
     if (notesRow && notesEl) {
       if (medicalNotes) {
@@ -3447,18 +3915,6 @@
       '  <div data-dc-notice></div>',
       '  <div class="dc-shell">',
       '    <aside class="dc-inbox">',
-      '      <div class="dc-inbox__summary">',
-      '        <div class="dc-session-card">',
-      '          <div class="dc-session-pill"><span class="dc-session-pill__eyebrow">Session active</span><span class="dc-session-pill__value">' + escHtml(currentUserName) + '</span></div>',
-      '        </div>',
-      '        <div class="dc-inbox__head">',
-      '          <div>',
-      '            <div class="dc-overline">Console médecin</div>',
-      '            <h1 class="dc-title" data-dc-title>Demandes en attente</h1>',
-      '          </div>',
-      '        </div>',
-      '        <div class="dc-filter-tabs" data-dc-filter-tabs></div>',
-      '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
       '    </aside>',
       '    <section class="dc-detail" data-dc-detail></section>',
@@ -3471,8 +3927,6 @@
 
     state.ui = {
       notice: root.querySelector('[data-dc-notice]'),
-      title: root.querySelector('[data-dc-title]'),
-      filterTabs: root.querySelector('[data-dc-filter-tabs]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
       detail: root.querySelector('[data-dc-detail]'),
       medDialog: root.querySelector('[data-dc-med-dialog]'),
@@ -3588,6 +4042,7 @@
       state.list = nextRows;
       state.listLoading = false;
       cleanupOptimisticLocks();
+      renderHeaderInto();
       patchInboxList();
       hydrateVisibleCases();
 
@@ -3615,6 +4070,7 @@
       return null;
     }).catch(function (error) {
       state.listLoading = false;
+      renderHeaderInto();
       patchInboxList();
       if (!silent) {
         showNotice('error', error.message || 'Impossible de charger la file de demandes.');

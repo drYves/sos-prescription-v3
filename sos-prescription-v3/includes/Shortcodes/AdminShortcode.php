@@ -62,14 +62,10 @@ final class AdminShortcode
         }
         $connected_label = trim($title_prefix . ' ' . $display_name);
 
-        $toolbar = '<div class="sp-stack">'
-            . '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">'
-            . '<p class="sp-alert__title">Session active</p>'
-            . '<p class="sp-alert__body">Connecté : ' . esc_html($connected_label) . '</p>'
-            . '</div>'
-            . '<div class="sp-stack">'
-            . '<a class="sp-button sp-button--secondary" href="' . esc_url(home_url('/compte-medecin/')) . '">Mon compte médecin</a>'
-            . self::render_logout_form()
+        $toolbar = '<div class="dc-toolbar-meta" data-dc-toolbar-meta data-dc-connected-label="' . esc_attr($connected_label) . '">'
+            . '<div class="dc-toolbar-meta__main" data-dc-toolbar-main></div>'
+            . '<div class="dc-toolbar-meta__actions">'
+            . self::render_logout_form('Déconnexion')
             . '</div>'
             . '</div>';
 
@@ -89,11 +85,12 @@ final class AdminShortcode
     }
 
     
-private static function render_logout_form(): string
+private static function render_logout_form(string $label = 'Déconnexion'): string
     {
         return LogoutShortcode::render([
-            'class' => 'sp-button sp-button--secondary',
-            'form_class' => 'sp-form sp-logout-form',
+            'label' => $label,
+            'class' => 'sp-button sp-button--secondary dc-toolbar-meta__logout-button',
+            'form_class' => 'sp-form sp-logout-form dc-toolbar-meta__logout-form',
             'redirect' => home_url('/'),
         ]);
     }

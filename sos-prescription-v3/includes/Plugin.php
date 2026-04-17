@@ -284,7 +284,7 @@ final class Plugin
             'sosprescription-legal-documents',
             SOSPRESCRIPTION_URL . 'assets/legal-documents.css',
             [],
-            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '7.2.4'
+            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '7.5.0'
         );
     }
 
