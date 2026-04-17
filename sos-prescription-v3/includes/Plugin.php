@@ -53,6 +53,7 @@ use SosPrescription\Services\StorageCleaner;
 use SosPrescription\Services\Logger;
 use SosPrescription\Services\PhpDebugTrace;
 use SosPrescription\Services\ThemeTrace;
+use SosPrescription\Services\LegalPages;
 
 final class Plugin
 {
@@ -86,6 +87,7 @@ final class Plugin
         add_action('admin_post_sosprescription_logout', [self::class, 'handle_logout']);
         add_action('admin_post_nopriv_sosprescription_logout', [self::class, 'handle_logout']);
         add_action('init', [self::class, 'register_shortcodes']);
+        add_action('wp_enqueue_scripts', [self::class, 'enqueue_legal_document_assets']);
         add_action('rest_api_init', [Routes::class, 'register']);
         add_action('rest_api_init', [SubmissionV4Controller::class, 'register']);
         add_action('rest_api_init', [ArtifactV4Controller::class, 'register']);
@@ -261,6 +263,29 @@ final class Plugin
 
             return $response;
         }, 10, 3);
+    }
+
+    public static function enqueue_legal_document_assets(): void
+    {
+        if (is_admin() || !is_singular('page')) {
+            return;
+        }
+
+        global $post;
+        if (!$post instanceof \WP_Post) {
+            return;
+        }
+
+        if (!LegalPages::should_enqueue_public_assets($post)) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'sosprescription-legal-documents',
+            SOSPRESCRIPTION_URL . 'assets/legal-documents.css',
+            [],
+            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '7.2.0'
+        );
     }
 
     public static function maybe_render_debug_json($wp = null): void
