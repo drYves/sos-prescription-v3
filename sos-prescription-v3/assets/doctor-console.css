@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V7.5.1 */
+/* SOS Prescription : Doctor Console V7.5.2 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -6,6 +6,10 @@
 
 .sosprescription-doctor * {
   box-sizing: border-box;
+}
+
+.sosprescription-doctor .dc-item__foot {
+  justify-content: flex-start;
 }
 
 .sosprescription-doctor .dc-shell {
@@ -114,11 +118,18 @@
   border-color: #bfdbfe;
 }
 
-.sosprescription-doctor .dc-item__row,
-.sosprescription-doctor .dc-item__foot {
+.sosprescription-doctor .dc-item__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+.sosprescription-doctor .dc-item__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1746,7 +1757,7 @@
 
 
 /* --------------------------------------------------------------------------
-   V7.5.1 — ToolbarMeta console polish + équilibre structurel des colonnes.
+   V7.5.2 — Finalisation du bandeau de contrôle + épuration de la file inbox.
    -------------------------------------------------------------------------- */
 .sp-plugin-toolbar-meta--console [data-dc-toolbar-meta] {
   display: grid;
@@ -1786,7 +1797,27 @@
 }
 
 .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions {
-  align-self: center;
+  align-self: stretch;
+  align-items: stretch;
+  padding-left: clamp(0.55rem, 0.44rem + 0.28vw, 0.8rem);
+  border-left: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__logout {
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  gap: 0.42rem;
+  min-width: 10rem;
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions .dc-toolbar-meta__logout-form {
+  display: block;
+  width: 100%;
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__logout .dc-toolbar-console__label {
+  text-align: left;
 }
 
 .sp-plugin-toolbar-meta--console .dc-toolbar-console {
@@ -1862,6 +1893,10 @@
   text-transform: uppercase;
 }
 
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__label--logout {
+  margin: 0;
+}
+
 .sp-plugin-toolbar-meta--console .dc-toolbar-console__select {
   width: 100%;
   min-height: 3rem;
@@ -1919,6 +1954,7 @@
 }
 
 .sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button {
+  width: 100%;
   min-height: 3rem;
   min-width: 10rem;
   padding-inline: 1.15rem;
@@ -2020,7 +2056,12 @@
     grid-template-columns: 1fr;
   }
 
-  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions,
+  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions {
+    justify-content: flex-end;
+    padding-left: 0;
+    border-left: 0;
+  }
+
   .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions .dc-toolbar-meta__logout-form {
     justify-content: flex-end;
   }
@@ -2047,9 +2088,18 @@
     min-width: 0;
   }
 
-  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions,
+  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions {
+    justify-content: flex-start;
+    padding-left: 0;
+    border-left: 0;
+  }
+
   .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions .dc-toolbar-meta__logout-form {
     justify-content: flex-start;
+  }
+
+  .sp-plugin-toolbar-meta--console .dc-toolbar-console__logout {
+    min-width: 0;
   }
 
   .sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button {
@@ -2071,7 +2121,8 @@
 
 @media (max-width: 780px) {
   .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions,
-  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions .dc-toolbar-meta__logout-form {
+  .sp-plugin-toolbar-meta--console .dc-toolbar-meta__actions .dc-toolbar-meta__logout-form,
+  .sp-plugin-toolbar-meta--console .dc-toolbar-console__logout {
     width: 100%;
   }
 

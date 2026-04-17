@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V7.5.0
+// assets/doctor-console.js · V7.5.2
 (function () {
   'use strict';
 
@@ -636,6 +636,41 @@
     ].join('');
   }
 
+  function ensureConsoleToolbarLogoutMeta() {
+    var host = getConsoleToolbarHost();
+    if (!host) {
+      return;
+    }
+
+    var actions = host.querySelector('.dc-toolbar-meta__actions');
+    if (!actions) {
+      return;
+    }
+
+    var form = actions.querySelector('.dc-toolbar-meta__logout-form');
+    if (!form) {
+      return;
+    }
+
+    var group = form.closest('.dc-toolbar-console__logout');
+    if (!group) {
+      group = document.createElement('div');
+      group.className = 'dc-toolbar-console__logout';
+      actions.insertBefore(group, form);
+      group.appendChild(form);
+    }
+
+    var label = group.querySelector('.dc-toolbar-console__label--logout');
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'dc-toolbar-console__label dc-toolbar-console__label--logout';
+      label.textContent = 'Fin de session';
+      group.insertBefore(label, group.firstChild || null);
+    } else if (normalizeText(label.textContent) !== 'Fin de session') {
+      label.textContent = 'Fin de session';
+    }
+  }
+
   function renderToolbarMetaInto() {
     var mount = ensureConsoleToolbarMount();
     if (!mount) {
@@ -643,6 +678,7 @@
     }
 
     setHtmlIfChanged(mount, renderToolbarMetaMarkup());
+    ensureConsoleToolbarLogoutMeta();
   }
 
 
@@ -2278,25 +2314,6 @@
     return '<span class="dc-urgency-chip dc-urgency-chip--' + escHtml(urgency.tone) + '">' + icon + '<span>' + escHtml(urgency.label) + '</span></span>';
   }
 
-  function buildInboxAlertBadges(source) {
-    var badges = [];
-    var thread = extractThreadShadowState(source);
-    var evidence = extractEvidenceShadowState(source);
-    var unread = Number(thread.unread_count_doctor || 0);
-    if (unread > 0) {
-      badges.push(statusBadge(unread > 9 ? '9+' : String(unread), 'danger'));
-    }
-
-    var hasProof = hasDocumentaryProof(source);
-    if (hasProof) {
-      badges.push(statusBadge('Avec preuve', 'success'));
-    } else if (extractFlowKey(source) === 'depannage_no_proof') {
-      badges.push(statusBadge('Sans preuve', 'soft'));
-    }
-
-    return badges.join('');
-  }
-
   function patchShadowOnRecord(record, patch) {
     var row = asObject(record);
     var payload = asObject(row.payload);
@@ -2777,7 +2794,6 @@
     var patient = extractPatientData(source);
     var statusInfo = computeCaseStatus(source);
     var medicationsPreview = buildMedicationPreview(source);
-    var alertBadges = buildInboxAlertBadges(source);
     var urgencyBadge = renderInboxUrgencyBadge(source);
 
     return [
@@ -2789,7 +2805,6 @@
       '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
       '  <div class="dc-item__foot">',
       '    ' + urgencyBadge,
-      alertBadges ? '    <div class="dc-item__alerts">' + alertBadges + '</div>' : '',
       '  </div>'
     ].join('');
   }
