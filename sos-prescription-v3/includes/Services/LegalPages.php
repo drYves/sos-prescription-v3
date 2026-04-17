@@ -11,6 +11,44 @@ final class LegalPages
 {
     public const OPTION_KEY = 'sosprescription_legal_pages';
 
+    public const CORPUS_VERSION = '1.2.0';
+    public const STORAGE_VERSION = '7.2.4';
+
+    /** @var array<int, string> */
+    private const PLACEHOLDER_FRAGMENTS = [
+        '[à confirmer',
+        '[a confirmer',
+        'à confirmer avant publication',
+        'a confirmer avant publication',
+        'placeholder',
+        'todo',
+        'tbd',
+        'à renseigner',
+        'a renseigner',
+    ];
+
+    /** @var array<int, string> */
+    private const MIGRATION_PRESERVE_REGISTRY_FIELDS = [
+        'brand_name',
+        'brand_registration_number',
+        'brand_registration_date',
+        'operator_name',
+        'operator_identity',
+        'publication_director',
+        'main_contact_email',
+        'privacy_contact_email',
+        'complaint_contact',
+        'doctor_enabled',
+        'doctor_identity',
+        'consent_required',
+        'privacy_page_sync',
+        'worker_runtime',
+        'object_storage',
+        'payment_provider',
+        'site_url',
+    ];
+
+
     /**
      * @return array<string, array<string, string>>
      */
@@ -44,6 +82,9 @@ final class LegalPages
     /**
      * @return array<string, array<string, mixed>>
      */
+        /**
+     * @return array<string, array<string, mixed>>
+     */
     public static function global_field_definitions(): array
     {
         return [
@@ -52,25 +93,34 @@ final class LegalPages
                 'type' => 'checkbox',
                 'description' => 'Conserve l’exigence de consentement dans le tunnel patient existant.',
             ],
-            'main_contact_email' => [
-                'label' => 'Email de contact public',
-                'type' => 'email',
-                'description' => 'Adresse affichée pour le contact général du service.',
-            ],
-            'privacy_contact_email' => [
-                'label' => 'Email confidentialité',
-                'type' => 'email',
-                'description' => 'Point de contact dédié aux demandes relatives aux données personnelles.',
-            ],
             'privacy_page_sync' => [
-                'label' => 'Synchroniser la privacy page native WordPress',
+                'label' => 'Déclarer la page 3 comme privacy page native WordPress',
                 'type' => 'checkbox',
-                'description' => 'Déclare la page 3 comme page de confidentialité native WordPress, sans lui donner l’autorité éditoriale.',
+                'description' => 'Active une synchronisation unidirectionnelle vers la page de confidentialité native de WordPress.',
+            ],
+            'worker_runtime' => [
+                'label' => 'Exécution métier déclarée',
+                'type' => 'text',
+                'description' => 'Valeur partagée affichée dans la page confidentialité pour décrire le runtime métier séparé.',
+            ],
+            'object_storage' => [
+                'label' => 'Stockage objet déclaré',
+                'type' => 'text',
+                'description' => 'Valeur partagée affichée pour le stockage objet publié.',
+            ],
+            'payment_provider' => [
+                'label' => 'Prestataire de paiement déclaré',
+                'type' => 'text',
+                'description' => 'Prestataire de paiement mentionné dans les pages 2 et 3.',
             ],
         ];
     }
 
+
     /**
+     * @return array<string, array<string, mixed>>
+     */
+        /**
      * @return array<string, array<string, mixed>>
      */
     public static function tab_definitions(): array
@@ -78,39 +128,94 @@ final class LegalPages
         return [
             'mentions' => [
                 'title' => 'Mentions légales',
-                'description' => 'Identité de l’éditeur, hébergement du site public et publication éditoriale.',
+                'description' => 'Identité de l’éditeur, publication, hébergement du site public et identification des intervenants techniques déclarés.',
+                'sections' => [
+                    'identity' => [
+                        'title' => 'Éditeur, marque et publication',
+                        'description' => 'Identité affichée publiquement dans la page 1.',
+                    ],
+                    'technical' => [
+                        'title' => 'Hébergement et intervenants techniques',
+                        'description' => 'Résumé public des acteurs techniques déclarés autour du site et du service.',
+                    ],
+                    'medical' => [
+                        'title' => 'Référence médicale affichée',
+                        'description' => 'Sous-section activable pour la référence médicale de travail.',
+                    ],
+                ],
                 'fields' => [
+                    'brand_name' => [
+                        'section' => 'identity',
+                        'label' => 'Marque affichée',
+                        'type' => 'text',
+                        'description' => 'Nom public de la marque ou du service.',
+                    ],
+                    'brand_registration_number' => [
+                        'section' => 'identity',
+                        'label' => 'Numéro de marque affiché',
+                        'type' => 'text',
+                        'description' => 'Numéro de dépôt ou d’enregistrement affiché dans les mentions.',
+                    ],
+                    'brand_registration_date' => [
+                        'section' => 'identity',
+                        'label' => 'Date de dépôt de la marque',
+                        'type' => 'date',
+                        'description' => 'Date publiée pour le dépôt de la marque.',
+                    ],
                     'operator_name' => [
+                        'section' => 'identity',
                         'label' => 'Éditeur / exploitant',
                         'type' => 'text',
                         'description' => 'Dénomination affichée publiquement comme exploitant du site et du service.',
                     ],
                     'operator_identity' => [
+                        'section' => 'identity',
                         'label' => 'Identité juridique affichée',
                         'type' => 'textarea',
-                        'description' => 'Adresse et références de l’exploitant, une ligne par information.',
+                        'layout' => 'full',
+                        'description' => 'Adresse et références de l’exploitant, une information par ligne.',
                     ],
                     'publication_director' => [
+                        'section' => 'identity',
                         'label' => 'Directeur de publication',
                         'type' => 'text',
                         'description' => 'Nom ou dénomination affiché comme responsable de la publication.',
                     ],
+                    'main_contact_email' => [
+                        'section' => 'identity',
+                        'label' => 'Email de contact public',
+                        'type' => 'email',
+                        'description' => 'Adresse affichée pour le contact général du service.',
+                    ],
                     'public_host_summary' => [
+                        'section' => 'technical',
                         'label' => 'Hébergeur du site public',
-                        'type' => 'text',
-                        'description' => 'Formulation courte affichée dans les mentions légales.',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Résumé public de l’hébergement WordPress du site public.',
                     ],
                     'technical_maintainer_summary' => [
+                        'section' => 'technical',
                         'label' => 'Maintenance technique',
-                        'type' => 'text',
-                        'description' => 'Prestataire ou équipe affichée pour la maintenance du site.',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Résumé public du prestataire ou de l’équipe de maintenance.',
+                    ],
+                    'technical_interveners_summary' => [
+                        'section' => 'technical',
+                        'label' => 'Intervenants techniques déclarés',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par intervenant technique ou maillon publié de la chaîne.',
                     ],
                     'doctor_enabled' => [
-                        'label' => 'Afficher le médecin référent',
+                        'section' => 'medical',
+                        'label' => 'Afficher la référence médicale',
                         'type' => 'checkbox',
-                        'description' => 'Active la sous-section publique “médecin référent”.',
+                        'description' => 'Active la sous-section publique dédiée au médecin référent de travail.',
                     ],
                     'doctor_identity' => [
+                        'section' => 'medical',
                         'label' => 'Médecin référent affiché',
                         'type' => 'text',
                         'description' => 'Affichage compact du médecin référent et de son RPPS.',
@@ -118,158 +223,426 @@ final class LegalPages
                 ],
             ],
             'conditions' => [
-                'title' => 'Conditions du service',
-                'description' => 'Cadre du service, délais, préautorisation et gestion des réclamations.',
+                'title' => 'Conditions du service, tarifs et paiement',
+                'description' => 'Cadre du service, décision médicale, obligations du patient, paiement, responsabilité et litiges.',
+                'sections' => [
+                    'positioning' => [
+                        'title' => 'Cadre du service',
+                        'description' => 'Positionnement du service, périmètre et délais.',
+                    ],
+                    'patient' => [
+                        'title' => 'Décision médicale et obligations du patient',
+                        'description' => 'Sincérité, usage personnel de l’ordonnance, coordination des soins et accès aux documents.',
+                    ],
+                    'economics' => [
+                        'title' => 'Tarifs, paiement, disponibilité et responsabilité',
+                        'description' => 'Préautorisation, force majeure, responsabilité et réclamations.',
+                    ],
+                ],
                 'fields' => [
                     'service_positioning' => [
+                        'section' => 'positioning',
                         'label' => 'Positionnement du service',
                         'type' => 'textarea',
-                        'description' => 'Résumé public du service, de sa nature privée et non urgente.',
+                        'layout' => 'full',
+                        'description' => 'Résumé public du service, de sa nature privée, non urgente et asynchrone.',
                     ],
                     'eligibility_summary' => [
+                        'section' => 'positioning',
                         'label' => 'Éligibilité et exclusions',
                         'type' => 'textarea',
-                        'description' => 'Décrit le cadre d’usage et les cas exclus.',
-                    ],
-                    'pricing_summary' => [
-                        'label' => 'Tarifs',
-                        'type' => 'textarea',
-                        'description' => 'Texte public sur le tarif, son affichage et l’absence de garantie de prescription.',
+                        'layout' => 'full',
+                        'description' => 'Cadre d’usage, limites et cas exclus.',
                     ],
                     'response_delay' => [
-                        'label' => 'Délais',
-                        'type' => 'text',
-                        'description' => 'Promesse prudente sur le traitement asynchrone des demandes.',
+                        'section' => 'positioning',
+                        'label' => 'Délais de traitement',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Formulation prudente sur le traitement asynchrone et les demandes d’informations complémentaires.',
+                    ],
+                    'medical_decision_summary' => [
+                        'section' => 'patient',
+                        'label' => 'Décision médicale et refus cliniques',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Explique l’analyse humaine du dossier, l’indépendance du médecin et les motifs de refus ou de réorientation.',
+                    ],
+                    'patient_honesty_summary' => [
+                        'section' => 'patient',
+                        'label' => 'Devoir de sincérité du patient',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par obligation ou exigence d’usage loyal du service.',
+                    ],
+                    'prescription_usage_summary' => [
+                        'section' => 'patient',
+                        'label' => 'Usage personnel de l’ordonnance et coordination des soins',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par rappel public sur l’usage personnel, la validité pratique et l’information du médecin traitant.',
+                    ],
+                    'reversibility_summary' => [
+                        'section' => 'patient',
+                        'label' => 'Accès aux ordonnances et conservation des documents',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Décrit la réversibilité d’accès et l’obligation pour le patient de conserver ses documents.',
+                    ],
+                    'pricing_summary' => [
+                        'section' => 'economics',
+                        'label' => 'Tarifs',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Texte public sur le tarif, son affichage et l’absence de garantie de prescription.',
                     ],
                     'payment_summary' => [
+                        'section' => 'economics',
                         'label' => 'Paiement et préautorisation',
                         'type' => 'textarea',
+                        'layout' => 'full',
                         'description' => 'Explique le fonctionnement Stripe sans présenter le service comme un achat standard.',
                     ],
-                    'disputes_summary' => [
-                        'label' => 'Litiges et réclamations',
+                    'force_majeure_summary' => [
+                        'section' => 'economics',
+                        'label' => 'Disponibilité, maintenance et force majeure',
                         'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Décrit les limites raisonnables de disponibilité, les maintenances et les événements hors contrôle.',
+                    ],
+                    'liability_summary' => [
+                        'section' => 'economics',
+                        'label' => 'Responsabilité',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Formulation prudente sur la responsabilité du service et les limites qui peuvent être rappelées publiquement.',
+                    ],
+                    'disputes_summary' => [
+                        'section' => 'economics',
+                        'label' => 'Réclamations et litiges',
+                        'type' => 'textarea',
+                        'layout' => 'full',
                         'description' => 'Formulation publique sur les réclamations et le traitement des contestations.',
                     ],
                     'complaint_contact' => [
+                        'section' => 'economics',
                         'label' => 'Contact réclamations',
                         'type' => 'email',
-                        'description' => 'Email affiché pour les réclamations non urgentes.',
+                        'description' => 'Adresse affichée pour les réclamations non urgentes.',
                     ],
                 ],
             ],
             'privacy' => [
-                'title' => 'Confidentialité & cookies',
-                'description' => 'Contact confidentialité, finalités, prestataires, IA d’assistance documentaire et cookies.',
+                'title' => 'Confidentialité, données de santé et cookies',
+                'description' => 'Contact confidentialité, finalités, chaîne de sous-traitance, incidents, archivage et cookies.',
+                'sections' => [
+                    'privacy_contact' => [
+                        'title' => 'Responsable du traitement, contact et finalités',
+                        'description' => 'Contact confidentialité, DPO éventuel, catégories de données et finalités.',
+                    ],
+                    'processors' => [
+                        'title' => 'Chaîne technique et sous-traitance',
+                        'description' => 'Résumé public de l’architecture déclarée et de la chaîne de sous-traitance.',
+                    ],
+                    'security' => [
+                        'title' => 'Sécurité, incidents, conservation et droits',
+                        'description' => 'Mesures générales, incidents, archivage, effacement, assistance et cookies.',
+                    ],
+                ],
                 'fields' => [
+                    'privacy_contact_email' => [
+                        'section' => 'privacy_contact',
+                        'label' => 'Contact confidentialité',
+                        'type' => 'email',
+                        'description' => 'Point de contact dédié aux demandes relatives aux données personnelles.',
+                    ],
                     'dpo_declared' => [
+                        'section' => 'privacy_contact',
                         'label' => 'DPO formel déclaré',
                         'type' => 'checkbox',
                         'description' => 'À activer uniquement si un DPO est réellement formalisé.',
                     ],
                     'dpo_identity' => [
+                        'section' => 'privacy_contact',
                         'label' => 'DPO affiché',
                         'type' => 'text',
-                        'description' => 'Nom ou qualité du DPO, si la case précédente est activée.',
+                        'description' => 'Nom ou qualité du DPO, si déclaré.',
                     ],
                     'purposes_summary' => [
+                        'section' => 'privacy_contact',
                         'label' => 'Finalités principales',
                         'type' => 'textarea',
+                        'layout' => 'full',
                         'description' => 'Résumé public des finalités de traitement.',
                     ],
-                    'processor_summary' => [
-                        'label' => 'Sous-traitants et localisation',
+                    'data_categories_summary' => [
+                        'section' => 'privacy_contact',
+                        'label' => 'Catégories de données',
                         'type' => 'textarea',
-                        'description' => 'Résumé public de l’hébergement, de l’exécution métier, du paiement et des prestataires techniques.',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par famille de données traitées.',
                     ],
-                    'cookies_list' => [
-                        'label' => 'Liste des cookies / traceurs',
+                    'processor_summary' => [
+                        'section' => 'processors',
+                        'label' => 'Architecture et sous-traitance publiée',
                         'type' => 'textarea',
-                        'description' => 'Une ligne par famille de cookies ou de traceurs.',
+                        'layout' => 'full',
+                        'description' => 'Résumé public de la séparation WordPress / worker et des grands prestataires.',
+                    ],
+                    'subprocessor_chain_summary' => [
+                        'section' => 'processors',
+                        'label' => 'Chaîne de sous-traitance détaillée',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par acteur, avec son rôle public.',
+                    ],
+                    'hosting_hds_summary' => [
+                        'section' => 'processors',
+                        'label' => 'Hébergement de données de santé / HDS',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Précise le cadre HDS et la localisation publiée des traitements sensibles.',
+                    ],
+                    'security_summary' => [
+                        'section' => 'security',
+                        'label' => 'Mesures générales de sécurité',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par mesure ou engagement général de sécurité publié.',
+                    ],
+                    'incident_management_summary' => [
+                        'section' => 'security',
+                        'label' => 'Gestion des incidents et violations de données',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Explique l’analyse des incidents, la remédiation et les notifications réglementaires.',
+                    ],
+                    'retention_summary' => [
+                        'section' => 'security',
+                        'label' => 'Conservation des données',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Décrit la logique générale de conservation et de cycle de vie des données.',
+                    ],
+                    'archival_vs_erasure_summary' => [
+                        'section' => 'security',
+                        'label' => 'Archivage, suspension et limites du droit à l’effacement',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Explique pourquoi une suspension de compte n’équivaut pas toujours à un effacement immédiat.',
+                    ],
+                    'rights_assistance_summary' => [
+                        'section' => 'security',
+                        'label' => 'Assistance aux droits des personnes',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Décrit l’exercice des droits, l’assistance des prestataires et le recours à la CNIL.',
                     ],
                     'ai_summary' => [
+                        'section' => 'security',
                         'label' => 'IA / assistance documentaire',
                         'type' => 'textarea',
+                        'layout' => 'full',
                         'description' => 'Décrit l’assistance algorithmique sans la présenter comme une décision médicale automatisée.',
+                    ],
+                    'cookies_list' => [
+                        'section' => 'security',
+                        'label' => 'Liste des cookies / traceurs',
+                        'type' => 'textarea',
+                        'layout' => 'full',
+                        'description' => 'Une ligne par famille de cookies ou de traceurs.',
                     ],
                 ],
             ],
         ];
     }
 
+
     /**
+     * @return array<string, mixed>
+     */
+        /**
      * @return array<string, mixed>
      */
     public static function get_state(): array
     {
         $raw = get_option(self::OPTION_KEY, null);
-        $state = is_array($raw) ? $raw : [];
+        $stored = is_array($raw) ? $raw : [];
         $defaults = self::default_state();
 
-        $merged = array_merge($defaults, $state);
-        $merged['registry'] = array_merge($defaults['registry'], is_array($state['registry'] ?? null) ? $state['registry'] : []);
+        $storedRegistry = is_array($stored['registry'] ?? null) ? $stored['registry'] : [];
+        $storedCorpusVersion = is_string($stored['corpus_version'] ?? null) ? trim((string) $stored['corpus_version']) : '';
+        $forceCorpusDefaults = $storedCorpusVersion === '' || version_compare($storedCorpusVersion, self::CORPUS_VERSION, '<');
+
+        $state = array_merge($defaults, $stored);
+        $state['corpus_version'] = self::CORPUS_VERSION;
+        $state['storage_version'] = self::STORAGE_VERSION;
+        $state['registry'] = self::normalize_registry($storedRegistry, is_array($defaults['registry'] ?? null) ? $defaults['registry'] : [], $forceCorpusDefaults);
 
         foreach (array_keys(self::slots()) as $slot) {
-            $slotState = is_array($state[$slot] ?? null) ? $state[$slot] : [];
-            $defaultsForSlot = is_array($defaults[$slot]) ? $defaults[$slot] : [];
-            $merged[$slot] = array_merge($defaultsForSlot, $slotState);
-            $merged[$slot]['page_id'] = max(0, (int) ($merged[$slot]['page_id'] ?? 0));
-            $merged[$slot]['version'] = self::normalize_version((string) ($merged[$slot]['version'] ?? '1.0.0'));
-            $merged[$slot]['effective_date'] = self::normalize_date_string((string) ($merged[$slot]['effective_date'] ?? ''), (string) $defaultsForSlot['effective_date']);
-            $merged[$slot]['updated_at'] = self::normalize_date_string((string) ($merged[$slot]['updated_at'] ?? ''), (string) $merged[$slot]['effective_date']);
-            $merged[$slot]['sources_public'] = self::normalize_sources($slotState['sources_public'] ?? $defaultsForSlot['sources_public'] ?? []);
+            $slotDefaults = is_array($defaults[$slot] ?? null) ? $defaults[$slot] : [];
+            $storedSlot = is_array($stored[$slot] ?? null) ? $stored[$slot] : [];
+
+            if ($forceCorpusDefaults) {
+                $slotState = $slotDefaults;
+                if (isset($storedSlot['page_id'])) {
+                    $slotState['page_id'] = max(0, (int) $storedSlot['page_id']);
+                }
+            } else {
+                $slotState = array_merge($slotDefaults, $storedSlot);
+            }
+
+            $slotState['page_id'] = max(0, (int) ($slotState['page_id'] ?? 0));
+            $slotState['version'] = self::normalize_version((string) ($slotState['version'] ?? ($slotDefaults['version'] ?? self::CORPUS_VERSION)));
+            $slotState['effective_date'] = self::normalize_date_string((string) ($slotState['effective_date'] ?? ''), (string) ($slotDefaults['effective_date'] ?? self::today()));
+            $slotState['updated_at'] = self::normalize_date_string((string) ($slotState['updated_at'] ?? ''), (string) $slotState['effective_date']);
+            $slotState['sources_public'] = self::normalize_sources($forceCorpusDefaults ? ($slotDefaults['sources_public'] ?? []) : ($storedSlot['sources_public'] ?? ($slotDefaults['sources_public'] ?? [])));
+
+            $state[$slot] = $slotState;
         }
 
-        $registry = $merged['registry'];
-        $merged['registry'] = [
-            'brand_name' => self::text($registry['brand_name'] ?? 'SOS Prescription'),
-            'brand_registration_number' => self::text($registry['brand_registration_number'] ?? '5002143'),
-            'brand_registration_date' => self::normalize_date_string((string) ($registry['brand_registration_date'] ?? ''), '2023-10-29'),
-            'site_url' => esc_url_raw((string) ($registry['site_url'] ?? home_url('/'))),
-            'operator_name' => self::text($registry['operator_name'] ?? 'Digital Pacifika'),
-            'operator_identity' => self::textarea($registry['operator_identity'] ?? ''),
-            'publication_director' => self::text($registry['publication_director'] ?? 'Digital Pacifika'),
-            'main_contact_email' => self::email($registry['main_contact_email'] ?? 'contact@sosprescription.fr', 'contact@sosprescription.fr'),
-            'privacy_contact_email' => self::email($registry['privacy_contact_email'] ?? 'privacy@sosprescription.fr', 'privacy@sosprescription.fr'),
-            'public_host_summary' => self::text($registry['public_host_summary'] ?? ''),
-            'technical_maintainer_summary' => self::text($registry['technical_maintainer_summary'] ?? ''),
-            'doctor_enabled' => !empty($registry['doctor_enabled']),
-            'doctor_identity' => self::text($registry['doctor_identity'] ?? ''),
-            'service_positioning' => self::textarea($registry['service_positioning'] ?? ''),
-            'eligibility_summary' => self::textarea($registry['eligibility_summary'] ?? ''),
-            'pricing_summary' => self::textarea($registry['pricing_summary'] ?? ''),
-            'response_delay' => self::text($registry['response_delay'] ?? ''),
-            'payment_summary' => self::textarea($registry['payment_summary'] ?? ''),
-            'disputes_summary' => self::textarea($registry['disputes_summary'] ?? ''),
-            'complaint_contact' => self::email($registry['complaint_contact'] ?? ($registry['main_contact_email'] ?? 'contact@sosprescription.fr'), self::email($registry['main_contact_email'] ?? 'contact@sosprescription.fr', 'contact@sosprescription.fr')),
-            'dpo_declared' => !empty($registry['dpo_declared']),
-            'dpo_identity' => self::text($registry['dpo_identity'] ?? ''),
-            'purposes_summary' => self::textarea($registry['purposes_summary'] ?? ''),
-            'processor_summary' => self::textarea($registry['processor_summary'] ?? ''),
-            'cookies_list' => self::textarea($registry['cookies_list'] ?? ''),
-            'ai_summary' => self::textarea($registry['ai_summary'] ?? ''),
-            'consent_required' => !empty($registry['consent_required']),
-            'privacy_page_sync' => !empty($registry['privacy_page_sync']),
-            'worker_runtime' => self::text($registry['worker_runtime'] ?? 'Scalingo France'),
-            'object_storage' => self::text($registry['object_storage'] ?? 'AWS Paris'),
-            'payment_provider' => self::text($registry['payment_provider'] ?? 'Stripe'),
-        ];
+        $state['updated_at'] = is_string($stored['updated_at'] ?? null)
+            ? trim((string) $stored['updated_at'])
+            : (string) ($defaults['updated_at'] ?? '');
 
-        $merged['updated_at'] = is_string($merged['updated_at'] ?? null) ? trim((string) $merged['updated_at']) : '';
+        $shouldPersist = self::state_needs_persist($stored, $state);
+        if ($shouldPersist) {
+            update_option(self::OPTION_KEY, $state, false);
+            self::sync_compatibility($state, self::calculate_dashboard_bindings($state));
+        }
 
-        return $merged;
+        return $state;
+    }
+
+
+    public static function corpus_version(): string
+    {
+        return self::CORPUS_VERSION;
+    }
+
+    public static function storage_version(): string
+    {
+        return self::STORAGE_VERSION;
     }
 
     /**
+     * @return array<string, array<string, mixed>>
+     */
+    private static function all_field_definitions(): array
+    {
+        $definitions = self::global_field_definitions();
+
+        foreach (self::tab_definitions() as $tab) {
+            foreach ((array) ($tab['fields'] ?? []) as $fieldName => $definition) {
+                $definitions[$fieldName] = is_array($definition) ? $definition : [];
+            }
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * @param array<string, mixed> $registry
+     * @param array<string, mixed> $defaultsRegistry
+     * @return array<string, mixed>
+     */
+    private static function normalize_registry(array $registry, array $defaultsRegistry, bool $forceCorpusDefaults): array
+    {
+        $definitions = self::all_field_definitions();
+        $normalized = [];
+
+        foreach ($defaultsRegistry as $key => $default) {
+            $definition = is_array($definitions[$key] ?? null) ? $definitions[$key] : [];
+            $type = (string) ($definition['type'] ?? self::guess_field_type($default));
+            $candidate = array_key_exists($key, $registry) ? $registry[$key] : $default;
+
+            if ($forceCorpusDefaults && !in_array($key, self::MIGRATION_PRESERVE_REGISTRY_FIELDS, true)) {
+                $candidate = $default;
+            }
+
+            if (self::is_placeholder_like($candidate)) {
+                $candidate = $default;
+            }
+
+            $normalized[$key] = self::normalize_registry_value($key, $candidate, $type, $default);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param mixed $candidate
+     * @param mixed $default
+     * @return mixed
+     */
+    private static function normalize_registry_value(string $key, mixed $candidate, string $type, mixed $default): mixed
+    {
+        if ($key === 'site_url') {
+            $sanitized = esc_url_raw(is_scalar($candidate) ? (string) $candidate : '');
+            $fallback = esc_url_raw(is_scalar($default) ? (string) $default : home_url('/'));
+            return $sanitized !== '' ? $sanitized : $fallback;
+        }
+
+        return self::sanitize_field($candidate, $type, $default);
+    }
+
+    /**
+     * @param mixed $default
+     */
+    private static function guess_field_type(mixed $default): string
+    {
+        return match (true) {
+            is_bool($default) => 'checkbox',
+            default => 'text',
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $stored
+     * @param array<string, mixed> $state
+     */
+    private static function state_needs_persist(array $stored, array $state): bool
+    {
+        return wp_json_encode($stored) !== wp_json_encode($state);
+    }
+
+    private static function is_placeholder_like(mixed $value): bool
+    {
+        if (!is_scalar($value)) {
+            return false;
+        }
+
+        $candidate = trim((string) $value);
+        if ($candidate === '') {
+            return false;
+        }
+
+        $normalized = function_exists('mb_strtolower') ? mb_strtolower($candidate, 'UTF-8') : strtolower($candidate);
+        foreach (self::PLACEHOLDER_FRAGMENTS as $fragment) {
+            if ($fragment !== '' && str_contains($normalized, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     */
+        /**
      * @param array<string, mixed> $state
      */
     public static function save_state(array $state): void
     {
         $current = self::get_state();
         $next = array_merge($current, $state);
+        $next['corpus_version'] = self::CORPUS_VERSION;
+        $next['storage_version'] = self::STORAGE_VERSION;
         $next['updated_at'] = current_time('mysql');
         update_option(self::OPTION_KEY, $next, false);
     }
+
 
     /**
      * @param array<string, mixed> $post
@@ -305,11 +678,11 @@ final class LegalPages
     }
 
     /**
+     * @param array<string, mixed> $state
      * @return array<string, array<string, mixed>>
      */
-    public static function get_dashboard_bindings(): array
+    private static function calculate_dashboard_bindings(array $state): array
     {
-        $state = self::get_state();
         $rows = [];
 
         foreach (self::slots() as $slot => $def) {
@@ -376,7 +749,7 @@ final class LegalPages
                 'details' => $details,
                 'source' => $source,
                 'valid' => $valid,
-                'version' => (string) ($state[$slot]['version'] ?? '1.0.0'),
+                'version' => (string) ($state[$slot]['version'] ?? self::CORPUS_VERSION),
                 'effective_date' => (string) ($state[$slot]['effective_date'] ?? self::today()),
                 'updated_at' => (string) ($state[$slot]['updated_at'] ?? self::today()),
             ];
@@ -384,6 +757,18 @@ final class LegalPages
 
         return $rows;
     }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+        /**
+     * @return array<string, array<string, mixed>>
+     */
+    public static function get_dashboard_bindings(): array
+    {
+        return self::calculate_dashboard_bindings(self::get_state());
+    }
+
 
     /**
      * @return array<string, mixed>
@@ -518,15 +903,16 @@ final class LegalPages
         return has_shortcode($postContent, 'sosprescription_legal_cookies');
     }
 
-    private static function render_mentions(array $state): string
+        private static function render_mentions(array $state): string
     {
         $registry = is_array($state['registry'] ?? null) ? $state['registry'] : [];
-        $operatorName = (string) ($registry['operator_name'] ?? 'Digital Pacifika');
+        $operatorName = self::safe_or_default((string) ($registry['operator_name'] ?? ''), 'Digital Pacifika');
         $operatorIdentity = self::multiline_html((string) ($registry['operator_identity'] ?? ''));
         $publicationDirector = self::safe_or_default((string) ($registry['publication_director'] ?? ''), $operatorName);
         $mainContact = self::safe_or_default((string) ($registry['main_contact_email'] ?? ''), 'contact@sosprescription.fr');
         $hostSummary = self::safe_or_default((string) ($registry['public_host_summary'] ?? ''), 'Hostinger — offre Cloud Startup — hébergement du site public WordPress');
         $maintainerSummary = self::safe_or_default((string) ($registry['technical_maintainer_summary'] ?? ''), 'Digital Pacifika — maintenance technique du site');
+        $technicalInterveners = self::lines((string) ($registry['technical_interveners_summary'] ?? ''));
         $doctorEnabled = !empty($registry['doctor_enabled']);
         $doctorIdentity = self::safe_or_default((string) ($registry['doctor_identity'] ?? ''), 'Dr Yves Burckel — Médecin urgentiste — RPPS 10000554302');
         $brandName = self::safe_or_default((string) ($registry['brand_name'] ?? ''), 'SOS Prescription');
@@ -534,8 +920,8 @@ final class LegalPages
         $brandDate = self::format_date((string) ($registry['brand_registration_date'] ?? '2023-10-29'));
 
         $html = '<div class="sp-legal-document sp-legal-document--mentions">';
-        $html .= self::render_meta_block('mentions', $state, 'Document public d’identification', 'Informations relatives à l’éditeur du site, à l’hébergement du site public et aux principaux liens de contact.');
-        $html .= self::lead('Les présentes mentions légales identifient l’éditeur du site et du service SOS Prescription, l’hébergement du site public ainsi que les principaux contacts associés à la publication.');
+        $html .= self::render_meta_block('mentions', $state, 'Document public d’identification', 'Informations relatives à l’éditeur du site, à l’hébergement du site public, aux intervenants techniques déclarés et aux principaux liens de contact.');
+        $html .= self::lead('Les présentes mentions légales identifient l’éditeur du site et du service SOS Prescription, l’hébergement du site public, les principaux intervenants techniques déclarés ainsi que les principaux contacts associés à la publication.');
         $html .= self::callout([
             'Service privé de continuité thérapeutique',
             'Service non urgent et asynchrone',
@@ -566,6 +952,10 @@ final class LegalPages
             'Maintenance technique' => esc_html($maintainerSummary),
             'Architecture déclarée' => 'WordPress agit comme façade publique. Les traitements métier sensibles sont opérés dans une couche séparée et les données sensibles sont déclarées comme hébergées en France selon l’architecture de référence du service.',
         ]);
+        if ($technicalInterveners !== []) {
+            $html .= self::paragraph('Les intervenants techniques publiquement déclarés pour le service sont les suivants :');
+            $html .= self::unordered_list(array_map(static fn(string $line): string => esc_html($line), $technicalInterveners));
+        }
         $html .= '</section>';
 
         if ($doctorEnabled) {
@@ -582,6 +972,7 @@ final class LegalPages
 
         $html .= '<section>';
         $html .= '<h2>Documents associés</h2>';
+        $html .= self::paragraph('Les présentes mentions légales se lisent avec les conditions du service, tarifs et paiement ainsi qu’avec la page confidentialité, données de santé et cookies, qui détaillent respectivement le cadre du service et le traitement des données.');
         $html .= self::render_internal_links([
             [self::page_url('conditions', $state), 'Consulter les conditions du service, tarifs et paiement'],
             [self::page_url('privacy', $state), 'Consulter la page confidentialité, données de santé et cookies'],
@@ -598,19 +989,77 @@ final class LegalPages
     }
 
 
-    private static function render_conditions(array $state): string
+
+        private static function render_conditions(array $state): string
     {
         $registry = is_array($state['registry'] ?? null) ? $state['registry'] : [];
         $servicePositioning = self::safe_or_default((string) ($registry['service_positioning'] ?? ''), 'SOS Prescription est un service privé, non urgent et asynchrone de continuité thérapeutique. Il permet à un patient, dans un cadre strictement défini, de solliciter l’analyse de sa situation par un médecin afin de déterminer s’il y a lieu ou non d’émettre une ordonnance de relais.');
         $eligibility = self::safe_or_default((string) ($registry['eligibility_summary'] ?? ''), 'Le service est réservé aux demandes compatibles avec un besoin de continuité de traitement. Il ne remplace pas une prise en charge d’urgence, un diagnostic en temps réel, ni une consultation adaptée en cas de symptômes nouveaux, graves ou évolutifs.');
-        $pricing = self::safe_or_default((string) ($registry['pricing_summary'] ?? ''), 'Le tarif applicable est affiché au patient avant validation finale de sa demande. Le paiement ne doit pas être compris comme l’achat automatique d’une ordonnance ou d’un médicament. Aucune prescription n’est garantie.');
         $responseDelay = self::safe_or_default((string) ($registry['response_delay'] ?? ''), 'Les demandes sont traitées de manière asynchrone. Les délais peuvent varier selon la complétude du dossier, le volume de demandes et la disponibilité médicale.');
+        $medicalDecisionSummary = self::safe_or_default((string) ($registry['medical_decision_summary'] ?? ''), 'Chaque dossier fait l’objet d’une analyse humaine par un médecin. La décision médicale demeure personnelle, indépendante et non automatisée.');
+        $patientHonestyItems = self::lines((string) ($registry['patient_honesty_summary'] ?? ''));
+        $prescriptionUsageParagraphs = self::lines((string) ($registry['prescription_usage_summary'] ?? ''));
+        $reversibilityParagraphs = self::lines((string) ($registry['reversibility_summary'] ?? ''));
+        $pricing = self::safe_or_default((string) ($registry['pricing_summary'] ?? ''), 'Le tarif applicable est affiché au patient avant validation finale de sa demande. Le paiement ne doit pas être compris comme l’achat automatique d’une ordonnance ou d’un médicament. Aucune prescription n’est garantie.');
         $paymentSummary = self::safe_or_default((string) ($registry['payment_summary'] ?? ''), 'La plateforme peut solliciter une préautorisation bancaire via Stripe avant l’analyse médicale du dossier. La capture effective ou l’annulation intervient ensuite selon l’issue du traitement médical.');
-        $disputesSummary = self::safe_or_default((string) ($registry['disputes_summary'] ?? ''), 'Toute réclamation non urgente doit être adressée en priorité au contact indiqué. Les contestations portant sur l’appréciation clinique relèvent du cadre propre au service de santé et de l’indépendance du médecin.');
+        $forceMajeureParagraphs = self::lines((string) ($registry['force_majeure_summary'] ?? ''));
+        $liabilityParagraphs = self::lines((string) ($registry['liability_summary'] ?? ''));
+        $disputesParagraphs = self::lines((string) ($registry['disputes_summary'] ?? ''));
         $complaintContact = self::safe_or_default((string) ($registry['complaint_contact'] ?? ''), self::safe_or_default((string) ($registry['main_contact_email'] ?? ''), 'contact@sosprescription.fr'));
         $paymentProvider = self::safe_or_default((string) ($registry['payment_provider'] ?? ''), 'Stripe');
         $doctorEnabled = !empty($registry['doctor_enabled']);
         $doctorIdentity = self::safe_or_default((string) ($registry['doctor_identity'] ?? ''), 'Dr Yves Burckel — Médecin urgentiste — RPPS 10000554302');
+
+        if ($patientHonestyItems === []) {
+            $patientHonestyItems = [
+                'répondre honnêtement au questionnaire et aux demandes complémentaires, au mieux de sa connaissance ;',
+                'ne pas soumettre une demande pour le compte d’un tiers ni utiliser l’identité d’un tiers ;',
+                'signaler sans délai toute information nouvelle susceptible de modifier l’appréciation du dossier ;',
+                'ne pas transmettre de documents falsifiés, trompeurs ou illicites ;',
+                'conserver ses identifiants d’accès confidentiels et ne pas partager son compte ;',
+                'ne pas utiliser le service dans une situation d’urgence ou hors de son périmètre normal.',
+            ];
+        }
+
+        if ($prescriptionUsageParagraphs === []) {
+            $prescriptionUsageParagraphs = [
+                'Lorsqu’une ordonnance de relais est mise à disposition, elle est strictement personnelle. Elle ne doit pas être cédée, partagée, réutilisée pour un tiers ni utilisée en dehors du cadre fixé par le médecin.',
+                'Le patient est invité à télécharger, lire et conserver sans attendre tout document mis à sa disposition dans son espace. Il lui appartient également de lire la notice du traitement, de respecter la prescription, ainsi que de vérifier la durée de validité applicable à l’ordonnance et aux médicaments concernés.',
+                'Pour la première délivrance des médicaments en pharmacie, une ordonnance doit en principe être présentée dans les trois mois de sa rédaction, sous réserve des règles particulières applicables à certains produits, des mentions de renouvellement et des limites fixées par le prescripteur.',
+                'Afin de favoriser la continuité et la sécurité des soins, il est fortement recommandé au patient d’informer son médecin traitant, ainsi que tout professionnel de santé qui le suit utilement, des traitements ou documents obtenus via le service.',
+            ];
+        }
+
+        if ($reversibilityParagraphs === []) {
+            $reversibilityParagraphs = [
+                'L’accès à une ordonnance ou à un document mis à disposition peut être limité dans le temps pour des raisons de sécurité, d’archivage, de fermeture de compte ou d’organisation technique.',
+                'Le patient est donc invité à conserver sans délai les documents qui lui sont remis, y compris lorsque l’accès à son compte est suspendu ou désactivé.',
+            ];
+        }
+
+        if ($forceMajeureParagraphs === []) {
+            $forceMajeureParagraphs = [
+                'SOS Prescription s’efforce d’assurer un accès raisonnablement stable au service, sans garantir une disponibilité continue ni l’absence totale d’interruption.',
+                'L’accès peut être suspendu, limité ou ralenti en cas de maintenance, de mise à jour, d’incident technique, de mesure de sécurité, de saturation ou d’événement échappant raisonnablement au contrôle du service.',
+                'Aucune partie ne pourra être tenue responsable d’un retard ou d’une inexécution résultant d’un cas de force majeure ou d’un événement extérieur équivalent au sens du droit applicable.',
+            ];
+        }
+
+        if ($liabilityParagraphs === []) {
+            $liabilityParagraphs = [
+                'SOS Prescription demeure tenu d’une obligation de moyens dans le fonctionnement de la plateforme et du parcours numérique.',
+                'La responsabilité du service ne saurait être engagée à raison de l’utilisation du service en dehors de son périmètre, de l’urgence, d’informations inexactes, incomplètes ou trompeuses transmises par le patient, ou du non-respect des instructions médicales et de sécurité.',
+                'Aucune stipulation de la présente page n’a pour effet d’écarter une responsabilité qui ne pourrait être légalement exclue, notamment en cas de faute intentionnelle ou de manquement qui ne peut être limité par la loi.',
+            ];
+        }
+
+        if ($disputesParagraphs === []) {
+            $disputesParagraphs = [
+                'Toute réclamation non urgente doit être adressée en priorité au contact indiqué.',
+                'Les contestations portant sur l’appréciation clinique relèvent du cadre propre au service de santé et de l’indépendance du médecin.',
+                'Le service ne doit pas être lu comme un site de e-commerce standard pour sa composante strictement médicale.',
+            ];
+        }
 
         $html = '<div class="sp-legal-document sp-legal-document--conditions">';
         $html .= self::render_meta_block('conditions', $state, 'Document public — cadre du service', 'Conditions d’utilisation, principes de traitement du dossier, informations tarifaires et organisation du paiement.');
@@ -638,21 +1087,20 @@ final class LegalPages
         $html .= '<h2>Objet du service et limites de périmètre</h2>';
         $html .= self::paragraph('Le service a pour objet de faciliter un parcours de <strong>continuité thérapeutique</strong> dans un cadre strictement défini. Il vise à permettre la transmission et l’examen d’une demande par un médecin lorsque la situation se prête à un traitement <strong>non urgent</strong> et <strong>asynchrone</strong>.');
         $html .= self::paragraph('Le service ne remplace pas une prise en charge en urgence, un examen clinique immédiat lorsque l’état du patient l’exige, ni une consultation adaptée en cas de symptômes nouveaux, graves, atypiques ou évolutifs.');
-        $html .= self::paragraph(esc_html($eligibility));
+        $html .= self::render_textarea_as_paragraphs($eligibility);
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Déroulement d’une demande et décision médicale</h2>';
         $html .= self::paragraph('Le patient constitue un dossier et transmet les informations demandées ainsi que, le cas échéant, les justificatifs utiles à l’instruction du dossier. Le traitement du dossier intervient de manière <strong>asynchrone</strong> : le service ne promet ni réponse instantanée ni délai uniforme en toutes circonstances.');
-        $html .= self::paragraph(esc_html($responseDelay));
-        $html .= self::paragraph('Chaque dossier fait l’objet d’une <strong>analyse humaine</strong> par un médecin. La décision médicale demeure <strong>personnelle, indépendante et non automatisée</strong>.');
+        $html .= self::render_textarea_as_paragraphs($responseDelay);
+        $html .= self::render_textarea_as_paragraphs($medicalDecisionSummary);
         $html .= self::unordered_list([
             'demander des informations complémentaires ;',
             'considérer que le cadre du service n’est pas adapté ;',
             'refuser de délivrer une ordonnance ;',
             'ou, lorsqu’il l’estime médicalement justifié, délivrer une ordonnance de relais.',
         ]);
-        $html .= self::paragraph('Le médecin peut refuser ou réorienter une demande pour des raisons cliniques, de sécurité ou de conformité du dossier, notamment si les éléments transmis sont incomplets, incohérents, trompeurs, insuffisants pour une appréciation médicale prudente, ou s’ils justifient un examen en présentiel ou une orientation vers un autre circuit de soins.');
         $html .= self::paragraph('Le recours au service, l’existence d’une demande complète, d’un paiement ou d’une préautorisation n’emportent jamais, à eux seuls, délivrance automatique d’une ordonnance.');
         if ($doctorEnabled) {
             $html .= self::paragraph('Référence médicale affichée : <strong>' . esc_html($doctorIdentity) . '</strong>.');
@@ -662,30 +1110,20 @@ final class LegalPages
         $html .= '<section>';
         $html .= '<h2>Obligations du patient, sincérité et sécurité du compte</h2>';
         $html .= self::paragraph('Le patient s’engage à utiliser le service de bonne foi et à transmettre des informations exactes, sincères et à jour. En cas de doute sur une question, il lui appartient de demander une précision plutôt que de répondre au hasard.');
-        $html .= self::unordered_list([
-            'répondre honnêtement au questionnaire et aux demandes complémentaires, au mieux de sa connaissance ;',
-            'ne pas soumettre une demande pour le compte d’un tiers ni utiliser l’identité d’un tiers ;',
-            'signaler sans délai toute information nouvelle susceptible de modifier l’appréciation du dossier ;',
-            'ne pas transmettre de documents falsifiés, trompeurs ou illicites ;',
-            'conserver ses identifiants d’accès confidentiels et ne pas partager son compte ;',
-            'ne pas utiliser le service dans une situation d’urgence ou hors de son périmètre normal.',
-        ]);
+        $html .= self::unordered_list(array_map(static fn(string $item): string => esc_html($item), $patientHonestyItems));
         $html .= self::paragraph('Le service peut suspendre l’accès à certaines fonctionnalités, bloquer ou clôturer un dossier en cas d’usage manifestement abusif, frauduleux, techniquement dangereux ou contraire à la finalité du service.');
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Ordonnance, usage personnel et coordination des soins</h2>';
-        $html .= self::paragraph('Lorsqu’une ordonnance de relais est mise à disposition, elle est <strong>strictement personnelle</strong>. Elle ne doit pas être cédée, partagée, réutilisée pour un tiers ni utilisée en dehors du cadre fixé par le médecin.');
-        $html .= self::paragraph('Le patient est invité à télécharger, lire et conserver sans attendre tout document mis à sa disposition dans son espace. Il lui appartient également de lire la notice du traitement, de respecter la prescription, ainsi que de vérifier la durée de validité applicable à l’ordonnance et aux médicaments concernés.');
-        $html .= self::paragraph('Pour la première délivrance des médicaments en pharmacie, une ordonnance doit en principe être présentée dans les trois mois de sa rédaction, sous réserve des règles particulières applicables à certains produits, des mentions de renouvellement et des limites fixées par le prescripteur.');
-        $html .= self::paragraph('Afin de favoriser la continuité et la sécurité des soins, il est fortement recommandé au patient d’informer son médecin traitant, ainsi que tout professionnel de santé qui le suit utilement, des traitements ou documents obtenus via le service.');
-        $html .= self::paragraph('L’accès à une ordonnance ou à un document mis à disposition peut être limité dans le temps pour des raisons de sécurité, d’archivage, de fermeture de compte ou d’organisation technique. Le patient est donc invité à conserver sans délai les documents qui lui sont remis.');
+        $html .= self::render_lines_as_paragraphs($prescriptionUsageParagraphs);
+        $html .= self::render_lines_as_paragraphs($reversibilityParagraphs);
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Tarifs, préautorisation et particularité du service</h2>';
-        $html .= self::paragraph(esc_html($pricing));
-        $html .= self::paragraph(esc_html($paymentSummary));
+        $html .= self::render_textarea_as_paragraphs($pricing);
+        $html .= self::render_textarea_as_paragraphs($paymentSummary);
         $html .= self::definition_list([
             'Prestataire de paiement déclaré' => esc_html($paymentProvider),
             'Régime de paiement' => 'Préautorisation puis capture, annulation ou opération cohérente avec l’issue du dossier',
@@ -696,10 +1134,16 @@ final class LegalPages
         $html .= '</section>';
 
         $html .= '<section>';
-        $html .= '<h2>Réclamations, litiges et droit applicable</h2>';
-        $html .= self::paragraph(esc_html($disputesSummary));
+        $html .= '<h2>Disponibilité, maintenance et force majeure</h2>';
+        $html .= self::render_lines_as_paragraphs($forceMajeureParagraphs);
+        $html .= '</section>';
+
+        $html .= '<section>';
+        $html .= '<h2>Responsabilité, réclamations, litiges et droit applicable</h2>';
+        $html .= self::render_lines_as_paragraphs($liabilityParagraphs);
+        $html .= self::render_lines_as_paragraphs($disputesParagraphs);
         $html .= self::paragraph('Toute réclamation non urgente relative au fonctionnement du service, à la facturation, à l’accès aux documents ou à la gestion du dossier peut être adressée à <a href="mailto:' . esc_attr($complaintContact) . '">' . esc_html($complaintContact) . '</a>.');
-        $html .= self::paragraph('Le droit applicable est le droit français, sous réserve des règles impératives éventuellement applicables. Rien dans la présente page n’a pour effet d’écarter une responsabilité qui ne pourrait être légalement exclue.');
+        $html .= self::paragraph('Le droit applicable est le droit français, sous réserve des règles impératives éventuellement applicables.');
         $html .= '</section>';
 
         $html .= '<section>';
@@ -721,19 +1165,95 @@ final class LegalPages
 
 
 
-    private static function render_privacy(array $state): string
+
+        private static function render_privacy(array $state): string
     {
         $registry = is_array($state['registry'] ?? null) ? $state['registry'] : [];
         $operatorName = self::safe_or_default((string) ($registry['operator_name'] ?? ''), 'Digital Pacifika');
         $privacyContact = self::safe_or_default((string) ($registry['privacy_contact_email'] ?? ''), 'privacy@sosprescription.fr');
         $purposes = self::safe_or_default((string) ($registry['purposes_summary'] ?? ''), 'Gestion des demandes, analyse du dossier, échanges patient-médecin, continuité de traitement, sécurisation de la plateforme, gestion administrative et financière, prévention des abus, gestion des incidents et respect des obligations légales.');
+        $dataCategories = self::lines((string) ($registry['data_categories_summary'] ?? ''));
         $processors = self::safe_or_default((string) ($registry['processor_summary'] ?? ''), 'Le site public WordPress est hébergé chez Hostinger. L’exécution métier sensible est opérée sur Scalingo France. Le stockage objet est assuré sur AWS Paris. Les opérations de paiement sont réalisées via Stripe. D’autres prestataires techniques peuvent intervenir pour l’email, la protection antispam/captcha et, si activée, l’assistance documentaire.');
-        $aiSummary = self::safe_or_default((string) ($registry['ai_summary'] ?? ''), 'Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs ou l’aide à la lecture de documents transmis. Elle n’emporte pas de décision médicale automatisée. La décision finale reste humaine et médicale.');
+        $subprocessorChain = self::lines((string) ($registry['subprocessor_chain_summary'] ?? ''));
+        $hostingHdsSummary = self::safe_or_default((string) ($registry['hosting_hds_summary'] ?? ''), 'Lorsque des données de santé sont concernées, SOS Prescription publie une chaîne d’hébergement et de traitement structurée pour distinguer le site public, les traitements métier sensibles et les prestataires d’infrastructure ou de paiement intervenant dans leur périmètre. Les traitements sensibles sont publiquement déclarés comme opérés en France.');
+        $securityItems = self::lines((string) ($registry['security_summary'] ?? ''));
+        $incidentParagraphs = self::lines((string) ($registry['incident_management_summary'] ?? ''));
+        $retentionParagraphs = self::lines((string) ($registry['retention_summary'] ?? ''));
+        $archivalParagraphs = self::lines((string) ($registry['archival_vs_erasure_summary'] ?? ''));
+        $rightsParagraphs = self::lines((string) ($registry['rights_assistance_summary'] ?? ''));
+        $aiParagraphs = self::lines((string) ($registry['ai_summary'] ?? ''));
         $workerRuntime = self::safe_or_default((string) ($registry['worker_runtime'] ?? ''), 'Scalingo France');
         $objectStorage = self::safe_or_default((string) ($registry['object_storage'] ?? ''), 'AWS Paris');
         $paymentProvider = self::safe_or_default((string) ($registry['payment_provider'] ?? ''), 'Stripe');
         $dpoDeclared = !empty($registry['dpo_declared']);
         $dpoIdentity = self::safe_or_default((string) ($registry['dpo_identity'] ?? ''), '');
+
+        if ($dataCategories === []) {
+            $dataCategories = [
+                'données d’identification et de contact nécessaires à l’ouverture et au suivi du dossier ;',
+                'informations nécessaires à l’instruction d’une demande de continuité thérapeutique, y compris des informations pouvant révéler l’état de santé ;',
+                'justificatifs, pièces transmises, échanges et messages liés au dossier ;',
+                'informations techniques de sécurité, de journalisation, de prévention des abus et de fonctionnement du parcours ;',
+                'informations liées au paiement, sans que SOS Prescription n’ait vocation à stocker lui-même les données complètes de carte bancaire.',
+            ];
+        }
+
+        if ($subprocessorChain === []) {
+            $subprocessorChain = [
+                'Hostinger — hébergement du site public WordPress ;',
+                'Scalingo France — exécution du worker métier séparé ;',
+                'AWS Paris — stockage objet et infrastructure associée déclarée ;',
+                'Stripe — paiement, préautorisation, capture, annulation et gestion des transactions ;',
+                'Prestataires complémentaires éventuels — email, antispam/captcha, assistance documentaire et outils strictement nécessaires selon la configuration effectivement activée.',
+            ];
+        }
+
+        if ($securityItems === []) {
+            $securityItems = [
+                'accès aux données limités aux personnes habilitées et dans la mesure nécessaire à leur mission ;',
+                'séparation entre façade publique, traitements métier et composants de stockage ;',
+                'journalisation, restrictions d’accès et mécanismes de sécurité adaptés au parcours ;',
+                'obligations de confidentialité imposées aux personnes autorisées et aux prestataires intervenant dans leur périmètre.',
+            ];
+        }
+
+        if ($incidentParagraphs === []) {
+            $incidentParagraphs = [
+                'Si SOS Prescription ou l’un de ses prestataires identifie un incident de sécurité susceptible d’affecter des données personnelles traitées pour le service, l’incident fait l’objet d’une analyse, d’une documentation interne et de mesures de remédiation adaptées.',
+                'Lorsque la réglementation applicable l’exige, une notification est adressée à l’autorité compétente et, le cas échéant, aux personnes concernées dans les conditions prévues par la loi.',
+            ];
+        }
+
+        if ($retentionParagraphs === []) {
+            $retentionParagraphs = [
+                'Les données sont conservées pendant la durée nécessaire à la gestion du dossier, à la mise à disposition éventuelle des documents, au traitement des réclamations, à la sécurité du service, à la prévention des abus et au respect des obligations légales, réglementaires ou probatoires applicables.',
+                'Les durées précises peuvent dépendre de la nature des données, du dossier concerné, des obligations de conservation applicables et des contraintes de sécurité ou de preuve.',
+            ];
+        }
+
+        if ($archivalParagraphs === []) {
+            $archivalParagraphs = [
+                'Demander l’arrêt du service, la fermeture ou la suspension d’un compte ne signifie pas l’effacement immédiat de toutes les données. Une suspension ou une désactivation du compte peut avoir pour effet de couper l’accès au compte et aux notifications, tout en laissant subsister un archivage sécurisé des éléments qui doivent être conservés.',
+                'Lorsque le dossier contient des informations de santé, des échanges médicaux, des ordonnances, des justificatifs ou des éléments nécessaires à la continuité des soins, à la sécurité du service, au respect d’une obligation légale, à l’intérêt public dans le domaine de la santé ou à la défense de droits en justice, certaines données peuvent être archivées plutôt qu’effacées.',
+                'Seules les données qui ne sont plus nécessaires ou qui peuvent légalement être supprimées peuvent être effacées ou anonymisées selon leur cycle de vie. Les sauvegardes et copies techniques suivent leur propre cycle d’extinction ou de suppression compatible avec les exigences de sécurité et de continuité.',
+            ];
+        }
+
+        if ($rightsParagraphs === []) {
+            $rightsParagraphs = [
+                'Les demandes relatives aux droits des personnes concernées doivent être adressées au contact confidentialité indiqué sur cette page.',
+                'Selon les cas et dans les limites prévues par la loi, ces droits peuvent inclure l’accès, la rectification, l’effacement lorsqu’il est applicable, la limitation, l’opposition, la portabilité et le retrait du consentement lorsqu’un traitement repose sur celui-ci.',
+                'SOS Prescription demeure l’interlocuteur principal des personnes concernées pour l’exercice de leurs droits. Lorsque cela est nécessaire, le service peut solliciter l’assistance technique raisonnable de ses prestataires afin d’identifier les données concernées, d’extraire les informations utiles, de rectifier certaines données, de limiter certains traitements ou de supprimer les données lorsque cela est légalement possible.',
+                'Toute personne concernée peut également introduire une réclamation auprès de la CNIL si elle estime que le traitement de ses données personnelles n’est pas conforme à la réglementation applicable.',
+            ];
+        }
+
+        if ($aiParagraphs === []) {
+            $aiParagraphs = [
+                'Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs ou l’aide à la lecture de documents transmis.',
+                'Elle intervient comme aide au traitement documentaire et n’emporte pas de décision médicale automatisée. La décision finale reste humaine et médicale.',
+            ];
+        }
 
         $html = '<div class="sp-legal-document sp-legal-document--privacy">';
         $html .= self::render_meta_block('privacy', $state, 'Document public — confidentialité', 'Protection des données personnelles, données de santé, architecture déclarée et cookies utilisés par le site.');
@@ -757,14 +1277,8 @@ final class LegalPages
 
         $html .= '<section>';
         $html .= '<h2>Données concernées et finalités principales</h2>';
-        $html .= self::unordered_list([
-            'données d’identification et de contact nécessaires à l’ouverture et au suivi du dossier ;',
-            'informations nécessaires à l’instruction d’une demande de continuité thérapeutique, y compris des informations pouvant révéler l’état de santé ;',
-            'justificatifs, pièces transmises, échanges et messages liés au dossier ;',
-            'informations techniques de sécurité, de journalisation, de prévention des abus et de fonctionnement du parcours ;',
-            'informations liées au paiement, sans que SOS Prescription n’ait vocation à stocker lui-même les données complètes de carte bancaire.',
-        ]);
-        $html .= self::paragraph(esc_html($purposes));
+        $html .= self::unordered_list(array_map(static fn(string $line): string => esc_html($line), $dataCategories));
+        $html .= self::render_textarea_as_paragraphs($purposes);
         $html .= '</section>';
 
         $html .= '<section>';
@@ -776,41 +1290,33 @@ final class LegalPages
             'Stockage objet déclaré' => esc_html($objectStorage),
             'Paiement' => esc_html($paymentProvider),
         ]);
-        $html .= self::paragraph(esc_html($processors));
+        $html .= self::render_textarea_as_paragraphs($processors);
+        $html .= self::unordered_list(array_map(static fn(string $line): string => esc_html($line), $subprocessorChain));
+        $html .= self::render_textarea_as_paragraphs($hostingHdsSummary);
         $html .= self::paragraph('Le lecteur est ainsi informé que le site public n’a pas vocation, à lui seul, à constituer le dossier métier autoritatif. Les traitements sensibles sont opérés dans une architecture distincte et publiquement déclarée comme localisée en France pour les traitements concernés.');
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Sécurité, confidentialité et gestion des incidents</h2>';
         $html .= self::paragraph('SOS Prescription met en œuvre des mesures techniques et organisationnelles adaptées à la sensibilité des données traitées et aux risques encourus par les personnes concernées.');
-        $html .= self::unordered_list([
-            'accès aux données limités aux personnes habilitées et dans la mesure nécessaire à leur mission ;',
-            'séparation entre façade publique, traitements métier et composants de stockage ;',
-            'journalisation, restrictions d’accès et mécanismes de sécurité adaptés au parcours ;',
-            'obligations de confidentialité imposées aux personnes autorisées et aux prestataires intervenant dans leur périmètre.',
-        ]);
-        $html .= self::paragraph('Si SOS Prescription ou l’un de ses prestataires identifie un incident de sécurité susceptible d’affecter des données personnelles traitées pour le service, l’incident fait l’objet d’une analyse, d’une documentation interne et de mesures de remédiation adaptées. Lorsque la réglementation applicable l’exige, une notification est adressée à l’autorité compétente et, le cas échéant, aux personnes concernées.');
+        $html .= self::unordered_list(array_map(static fn(string $line): string => esc_html($line), $securityItems));
+        $html .= self::render_lines_as_paragraphs($incidentParagraphs);
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Conservation, suspension du compte et limites du droit à l’effacement</h2>';
-        $html .= self::paragraph('Les données sont conservées pendant la durée nécessaire à la gestion du dossier, à la mise à disposition éventuelle des documents, au traitement des réclamations, à la sécurité du service, à la prévention des abus et au respect des obligations légales, réglementaires ou probatoires applicables.');
-        $html .= self::paragraph('Demander l’arrêt du service, la fermeture ou la suspension d’un compte ne signifie pas l’effacement immédiat de toutes les données. Une suspension ou une désactivation du compte peut avoir pour effet de couper l’accès au compte et aux notifications, tout en laissant subsister un archivage sécurisé des éléments qui doivent être conservés.');
-        $html .= self::paragraph('Lorsque le dossier contient des informations de santé, des échanges médicaux, des ordonnances, des justificatifs ou des éléments nécessaires à la continuité des soins, à la sécurité du service, au respect d’une obligation légale, à l’intérêt public dans le domaine de la santé ou à la défense de droits en justice, certaines données peuvent être archivées plutôt qu’effacées.');
-        $html .= self::paragraph('Seules les données qui ne sont plus nécessaires ou qui peuvent légalement être supprimées peuvent être effacées ou anonymisées selon leur cycle de vie. Les sauvegardes et copies techniques suivent leur propre cycle d’extinction ou de suppression compatible avec les exigences de sécurité et de continuité.');
+        $html .= self::render_lines_as_paragraphs($retentionParagraphs);
+        $html .= self::render_lines_as_paragraphs($archivalParagraphs);
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Exercice des droits et assistance associée</h2>';
-        $html .= self::paragraph('Les demandes relatives aux droits des personnes concernées doivent être adressées à <a href="mailto:' . esc_attr($privacyContact) . '">' . esc_html($privacyContact) . '</a>. Selon les cas et dans les limites prévues par la loi, ces droits peuvent inclure l’accès, la rectification, l’effacement lorsqu’il est applicable, la limitation, l’opposition, la portabilité et le retrait du consentement lorsqu’un traitement repose sur celui-ci.');
-        $html .= self::paragraph('SOS Prescription demeure l’interlocuteur principal des personnes concernées pour l’exercice de leurs droits. Lorsque cela est nécessaire, le service peut solliciter l’assistance technique raisonnable de ses prestataires afin d’identifier les données concernées, d’extraire les informations utiles, de rectifier certaines données, de limiter certains traitements ou de supprimer les données lorsque cela est légalement possible.');
-        $html .= self::paragraph('Toute personne concernée peut également introduire une réclamation auprès de la CNIL si elle estime que le traitement de ses données personnelles n’est pas conforme à la réglementation applicable.');
+        $html .= self::render_lines_as_paragraphs($rightsParagraphs);
         $html .= '</section>';
 
         $html .= '<section>';
         $html .= '<h2>Assistance algorithmique et absence de décision médicale automatisée</h2>';
-        $html .= self::paragraph(esc_html($aiSummary));
-        $html .= self::paragraph('L’assistance algorithmique éventuellement utilisée intervient comme outil d’aide au traitement ou à la lecture de certains justificatifs. Elle ne constitue pas une décision médicale automatisée. La décision médicale finale, lorsqu’elle existe, reste prise par un médecin.');
+        $html .= self::render_lines_as_paragraphs($aiParagraphs);
         $html .= '</section>';
 
         $html .= self::render_cookies_fragment($state, false);
@@ -831,6 +1337,7 @@ final class LegalPages
 
         return $html;
     }
+
 
 
     private static function render_cookies_fragment(array $state, bool $standalone): string
@@ -886,6 +1393,27 @@ final class LegalPages
         $html .= '<div><span>Dernière mise à jour</span><strong>' . esc_html($updatedAt) . '</strong></div>';
         $html .= '</div>';
         $html .= '</div>';
+
+        return $html;
+    }
+
+    private static function render_textarea_as_paragraphs(string $text): string
+    {
+        return self::render_lines_as_paragraphs(self::lines($text));
+    }
+
+    /**
+     * @param array<int, string> $lines
+     */
+    private static function render_lines_as_paragraphs(array $lines): string
+    {
+        $html = '';
+        foreach ($lines as $line) {
+            if ($line === '') {
+                continue;
+            }
+            $html .= self::paragraph($line);
+        }
 
         return $html;
     }
@@ -986,19 +1514,25 @@ final class LegalPages
     /**
      * @return array<string, mixed>
      */
+        /**
+     * @return array<string, mixed>
+     */
     private static function default_state(): array
     {
         $today = self::today();
 
         return [
-            'updated_at' => '',
+            'corpus_version' => self::CORPUS_VERSION,
+            'storage_version' => self::STORAGE_VERSION,
+            'updated_at' => $today,
             'registry' => [
                 'brand_name' => 'SOS Prescription',
                 'brand_registration_number' => '5002143',
                 'brand_registration_date' => '2023-10-29',
                 'site_url' => home_url('/'),
                 'operator_name' => 'Digital Pacifika',
-                'operator_identity' => "98600 Wallis-et-Futuna, South Pacific
+                'operator_identity' => "Digital Pacifika
+98600 Wallis-et-Futuna, South Pacific
 N° CD : 2022.1.2573
 N° RCS : 2020 A 0102
 Capital social : 3.000.000 XPF
@@ -1007,24 +1541,91 @@ TVA : non applicable / non renseignée à ce stade",
                 'main_contact_email' => 'contact@sosprescription.fr',
                 'privacy_contact_email' => 'privacy@sosprescription.fr',
                 'public_host_summary' => 'Hostinger — offre Cloud Startup — hébergement du site public WordPress',
-                'technical_maintainer_summary' => 'Digital Pacifika — maintenance et support technique du site',
+                'technical_maintainer_summary' => 'Digital Pacifika — maintenance technique du site public et de son intégration WordPress.',
+                'technical_interveners_summary' => "Hostinger — hébergement du site public WordPress.
+Scalingo France — exécution du worker métier séparé.
+AWS Paris — stockage objet déclaré pour les documents et fichiers associés.
+Stripe — paiement, préautorisation, capture, annulation et gestion des transactions.",
                 'doctor_enabled' => true,
                 'doctor_identity' => 'Dr Yves Burckel — Médecin urgentiste — RPPS 10000554302',
                 'service_positioning' => 'SOS Prescription est un service privé, non urgent et asynchrone de continuité thérapeutique. Il permet à un patient, dans un cadre strictement défini, de solliciter l’analyse de sa situation par un médecin afin de déterminer s’il y a lieu ou non d’émettre une ordonnance de relais.',
-                'eligibility_summary' => 'Le service est réservé aux demandes compatibles avec un besoin de continuité de traitement. Il ne remplace pas une prise en charge d’urgence, un diagnostic en temps réel, ni une consultation adaptée en cas de symptômes nouveaux, graves ou évolutifs.',
-                'pricing_summary' => 'Le tarif applicable est affiché au patient avant validation finale de sa demande. Le paiement ne doit pas être compris comme l’achat automatique d’une ordonnance ou d’un médicament. Aucune prescription n’est garantie.',
-                'response_delay' => 'Les demandes sont traitées de manière asynchrone. Les délais peuvent varier selon la complétude du dossier, le volume de demandes et la disponibilité médicale. Des informations complémentaires peuvent être demandées avant toute décision.',
-                'payment_summary' => 'La plateforme peut solliciter une préautorisation bancaire via Stripe avant l’analyse médicale du dossier. La capture effective ou l’annulation intervient ensuite selon l’issue du traitement médical. La préautorisation ou le paiement n’emportent jamais, à eux seuls, validation médicale ni délivrance automatique d’une ordonnance.',
-                'disputes_summary' => 'Toute réclamation non urgente doit être adressée en priorité au contact indiqué. Les contestations portant sur l’appréciation clinique relèvent du cadre propre au service de santé et de l’indépendance du médecin. Le service ne doit pas être lu comme un site de e-commerce standard pour sa composante strictement médicale.',
+                'eligibility_summary' => "Le service est réservé aux demandes compatibles avec un besoin de continuité de traitement.
+Il ne remplace pas une prise en charge d’urgence, un diagnostic en temps réel, ni une consultation adaptée en cas de symptômes nouveaux, graves ou évolutifs.",
+                'response_delay' => "Les demandes sont traitées de manière asynchrone.
+Les délais peuvent varier selon la complétude du dossier, le volume de demandes et la disponibilité médicale.
+Des informations complémentaires peuvent être demandées avant toute décision.",
+                'medical_decision_summary' => "Chaque dossier fait l’objet d’une analyse humaine par un médecin. La décision médicale demeure personnelle, indépendante et non automatisée.
+Le médecin peut refuser ou réorienter une demande pour des raisons cliniques, de sécurité ou de conformité du dossier, notamment si les éléments transmis sont incomplets, incohérents, trompeurs, insuffisants pour une appréciation médicale prudente, ou s’ils justifient un examen en présentiel ou une orientation vers un autre circuit de soins.",
+                'patient_honesty_summary' => "répondre honnêtement au questionnaire et aux demandes complémentaires, au mieux de sa connaissance ;
+ne pas soumettre une demande pour le compte d’un tiers ni utiliser l’identité d’un tiers ;
+signaler sans délai toute information nouvelle susceptible de modifier l’appréciation du dossier ;
+ne pas transmettre de documents falsifiés, trompeurs ou illicites ;
+conserver ses identifiants d’accès confidentiels et ne pas partager son compte ;
+ne pas utiliser le service dans une situation d’urgence ou hors de son périmètre normal.",
+                'prescription_usage_summary' => "Lorsqu’une ordonnance de relais est mise à disposition, elle est strictement personnelle. Elle ne doit pas être cédée, partagée, réutilisée pour un tiers ni utilisée en dehors du cadre fixé par le médecin.
+Le patient est invité à télécharger, lire et conserver sans attendre tout document mis à sa disposition dans son espace. Il lui appartient également de lire la notice du traitement, de respecter la prescription, ainsi que de vérifier la durée de validité applicable à l’ordonnance et aux médicaments concernés.
+Pour la première délivrance des médicaments en pharmacie, une ordonnance doit en principe être présentée dans les trois mois de sa rédaction, sous réserve des règles particulières applicables à certains produits, des mentions de renouvellement et des limites fixées par le prescripteur.
+Afin de favoriser la continuité et la sécurité des soins, il est fortement recommandé au patient d’informer son médecin traitant, ainsi que tout professionnel de santé qui le suit utilement, des traitements ou documents obtenus via le service.",
+                'reversibility_summary' => "L’accès à une ordonnance ou à un document mis à disposition peut être limité dans le temps pour des raisons de sécurité, d’archivage, de fermeture de compte ou d’organisation technique.
+Le patient est donc invité à conserver sans délai les documents qui lui sont remis, y compris lorsque l’accès à son compte est suspendu ou désactivé.",
+                'pricing_summary' => "Le tarif applicable est affiché au patient avant validation finale de sa demande.
+Le paiement ne doit pas être compris comme l’achat automatique d’une ordonnance ou d’un médicament.
+Aucune prescription n’est garantie.",
+                'payment_summary' => "La plateforme peut solliciter une préautorisation bancaire via Stripe avant l’analyse médicale du dossier.
+La capture effective ou l’annulation intervient ensuite selon l’issue du traitement médical.
+La préautorisation ou le paiement n’emportent jamais, à eux seuls, validation médicale ni délivrance automatique d’une ordonnance.",
+                'force_majeure_summary' => "SOS Prescription s’efforce d’assurer un accès raisonnablement stable au service, sans garantir une disponibilité continue ni l’absence totale d’interruption.
+L’accès peut être suspendu, limité ou ralenti en cas de maintenance, de mise à jour, d’incident technique, de mesure de sécurité, de saturation ou d’événement échappant raisonnablement au contrôle du service.
+Aucune partie ne pourra être tenue responsable d’un retard ou d’une inexécution résultant d’un cas de force majeure ou d’un événement extérieur équivalent au sens du droit applicable.",
+                'liability_summary' => "SOS Prescription demeure tenu d’une obligation de moyens dans le fonctionnement de la plateforme et du parcours numérique.
+La responsabilité du service ne saurait être engagée à raison de l’utilisation du service en dehors de son périmètre, de l’urgence, d’informations inexactes, incomplètes ou trompeuses transmises par le patient, ou du non-respect des instructions médicales et de sécurité.
+Aucune stipulation de la présente page n’a pour effet d’écarter une responsabilité qui ne pourrait être légalement exclue, notamment en cas de faute intentionnelle ou de manquement qui ne peut être limité par la loi.",
+                'disputes_summary' => "Toute réclamation non urgente doit être adressée en priorité au contact indiqué.
+Les contestations portant sur l’appréciation clinique relèvent du cadre propre au service de santé et de l’indépendance du médecin.
+Le service ne doit pas être lu comme un site de e-commerce standard pour sa composante strictement médicale.",
                 'complaint_contact' => 'contact@sosprescription.fr',
                 'dpo_declared' => false,
                 'dpo_identity' => '',
-                'purposes_summary' => 'Gestion des demandes, analyse du dossier, continuité de traitement, échanges patient-médecin, sécurisation de la plateforme, gestion administrative et financière, prévention des abus, gestion des incidents, exercice des droits et respect des obligations légales.',
-                'processor_summary' => 'Le site public WordPress est hébergé chez Hostinger. L’exécution métier sensible est opérée sur Scalingo France. Le stockage objet est assuré sur AWS Paris. Les opérations de paiement sont réalisées via Stripe. D’autres prestataires techniques peuvent intervenir pour l’email, la protection antispam ou captcha et, si activée, l’assistance documentaire.',
+                'purposes_summary' => "Gestion des demandes, analyse du dossier, continuité de traitement, échanges patient-médecin, sécurisation de la plateforme, gestion administrative et financière, prévention des abus, gestion des incidents, exercice des droits et respect des obligations légales.",
+                'data_categories_summary' => "données d’identification et de contact nécessaires à l’ouverture et au suivi du dossier ;
+informations nécessaires à l’instruction d’une demande de continuité thérapeutique, y compris des informations pouvant révéler l’état de santé ;
+justificatifs, pièces transmises, échanges et messages liés au dossier ;
+informations techniques de sécurité, de journalisation, de prévention des abus et de fonctionnement du parcours ;
+informations liées au paiement, sans que SOS Prescription n’ait vocation à stocker lui-même les données complètes de carte bancaire.",
+                'processor_summary' => "Le site public WordPress est hébergé chez Hostinger.
+L’exécution métier sensible est opérée sur Scalingo France.
+Le stockage objet est assuré sur AWS Paris.
+Les opérations de paiement sont réalisées via Stripe.
+D’autres prestataires techniques peuvent intervenir pour l’email, la protection antispam/captcha et, si activée, l’assistance documentaire.",
+                'subprocessor_chain_summary' => "Hostinger — hébergement du site public WordPress ;
+Scalingo France — exécution du worker métier séparé ;
+AWS Paris — stockage objet et infrastructure associée déclarée ;
+Stripe — paiement, préautorisation, capture, annulation et gestion des transactions ;
+Prestataires complémentaires éventuels — email, antispam/captcha, assistance documentaire et outils strictement nécessaires selon la configuration effectivement activée.",
+                'hosting_hds_summary' => "Lorsque des données de santé sont concernées, SOS Prescription publie une chaîne d’hébergement et de traitement structurée pour distinguer le site public, les traitements métier sensibles et les prestataires d’infrastructure ou de paiement intervenant dans leur périmètre.
+Les traitements sensibles sont publiquement déclarés comme opérés en France.
+Lorsque des prestations relevant du cadre HDS sont mobilisées, elles s’apprécient au niveau des prestataires concernés et dans les limites de leur périmètre de certification ou de conformité déclaré.",
+                'security_summary' => "accès aux données limités aux personnes habilitées et dans la mesure nécessaire à leur mission ;
+séparation entre façade publique, traitements métier et composants de stockage ;
+journalisation, restrictions d’accès et mécanismes de sécurité adaptés au parcours ;
+obligations de confidentialité imposées aux personnes autorisées et aux prestataires intervenant dans leur périmètre.",
+                'incident_management_summary' => "Si SOS Prescription ou l’un de ses prestataires identifie un incident de sécurité susceptible d’affecter des données personnelles traitées pour le service, l’incident fait l’objet d’une analyse, d’une documentation interne et de mesures de remédiation adaptées.
+Lorsque la réglementation applicable l’exige, une notification est adressée à l’autorité compétente et, le cas échéant, aux personnes concernées dans les conditions prévues par la loi.",
+                'retention_summary' => "Les données sont conservées pendant la durée nécessaire à la gestion du dossier, à la mise à disposition éventuelle des documents, au traitement des réclamations, à la sécurité du service, à la prévention des abus et au respect des obligations légales, réglementaires ou probatoires applicables.
+Les durées précises peuvent dépendre de la nature des données, du dossier concerné, des obligations de conservation applicables et des contraintes de sécurité ou de preuve.",
+                'archival_vs_erasure_summary' => "Demander l’arrêt du service, la fermeture ou la suspension d’un compte ne signifie pas l’effacement immédiat de toutes les données. Une suspension ou une désactivation du compte peut avoir pour effet de couper l’accès au compte et aux notifications, tout en laissant subsister un archivage sécurisé des éléments qui doivent être conservés.
+Lorsque le dossier contient des informations de santé, des échanges médicaux, des ordonnances, des justificatifs ou des éléments nécessaires à la continuité des soins, à la sécurité du service, au respect d’une obligation légale, à l’intérêt public dans le domaine de la santé ou à la défense de droits en justice, certaines données peuvent être archivées plutôt qu’effacées.
+Seules les données qui ne sont plus nécessaires ou qui peuvent légalement être supprimées peuvent être effacées ou anonymisées selon leur cycle de vie. Les sauvegardes et copies techniques suivent leur propre cycle d’extinction ou de suppression compatible avec les exigences de sécurité et de continuité.",
+                'rights_assistance_summary' => "Les demandes relatives aux droits des personnes concernées doivent être adressées au contact confidentialité indiqué sur cette page.
+Selon les cas et dans les limites prévues par la loi, ces droits peuvent inclure l’accès, la rectification, l’effacement lorsqu’il est applicable, la limitation, l’opposition, la portabilité et le retrait du consentement lorsqu’un traitement repose sur celui-ci.
+SOS Prescription demeure l’interlocuteur principal des personnes concernées pour l’exercice de leurs droits. Lorsque cela est nécessaire, le service peut solliciter l’assistance technique raisonnable de ses prestataires afin d’identifier les données concernées, d’extraire les informations utiles, de rectifier certaines données, de limiter certains traitements ou de supprimer les données lorsque cela est légalement possible.
+Toute personne concernée peut également introduire une réclamation auprès de la CNIL si elle estime que le traitement de ses données personnelles n’est pas conforme à la réglementation applicable.",
                 'cookies_list' => "Cookies strictement nécessaires au fonctionnement du site et à la sécurité des sessions
 Cookies techniques permettant le maintien du parcours utilisateur et des choix de confidentialité
 Traceurs complémentaires uniquement lorsqu’ils sont activés et, le cas échéant, soumis à un mécanisme de consentement",
-                'ai_summary' => 'Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs ou l’aide à la lecture de documents transmis. Elle intervient comme aide au traitement documentaire et n’emporte pas de décision médicale automatisée. La décision finale reste humaine et médicale.',
+                'ai_summary' => "Une assistance algorithmique peut être utilisée pour la reconnaissance de justificatifs ou l’aide à la lecture de documents transmis.
+Elle intervient comme aide au traitement documentaire et n’emporte pas de décision médicale automatisée.
+La décision finale reste humaine et médicale.",
                 'consent_required' => true,
                 'privacy_page_sync' => true,
                 'worker_runtime' => 'Scalingo France',
@@ -1033,7 +1634,7 @@ Traceurs complémentaires uniquement lorsqu’ils sont activés et, le cas éch�
             ],
             'mentions' => [
                 'page_id' => 0,
-                'version' => '1.2.0',
+                'version' => self::CORPUS_VERSION,
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
@@ -1043,7 +1644,7 @@ Traceurs complémentaires uniquement lorsqu’ils sont activés et, le cas éch�
             ],
             'conditions' => [
                 'page_id' => 0,
-                'version' => '1.2.0',
+                'version' => self::CORPUS_VERSION,
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
@@ -1053,7 +1654,7 @@ Traceurs complémentaires uniquement lorsqu’ils sont activés et, le cas éch�
             ],
             'privacy' => [
                 'page_id' => 0,
-                'version' => '1.2.0',
+                'version' => self::CORPUS_VERSION,
                 'effective_date' => $today,
                 'updated_at' => $today,
                 'sources_public' => [
@@ -1066,6 +1667,7 @@ Traceurs complémentaires uniquement lorsqu’ils sont activés et, le cas éch�
             ],
         ];
     }
+
 
 
     /**

@@ -16,7 +16,7 @@ final class CompliancePage
         add_action('admin_post_sp_generate_legal_pages', [self::class, 'handle_generate_legal_pages']);
     }
 
-    public static function render_page(): void
+        public static function render_page(): void
     {
         if (!self::can_manage()) {
             wp_die('Accès refusé.');
@@ -28,14 +28,15 @@ final class CompliancePage
         $cfg = ComplianceConfig::get();
         $bindings = LegalPages::get_dashboard_bindings();
         $registry = is_array($state['registry'] ?? null) ? $state['registry'] : [];
+        $pluginVersion = defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : LegalPages::storage_version();
 
         echo '<div class="wrap sp-legal-admin">';
         self::render_inline_styles();
 
         echo '<div class="sp-legal-admin__header">';
         echo '<div>';
-        echo '<h1>Générateur de pages légales <span class="sp-legal-admin__badge">V7.2.1</span></h1>';
-        echo '<p class="sp-legal-admin__intro">Complétez les champs structurés, mettez à jour l’onglet actif et publiez automatiquement trois pages publiques theme-owned, sans régression sur la projection front existante.</p>';
+        echo '<h1>Générateur de pages légales <span class="sp-legal-admin__badge">V' . esc_html($pluginVersion) . '</span><span class="sp-legal-admin__badge sp-legal-admin__badge--corpus">Corpus ' . esc_html(LegalPages::corpus_version()) . '</span></h1>';
+        echo '<p class="sp-legal-admin__intro">Le corpus éditorial enrichi 1.2.0 est désormais la vérité produit. Les 3 onglets ci-dessous pilotent directement la substance publique des pages légales, tandis que la projection legacy <code>cgu_url</code> / <code>privacy_url</code> reste alimentée automatiquement pour éviter toute régression front.</p>';
         echo '</div>';
         echo '<div class="sp-legal-admin__header-actions">';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
@@ -60,12 +61,13 @@ final class CompliancePage
 
         echo '<div class="sp-legal-admin__footer">';
         echo '<button type="submit" class="button button-primary button-large">Mettre à jour</button>';
-        echo '<p class="description">La sauvegarde met à jour les options du générateur, crée les pages manquantes si nécessaire et resynchronise les liens de compatibilité <code>cgu_url</code> et <code>privacy_url</code>.</p>';
+        echo '<p class="description">La sauvegarde met à jour le registre éditorial, conserve les métadonnées visibles, resynchronise les pages publiques et met à jour la projection de compatibilité consommée par le front existant.</p>';
         echo '</div>';
         echo '</form>';
 
         echo '</div>';
     }
+
 
     public static function handle_save(): void
     {
@@ -197,13 +199,16 @@ final class CompliancePage
     /**
      * @param array<string, mixed> $registry
      */
+        /**
+     * @param array<string, mixed> $registry
+     */
     private static function render_global_panel(array $registry): void
     {
         $defs = LegalPages::global_field_definitions();
 
-        echo '<section class="sp-legal-admin__panel">';
+        echo '<section class="sp-legal-admin__panel sp-legal-admin__panel--shared">';
         echo '<div class="sp-legal-admin__panel-head">';
-        echo '<div><h2>Réglages partagés</h2><p class="description">Ces paramètres servent à la gouvernance éditoriale globale et à la compatibilité front.</p></div>';
+        echo '<div><h2>Registre global partagé</h2><p class="description">Ces paramètres transverses alimentent plusieurs pages et pilotent la compatibilité front sans multiplier les sources de vérité.</p></div>';
         echo '</div>';
         echo '<div class="sp-legal-admin__grid sp-legal-admin__grid--shared">';
 
@@ -215,6 +220,7 @@ final class CompliancePage
         echo '</div>';
         echo '</section>';
     }
+
 
     /**
      * @param array<string, array<string, mixed>> $tabs
@@ -239,38 +245,82 @@ final class CompliancePage
      * @param array<string, array<string, mixed>> $bindings
      * @param array<string, mixed> $cfg
      */
+        /**
+     * @param array<string, array<string, mixed>> $tabs
+     * @param array<string, mixed> $state
+     * @param array<string, array<string, mixed>> $bindings
+     * @param array<string, mixed> $cfg
+     */
     private static function render_active_tab(string $activeTab, array $tabs, array $state, array $bindings, array $cfg): void
     {
         $tab = $tabs[$activeTab] ?? $tabs['mentions'];
         $registry = is_array($state['registry'] ?? null) ? $state['registry'] : [];
         $slotState = is_array($state[$activeTab] ?? null) ? $state[$activeTab] : [];
         $binding = $bindings[$activeTab] ?? [];
+        $fields = (array) ($tab['fields'] ?? []);
+        $sections = (array) ($tab['sections'] ?? []);
+
+        $groupedFields = [];
+        foreach ($fields as $name => $definition) {
+            $sectionKey = is_array($definition) ? (string) ($definition['section'] ?? 'default') : 'default';
+            $groupedFields[$sectionKey][$name] = $definition;
+        }
 
         echo '<div class="sp-legal-admin__tab-layout">';
+        echo '<div class="sp-legal-admin__stack">';
 
-        echo '<section class="sp-legal-admin__panel">';
-        echo '<div class="sp-legal-admin__panel-head">';
-        echo '<div><h2>' . esc_html((string) ($tab['title'] ?? '')) . '</h2><p class="description">' . esc_html((string) ($tab['description'] ?? '')) . '</p></div>';
-        echo '</div>';
-        echo '<div class="sp-legal-admin__grid">';
-        foreach ((array) ($tab['fields'] ?? []) as $name => $def) {
-            self::render_field($name, $def, $registry[$name] ?? null);
+        foreach ($sections as $sectionKey => $section) {
+            $sectionFields = (array) ($groupedFields[$sectionKey] ?? []);
+            if ($sectionFields === []) {
+                continue;
+            }
+
+            echo '<section class="sp-legal-admin__panel">';
+            echo '<div class="sp-legal-admin__panel-head">';
+            echo '<div><h2>' . esc_html((string) ($section['title'] ?? $sectionKey)) . '</h2>';
+            $sectionDescription = (string) ($section['description'] ?? '');
+            if ($sectionDescription !== '') {
+                echo '<p class="description">' . esc_html($sectionDescription) . '</p>';
+            }
+            echo '</div>';
+            echo '</div>';
+            echo '<div class="sp-legal-admin__grid">';
+            foreach ($sectionFields as $name => $definition) {
+                self::render_field((string) $name, is_array($definition) ? $definition : [], $registry[$name] ?? null);
+            }
+            echo '</div>';
+            echo '</section>';
         }
+
+        $leftoverSections = array_diff(array_keys($groupedFields), array_keys($sections));
+        foreach ($leftoverSections as $sectionKey) {
+            echo '<section class="sp-legal-admin__panel">';
+            echo '<div class="sp-legal-admin__panel-head">';
+            echo '<div><h2>' . esc_html(ucfirst((string) $sectionKey)) . '</h2></div>';
+            echo '</div>';
+            echo '<div class="sp-legal-admin__grid">';
+            foreach ((array) ($groupedFields[$sectionKey] ?? []) as $name => $definition) {
+                self::render_field((string) $name, is_array($definition) ? $definition : [], $registry[$name] ?? null);
+            }
+            echo '</div>';
+            echo '</section>';
+        }
+
         echo '</div>';
-        echo '</section>';
 
         echo '<aside class="sp-legal-admin__side">';
         echo '<section class="sp-legal-admin__panel sp-legal-admin__panel--sticky">';
-        echo '<div class="sp-legal-admin__panel-head"><div><h2>Publication</h2><p class="description">Métadonnées visibles et informations de binding du document actif.</p></div></div>';
+        echo '<div class="sp-legal-admin__panel-head"><div><h2>Publication</h2><p class="description">Métadonnées visibles, état du binding et projection de compatibilité pour le document actif.</p></div></div>';
         echo '<div class="sp-legal-admin__field">';
         echo '<label for="' . esc_attr($activeTab . '_version') . '">Version visible</label>';
-        echo '<input class="regular-text" type="text" id="' . esc_attr($activeTab . '_version') . '" name="' . esc_attr($activeTab . '_version') . '" value="' . esc_attr((string) ($slotState['version'] ?? '1.0.0')) . '" />';
+        echo '<input class="regular-text" type="text" id="' . esc_attr($activeTab . '_version') . '" name="' . esc_attr($activeTab . '_version') . '" value="' . esc_attr((string) ($slotState['version'] ?? LegalPages::corpus_version())) . '" />';
         echo '</div>';
         echo '<div class="sp-legal-admin__field">';
         echo '<label for="' . esc_attr($activeTab . '_effective_date') . '">Date d’effet</label>';
         echo '<input class="regular-text" type="date" id="' . esc_attr($activeTab . '_effective_date') . '" name="' . esc_attr($activeTab . '_effective_date') . '" value="' . esc_attr((string) ($slotState['effective_date'] ?? '')) . '" />';
         echo '</div>';
         echo '<dl class="sp-legal-admin__mini-definitions sp-legal-admin__mini-definitions--stacked">';
+        echo '<dt>Corpus actif</dt><dd>' . esc_html(LegalPages::corpus_version()) . '</dd>';
         echo '<dt>Dernière mise à jour</dt><dd>' . esc_html((string) ($slotState['updated_at'] ?? '')) . '</dd>';
         echo '<dt>Slug canonique</dt><dd><code>' . esc_html((string) ($binding['slug'] ?? '')) . '</code></dd>';
         echo '<dt>Shortcode</dt><dd><code>' . esc_html((string) ($binding['shortcode'] ?? '')) . '</code></dd>';
@@ -283,7 +333,7 @@ final class CompliancePage
             echo '<p class="description">Projection front actuelle : <code>' . esc_html((string) ($cfg['cgu_url'] ?? '')) . '</code> · version <strong>' . esc_html((string) ($cfg['cgu_version'] ?? '')) . '</strong>.</p>';
         }
         if ($activeTab === 'privacy') {
-            echo '<p class="description">La section cookies est intégrée dans cette page ; aucune 4e page publique n’est créée. Projection front actuelle : <code>' . esc_html((string) ($cfg['privacy_url'] ?? '')) . '</code> · version <strong>' . esc_html((string) ($cfg['privacy_version'] ?? '')) . '</strong>.</p>';
+            echo '<p class="description">La section cookies reste intégrée à cette page ; aucune 4e page publique n’est créée. Projection front actuelle : <code>' . esc_html((string) ($cfg['privacy_url'] ?? '')) . '</code> · version <strong>' . esc_html((string) ($cfg['privacy_version'] ?? '')) . '</strong>.</p>';
         }
         echo '</section>';
         echo '</aside>';
@@ -291,7 +341,11 @@ final class CompliancePage
         echo '</div>';
     }
 
+
     /**
+     * @param array<string, mixed> $definition
+     */
+        /**
      * @param array<string, mixed> $definition
      */
     private static function render_field(string $name, array $definition, mixed $value): void
@@ -300,8 +354,18 @@ final class CompliancePage
         $label = (string) ($definition['label'] ?? $name);
         $description = (string) ($definition['description'] ?? '');
         $fieldId = 'sp_legal_' . $name;
+        $layout = (string) ($definition['layout'] ?? ($type === 'textarea' ? 'full' : 'default'));
+        $rows = max(4, (int) ($definition['rows'] ?? 5));
 
-        echo '<div class="sp-legal-admin__field sp-legal-admin__field--' . esc_attr($type) . '">';
+        $classes = [
+            'sp-legal-admin__field',
+            'sp-legal-admin__field--' . $type,
+        ];
+        if ($layout === 'full') {
+            $classes[] = 'sp-legal-admin__field--full';
+        }
+
+        echo '<div class="' . esc_attr(implode(' ', $classes)) . '">';
 
         if ($type === 'checkbox') {
             echo '<label class="sp-legal-admin__checkbox">';
@@ -318,9 +382,13 @@ final class CompliancePage
         echo '<label for="' . esc_attr($fieldId) . '">' . esc_html($label) . '</label>';
 
         if ($type === 'textarea') {
-            echo '<textarea id="' . esc_attr($fieldId) . '" name="' . esc_attr($name) . '" rows="5">' . esc_textarea(is_scalar($value) ? (string) $value : '') . '</textarea>';
+            echo '<textarea id="' . esc_attr($fieldId) . '" name="' . esc_attr($name) . '" rows="' . esc_attr((string) $rows) . '">' . esc_textarea(is_scalar($value) ? (string) $value : '') . '</textarea>';
         } else {
-            $inputType = $type === 'email' ? 'email' : 'text';
+            $inputType = match ($type) {
+                'email' => 'email',
+                'date' => 'date',
+                default => 'text',
+            };
             echo '<input class="regular-text" type="' . esc_attr($inputType) . '" id="' . esc_attr($fieldId) . '" name="' . esc_attr($name) . '" value="' . esc_attr(is_scalar($value) ? (string) $value : '') . '" />';
         }
 
@@ -330,6 +398,7 @@ final class CompliancePage
 
         echo '</div>';
     }
+
 
     private static function render_notices(): void
     {
@@ -370,14 +439,15 @@ final class CompliancePage
         return current_user_can('sosprescription_manage') || current_user_can('manage_options');
     }
 
-    private static function render_inline_styles(): void
+        private static function render_inline_styles(): void
     {
         echo '<style>
-        .sp-legal-admin{max-width:1280px}
+        .sp-legal-admin{max-width:1320px}
         .sp-legal-admin__header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin:18px 0 22px}
-        .sp-legal-admin__header h1{display:flex;align-items:center;gap:10px;margin:0 0 8px}
+        .sp-legal-admin__header h1{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 8px}
         .sp-legal-admin__badge{display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:999px;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;font-size:12px;font-weight:700}
-        .sp-legal-admin__intro{max-width:920px;margin:0;color:#50575e}
+        .sp-legal-admin__badge--corpus{background:#ecfeff;border-color:#a5f3fc;color:#155e75}
+        .sp-legal-admin__intro{max-width:980px;margin:0;color:#50575e}
         .sp-legal-admin__cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 18px}
         .sp-legal-admin__card,.sp-legal-admin__panel{background:#fff;border:1px solid #dcdcde;border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
         .sp-legal-admin__card-head,.sp-legal-admin__panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
@@ -395,10 +465,12 @@ final class CompliancePage
         .sp-legal-admin__card-links{margin:10px 0 0}
         .sp-legal-admin__tabs{margin:18px 0 0;border-bottom:1px solid #dcdcde}
         .sp-legal-admin__tabs .nav-tab{border-top-left-radius:12px;border-top-right-radius:12px;padding:10px 16px}
-        .sp-legal-admin__tab-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(320px,.9fr);gap:18px;margin-top:18px}
+        .sp-legal-admin__tab-layout{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(320px,.9fr);gap:18px;margin-top:18px}
+        .sp-legal-admin__stack{display:flex;flex-direction:column;gap:18px}
         .sp-legal-admin__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-        .sp-legal-admin__grid--shared{grid-template-columns:repeat(4,minmax(0,1fr))}
+        .sp-legal-admin__grid--shared{grid-template-columns:repeat(5,minmax(0,1fr))}
         .sp-legal-admin__field{display:flex;flex-direction:column;gap:8px}
+        .sp-legal-admin__field--full{grid-column:1 / -1}
         .sp-legal-admin__field label{font-weight:600;color:#1d2327}
         .sp-legal-admin__field textarea,.sp-legal-admin__field input[type=text],.sp-legal-admin__field input[type=email],.sp-legal-admin__field input[type=date]{width:100%;max-width:none}
         .sp-legal-admin__field textarea{min-height:132px}
@@ -406,10 +478,12 @@ final class CompliancePage
         .sp-legal-admin__checkbox input{margin:0}
         .sp-legal-admin__side{display:block}
         .sp-legal-admin__panel--sticky{position:sticky;top:32px}
+        .sp-legal-admin__panel--shared{margin-top:2px}
         .sp-legal-admin__footer{display:flex;align-items:center;gap:16px;margin:18px 0 0}
         .sp-legal-admin code{font-size:12px}
         @media (max-width: 1280px){.sp-legal-admin__cards{grid-template-columns:repeat(2,minmax(0,1fr))}.sp-legal-admin__grid--shared{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width: 960px){.sp-legal-admin__header{flex-direction:column}.sp-legal-admin__tab-layout,.sp-legal-admin__grid,.sp-legal-admin__grid--shared,.sp-legal-admin__cards{grid-template-columns:1fr}.sp-legal-admin__panel--sticky{position:static}}
+        @media (max-width: 960px){.sp-legal-admin__header{flex-direction:column}.sp-legal-admin__tab-layout,.sp-legal-admin__grid,.sp-legal-admin__grid--shared,.sp-legal-admin__cards{grid-template-columns:1fr}.sp-legal-admin__field--full{grid-column:auto}.sp-legal-admin__panel--sticky{position:static}}
         </style>';
     }
+
 }
