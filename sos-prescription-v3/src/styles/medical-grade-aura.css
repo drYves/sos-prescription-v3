@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V8.4.0 */
+/* SOS Prescription : Medical-Grade Aura V8.5.0 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -5438,5 +5438,132 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-thread-item__bubble {
     width: 100%;
     max-width: 100%;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   V8.5.0 — Aurora Premium Phase 2
+   Convergence home → tunnel + confort d’interaction + axe partagé
+   -------------------------------------------------------------------------- */
+.sp-app-root[data-app="form"] .sp-app-container,
+#sosprescription-root-form .sp-app-container,
+.sp-app-root[data-app="patient"] .sp-app-container,
+#sosprescription-root-patient .sp-app-container,
+.sp-patient-console .sp-console-grid {
+  margin-inline: 0 auto;
+}
+
+#sosprescription-root-form .sp-app-card--step-choice {
+  padding: clamp(1.45rem, 1.2rem + 0.45vw, 1.9rem);
+}
+
+#sosprescription-root-form .sp-app-card--step-choice .sp-app-section__hint {
+  max-width: 38rem;
+}
+
+#sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
+  gap: clamp(1rem, 0.9rem + 0.25vw, 1.35rem);
+}
+
+#sosprescription-root-form .sp-app-choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 100%;
+  padding: clamp(1.2rem, 1.05rem + 0.35vw, 1.55rem);
+}
+
+#sosprescription-root-form .sp-app-choice-card__header {
+  align-items: flex-start;
+  gap: 0.95rem;
+}
+
+#sosprescription-root-form .sp-app-choice-card__copy {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+#sosprescription-root-form .sp-app-choice-card__subline {
+  color: var(--sp-shell-color-text-2, #475569);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+#sosprescription-root-form .sp-app-choice-card__icon {
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border-radius: 1rem;
+}
+
+#sosprescription-root-form .sp-app-choice-card__icon .sp-lucide {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
+}
+
+#sosprescription-root-form .sp-app-choice-card__text {
+  margin-top: 0.78rem;
+}
+
+#sosprescription-root-form .sp-app-choice-card__meta {
+  margin-top: auto;
+  padding-top: 0.88rem;
+  border-top: 1px solid color-mix(in srgb, var(--sp-shell-color-border, rgba(148, 163, 184, 0.24)) 72%, transparent);
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+#sosprescription-root-form .sp-app-choice-card.is-selected .sp-app-choice-card__subline {
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+#sosprescription-root-form .sp-app-choice-card.is-selected .sp-app-choice-card__meta {
+  border-top-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__personalize-button {
+  min-height: 3.35rem;
+  gap: 0.78rem;
+  padding-block: 0.82rem;
+  padding-inline: 1.15rem 1.3rem;
+  border-radius: 1rem;
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 82%, #ffffff 18%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f6f8fb) 6%)
+  );
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__personalize-button:hover,
+#sosprescription-root-form .sp-app-schedule-editor__personalize-button:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 22%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-accent-soft, #eff6ff) 12%)
+  );
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 72%, transparent), 0 16px 28px rgba(15, 23, 42, 0.08);
+}
+
+#sosprescription-root-form .sp-app-schedule-editor__settings-icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+
+@media (max-width: 900px) {
+  .sp-app-root[data-app="form"] .sp-app-container,
+  #sosprescription-root-form .sp-app-container,
+  .sp-app-root[data-app="patient"] .sp-app-container,
+  #sosprescription-root-patient .sp-app-container,
+  .sp-patient-console .sp-console-grid {
+    margin-inline: auto;
   }
 }

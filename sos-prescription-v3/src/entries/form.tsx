@@ -1,4 +1,4 @@
-// src/entries/form.tsx · V7.0.5
+// src/entries/form.tsx · V8.5.0
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -291,10 +291,8 @@ type LucideIconProps = {
 function FileUpIcon({ className = '' }: LucideIconProps) {
   return (
     <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
-      <path d="M14 2v5h5" />
-      <path d="M12 18V10" />
-      <path d="m8.5 13.5 3.5-3.5 3.5 3.5" />
+      <path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z" />
+      <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }
@@ -302,10 +300,7 @@ function FileUpIcon({ className = '' }: LucideIconProps) {
 function FilePenIcon({ className = '' }: LucideIconProps) {
   return (
     <svg className={cx('sp-lucide', className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
-      <path d="M14 2v5h5" />
-      <path d="m14.4 11.4 2.2 2.2" />
-      <path d="m10.8 19.1-2.3.4.4-2.3 7-7a1.6 1.6 0 0 1 2.3 0l.9.9a1.6 1.6 0 0 1 0 2.3Z" />
+      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
     </svg>
   );
 }
@@ -2590,8 +2585,8 @@ function ScheduleEditor({
 
 function getFlowLabel(flow: FlowType): string {
   return flow === 'ro_proof'
-    ? 'Renouvellement avec justificatif'
-    : 'Dépannage sans justificatif';
+    ? 'Renouvellement habituel · Avec justificatif'
+    : 'Dépannage SOS · Sans justificatif';
 }
 
 type StepFlowChoiceProps = {
@@ -2604,14 +2599,14 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
     <section className="sp-app-card sp-app-card--step-choice">
       <div className="sp-app-section__header">
         <div>
-          <h2 className="sp-app-section__title">Choisissez votre situation</h2>
+          <h2 className="sp-app-section__title">Choisissez votre parcours</h2>
           <p className="sp-app-section__hint">
-            Sélectionnez le scénario qui correspond à votre besoin.
+            Sélectionnez l’entrée qui correspond à votre demande.
           </p>
         </div>
       </div>
 
-      <div className="sp-app-choice-grid sp-app-choice-grid--flow" role="radiogroup" aria-label="Choisir votre situation">
+      <div className="sp-app-choice-grid sp-app-choice-grid--flow" role="radiogroup" aria-label="Choisir votre parcours">
         <button
           type="button"
           role="radio"
@@ -2624,10 +2619,13 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
             <span className="sp-app-choice-card__icon" aria-hidden="true">
               <FileUpIcon />
             </span>
-            <div className="sp-app-choice-card__title">Renouvellement avec justificatif</div>
+            <div className="sp-app-choice-card__copy">
+              <div className="sp-app-choice-card__title">Renouvellement habituel</div>
+              <div className="sp-app-choice-card__subline">Avec justificatif</div>
+            </div>
           </div>
           <div className="sp-app-choice-card__text">
-            Vous avez une ordonnance, une photo de boîte ou un document de prescription.
+            Vous disposez de votre ancienne ordonnance ou d’une photo de votre boîte de médicament.
           </div>
           <div className="sp-app-choice-card__meta">Pré-remplissage du dossier disponible.</div>
         </button>
@@ -2644,12 +2642,15 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
             <span className="sp-app-choice-card__icon" aria-hidden="true">
               <FilePenIcon />
             </span>
-            <div className="sp-app-choice-card__title">Dépannage sans justificatif</div>
+            <div className="sp-app-choice-card__copy">
+              <div className="sp-app-choice-card__title">Dépannage SOS</div>
+              <div className="sp-app-choice-card__subline">Sans justificatif</div>
+            </div>
           </div>
           <div className="sp-app-choice-card__text">
-            En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.
+            Oubli, perte ou déplacement. Vous n’avez aucune preuve de votre traitement sous la main.
           </div>
-          <div className="sp-app-choice-card__meta">Attestation sur l’honneur demandée.</div>
+          <div className="sp-app-choice-card__meta">Attestation sur l'honneur demandée.</div>
         </button>
       </div>
     </section>

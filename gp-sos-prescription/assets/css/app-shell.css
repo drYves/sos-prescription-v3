@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : App Shell V8.4.0
+ * SOS Prescription : App Shell V8.5.0
  * Layout patient, médecin et console.
  */
 
@@ -1339,5 +1339,113 @@ body.admin-bar .sp-console-bar {
   .sp-rolebar > .sp-container,
   .sp-console-bar > .sp-container {
     width: min(calc(100% - (var(--sp-workspace-gutter, 18px) * 2)), var(--sp-layout-workspace)) !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   V8.5.0 — Aurora Premium Phase 2
+   Axe applicatif partagé : tunnel / espace patient / console médecin
+   -------------------------------------------------------------------------- */
+.sp-shell--app,
+.sp-shell--console {
+  --sp-layout-axis-width: var(--sp-layout-workspace, 1200px);
+  --sp-layout-axis-gap: clamp(1.5rem, 3vw, 2.75rem);
+}
+
+.sp-shell--app {
+  --sp-layout-axis-sidebar: var(--sp-sidebar-width, 18rem);
+}
+
+.sp-shell--console {
+  --sp-layout-axis-sidebar: 18rem;
+}
+
+.sp-container--app,
+.sp-container--console,
+.sp-container--app-compact,
+.sp-container--console-compact,
+.sp-rolebar > .sp-container,
+.sp-console-bar > .sp-container {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap))
+  ) !important;
+  max-width: calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap)) !important;
+}
+
+.sp-app-frame {
+  grid-template-columns: minmax(0, var(--sp-layout-axis-width)) minmax(15rem, var(--sp-layout-axis-sidebar));
+  justify-content: start;
+  gap: var(--sp-layout-axis-gap);
+  max-width: calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap));
+}
+
+.sp-app-main,
+.sp-app-frame--no-sidebar .sp-app-main,
+.sp-shell--app :is(
+  .sp-plugin-shell--request,
+  .sp-plugin-shell--patient,
+  .sp-plugin-shell--doctor-account,
+  #sosprescription-root-form,
+  #sp-patient-profile-root,
+  #sosprescription-root-patient
+),
+.sp-shell--console :is(
+  .sp-console-frame,
+  .sosprescription-doctor,
+  #sosprescription-doctor-console-root
+) {
+  width: min(100%, var(--sp-layout-axis-width));
+}
+
+.sp-app-frame--no-sidebar .sp-app-main,
+.sp-shell--app :is(
+  .sp-plugin-shell--request,
+  .sp-plugin-shell--patient,
+  .sp-plugin-shell--doctor-account,
+  #sosprescription-root-form,
+  #sp-patient-profile-root,
+  #sosprescription-root-patient
+),
+.sp-shell--console :is(
+  .sp-console-frame,
+  .sosprescription-doctor,
+  #sosprescription-doctor-console-root
+) {
+  margin-inline: 0 auto;
+}
+
+@media (max-width: 1080px) {
+  .sp-shell--console {
+    --sp-layout-axis-sidebar: 0px;
+  }
+
+  .sp-container--app,
+  .sp-container--console,
+  .sp-container--app-compact,
+  .sp-container--console-compact,
+  .sp-rolebar > .sp-container,
+  .sp-console-bar > .sp-container {
+    width: min(
+      calc(100% - (var(--sp-workspace-gutter, 18px) * 2)),
+      calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap))
+    ) !important;
+  }
+
+  .sp-app-frame--no-sidebar .sp-app-main,
+  .sp-shell--app :is(
+    .sp-plugin-shell--request,
+    .sp-plugin-shell--patient,
+    .sp-plugin-shell--doctor-account,
+    #sosprescription-root-form,
+    #sp-patient-profile-root,
+    #sosprescription-root-patient
+  ),
+  .sp-shell--console :is(
+    .sp-console-frame,
+    .sosprescription-doctor,
+    #sosprescription-doctor-console-root
+  ) {
+    margin-inline: auto;
   }
 }

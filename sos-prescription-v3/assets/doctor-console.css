@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V7.5.2 */
+/* SOS Prescription : Doctor Console V8.5.0 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -2129,5 +2129,20 @@
   .sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button {
     width: 100%;
     min-width: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   V8.5.0 — Aurora Premium Phase 2
+   Console médecin : colonne inbox allégée, panneau principal rééquilibré
+   -------------------------------------------------------------------------- */
+.sosprescription-doctor .dc-shell {
+  grid-template-columns: minmax(25.75rem, 28.5rem) minmax(0, 1fr);
+  gap: clamp(1rem, 0.95rem + 0.25vw, 1.35rem);
+}
+
+@media (max-width: 1360px) {
+  .sosprescription-doctor .dc-shell {
+    grid-template-columns: minmax(24rem, 26.5rem) minmax(0, 1fr);
   }
 }

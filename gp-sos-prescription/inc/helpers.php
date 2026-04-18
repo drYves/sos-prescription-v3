@@ -2513,18 +2513,19 @@ HTML;
 
     $selector_markup = <<<HTML
 <div class="sp-section-head sp-pricing-head">
-        <h2>Sélecteur de situation</h2>
-        <p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours applicatif.</p>
+        <h2>Choisissez votre parcours</h2>
+        <p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours.</p>
       </div>
 
-      <div class="sp-selector-grid" role="navigation" aria-label="Choisir votre situation">
+      <div class="sp-selector-grid" role="navigation" aria-label="Choisir votre parcours">
         <article class="sp-card sp-selector-card">
           <div class="sp-selector-card__top">
             <span class="sp-icon-badge sp-icon-badge--selector" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
             <div class="sp-card-content">
               <strong>Renouvellement habituel</strong>
-              <p class="sp-selector-card__situation"><span>Situation</span> Avec justificatif</p>
+              <p class="sp-selector-card__situation">Avec justificatif</p>
               <p>Vous disposez de votre ancienne ordonnance ou d’une photo de votre boîte de médicament.</p>
+              <p class="sp-selector-card__meta">Pré-remplissage du dossier disponible.</p>
             </div>
           </div>
           <div class="sp-selector-card__actions">
@@ -2532,13 +2533,14 @@ HTML;
           </div>
         </article>
 
-        <article class="sp-card sp-card--featured sp-selector-card sp-selector-card--sos">
+        <article class="sp-card sp-selector-card sp-selector-card--sos">
           <div class="sp-selector-card__top">
             <span class="sp-icon-badge sp-icon-badge--selector" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"></path></svg></span>
             <div class="sp-card-content">
               <strong>Dépannage SOS</strong>
-              <p class="sp-selector-card__situation"><span>Situation</span> Sans justificatif</p>
+              <p class="sp-selector-card__situation">Sans justificatif</p>
               <p>Oubli, perte ou déplacement. Vous n’avez aucune preuve de votre traitement sous la main.</p>
+              <p class="sp-selector-card__meta">Attestation sur l'honneur demandée.</p>
             </div>
           </div>
           <div class="sp-selector-card__actions">
@@ -2697,18 +2699,19 @@ HTML;
 
     $selector_markup = <<<HTML
 <div class="sp-section-head sp-pricing-head">
-        <h2>Sélecteur de situation</h2>
-        <p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours applicatif.</p>
+        <h2>Choisissez votre parcours</h2>
+        <p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours.</p>
       </div>
 
-      <div class="sp-selector-grid" role="navigation" aria-label="Choisir votre situation">
+      <div class="sp-selector-grid" role="navigation" aria-label="Choisir votre parcours">
         <article class="sp-card sp-selector-card">
           <div class="sp-selector-card__top">
             <span class="sp-icon-badge sp-icon-badge--selector" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
             <div class="sp-card-content">
               <strong>Renouvellement habituel</strong>
-              <p class="sp-selector-card__situation"><span>Situation</span> Avec justificatif</p>
+              <p class="sp-selector-card__situation">Avec justificatif</p>
               <p>Vous disposez de votre ancienne ordonnance ou d’une photo de votre boîte de médicament.</p>
+              <p class="sp-selector-card__meta">Pré-remplissage du dossier disponible.</p>
             </div>
           </div>
           <div class="sp-selector-card__actions">
@@ -2721,8 +2724,9 @@ HTML;
             <span class="sp-icon-badge sp-icon-badge--selector" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"></path></svg></span>
             <div class="sp-card-content">
               <strong>Dépannage SOS</strong>
-              <p class="sp-selector-card__situation"><span>Situation</span> Sans justificatif</p>
+              <p class="sp-selector-card__situation">Sans justificatif</p>
               <p>Oubli, perte ou déplacement. Vous n’avez aucune preuve de votre traitement sous la main.</p>
+              <p class="sp-selector-card__meta">Attestation sur l'honneur demandée.</p>
             </div>
           </div>
           <div class="sp-selector-card__actions">
@@ -2947,6 +2951,47 @@ function sp_sync_public_shell_v481($content)
 
     $snapshot = do_shortcode($snapshot);
     $snapshot = sp_replace_public_content_asset_tokens($snapshot);
+
+
+    $snapshot = str_replace(
+        array(
+            '<h2>Sélecteur de situation</h2>',
+            'aria-label="Choisir votre situation"',
+            '<p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours applicatif.</p>',
+            '<article class="sp-card sp-card--featured sp-selector-card sp-selector-card--sos">',
+            '<p class="sp-selector-card__situation"><span>Situation</span> Avec justificatif</p>',
+            '<p class="sp-selector-card__situation"><span>Situation</span> Sans justificatif</p>',
+            '<strong>Renouvellement avec justificatif</strong>',
+            '<strong>Dépannage sans justificatif</strong>',
+            '<p>Vous avez une ordonnance, une photo de boîte ou un document de prescription.</p>',
+            '<p>En cas de perte, d’oubli ou de voyage pour un traitement habituel déjà connu.</p>'
+        ),
+        array(
+            '<h2>Choisissez votre parcours</h2>',
+            'aria-label="Choisir votre parcours"',
+            '<p>Deux portes d’entrée claires pour orienter votre demande vers le bon parcours.</p>',
+            '<article class="sp-card sp-selector-card sp-selector-card--sos">',
+            '<p class="sp-selector-card__situation">Avec justificatif</p>',
+            '<p class="sp-selector-card__situation">Sans justificatif</p>',
+            '<strong>Renouvellement habituel</strong>',
+            '<strong>Dépannage SOS</strong>',
+            '<p>Vous disposez de votre ancienne ordonnance ou d’une photo de votre boîte de médicament.</p>',
+            '<p>Oubli, perte ou déplacement. Vous n’avez aucune preuve de votre traitement sous la main.</p>'
+        ),
+        $snapshot
+    );
+
+    $snapshot = preg_replace(
+        '/(<strong>Renouvellement habituel<\/strong>\s*<p class="sp-selector-card__situation">Avec justificatif<\/p>\s*<p>Vous disposez de votre ancienne ordonnance ou d’une photo de votre boîte de médicament\.<\/p>)(?!\s*<p class="sp-selector-card__meta">)/u',
+        '$1' . "\n              <p class=\"sp-selector-card__meta\">Pré-remplissage du dossier disponible.</p>",
+        $snapshot
+    );
+
+    $snapshot = preg_replace(
+        '/(<strong>Dépannage SOS<\/strong>\s*<p class="sp-selector-card__situation">Sans justificatif<\/p>\s*<p>Oubli, perte ou déplacement\. Vous n’avez aucune preuve de votre traitement sous la main\.<\/p>)(?!\s*<p class="sp-selector-card__meta">)/u',
+        '$1' . "\n              <p class=\"sp-selector-card__meta\">Attestation sur l'honneur demandée.</p>",
+        $snapshot
+    );
 
     $snapshot = preg_replace('/\.{2,}/', '.', $snapshot);
 
