@@ -1,4 +1,4 @@
-<?php // includes/Plugin.php · V8.6.0
+<?php // includes/Plugin.php · V8.7.0
 declare(strict_types=1);
 
 namespace SosPrescription;
@@ -84,6 +84,7 @@ final class Plugin
         self::register_rest_diagnostics();
 
         add_action('parse_request', [self::class, 'maybe_render_debug_json'], 0);
+        add_filter('show_admin_bar', [self::class, 'filter_show_admin_bar'], 999);
         add_action('admin_post_sosprescription_logout', [self::class, 'handle_logout']);
         add_action('admin_post_nopriv_sosprescription_logout', [self::class, 'handle_logout']);
         add_action('init', [self::class, 'register_shortcodes']);
@@ -344,6 +345,11 @@ public static function handle_logout(): void
         $redirect = home_url('/');
     }
 
+    $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
+    if ($method !== 'POST') {
+        self::logout_safe_redirect($redirect);
+    }
+
     if (is_user_logged_in()) {
         $nonce = isset($_REQUEST['_wpnonce']) ? (string) wp_unslash((string) $_REQUEST['_wpnonce']) : '';
         if ($nonce === '' || !wp_verify_nonce($nonce, 'sosprescription_logout')) {
@@ -354,6 +360,26 @@ public static function handle_logout(): void
     }
 
     self::logout_safe_redirect($redirect);
+}
+
+public static function filter_show_admin_bar($show): bool
+{
+    unset($show);
+
+    if (!is_user_logged_in()) {
+        return false;
+    }
+
+    $user = wp_get_current_user();
+    if (!($user instanceof \WP_User) || (int) $user->ID <= 0) {
+        return false;
+    }
+
+    if (function_exists('is_super_admin') && is_super_admin((int) $user->ID)) {
+        return true;
+    }
+
+    return in_array('administrator', (array) $user->roles, true);
 }
 
 private static function logout_safe_redirect(string $redirect): void

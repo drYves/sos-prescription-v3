@@ -88,10 +88,12 @@ final class AdminShortcode
 private static function render_logout_form(string $label = 'Déconnexion'): string
     {
         return LogoutShortcode::render([
+            'mode' => 'entry',
+            'context' => 'console',
+            'return_to' => LogoutShortcode::current_page_url(),
             'label' => $label,
             'class' => 'sp-button sp-button--secondary dc-toolbar-meta__logout-button',
             'form_class' => 'sp-form sp-logout-form dc-toolbar-meta__logout-form',
-            'redirect' => home_url('/'),
         ]);
     }
 

@@ -23,6 +23,7 @@ final class NoIndex
         'sosprescription_admin',
         'sosprescription_doctor_account',
         'sosprescription_magic_redirect',
+        'sosprescription_logout',
     ];
 
     public static function register_hooks(): void

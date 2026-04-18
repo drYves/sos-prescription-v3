@@ -338,9 +338,11 @@ final class DoctorAccountShortcode
     private static function render_logout_form(): string
     {
         return LogoutShortcode::render([
+            'mode' => 'entry',
+            'context' => 'doctor-account',
+            'return_to' => LogoutShortcode::current_page_url(),
             'class' => 'sp-button sp-button--secondary',
             'form_class' => 'sp-form sp-doctor-account__form sp-logout-form',
-            'redirect' => home_url('/'),
         ]);
     }
 

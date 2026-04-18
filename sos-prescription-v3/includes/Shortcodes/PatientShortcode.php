@@ -71,9 +71,11 @@ final class PatientShortcode
     private static function render_logout_form(): string
     {
         return LogoutShortcode::render([
+            'mode' => 'entry',
+            'context' => 'patient',
+            'return_to' => LogoutShortcode::current_page_url(),
             'class' => 'sp-button sp-button--secondary sp-patient-session-bar__logout-button',
             'form_class' => 'sp-form sp-logout-form sp-patient-session-bar__logout-form',
-            'redirect' => home_url('/'),
         ]);
     }
 
