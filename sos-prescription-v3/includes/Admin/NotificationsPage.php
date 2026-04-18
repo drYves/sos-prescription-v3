@@ -234,29 +234,7 @@ final class NotificationsPage
         echo '<hr style="margin:18px 0;" />';
 
         echo '<h2>Liens des espaces</h2>';
-        echo '<table class="form-table" role="presentation"><tbody>';
-
-        echo '<tr><th scope="row">Page <em>Espace patient</em></th><td>';
-        wp_dropdown_pages([
-            'name' => 'patient_portal_page_id',
-            'selected' => (int) $cfg['patient_portal_page_id'],
-            'show_option_none' => '— Non configuré (home) —',
-            'option_none_value' => '0',
-        ]);
-        echo '<p class="description">Cette page doit contenir le shortcode <code>[sosprescription_patient]</code>.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th scope="row">Page <em>Console médecin</em> (optionnel)</th><td>';
-        wp_dropdown_pages([
-            'name' => 'doctor_console_page_id',
-            'selected' => (int) $cfg['doctor_console_page_id'],
-            'show_option_none' => '— Non configuré (wp-admin) —',
-            'option_none_value' => '0',
-        ]);
-        echo '<p class="description">Optionnel. Utilisé pour les notifications médecin. Cette page doit contenir <code>[sosprescription_admin]</code>.</p>';
-        echo '</td></tr>';
-
-        echo '</tbody></table>';
+        echo '<div class="notice notice-info inline" style="margin:0 0 16px 0;"><p>Les pages <em>Espace patient</em> et <em>Console médecin</em> sont désormais gérées exclusivement dans <a href="' . esc_url(admin_url('admin.php?page=sosprescription')) . '">Installation &amp; statut</a>.</p></div>';
 
         echo '<hr style="margin:18px 0;" />';
 
@@ -354,9 +332,6 @@ final class NotificationsPage
         $from_name = isset($_POST['from_name']) ? (string) wp_unslash($_POST['from_name']) : '';
         $from_email = isset($_POST['from_email']) ? (string) wp_unslash($_POST['from_email']) : '';
 
-        $patient_page_id = isset($_POST['patient_portal_page_id']) ? (int) $_POST['patient_portal_page_id'] : 0;
-        $doctor_page_id = isset($_POST['doctor_console_page_id']) ? (int) $_POST['doctor_console_page_id'] : 0;
-
         $send_on_payment_confirmed = isset($_POST['send_on_payment_confirmed']);
         $send_on_assigned = isset($_POST['send_on_assigned']);
         $send_on_doctor_message = isset($_POST['send_on_doctor_message']);
@@ -368,8 +343,6 @@ final class NotificationsPage
             'sms_enabled' => false,
             'from_name' => $from_name,
             'from_email' => $from_email,
-            'patient_portal_page_id' => $patient_page_id,
-            'doctor_console_page_id' => $doctor_page_id,
             'sms_provider' => '',
             'sms_phone_meta_key' => '',
             'sms_webhook_url' => '',

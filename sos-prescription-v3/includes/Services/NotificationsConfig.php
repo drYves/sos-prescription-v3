@@ -12,6 +12,7 @@ namespace SosPrescription\Services;
 final class NotificationsConfig
 {
     private const OPTION = 'sosprescription_notifications';
+    private const PAGES_OPTION = 'sosprescription_pages';
 
     /**
      * @return array<string, mixed>
@@ -33,10 +34,6 @@ final class NotificationsConfig
 
             'from_name' => $site,
             'from_email' => $from_email,
-
-            // Pages (optionnel) : si non configuré, les liens pointent sur home.
-            'patient_portal_page_id' => 0,
-            'doctor_console_page_id' => 0,
 
             // SMS via webhook (optionnel)
             'sms_provider' => 'webhook',
@@ -86,9 +83,6 @@ final class NotificationsConfig
             $out['from_email'] = (string) self::defaults()['from_email'];
         }
 
-        $out['patient_portal_page_id'] = isset($out['patient_portal_page_id']) ? (int) $out['patient_portal_page_id'] : 0;
-        $out['doctor_console_page_id'] = isset($out['doctor_console_page_id']) ? (int) $out['doctor_console_page_id'] : 0;
-
         $out['sms_provider'] = is_string($out['sms_provider'] ?? null) ? strtolower(trim((string) $out['sms_provider'])) : 'webhook';
         if ($out['sms_provider'] === '') {
             $out['sms_provider'] = 'webhook';
@@ -109,6 +103,10 @@ final class NotificationsConfig
 
         $out['send_doctor_on_patient_message'] = self::to_bool($out['send_doctor_on_patient_message'] ?? false);
 
+        // Compat lecture : la source de vérité des bindings de pages est désormais sosprescription_pages.
+        $out['patient_portal_page_id'] = self::page_binding_id('patient_portal_page_id');
+        $out['doctor_console_page_id'] = self::page_binding_id('doctor_console_page_id');
+
         return $out;
     }
 
@@ -121,6 +119,8 @@ final class NotificationsConfig
         $current = self::get();
         $next = array_merge($current, $patch);
 
+        unset($next['patient_portal_page_id'], $next['doctor_console_page_id']);
+
         // On sauvegarde tel quel : get() re-normalise.
         update_option(self::OPTION, $next, false);
 
@@ -129,8 +129,7 @@ final class NotificationsConfig
 
     public static function patient_portal_url(): string
     {
-        $cfg = self::get();
-        $pid = (int) ($cfg['patient_portal_page_id'] ?? 0);
+        $pid = self::page_binding_id('patient_portal_page_id');
         if ($pid > 0) {
             $link = get_permalink($pid);
             if (is_string($link) && $link !== '') {
@@ -142,8 +141,7 @@ final class NotificationsConfig
 
     public static function doctor_console_url(): string
     {
-        $cfg = self::get();
-        $pid = (int) ($cfg['doctor_console_page_id'] ?? 0);
+        $pid = self::page_binding_id('doctor_console_page_id');
         if ($pid > 0) {
             $link = get_permalink($pid);
             if (is_string($link) && $link !== '') {
@@ -152,6 +150,36 @@ final class NotificationsConfig
         }
         // Fallback wp-admin
         return (string) admin_url('admin.php');
+    }
+
+    private static function page_binding_id(string $key): int
+    {
+        $pages_raw = get_option(self::PAGES_OPTION, []);
+        $pages_cfg = is_array($pages_raw) ? $pages_raw : [];
+
+        $page_id = isset($pages_cfg[$key]) ? (int) $pages_cfg[$key] : 0;
+        if ($page_id > 0) {
+            return $page_id;
+        }
+
+        $raw = get_option(self::OPTION, []);
+        $cfg = is_array($raw) ? $raw : [];
+
+        $legacy_page_id = isset($cfg[$key]) ? (int) $cfg[$key] : 0;
+        if ($legacy_page_id <= 0) {
+            return 0;
+        }
+
+        $pages_cfg[$key] = $legacy_page_id;
+        if (!isset($pages_cfg['updated_at']) || !is_string($pages_cfg['updated_at']) || trim((string) $pages_cfg['updated_at']) === '') {
+            $pages_cfg['updated_at'] = current_time('mysql');
+        }
+        update_option(self::PAGES_OPTION, $pages_cfg, false);
+
+        unset($cfg[$key]);
+        update_option(self::OPTION, $cfg, false);
+
+        return $legacy_page_id;
     }
 
     private static function to_bool(mixed $v): bool

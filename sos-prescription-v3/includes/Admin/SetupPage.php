@@ -45,13 +45,14 @@ final class SetupPage
 
         return [
             'form_page_id' => isset($cfg['form_page_id']) ? (int) $cfg['form_page_id'] : 0,
+            'patient_portal_page_id' => isset($cfg['patient_portal_page_id'])
+                ? (int) $cfg['patient_portal_page_id']
+                : (int) ($notif['patient_portal_page_id'] ?? 0),
+            'doctor_console_page_id' => isset($cfg['doctor_console_page_id'])
+                ? (int) $cfg['doctor_console_page_id']
+                : (int) ($notif['doctor_console_page_id'] ?? 0),
             'doctor_account_page_id' => isset($cfg['doctor_account_page_id']) ? (int) $cfg['doctor_account_page_id'] : 0,
             'bdpm_table_page_id' => isset($cfg['bdpm_table_page_id']) ? (int) $cfg['bdpm_table_page_id'] : 0,
-
-            // ces 2 champs sont stockés dans NotificationsConfig
-            'patient_portal_page_id' => (int) ($notif['patient_portal_page_id'] ?? 0),
-            'doctor_console_page_id' => (int) ($notif['doctor_console_page_id'] ?? 0),
-
             'updated_at' => isset($cfg['updated_at']) && is_string($cfg['updated_at']) ? (string) $cfg['updated_at'] : '',
         ];
     }
@@ -66,21 +67,11 @@ final class SetupPage
         $next = array_merge($current, $patch);
         $next['updated_at'] = current_time('mysql');
 
-        // Sync NotificationsConfig
-        $notif_patch = [];
-        if (array_key_exists('patient_portal_page_id', $patch)) {
-            $notif_patch['patient_portal_page_id'] = (int) $next['patient_portal_page_id'];
-        }
-        if (array_key_exists('doctor_console_page_id', $patch)) {
-            $notif_patch['doctor_console_page_id'] = (int) $next['doctor_console_page_id'];
-        }
-        if (!empty($notif_patch)) {
-            NotificationsConfig::update($notif_patch);
-        }
-
         // Persist only fields owned by this option
         update_option(self::OPTION_KEY, [
             'form_page_id' => (int) $next['form_page_id'],
+            'patient_portal_page_id' => (int) $next['patient_portal_page_id'],
+            'doctor_console_page_id' => (int) $next['doctor_console_page_id'],
             'doctor_account_page_id' => (int) $next['doctor_account_page_id'],
             'bdpm_table_page_id' => (int) $next['bdpm_table_page_id'],
             'updated_at' => (string) $next['updated_at'],

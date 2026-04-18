@@ -270,13 +270,23 @@ if (!function_exists('sosprescription_v4_proxy_get_twilio_config')) {
      */
     function sosprescription_v4_proxy_get_twilio_config(): array
     {
-        $raw = get_option('sosprescription_twilio_settings', []);
-        $cfg = is_array($raw) ? $raw : [];
+        $twilio_number = sosprescription_v4_proxy_normalize_phone(get_option('sosprescription_twilio_number', ''));
+
+        if ($twilio_number === '') {
+            $legacy = get_option('sosprescription_twilio_settings', []);
+            if (is_array($legacy)) {
+                $legacy_number = sosprescription_v4_proxy_normalize_phone($legacy['twilio_number'] ?? '');
+                if ($legacy_number !== '') {
+                    update_option('sosprescription_twilio_number', $legacy_number, false);
+                    $twilio_number = $legacy_number;
+                }
+            }
+        }
 
         return [
-            'twilio_number' => sosprescription_v4_proxy_normalize_phone($cfg['twilio_number'] ?? ''),
-            'transfer_number' => sosprescription_v4_proxy_normalize_phone($cfg['transfer_number'] ?? ''),
-            'updated_at' => isset($cfg['updated_at']) && is_string($cfg['updated_at']) ? (string) $cfg['updated_at'] : '',
+            'twilio_number' => $twilio_number,
+            'transfer_number' => '',
+            'updated_at' => '',
         ];
     }
 }

@@ -138,16 +138,7 @@ final class ImportPage
             'sosprescription-system-status',
             [SystemStatusPage::class, 'render_page']
         );
-
-        // Ordonnance (template + documentation)
-        add_submenu_page(
-            'sosprescription',
-            'Ordonnances',
-            'Ordonnances',
-            'sosprescription_manage',
-            'sosprescription-rx',
-            [RxPage::class, 'render_page']
-        );
+        // Écran legacy "Ordonnances" volontairement retiré du backoffice.
 
         // Vérification (pharmacien / page /v/{token})
         add_submenu_page(
