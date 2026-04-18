@@ -368,7 +368,7 @@ final class PatientV4Controller extends \WP_REST_Controller
 
         $table = $wpdb->prefix . 'sosprescription_prescriptions';
         $columns = ['id', 'uid'];
-        foreach (['status', 'payment_provider', 'payment_status', 'amount_cents', 'currency'] as $column) {
+        foreach (['status', 'payment_provider', 'payment_status', 'amount_cents', 'currency', 'priority', 'flow', 'payment_intent_id', 'payment_reference', 'payment_updated_at', 'paid_at', 'captured_at', 'updated_at'] as $column) {
             if ($this->prescription_table_has_column($column)) {
                 $columns[] = $column;
             }
@@ -418,6 +418,10 @@ final class PatientV4Controller extends \WP_REST_Controller
                 'status' => null,
                 'amount_cents' => null,
                 'currency' => null,
+                'priority' => null,
+                'flow' => null,
+                'reference' => null,
+                'transaction_at' => null,
             ];
         }
 
@@ -439,7 +443,51 @@ final class PatientV4Controller extends \WP_REST_Controller
                 ? (int) $localRow['amount_cents']
                 : null,
             'currency' => $currency !== '' ? $currency : null,
+            'priority' => $this->normalize_optional_scalar_string($localRow['priority'] ?? null),
+            'flow' => $this->normalize_optional_scalar_string($localRow['flow'] ?? null),
+            'reference' => $this->resolve_payment_shadow_reference($localRow),
+            'transaction_at' => $this->resolve_payment_shadow_transaction_at($localRow),
         ];
+    }
+
+    private function normalize_optional_scalar_string(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    /**
+     * @param array<string, mixed> $localRow
+     */
+    private function resolve_payment_shadow_reference(array $localRow): ?string
+    {
+        foreach (['payment_reference', 'payment_intent_id'] as $column) {
+            $candidate = $this->normalize_optional_scalar_string($localRow[$column] ?? null);
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $localRow
+     */
+    private function resolve_payment_shadow_transaction_at(array $localRow): ?string
+    {
+        foreach (['payment_updated_at', 'paid_at', 'captured_at', 'updated_at'] as $column) {
+            $candidate = $this->normalize_optional_scalar_string($localRow[$column] ?? null);
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -476,6 +524,10 @@ final class PatientV4Controller extends \WP_REST_Controller
             'payment_status=' . strtolower(trim((string) ($payment['status'] ?? ''))),
             'payment_amount_cents=' . (($payment['amount_cents'] ?? null) !== null ? (string) (int) $payment['amount_cents'] : ''),
             'payment_currency=' . strtoupper(trim((string) ($payment['currency'] ?? ''))),
+            'payment_priority=' . strtolower(trim((string) ($payment['priority'] ?? ''))),
+            'payment_flow=' . strtolower(trim((string) ($payment['flow'] ?? ''))),
+            'payment_reference=' . trim((string) ($payment['reference'] ?? '')),
+            'payment_transaction_at=' . trim((string) ($payment['transaction_at'] ?? '')),
         ]);
 
         return substr(hash('sha256', $material), 0, self::ROW_REV_HASH_LENGTH);

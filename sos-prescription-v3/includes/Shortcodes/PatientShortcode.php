@@ -38,9 +38,12 @@ final class PatientShortcode
 
         $display_name = self::resolve_patient_display_name(get_current_user_id());
 
-        $toolbar = '<div class="sp-card">'
-            . '<div class="sp-stack">'
-            . ScreenFrame::badge('Connecté : ' . $display_name, 'success', true)
+        $toolbar = '<div class="sp-patient-session-bar">'
+            . '<div class="sp-patient-session-bar__copy">'
+            . '<span class="sp-patient-session-bar__eyebrow">Session sécurisée</span>'
+            . '<span class="sp-patient-session-bar__identity">Connecté · ' . esc_html($display_name) . '</span>'
+            . '</div>'
+            . '<div class="sp-patient-session-bar__actions">'
             . self::render_logout_form()
             . '</div>'
             . '</div>';
@@ -67,8 +70,8 @@ final class PatientShortcode
     private static function render_logout_form(): string
     {
         return LogoutShortcode::render([
-            'class' => 'sp-button sp-button--secondary',
-            'form_class' => 'sp-form sp-logout-form',
+            'class' => 'sp-button sp-button--secondary sp-patient-session-bar__logout-button',
+            'form_class' => 'sp-form sp-logout-form sp-patient-session-bar__logout-form',
             'redirect' => home_url('/'),
         ]);
     }

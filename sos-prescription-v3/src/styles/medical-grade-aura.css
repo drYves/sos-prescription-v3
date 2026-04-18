@@ -5170,3 +5170,107 @@ a.sp-app-button.sp-app-button--secondary:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 84%, #ffffff 16%), var(--sp-color-accent, #0f6cbd));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 18%, transparent), 0 10px 20px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 22%, transparent);
 }
+
+/* V8.1.2 — Patient polish: session bar, payment details, calmer patient bubbles */
+.sp-patient-session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 62%, var(--sp-shell-color-surface, #ffffff) 38%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.78), 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+.sp-patient-session-bar__copy {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.sp-patient-session-bar__eyebrow {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-patient-session-bar__identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+.sp-patient-session-bar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.sp-patient-session-bar__logout-form {
+  margin: 0;
+}
+
+.sp-patient-session-bar__logout-button {
+  min-height: 2.15rem;
+  padding-inline: 0.9rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+}
+
+.sp-patient-console .sp-payment-details-card__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.8rem;
+}
+
+.sp-patient-console .sp-payment-details-card__item {
+  min-width: 0;
+}
+
+.sp-patient-console .sp-payment-details-card__value {
+  color: var(--sp-shell-color-text-2, #334155);
+  font-weight: 700;
+}
+
+.sp-patient-console .sp-payment-details-card__value--reference {
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__bubble,
+.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__bubble {
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 82%, #ffffff 18%);
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72), 0 10px 20px rgba(15, 23, 42, 0.04);
+}
+
+.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__author,
+.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__author {
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+@media (max-width: 720px) {
+  .sp-patient-session-bar {
+    flex-direction: column;
+    align-items: stretch;
+    border-radius: 1.25rem;
+  }
+
+  .sp-patient-session-bar__actions {
+    justify-content: flex-end;
+  }
+
+  .sp-patient-session-bar__identity {
+    white-space: normal;
+  }
+}

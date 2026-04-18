@@ -55,6 +55,10 @@ type PaymentShadow = {
   status?: string | null;
   amount_cents?: number | null;
   currency?: string | null;
+  priority?: string | null;
+  flow?: string | null;
+  reference?: string | null;
+  transaction_at?: string | null;
 };
 
 type PatientProfileSnapshot = {
@@ -1358,6 +1362,10 @@ function normalizePaymentShadow(value: unknown): PaymentShadow | undefined {
     status: typeof value.status === 'string' ? value.status : null,
     amount_cents: value.amount_cents === null ? null : toOptionalNumber(value.amount_cents),
     currency: typeof value.currency === 'string' ? value.currency : null,
+    priority: typeof value.priority === 'string' ? value.priority : null,
+    flow: typeof value.flow === 'string' ? value.flow : null,
+    reference: typeof value.reference === 'string' ? value.reference : null,
+    transaction_at: typeof value.transaction_at === 'string' ? value.transaction_at : null,
   };
 }
 
@@ -1769,32 +1777,6 @@ function Button({
   );
 }
 
-function ButtonLink({
-  href,
-  variant = 'primary',
-  className = '',
-  children,
-  target = '_blank',
-}: {
-  href: string;
-  variant?: 'primary' | 'secondary';
-  className?: string;
-  children: React.ReactNode;
-  target?: string;
-}) {
-  const classes = cx(
-    'sp-button',
-    variant === 'primary' ? 'sp-button--primary' : 'sp-button--secondary',
-    className,
-  );
-
-  return (
-    <a className={classes} href={href} target={target} rel="noopener noreferrer">
-      {children}
-    </a>
-  );
-}
-
 function StatusTimeline({ status }: { status: string }) {
   const currentStep = getDecisionStep(status);
   const steps = [
@@ -1965,11 +1947,15 @@ function paymentProviderLabel(provider: string | null | undefined): string {
   return provider && String(provider).trim() !== '' ? String(provider).trim() : 'Prestataire sécurisé';
 }
 
-function paymentReceiptStatusLabel(payment: PaymentShadow | undefined): string {
-  const normalized = normalizeStatusValue(String(payment?.status || ''));
+function paymentSurfaceStatusLabel(status: string, payment: PaymentShadow | undefined): string {
+  if (isPaymentPendingStatus(status)) {
+    return 'En attente';
+  }
+
+  const normalized = normalizeStatusValue(String(payment?.status || payment?.local_status || ''));
 
   if (normalized === 'requires_capture' || normalized === 'succeeded' || normalized === 'captured') {
-    return 'Empreinte bancaire validée';
+    return 'Payé';
   }
 
   if (normalized === 'processing') {
@@ -1977,26 +1963,31 @@ function paymentReceiptStatusLabel(payment: PaymentShadow | undefined): string {
   }
 
   if (normalized === 'canceled' || normalized === 'cancelled') {
-    return 'Paiement annulé';
+    return 'Annulé';
   }
 
-  return 'Empreinte bancaire enregistrée';
+  if (normalized === 'requires_payment_method' || normalized === 'requires_action') {
+    return 'En attente';
+  }
+
+  return normalized !== '' ? 'Payé' : 'Non communiqué';
 }
 
-function hasDocumentedPayment(status: string, payment: PaymentShadow | undefined): boolean {
-  if (!payment || isPaymentPendingStatus(status)) {
+function hasStructuredPaymentDetails(payment: PaymentShadow | undefined): boolean {
+  if (!payment) {
     return false;
   }
 
-  if (typeof payment.amount_cents === 'number') {
-    return true;
-  }
-
-  if (payment.provider && String(payment.provider).trim() !== '') {
-    return true;
-  }
-
-  return normalizeStatusValue(String(payment.status || '')) !== '';
+  return (
+    typeof payment.amount_cents === 'number'
+    || Boolean(payment.provider && String(payment.provider).trim() !== '')
+    || Boolean(payment.status && String(payment.status).trim() !== '')
+    || Boolean(payment.local_status && String(payment.local_status).trim() !== '')
+    || Boolean(payment.priority && String(payment.priority).trim() !== '')
+    || Boolean(payment.flow && String(payment.flow).trim() !== '')
+    || Boolean(payment.reference && String(payment.reference).trim() !== '')
+    || Boolean(payment.transaction_at && String(payment.transaction_at).trim() !== '')
+  );
 }
 
 function paymentAmountLabel(payment: PaymentShadow | undefined): string {
@@ -2007,43 +1998,123 @@ function paymentAmountLabel(payment: PaymentShadow | undefined): string {
   return 'Non communiqué';
 }
 
-function PaymentReceiptCard({
+function paymentPriorityLabel(priority: string | null | undefined): string {
+  const normalized = normalizeStatusValue(String(priority || ''));
+  if (normalized === 'express') {
+    return 'Express';
+  }
+
+  if (normalized === 'standard') {
+    return 'Standard';
+  }
+
+  return priority && String(priority).trim() !== '' ? String(priority).trim() : '';
+}
+
+function paymentFlowLabel(flow: string | null | undefined): string {
+  const normalized = normalizeStatusValue(String(flow || ''));
+  if (normalized === 'renewal' || normalized === 'ro_proof' || normalized === 'renouvellement') {
+    return 'Renouvellement';
+  }
+
+  if (normalized === 'depannage' || normalized === 'depannage_no_proof' || normalized === 'sos' || normalized === 'depannage-sos') {
+    return 'Dépannage';
+  }
+
+  return flow && String(flow).trim() !== '' ? String(flow).trim() : '';
+}
+
+function paymentFormulaLabel(payment: PaymentShadow | undefined, fallbackPriority?: string | null): string {
+  const flowLabel = paymentFlowLabel(payment?.flow);
+  const priorityLabel = paymentPriorityLabel(payment?.priority || fallbackPriority || null);
+
+  if (flowLabel && priorityLabel) {
+    return `${flowLabel} · ${priorityLabel}`;
+  }
+
+  if (priorityLabel) {
+    return priorityLabel;
+  }
+
+  if (flowLabel) {
+    return flowLabel;
+  }
+
+  return 'Non communiquée';
+}
+
+function paymentReferenceLabel(payment: PaymentShadow | undefined, fallbackUid?: string | null): string {
+  const reference = typeof payment?.reference === 'string' ? payment.reference.trim() : '';
+  if (reference !== '') {
+    return reference;
+  }
+
+  const uid = typeof fallbackUid === 'string' ? fallbackUid.trim() : '';
+  if (uid !== '') {
+    return uid;
+  }
+
+  return 'Non communiquée';
+}
+
+function paymentTransactionDateLabel(status: string, payment: PaymentShadow | undefined): string {
+  const transactionAt = typeof payment?.transaction_at === 'string' ? payment.transaction_at.trim() : '';
+  if (transactionAt !== '') {
+    return formatHumanDateTime(transactionAt);
+  }
+
+  if (isPaymentPendingStatus(status)) {
+    return 'En attente';
+  }
+
+  return 'Non communiquée';
+}
+
+function PaymentDetailsCard({
   status,
   payment,
+  fallbackPriority,
+  fallbackUid,
 }: {
   status: string;
   payment: PaymentShadow | undefined;
+  fallbackPriority?: string | null;
+  fallbackUid?: string | null;
 }) {
-  if (!hasDocumentedPayment(status, payment)) {
+  if (!hasStructuredPaymentDetails(payment)) {
     return null;
   }
 
   return (
-    <div className="sp-card">
+    <div className="sp-card sp-payment-details-card">
       <div className="sp-stack sp-stack--compact">
-        <div className="sp-section__title">Reçu documentaire</div>
-        <div className="sp-inline-card">
-          <div className="sp-inline-card__row">
-            <div className="sp-inline-card__content">
-              <div className="sp-inline-card__title">Statut du paiement</div>
-              <div className="sp-inline-card__meta">{paymentReceiptStatusLabel(payment)}</div>
+        <div className="sp-section__title">Détails du paiement</div>
+        <div className="sp-payment-details-card__grid">
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Montant exact</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentAmountLabel(payment)}</div>
+          </div>
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Formule choisie</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentFormulaLabel(payment, fallbackPriority)}</div>
+          </div>
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Statut</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentSurfaceStatusLabel(status, payment)}</div>
+          </div>
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Date de transaction</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentTransactionDateLabel(status, payment)}</div>
+          </div>
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Référence interne</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value sp-payment-details-card__value--reference">
+              {paymentReferenceLabel(payment, fallbackUid)}
             </div>
           </div>
-        </div>
-        <div className="sp-inline-card">
-          <div className="sp-inline-card__row">
-            <div className="sp-inline-card__content">
-              <div className="sp-inline-card__title">Montant</div>
-              <div className="sp-inline-card__meta">{paymentAmountLabel(payment)}</div>
-            </div>
-          </div>
-        </div>
-        <div className="sp-inline-card">
-          <div className="sp-inline-card__row">
-            <div className="sp-inline-card__content">
-              <div className="sp-inline-card__title">Prestataire</div>
-              <div className="sp-inline-card__meta">{paymentProviderLabel(payment?.provider)}</div>
-            </div>
+          <div className="sp-inline-card sp-payment-details-card__item">
+            <div className="sp-inline-card__title">Prestataire</div>
+            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentProviderLabel(payment?.provider)}</div>
           </div>
         </div>
       </div>
@@ -2096,28 +2167,34 @@ function PatientPaymentSection({
   );
 }
 
-function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
+function PdfCard({
+  status,
+  pdf,
+  downloadBusy = false,
+  onDownload,
+}: {
+  status: string;
+  pdf: PdfState | null;
+  downloadBusy?: boolean;
+  onDownload: () => void | Promise<void>;
+}) {
   const normalizedStatus = String(status || '').toLowerCase();
   if (normalizedStatus !== 'approved') return null;
 
   const pdfStatus = String(pdf?.status || '').toLowerCase();
-  const downloadUrl = String(pdf?.download_url || '');
-  const canDownload = Boolean(pdf?.can_download && downloadUrl);
+  const canDownload = Boolean(pdf?.can_download);
 
   if (canDownload) {
     return (
       <div className="sp-alert sp-alert--success">
         <div className="sp-alert__title">Ordonnance</div>
         <div className="sp-alert__body">
-          Votre ordonnance est prête. Le lien est sécurisé et régénéré automatiquement.
+          Votre ordonnance est prête. Le lien de téléchargement sécurisé est régénéré au moment du clic.
         </div>
         <div className="sp-inline-actions">
-          <Button type="button" onClick={() => openPresignedPdf(downloadUrl)}>
-            Télécharger mon ordonnance
+          <Button type="button" onClick={() => void onDownload()} disabled={downloadBusy}>
+            {downloadBusy ? 'Préparation du lien sécurisé…' : 'Télécharger l’ordonnance'}
           </Button>
-          <ButtonLink href={downloadUrl} variant="secondary">
-            Ouvrir le PDF
-          </ButtonLink>
         </div>
       </div>
     );
@@ -2131,7 +2208,7 @@ function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
     );
   }
 
-  if (pdfStatus === 'done' && !downloadUrl) {
+  if (pdfStatus === 'done' && !pdf?.download_url) {
     return (
       <Notice variant="warning" title="Ordonnance">
         Ordonnance générée — synchronisation du lien de téléchargement en cours.
@@ -2558,6 +2635,7 @@ export default function PatientConsole() {
   const [error, setError] = useState<string | null>(null);
   const [apiBanner, setApiBanner] = useState<string | null>(null);
   const [pdfStates, setPdfStates] = useState<Record<number, PdfState>>({});
+  const [pdfDownloadBusyId, setPdfDownloadBusyId] = useState<number | null>(null);
   const [workspace, setWorkspace] = useState<'requests' | 'profile'>('requests');
   const [profileSnapshot, setProfileSnapshot] = useState<PatientProfileSnapshot>(() => ({
     patientProfile: cfg.patientProfile,
@@ -2608,6 +2686,7 @@ export default function PatientConsole() {
       setDetail(null);
       setMessages([]);
       setPdfStates({});
+      setPdfDownloadBusyId(null);
     }
   }, [clearPulseTimer, isLoggedIn]);
 
@@ -2676,6 +2755,17 @@ export default function PatientConsole() {
 
   const selectedStatus = normalizeStatusValue(selectedSummary?.status || detail?.status || '');
   const selectedPdf = selectedId ? pdfStates[selectedId] || null : null;
+  const activePayment = useMemo<PaymentShadow | undefined>(() => {
+    if (!selectedSummary?.payment && !detail?.payment) {
+      return undefined;
+    }
+
+    return {
+      ...(detail?.payment || {}),
+      ...(selectedSummary?.payment || {}),
+    };
+  }, [detail?.payment, selectedSummary?.payment]);
+  const selectedPaymentPriority = normalizeStatusValue(String(activePayment?.priority || selectedSummary?.priority || detail?.priority || ''));
   const requestTitle = useMemo(
     () => buildPrescriptionTitle(detail?.primary_reason || selectedSummary?.primary_reason, detail?.created_at || selectedSummary?.created_at || ''),
     [detail?.created_at, detail?.primary_reason, selectedSummary?.created_at, selectedSummary?.primary_reason]
@@ -3219,6 +3309,48 @@ export default function PatientConsole() {
     [cfg.restBase, fileIndex]
   );
 
+  const handlePrescriptionPdfDownload = useCallback(async (prescriptionId: number): Promise<void> => {
+    if (prescriptionId < 1) {
+      return;
+    }
+
+    setPdfDownloadBusyId(prescriptionId);
+    setError(null);
+    setApiBanner(null);
+
+    try {
+      const payload = await getPatientPdfStatus(prescriptionId);
+      const banner = resolveBannerFromPayload(payload);
+      if (banner) {
+        throw new Error(banner);
+      }
+
+      const normalized = normalizePdfState(payload);
+      setPdfStates((current) => ({
+        ...current,
+        [prescriptionId]: normalized,
+      }));
+
+      const freshUrl = String(normalized.download_url || '').trim();
+      const canDownload = Boolean(normalized.can_download && freshUrl !== '');
+      if (!canDownload) {
+        throw new Error(normalized.last_error_message || normalized.message || 'Le document sécurisé est en cours de préparation.');
+      }
+
+      openPresignedPdf(freshUrl);
+    } catch (err) {
+      const banner = resolveBannerFromError(err);
+      if (banner) {
+        setApiBanner(banner);
+        setError(null);
+      } else {
+        setError(resolveUnknownErrorMessage(err, 'Le document sécurisé est temporairement indisponible.'));
+      }
+    } finally {
+      setPdfDownloadBusyId((current) => (current === prescriptionId ? null : current));
+    }
+  }, []);
+
   if (!isLoggedIn) {
     return (
       <div className="sp-page-shell sp-page-shell--narrow sp-app-theme">
@@ -3370,18 +3502,23 @@ export default function PatientConsole() {
                     decisionReason={detail.decision_reason}
                   />
 
-                  <PdfCard status={selectedStatus} pdf={selectedPdf} />
+                  <PdfCard
+                    status={selectedStatus}
+                    pdf={selectedPdf}
+                    downloadBusy={pdfDownloadBusyId === detail.id}
+                    onDownload={() => handlePrescriptionPdfDownload(detail.id)}
+                  />
 
                   {isPaymentPendingStatus(selectedStatus) ? (
                     <div className="sp-section">
                       <PatientPaymentSection
                         prescriptionId={detail.id}
-                        priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
+                        priority={selectedPaymentPriority === 'express' ? 'express' : 'standard'}
                         billingName={paymentBillingName}
                         billingEmail={paymentBillingEmail}
-                        amountCents={detail.payment?.amount_cents ?? selectedSummary?.payment?.amount_cents ?? null}
-                        currency={detail.payment?.currency ?? selectedSummary?.payment?.currency ?? 'EUR'}
-                        etaValue={selectedSummary?.priority === 'express' ? 'Traitement prioritaire' : null}
+                        amountCents={activePayment?.amount_cents ?? null}
+                        currency={activePayment?.currency ?? 'EUR'}
+                        etaValue={selectedPaymentPriority === 'express' ? 'Traitement prioritaire' : null}
                         onPaid={() => {
                           void refreshList({ silent: true });
                           void loadDetail(detail.id, true);
@@ -3389,12 +3526,14 @@ export default function PatientConsole() {
                         }}
                       />
                     </div>
-                  ) : (
-                    <PaymentReceiptCard
-                      status={selectedStatus}
-                      payment={detail.payment || selectedSummary?.payment}
-                    />
-                  )}
+                  ) : null}
+
+                  <PaymentDetailsCard
+                    status={selectedStatus}
+                    payment={activePayment}
+                    fallbackPriority={selectedPaymentPriority !== '' ? selectedPaymentPriority : null}
+                    fallbackUid={detail.uid || selectedSummary?.uid || null}
+                  />
 
                   <RequestDetailsDisclosure fields={requestDetails} />
 
