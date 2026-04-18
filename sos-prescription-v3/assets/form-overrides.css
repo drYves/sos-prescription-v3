@@ -1,43 +1,10 @@
 /*
-  SosPrescription — correctifs UI (front)
-  Objectif : éviter les collisions avec les thèmes WordPress (styles globaux sur <button>, etc.)
-  et garantir la lisibilité de la liste de résultats (autocomplete médicaments).
+  SOS Prescription — styles complémentaires front
+  ----------------------------------------------
+  Le shell GeneratePress étant maîtrisé, cette feuille ne conserve plus que
+  des styles sémantiques locaux. Les rustines agressives destinées à survivre
+  aux thèmes tiers ont été retirées en V8.8.0.
 */
-
-/* Tailwind compat : certains bundles utilisent la classe `hidden` */
-#sosprescription-root-form .hidden,
-#sosprescription-root-patient .hidden {
-  display: none !important;
-}
-
-
-/*
-  Certains thèmes imposent un fond sombre sur tous les <button>.
-  La liste de résultats de l'autocomplete est composée de boutons :
-  on force un fond clair uniquement dans le conteneur "shadow-lg" (dropdown).
-*/
-#sosprescription-root-form .shadow-lg {
-  background: #ffffff !important;
-}
-
-#sosprescription-root-form .shadow-lg button {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border: 0 !important;
-}
-
-#sosprescription-root-form .shadow-lg button:hover,
-#sosprescription-root-form .shadow-lg button:focus {
-  background: #f9fafb !important;
-  color: #111827 !important;
-}
-
-/* Empêche certains thèmes d'appliquer des effets d'opacité ou de filtres. */
-#sosprescription-root-form .shadow-lg,
-#sosprescription-root-form .shadow-lg * {
-  opacity: 1 !important;
-  filter: none !important;
-}
 
 /* Auth hint (shown when the visitor is not logged in) */
 .sp-auth-hint {
@@ -102,7 +69,9 @@
 }
 
 @media (max-width: 720px) {
-  .sp-profile-grid { grid-template-columns: 1fr; }
+  .sp-profile-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .sp-field span {
@@ -185,139 +154,6 @@
   background: #111827;
   color: #fff;
 }
-
-/* Bentos (choose step) — certains thèmes imposent un fond sombre sur les <button> */
-#sosprescription-root-form button.rounded-xl.border.p-4.text-left.transition {
-  background: #ffffff !important;
-  color: #111827 !important;
-}
-
-#sosprescription-root-form button.rounded-xl.border.p-4.text-left.transition:hover,
-#sosprescription-root-form button.rounded-xl.border.p-4.text-left.transition:focus {
-  background: #f9fafb !important;
-  color: #111827 !important;
-}
-
-/*
-  Patient portal hardening (thèmes WP agressifs)
-  - Certains thèmes surchargent fortement les <button> (fond sombre / texte blanc).
-  - On force ici un rendu lisible et cohérent dans l'espace patient.
-*/
-
-/* Sidebar list (Mes demandes) */
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button {
-  background-color: #fff !important;
-  color: #111827 !important;
-}
-
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button:hover,
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button:focus {
-  background-color: #f9fafb !important;
-  color: #111827 !important;
-}
-
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button.bg-blue-50 {
-  background: #eff6ff !important;
-}
-
-
-/* Ensure request IDs remain readable even if the theme overrides button styles */
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button .text-gray-900 {
-  color: #111827 !important;
-}
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button .text-gray-600 {
-  color: #4b5563 !important;
-}
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button .text-gray-500 {
-  color: #6b7280 !important;
-}
-
-#sosprescription-root-form[data-app="patient"] div[class*="max-h-[560px]"] > button * {
-  color: inherit !important;
-}
-
-/* Chat compose (espace patient) — mise en page stable sur colonnes étroites
-   - Certains thèmes WP surchargent .flex / button et font "danser" les éléments.
-   - On fige le layout : trombone + zone texte + envoyer sur une seule ligne (no-wrap).
-*/
-#sosprescription-root-form[data-app="patient"] .flex.items-end.gap-2 {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  align-items: flex-end !important;
-  gap: 0.5rem !important;
-}
-
-#sosprescription-root-form[data-app="patient"] .flex.items-end.gap-2 .flex-1 {
-  min-width: 0 !important;
-}
-
-/* Bouton trombone */
-#sosprescription-root-form[data-app="patient"] button[aria-label="Ajouter un document"]:not(.sp-chat-attach-btn) {
-  width: 40px !important;
-  min-width: 40px !important;
-  height: 40px !important;
-  border-radius: 10px !important;
-  /* Ne pas dépendre d'un emoji (certaines polices personnalisées n'ont pas le glyphe). */
-  font-size: 18px !important;
-  color: #4b5563 !important;
-  /* IMPORTANT : utiliser la propriété shorthand "background" pour éviter qu'un thème WP
-     remplace background-image via un autre background: ... !important */
-  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234b5563' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E") no-repeat center / 18px 18px !important;
-  border: 1px solid #d1d5db !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 0 !important;
-}
-
-#sosprescription-root-form[data-app="patient"] button[aria-label="Ajouter un document"]:not(.sp-chat-attach-btn) span {
-  /* Masque l'emoji éventuel : l'icône est rendue via background-image. */
-  display: none !important;
-}
-
-#sosprescription-root-form[data-app="patient"] button[aria-label="Ajouter un document"]:not(.sp-chat-attach-btn):hover,
-#sosprescription-root-form[data-app="patient"] button[aria-label="Ajouter un document"]:not(.sp-chat-attach-btn):focus {
-  /* background-color ne supprime pas l'icône (contrairement à "background") */
-  background-color: #f9fafb !important;
-  color: #111827 !important;
-}
-
-/* Zone de saisie compacte */
-#sosprescription-root-form[data-app="patient"] .flex.items-end.gap-2 textarea {
-  min-height: 72px !important;
-  height: auto !important;
-  resize: vertical !important;
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
-}
-
-/* Bouton envoyer : taille mobile, évite les retours à la ligne */
-#sosprescription-root-form[data-app="patient"] .flex.items-end.gap-2 > button:not([aria-label="Ajouter un document"]) {
-  padding: 0 14px !important;
-  min-height: 40px !important;
-  height: 40px !important;
-  width: auto !important;
-  border-radius: 10px !important;
-  font-size: 14px !important;
-  white-space: nowrap !important;
-}
-
-#sosprescription-root-form[data-app="patient"] .flex.items-end.gap-2 > button:not([aria-label="Ajouter un document"]) span {
-  line-height: 1 !important;
-}
-
-/* Chat send button: smaller (mobile-style). We scope to the chat composer card to avoid side effects. */
-#sosprescription-root-form[data-app="patient"] div[class*="bg-gray-50"][class*="p-3"] .flex.items-end.gap-2 > button:not([aria-label]) {
-  padding: 0.5rem 0.75rem !important;
-  min-height: 40px !important;
-  height: 40px !important;
-  width: auto !important;
-}
-
-#sosprescription-root-form[data-app="patient"] div[class*="bg-gray-50"][class*="p-3"] .flex.items-end.gap-2 > button:not([aria-label]) span {
-  line-height: 1 !important;
-}
-
 
 /* -------------------------------------------------------
    Patient chat (Premium) — stable composer + icons visibles

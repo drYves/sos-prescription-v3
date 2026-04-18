@@ -105,14 +105,14 @@
 
   /* Containers */
   --sp-shell-container-reading: 47.5rem;
-  --sp-shell-container-public: 75rem;
-  --sp-shell-workspace-max: 75rem;
+  --sp-shell-container-public: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-shell-workspace-max: var(--container-width, var(--gb-container-width, 75rem));
   --sp-shell-workspace-gutter: clamp(1.25rem, 3.2vw, 2.5rem);
   --sp-shell-sidebar-width: 18rem;
-  --sp-shell-container-app: 96rem;
-  --sp-shell-container-app-compact: 75rem;
-  --sp-shell-container-console: 80rem;
-  --sp-shell-container-console-compact: 75rem;
+  --sp-shell-container-app: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-shell-container-app-compact: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-shell-container-console: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-shell-container-console-compact: var(--container-width, var(--gb-container-width, 75rem));
   --sp-shell-card-padding-block: clamp(1.2rem, 1rem + 0.7vw, 1.65rem);
   --sp-shell-card-padding-inline: clamp(1.25rem, 1rem + 0.85vw, 1.8rem);
   --sp-shell-message-bubble-max: 70%;
@@ -149,9 +149,6 @@
   --sp-shell-z-modal: 300;
 
   /* Convenience aliases */
-  --gb-container-width: var(--sp-shell-container-public);
-  --container-width: var(--sp-shell-container-public);
-  --container-padding: var(--sp-shell-space-6);
   --sp-shell-header-offset: 6rem;
 
   --sp-font-body: var(--sp-shell-font-body);

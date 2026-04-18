@@ -1493,3 +1493,39 @@ body.no-sidebar .sp-shell--console .sp-app-sidebar {
     ) !important;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   V8.8.0 — GPP-Ready Phase 1
+   GeneratePress redevient l’autorité du canevas primaire.
+   Les barres applicatives vivent désormais dans .inside-article et
+   n’imposent plus de full-bleed ni de conteneur parallèle.
+   -------------------------------------------------------------------------- */
+.sp-shell--app,
+.sp-shell--console {
+  --sp-layout-workspace: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-layout-axis-width: var(--sp-layout-workspace);
+}
+
+.sp-rolebar,
+.sp-console-bar {
+  width: 100%;
+  margin-inline: 0;
+}
+
+.sp-rolebar > .sp-container,
+.sp-console-bar > .sp-container,
+.sp-rolebar--no-sidebar > .sp-container {
+  width: 100% !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  padding-inline: clamp(1rem, 2.4vw, 1.5rem) !important;
+}
+
+@media (max-width: 768px) {
+  .sp-rolebar > .sp-container,
+  .sp-console-bar > .sp-container,
+  .sp-rolebar--no-sidebar > .sp-container {
+    padding-inline: clamp(0.9rem, 4vw, 1.1rem) !important;
+  }
+}

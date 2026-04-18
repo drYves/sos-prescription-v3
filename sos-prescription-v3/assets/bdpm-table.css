@@ -4,7 +4,7 @@
   --sp-bdpm-border: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
   --sp-bdpm-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 18px 34px rgba(15, 23, 42, 0.06);
   --sp-bdpm-radius: calc(var(--sp-shell-radius-xl, 22px) - 2px);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: inherit;
   color: var(--sp-shell-color-text-1, #111827);
   min-width: 0;
 }
