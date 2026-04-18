@@ -1,7 +1,8 @@
-// PatientConsole.tsx · V7.0.5
+// PatientConsole.tsx · V8.1.0
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
+import StripePaymentModule, { type StripePaymentIntentPayload, toMedicalGradePaymentErrorMessage } from './payment/StripePaymentModule';
 
 type Scope = 'patient' | 'form' | 'admin';
 
@@ -138,14 +139,6 @@ type PdfState = {
   last_error_message?: string | null;
 };
 
-type PaymentIntentResponse = {
-  client_secret: string | null;
-  payment_intent_id: string | null;
-  amount_cents: number;
-  currency: string;
-  publishable_key: string;
-};
-
 type PatientPulseItem = {
   id: number;
   uid: string;
@@ -199,23 +192,6 @@ class ApiPayloadError extends Error {
 type PatientConsoleWindow = Window & {
   SosPrescription?: AppConfig;
   SOSPrescription?: AppConfig;
-  Stripe?: (
-    publishableKey: string
-  ) => {
-    elements: () => {
-      create: (type: string) => {
-        mount: (element: HTMLElement) => void;
-        destroy: () => void;
-      };
-    };
-    confirmCardPayment: (
-      clientSecret: string,
-      payload: Record<string, unknown>
-    ) => Promise<{
-      error?: { message?: string };
-      paymentIntent?: { id?: string };
-    }>;
-  };
 };
 
 function getAppConfig(): AppConfig {
@@ -1514,8 +1490,8 @@ async function postPatientMessage(id: number, body: string, attachments?: number
   };
 }
 
-async function createPaymentIntent(id: number, priority: 'express' | 'standard'): Promise<PaymentIntentResponse> {
-  return apiJson<PaymentIntentResponse>(
+async function createPaymentIntent(id: number, priority: 'express' | 'standard'): Promise<StripePaymentIntentPayload> {
+  return apiJson<StripePaymentIntentPayload>(
     `/prescriptions/${id}/payment/intent`,
     {
       method: 'POST',
@@ -1658,8 +1634,8 @@ function statusInfo(status: string): { variant: 'info' | 'success' | 'warning' |
   if (normalized === 'payment_pending') {
     return {
       variant: 'warning',
-      label: 'Paiement requis',
-      hint: 'Finalisez le paiement sécurisé pour lancer l’analyse médicale de votre dossier.',
+      label: 'Paiement à finaliser',
+      hint: 'Votre dossier est prêt. Il ne manque plus que la validation sécurisée de l’empreinte bancaire.',
     };
   }
   if (normalized === 'pending' || normalized === 'in_review' || normalized === 'needs_info') {
@@ -1727,36 +1703,6 @@ function formatMoney(amountCents: number | null | undefined, currency: string | 
   } catch {
     return `${(cents / 100).toFixed(2)} ${code}`;
   }
-}
-
-let stripeScriptPromise: Promise<void> | null = null;
-
-function ensureStripeJs(): Promise<void> {
-  const g = (typeof window !== 'undefined' ? window : null) as PatientConsoleWindow | null;
-  if (g && typeof g.Stripe === 'function') {
-    return Promise.resolve();
-  }
-
-  if (!stripeScriptPromise) {
-    stripeScriptPromise = new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector<HTMLScriptElement>('script[data-stripe-js="1"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js')));
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = 'https://js.stripe.com/v3/';
-      script.async = true;
-      script.dataset.stripeJs = '1';
-      script.addEventListener('load', () => resolve());
-      script.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js')));
-      document.body.appendChild(script);
-    });
-  }
-
-  return stripeScriptPromise;
 }
 
 
@@ -1997,180 +1943,143 @@ function RequestDetailsDisclosure({ fields }: { fields: RequestDetailField[] }) 
   );
 }
 
-function PaymentCard({
+function paymentProviderLabel(provider: string | null | undefined): string {
+  const normalized = normalizeStatusValue(String(provider || ''));
+  if (normalized === 'stripe') {
+    return 'Stripe';
+  }
+
+  return provider && String(provider).trim() !== '' ? String(provider).trim() : 'Prestataire sécurisé';
+}
+
+function paymentReceiptStatusLabel(payment: PaymentShadow | undefined): string {
+  const normalized = normalizeStatusValue(String(payment?.status || ''));
+
+  if (normalized === 'requires_capture' || normalized === 'succeeded' || normalized === 'captured') {
+    return 'Empreinte bancaire validée';
+  }
+
+  if (normalized === 'processing') {
+    return 'Validation bancaire en cours';
+  }
+
+  if (normalized === 'canceled' || normalized === 'cancelled') {
+    return 'Paiement annulé';
+  }
+
+  return 'Empreinte bancaire enregistrée';
+}
+
+function hasDocumentedPayment(status: string, payment: PaymentShadow | undefined): boolean {
+  if (!payment || isPaymentPendingStatus(status)) {
+    return false;
+  }
+
+  if (typeof payment.amount_cents === 'number') {
+    return true;
+  }
+
+  if (payment.provider && String(payment.provider).trim() !== '') {
+    return true;
+  }
+
+  return normalizeStatusValue(String(payment.status || '')) !== '';
+}
+
+function paymentAmountLabel(payment: PaymentShadow | undefined): string {
+  if (typeof payment?.amount_cents === 'number') {
+    return formatMoney(payment.amount_cents, payment.currency ?? 'EUR');
+  }
+
+  return 'Non communiqué';
+}
+
+function PaymentReceiptCard({
+  status,
+  payment,
+}: {
+  status: string;
+  payment: PaymentShadow | undefined;
+}) {
+  if (!hasDocumentedPayment(status, payment)) {
+    return null;
+  }
+
+  return (
+    <div className="sp-card">
+      <div className="sp-stack sp-stack--compact">
+        <div className="sp-section__title">Reçu documentaire</div>
+        <div className="sp-inline-card">
+          <div className="sp-inline-card__row">
+            <div className="sp-inline-card__content">
+              <div className="sp-inline-card__title">Statut du paiement</div>
+              <div className="sp-inline-card__meta">{paymentReceiptStatusLabel(payment)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="sp-inline-card">
+          <div className="sp-inline-card__row">
+            <div className="sp-inline-card__content">
+              <div className="sp-inline-card__title">Montant</div>
+              <div className="sp-inline-card__meta">{paymentAmountLabel(payment)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="sp-inline-card">
+          <div className="sp-inline-card__row">
+            <div className="sp-inline-card__content">
+              <div className="sp-inline-card__title">Prestataire</div>
+              <div className="sp-inline-card__meta">{paymentProviderLabel(payment?.provider)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PatientPaymentSection({
   prescriptionId,
   priority,
+  billingName,
+  billingEmail,
+  amountCents,
+  currency,
+  etaValue,
   onPaid,
-  onIntentReady,
 }: {
   prescriptionId: number;
   priority: 'express' | 'standard';
+  billingName?: string;
+  billingEmail?: string;
+  amountCents?: number | null;
+  currency?: string | null;
+  etaValue?: string | null;
   onPaid: () => void;
-  onIntentReady?: (intent: { amountCents: number; currency: string }) => void;
 }) {
-  const cfg = getAppConfig();
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<ReturnType<NonNullable<PatientConsoleWindow['Stripe']>> | null>(null);
-  const cardRef = useRef<{ destroy: () => void } | null>(null);
-
-  const [initializing, setInitializing] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
-  const [amountCents, setAmountCents] = useState<number | null>(null);
-  const [currency, setCurrency] = useState<string>('EUR');
-
-  useEffect(() => {
-    let disposed = false;
-
-    async function boot(): Promise<void> {
-      setError(null);
-      setInitializing(true);
-
-      try {
-        const intent = await createPaymentIntent(prescriptionId, priority);
-        if (disposed) return;
-
-        setClientSecret(intent.client_secret);
-        setPaymentIntentId(intent.payment_intent_id);
-        setAmountCents(intent.amount_cents);
-        setCurrency(intent.currency);
-        onIntentReady?.({
-          amountCents: intent.amount_cents,
-          currency: intent.currency,
-        });
-
-        if (!intent.publishable_key) {
-          throw new Error('Stripe n’est pas configuré (clé publique manquante).');
-        }
-
-        await ensureStripeJs();
-        if (disposed) return;
-        const g = window as PatientConsoleWindow;
-        if (typeof g.Stripe !== 'function') {
-          throw new Error('Stripe.js indisponible.');
-        }
-        if (!mountRef.current) {
-          throw new Error('Zone de paiement introuvable.');
-        }
-
-        stripeRef.current = stripeRef.current || g.Stripe(intent.publishable_key);
-        const elements = stripeRef.current.elements();
-
-        if (cardRef.current) {
-          try {
-            cardRef.current.destroy();
-          } catch {
-            // ignore destroy failure
-          }
-          cardRef.current = null;
-        }
-
-        const card = elements.create('card');
-        card.mount(mountRef.current);
-        cardRef.current = card;
-      } catch (err) {
-        if (!disposed) {
-          setError(err instanceof Error ? err.message : 'Erreur initialisation paiement');
-        }
-      } finally {
-        if (!disposed) {
-          setInitializing(false);
-        }
-      }
-    }
-
-    void boot();
-
-    return () => {
-      disposed = true;
-      if (cardRef.current) {
-        try {
-          cardRef.current.destroy();
-        } catch {
-          // ignore destroy failure
-        }
-        cardRef.current = null;
-      }
-    };
-  }, [onIntentReady, prescriptionId, priority]);
-
-  const handleSubmit = async (): Promise<void> => {
-    setError(null);
-
-    if (!clientSecret) {
-      setError('Client secret manquant.');
-      return;
-    }
-    if (!stripeRef.current || !cardRef.current) {
-      setError('Stripe n’est pas prêt.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const paymentResult = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardRef.current,
-          billing_details: {
-            name: cfg.currentUser?.displayName,
-            email: cfg.currentUser?.email,
-          },
-        },
-      });
-
-      if (paymentResult?.error) {
-        throw new Error(paymentResult.error.message || 'Paiement refusé.');
-      }
-
-      const paymentId = paymentResult?.paymentIntent?.id || paymentIntentId;
-      if (!paymentId) {
-        throw new Error('PaymentIntent invalide.');
-      }
-
-      await confirmPaymentIntent(prescriptionId, paymentId);
-      onPaid();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur paiement');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const createIntentHandler = useCallback(() => createPaymentIntent(prescriptionId, priority), [prescriptionId, priority]);
+  const confirmIntentHandler = useCallback((paymentIntentId: string) => confirmPaymentIntent(prescriptionId, paymentIntentId), [prescriptionId]);
 
   return (
-    <div className="sp-card sp-payment-card">
-      <div className="sp-section__title">Paiement sécurisé</div>
-      <div className="sp-payment-card__summary">
-        Montant : <span className="sp-text-strong">{formatMoney(amountCents, currency)}</span>
-      </div>
-      <div className="sp-payment-card__notice">
-        Zéro frais si refus médical. (Autorisation uniquement)
-      </div>
-
-      {error ? (
-        <div className="sp-inline-note">
-          <Notice variant="error">{error}</Notice>
-        </div>
-      ) : null}
-
-      <div className="sp-payment-card__mount">
-        {initializing ? (
-          <div className="sp-loading-row">
-            <Spinner />
-            <span>Initialisation…</span>
-          </div>
-        ) : (
-          <div ref={mountRef} />
-        )}
-      </div>
-
-      <div className="sp-payment-card__footer">
-        <Button type="button" onClick={handleSubmit} disabled={initializing || submitting}>
-          {submitting ? <Spinner /> : amountCents ? `Payer ${formatMoney(amountCents, currency)}` : 'Payer la demande'}
-        </Button>
-      </div>
-    </div>
+    <StripePaymentModule
+      mode="patient_space"
+      title="Paiement à finaliser"
+      intro="Votre dossier est prêt. Il n’attend plus que la validation sécurisée de l’empreinte bancaire avant son traitement médical."
+      note="Empreinte bancaire sécurisée via Stripe • Aucun débit avant validation médicale"
+      amountCents={amountCents ?? null}
+      currency={currency || 'EUR'}
+      etaValue={etaValue || null}
+      billingName={billingName}
+      billingEmail={billingEmail}
+      createIntent={createIntentHandler}
+      confirmIntent={confirmIntentHandler}
+      onAuthorized={onPaid}
+      safeErrorMessage={toMedicalGradePaymentErrorMessage}
+      submitIdleLabel={amountCents ? `Finaliser mon paiement — ${formatMoney(amountCents, currency || 'EUR')}` : 'Finaliser mon paiement'}
+      submitBusyLabel="Validation sécurisée en cours…"
+      mountLoadingLabel="Chargement du formulaire de paiement sécurisé…"
+      submittingStatusLabel="Validation bancaire sécurisée en cours. Ne fermez pas la page et ne cliquez pas une seconde fois."
+    />
   );
 }
 
@@ -2553,9 +2462,9 @@ export default function PatientConsole() {
     currentUser: cfg.currentUser,
   }));
 
-  const paymentSectionRef = useRef<HTMLDivElement | null>(null);
   const prescriptionsRef = useRef<PrescriptionSummary[]>([]);
   const selectedIdRef = useRef<number | null>(null);
+  const [pulseCollectionHash, setPulseCollectionHash] = useState<string>('');
   const pulseCollectionHashRef = useRef<string>('');
   const pulseInFlightRef = useRef(false);
   const listRequestSeqRef = useRef(0);
@@ -2583,6 +2492,7 @@ export default function PatientConsole() {
   useEffect(() => {
     if (!isLoggedIn) {
       pulseCollectionHashRef.current = '';
+      setPulseCollectionHash('');
       setPrescriptions([]);
       setSelectedId(null);
       setDetail(null);
@@ -2626,6 +2536,33 @@ export default function PatientConsole() {
     () => isPatientProfileComplete(profileSnapshot.patientProfile, profileSnapshot.currentUser),
     [profileSnapshot.currentUser, profileSnapshot.patientProfile]
   );
+
+  const paymentProfileSeed = useMemo(
+    () => buildPatientProfileSeed(profileSnapshot.patientProfile, profileSnapshot.currentUser),
+    [profileSnapshot.currentUser, profileSnapshot.patientProfile]
+  );
+  const paymentBillingName = useMemo(() => {
+    const combined = cleanHumanText([paymentProfileSeed.first_name, paymentProfileSeed.last_name].filter(Boolean).join(' '));
+    return combined
+      || cleanHumanText(profileSnapshot.patientProfile?.fullname)
+      || cleanHumanText(profileSnapshot.patientProfile?.full_name)
+      || cleanHumanText(profileSnapshot.patientProfile?.fullName)
+      || cleanHumanText(profileSnapshot.currentUser?.displayName)
+      || undefined;
+  }, [
+    paymentProfileSeed.first_name,
+    paymentProfileSeed.last_name,
+    profileSnapshot.currentUser?.displayName,
+    profileSnapshot.patientProfile?.fullName,
+    profileSnapshot.patientProfile?.full_name,
+    profileSnapshot.patientProfile?.fullname,
+  ]);
+  const paymentBillingEmail = useMemo(() => {
+    const email = cleanHumanText(profileSnapshot.patientProfile?.email)
+      || cleanHumanText(profileSnapshot.currentUser?.email)
+      || cleanHumanText(paymentProfileSeed.email);
+    return email || undefined;
+  }, [paymentProfileSeed.email, profileSnapshot.currentUser?.email, profileSnapshot.patientProfile?.email]);
 
   const selectedStatus = normalizeStatusValue(selectedSummary?.status || detail?.status || '');
   const selectedPdf = selectedId ? pdfStates[selectedId] || null : null;
@@ -2921,7 +2858,8 @@ export default function PatientConsole() {
 
     pulseInFlightRef.current = true;
     try {
-      const payload = await getPatientPulse(pulseCollectionHashRef.current || undefined);
+      const knownCollectionHash = pulseCollectionHashRef.current || pulseCollectionHash || undefined;
+      const payload = await getPatientPulse(knownCollectionHash);
       const normalized = normalizePatientPulseResponse(payload);
       if (!normalized) {
         debugApiPayload(payload, {
@@ -2932,6 +2870,7 @@ export default function PatientConsole() {
       }
 
       pulseCollectionHashRef.current = normalized.collection_hash;
+      setPulseCollectionHash((current) => current === normalized.collection_hash ? current : normalized.collection_hash);
       if (normalized.unchanged) {
         return;
       }
@@ -3023,7 +2962,7 @@ export default function PatientConsole() {
     } finally {
       pulseInFlightRef.current = false;
     }
-  }, [isLoggedIn, loadDetail, loadMessages, loadPdfStatus, refreshList]);
+  }, [isLoggedIn, loadDetail, loadMessages, loadPdfStatus, pulseCollectionHash, refreshList]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -3314,13 +3253,16 @@ export default function PatientConsole() {
 
                   <PdfCard status={selectedStatus} pdf={selectedPdf} />
 
-                  <RequestDetailsDisclosure fields={requestDetails} />
-
                   {isPaymentPendingStatus(selectedStatus) ? (
-                    <div ref={paymentSectionRef} className="sp-section">
-                      <PaymentCard
+                    <div className="sp-section">
+                      <PatientPaymentSection
                         prescriptionId={detail.id}
                         priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
+                        billingName={paymentBillingName}
+                        billingEmail={paymentBillingEmail}
+                        amountCents={detail.payment?.amount_cents ?? selectedSummary?.payment?.amount_cents ?? null}
+                        currency={detail.payment?.currency ?? selectedSummary?.payment?.currency ?? 'EUR'}
+                        etaValue={selectedSummary?.priority === 'express' ? 'Traitement prioritaire' : null}
                         onPaid={() => {
                           void refreshList({ silent: true });
                           void loadDetail(detail.id, true);
@@ -3328,7 +3270,14 @@ export default function PatientConsole() {
                         }}
                       />
                     </div>
-                  ) : null}
+                  ) : (
+                    <PaymentReceiptCard
+                      status={selectedStatus}
+                      payment={detail.payment || selectedSummary?.payment}
+                    />
+                  )}
+
+                  <RequestDetailsDisclosure fields={requestDetails} />
 
                   {(detail.files || []).length > 0 ? (
                     <div className="sp-section">

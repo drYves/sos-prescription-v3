@@ -17,6 +17,8 @@ final class PatientV4Controller extends \WP_REST_Controller
     private const NAMESPACE_V4 = 'sosprescription/v4';
     private const ROW_REV_HASH_LENGTH = 24;
     private const COLLECTION_HASH_LENGTH = 32;
+    private const PULSE_CACHE_TTL = 600;
+    private const PULSE_CACHE_KEY_PREFIX = 'sosprescription_patient_pulse_';
 
     private ?WorkerApiClient $workerApiClient = null;
 
@@ -132,23 +134,66 @@ final class PatientV4Controller extends \WP_REST_Controller
     {
         $reqId = $this->build_req_id();
         $actor = $this->build_patient_actor_payload();
+        $patientWpUserId = (int) ($actor['wp_user_id'] ?? 0);
         $knownCollectionHash = $this->normalize_collection_hash($request->get_param('known_collection_hash'));
+        $cachedSnapshot = $patientWpUserId > 0 ? $this->load_pulse_cache_snapshot($patientWpUserId) : null;
+        $knownWorkerCollectionHash = $this->resolve_known_worker_collection_hash($knownCollectionHash, $cachedSnapshot);
 
         try {
+            $workerRequestPayload = [
+                'actor' => $actor,
+            ];
+
+            if ($knownWorkerCollectionHash !== null) {
+                $workerRequestPayload['known_collection_hash'] = $knownWorkerCollectionHash;
+            }
+
             $workerPayload = $this->get_worker_api_client()->postSignedJson(
                 '/api/v2/patient/prescriptions/pulse',
-                [
-                    'actor' => $actor,
-                ],
+                $workerRequestPayload,
                 $reqId,
                 'patient_v4_pulse_get'
             );
 
-            $workerItems = $this->normalize_worker_pulse_items($workerPayload['items'] ?? []);
-            $items = $this->compose_pulse_items_with_payment_shadow($workerItems, $actor['wp_user_id']);
+            $workerResponseUnchanged = !empty($workerPayload['unchanged']);
+            $workerCollectionHash = $this->normalize_collection_hash($workerPayload['collection_hash'] ?? null);
+            $workerItemsPayload = [];
+
+            if ($workerResponseUnchanged) {
+                $workerItemsPayload = $this->extract_cached_worker_items_raw($cachedSnapshot);
+
+                if ($workerItemsPayload === []) {
+                    $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                        '/api/v2/patient/prescriptions/pulse',
+                        [
+                            'actor' => $actor,
+                        ],
+                        $reqId,
+                        'patient_v4_pulse_get_replay'
+                    );
+
+                    $workerResponseUnchanged = false;
+                    $workerCollectionHash = $this->normalize_collection_hash($workerPayload['collection_hash'] ?? null);
+                    $workerItemsPayload = is_array($workerPayload['items'] ?? null) ? $workerPayload['items'] : [];
+                }
+            } else {
+                $workerItemsPayload = is_array($workerPayload['items'] ?? null) ? $workerPayload['items'] : [];
+            }
+
+            $workerItems = $this->normalize_worker_pulse_items($workerItemsPayload);
+            $items = $this->compose_pulse_items_with_payment_shadow($workerItems, $patientWpUserId);
             $maxUpdatedAt = $this->resolve_max_updated_at($items);
             $collectionHash = $this->build_collection_hash($items, $maxUpdatedAt);
             $unchanged = $knownCollectionHash !== null && hash_equals($collectionHash, $knownCollectionHash);
+
+            if ($patientWpUserId > 0) {
+                $this->store_pulse_cache_snapshot(
+                    $patientWpUserId,
+                    $workerCollectionHash,
+                    $workerItemsPayload,
+                    $collectionHash
+                );
+            }
 
             $responsePayload = [
                 'count' => count($items),
@@ -172,7 +217,7 @@ final class PatientV4Controller extends \WP_REST_Controller
                 [
                     'controller' => __CLASS__,
                     'action' => 'get_pulse',
-                    'wp_user_id' => $actor['wp_user_id'],
+                    'wp_user_id' => $patientWpUserId,
                 ],
                 'patient_v4.pulse.failed'
             );
@@ -491,6 +536,82 @@ final class PatientV4Controller extends \WP_REST_Controller
         }
 
         return $hash;
+    }
+
+    private function build_pulse_cache_key(int $patientWpUserId): string
+    {
+        return self::PULSE_CACHE_KEY_PREFIX . max(0, $patientWpUserId);
+    }
+
+    /**
+     * @return array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null
+     */
+    private function load_pulse_cache_snapshot(int $patientWpUserId): ?array
+    {
+        if ($patientWpUserId < 1) {
+            return null;
+        }
+
+        $snapshot = get_transient($this->build_pulse_cache_key($patientWpUserId));
+        if (!is_array($snapshot)) {
+            return null;
+        }
+
+        return [
+            'worker_collection_hash' => $this->normalize_collection_hash($snapshot['worker_collection_hash'] ?? null),
+            'worker_items' => is_array($snapshot['worker_items'] ?? null) ? array_values($snapshot['worker_items']) : [],
+            'bff_collection_hash' => $this->normalize_collection_hash($snapshot['bff_collection_hash'] ?? null),
+        ];
+    }
+
+    /**
+     * @param array<int, mixed> $workerItems
+     */
+    private function store_pulse_cache_snapshot(int $patientWpUserId, ?string $workerCollectionHash, array $workerItems, string $bffCollectionHash): void
+    {
+        if ($patientWpUserId < 1) {
+            return;
+        }
+
+        set_transient(
+            $this->build_pulse_cache_key($patientWpUserId),
+            [
+                'worker_collection_hash' => $this->normalize_collection_hash($workerCollectionHash),
+                'worker_items' => array_values($workerItems),
+                'bff_collection_hash' => $this->normalize_collection_hash($bffCollectionHash),
+            ],
+            self::PULSE_CACHE_TTL
+        );
+    }
+
+    /**
+     * @param array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
+     */
+    private function resolve_known_worker_collection_hash(?string $knownCollectionHash, ?array $snapshot): ?string
+    {
+        if ($knownCollectionHash === null || !is_array($snapshot)) {
+            return null;
+        }
+
+        $snapshotBffHash = $this->normalize_collection_hash($snapshot['bff_collection_hash'] ?? null);
+        if ($snapshotBffHash === null || !hash_equals($snapshotBffHash, $knownCollectionHash)) {
+            return null;
+        }
+
+        return $this->normalize_collection_hash($snapshot['worker_collection_hash'] ?? null);
+    }
+
+    /**
+     * @param array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
+     * @return array<int, mixed>
+     */
+    private function extract_cached_worker_items_raw(?array $snapshot): array
+    {
+        if (!is_array($snapshot) || !is_array($snapshot['worker_items'] ?? null)) {
+            return [];
+        }
+
+        return array_values($snapshot['worker_items']);
     }
 
     private function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId, int $patientWpUserId): int

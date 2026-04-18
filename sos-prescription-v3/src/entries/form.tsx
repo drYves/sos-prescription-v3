@@ -4,6 +4,7 @@ import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import PatientConsole from '../components/PatientConsole';
+import StripePaymentModule, { type StripePaymentResolutionMeta, toMedicalGradePaymentErrorMessage } from '../components/payment/StripePaymentModule';
 
 type AppConfig = {
   restBase: string;
@@ -67,33 +68,6 @@ type PaymentIntentResponse = {
   priority?: string | null;
   publishable_key?: string;
   capture_method?: string | null;
-};
-
-type StripeCardElementInstance = {
-  mount: (element: HTMLElement) => void;
-  destroy: () => void;
-};
-
-type StripeElementsInstance = {
-  create: (type: 'card', options?: Record<string, unknown>) => StripeCardElementInstance;
-};
-
-type StripeConfirmCardResult = {
-  error?: {
-    message?: string;
-  };
-  paymentIntent?: {
-    id?: string;
-    status?: string;
-  };
-};
-
-type StripeJsInstance = {
-  elements: (options?: Record<string, unknown>) => StripeElementsInstance;
-  confirmCardPayment: (
-    clientSecret: string,
-    payload: Record<string, unknown>,
-  ) => Promise<StripeConfirmCardResult>;
 };
 
 type FlowType = 'ro_proof' | 'depannage_no_proof';
@@ -224,7 +198,6 @@ type SubmissionRefState = {
 type FormWindow = Window & {
   SosPrescription?: AppConfig;
   SOSPrescription?: AppConfig;
-  Stripe?: (publishableKey: string) => StripeJsInstance;
   __SosPrescriptionPublicFormRoot?: ReturnType<typeof createRoot>;
   __SosPrescriptionPatientRoot?: ReturnType<typeof createRoot>;
 };
@@ -683,36 +656,6 @@ async function confirmPaymentIntentApi(id: number, paymentIntentId: string): Pro
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payment_intent_id: paymentIntentId }),
   }, 'form');
-}
-
-let stripeScriptPromise: Promise<void> | null = null;
-
-function ensureStripeJs(): Promise<void> {
-  const formWindow = window as FormWindow;
-  if (typeof window !== 'undefined' && typeof formWindow.Stripe === 'function') {
-    return Promise.resolve();
-  }
-
-  if (!stripeScriptPromise) {
-    stripeScriptPromise = new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector<HTMLScriptElement>('script[data-stripe-js="1"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js.')), { once: true });
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = 'https://js.stripe.com/v3/';
-      script.async = true;
-      script.dataset.stripeJs = '1';
-      script.addEventListener('load', () => resolve(), { once: true });
-      script.addEventListener('error', () => reject(new Error('Impossible de charger Stripe.js.')), { once: true });
-      document.body.appendChild(script);
-    });
-  }
-
-  return stripeScriptPromise;
 }
 
 async function createSubmissionApi(payload: Record<string, unknown>): Promise<SubmissionInitResponse> {
@@ -1771,36 +1714,6 @@ function describePriorityTurnaround(
   return priority === 'express'
     ? 'Traitement prioritaire selon la disponibilité médicale.'
     : 'Traitement selon l’ordre d’arrivée des dossiers.';
-}
-
-function toPatientSafePaymentErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error || '');
-  const message = raw.trim().toLowerCase();
-
-  if (!message) {
-    return 'La sécurisation bancaire n’a pas pu aboutir. Merci de réessayer.';
-  }
-
-  if (
-    message.includes('stripe')
-    || message.includes('paymentintent')
-    || message.includes('client secret')
-    || message.includes('clé publique')
-    || message.includes('module bancaire')
-    || message.includes('paiement introuvable')
-  ) {
-    return 'Le formulaire bancaire sécurisé n’a pas pu être chargé. Merci de réessayer dans quelques instants.';
-  }
-
-  if (message.includes('refus') || message.includes('carte')) {
-    return 'La vérification de votre carte n’a pas pu aboutir. Merci de contrôler les informations saisies ou d’essayer une autre carte.';
-  }
-
-  if (message.includes('finalisée') || message.includes('finalise')) {
-    return 'La vérification bancaire est encore en cours. Merci de patienter quelques secondes puis de réessayer.';
-  }
-
-  return 'La sécurisation bancaire n’a pas pu aboutir. Merci de réessayer.';
 }
 
 function toPatientSafeSubmissionErrorMessage(error: unknown): string {
@@ -3512,11 +3425,7 @@ type StepPaymentAuthProps = {
 };
 
 function StepPaymentAuth({
-  flow,
   fullName,
-  birthdate,
-  itemsCount,
-  filesCount,
   priority,
   pricingLoading,
   pricing,
@@ -3527,314 +3436,110 @@ function StepPaymentAuth({
   onBack,
   onAuthorized,
 }: StepPaymentAuthProps) {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<StripeJsInstance | null>(null);
-  const cardRef = useRef<StripeCardElementInstance | null>(null);
+  const billingName = useMemo(() => {
+    const config = getConfigOrThrow();
+    return safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(config) || undefined;
+  }, [fullName]);
 
-  const [initializing, setInitializing] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
-  const [amountCents, setAmountCents] = useState<number | null>(selectedAmount);
-  const [currency, setCurrency] = useState<string>(() => String(pricing?.currency || 'EUR').toUpperCase());
+  const billingEmail = useMemo(() => {
+    const config = getConfigOrThrow();
+    const value = typeof config.currentUser?.email === 'string' ? config.currentUser.email.trim() : '';
+    return value !== '' ? value : undefined;
+  }, []);
 
-  useEffect(() => {
-    let disposed = false;
-
-    async function boot(): Promise<void> {
-      setError(null);
-      setInitializing(true);
-      setClientSecret(null);
-      setPaymentIntentId(null);
-      setAmountCents(selectedAmount);
-      setCurrency(String(pricing?.currency || 'EUR').toUpperCase());
-
-      if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-        setError('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
-        setInitializing(false);
-        return;
-      }
-
-      if (!paymentsConfig?.enabled) {
-        setError('La sécurisation bancaire est temporairement indisponible. Merci de réessayer un peu plus tard.');
-        setInitializing(false);
-        return;
-      }
-
-      try {
-        const intent = await createPaymentIntentApi(Number(preparedSubmission.id), priority);
-        if (disposed) {
-          return;
-        }
-
-        const nextClientSecret = typeof intent.client_secret === 'string' ? intent.client_secret.trim() : '';
-        const nextPaymentIntentId = typeof intent.payment_intent_id === 'string' ? intent.payment_intent_id.trim() : '';
-        const nextStatus = String(intent.status || '').trim().toLowerCase();
-        const nextPublishableKey = typeof intent.publishable_key === 'string' && intent.publishable_key.trim() !== ''
-          ? intent.publishable_key.trim()
-          : String(paymentsConfig?.publishable_key || '').trim();
-        const nextAmount = Number.isFinite(Number(intent.amount_cents)) ? Number(intent.amount_cents) : selectedAmount;
-        const nextCurrency = typeof intent.currency === 'string' && intent.currency.trim() !== ''
-          ? intent.currency.trim().toUpperCase()
-          : String(pricing?.currency || 'EUR').toUpperCase();
-
-        setClientSecret(nextClientSecret || null);
-        setPaymentIntentId(nextPaymentIntentId || null);
-        setAmountCents(nextAmount ?? null);
-        setCurrency(nextCurrency);
-
-        if (nextPaymentIntentId && (nextStatus === 'requires_capture' || nextStatus === 'succeeded')) {
-          const confirmed = await confirmPaymentIntentApi(Number(preparedSubmission.id), nextPaymentIntentId);
-          if (disposed) {
-            return;
-          }
-
-          const confirmedStatus = confirmed && typeof confirmed === 'object' && 'status' in confirmed
-            ? String((confirmed as { status?: unknown }).status || '').toLowerCase()
-            : nextStatus;
-
-          if (confirmedStatus === 'requires_capture' || confirmedStatus === 'succeeded') {
-            frontendLog('payment_authorization_resume_ok', 'info', {
-              prescription_id: preparedSubmission.id,
-              uid: preparedSubmission.uid,
-              payment_intent_id: nextPaymentIntentId,
-              priority,
-              status: confirmedStatus,
-            });
-            onAuthorized();
-            return;
-          }
-        }
-
-        if (!nextClientSecret) {
-          throw new Error('Le formulaire bancaire sécurisé n’a pas pu être préparé.');
-        }
-
-        if (!nextPublishableKey) {
-          throw new Error('Le formulaire bancaire sécurisé n’est pas disponible pour le moment.');
-        }
-
-        await ensureStripeJs();
-        if (disposed) {
-          return;
-        }
-
-        const formWindow = window as FormWindow;
-        if (typeof formWindow.Stripe !== 'function') {
-          throw new Error('Le formulaire bancaire sécurisé n’a pas pu être chargé.');
-        }
-
-        if (!mountRef.current) {
-          throw new Error('La zone de saisie bancaire n’est pas disponible pour le moment.');
-        }
-
-        if (cardRef.current) {
-          try {
-            cardRef.current.destroy();
-          } catch {
-            // noop
-          }
-          cardRef.current = null;
-        }
-
-        mountRef.current.innerHTML = '';
-        stripeRef.current = formWindow.Stripe(nextPublishableKey);
-        const elements = stripeRef.current.elements();
-        const card = elements.create('card');
-        card.mount(mountRef.current);
-        cardRef.current = card;
-      } catch (err) {
-        if (!disposed) {
-          setError(toPatientSafePaymentErrorMessage(err));
-        }
-      } finally {
-        if (!disposed) {
-          setInitializing(false);
-        }
-      }
-    }
-
-    void boot();
-
-    return () => {
-      disposed = true;
-      if (cardRef.current) {
-        try {
-          cardRef.current.destroy();
-        } catch {
-          // noop
-        }
-        cardRef.current = null;
-      }
-    };
-  }, [onAuthorized, paymentsConfig?.enabled, paymentsConfig?.publishable_key, preparedSubmission, pricing?.currency, priority, selectedAmount]);
-
-  const handleAuthorize = useCallback(async () => {
-    setError(null);
-
+  const prerequisiteError = useMemo(() => {
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      setError('Votre dossier n’est pas encore prêt. Merci de revenir à l’étape précédente puis de réessayer.');
+      return 'Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.';
+    }
+
+    if (!paymentsConfig?.enabled) {
+      return 'La sécurisation bancaire est temporairement indisponible. Merci de réessayer un peu plus tard.';
+    }
+
+    return null;
+  }, [paymentsConfig?.enabled, preparedSubmission]);
+
+  const createIntent = useCallback(async () => {
+    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
+      throw new Error('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
+    }
+
+    return createPaymentIntentApi(Number(preparedSubmission.id), priority);
+  }, [preparedSubmission, priority]);
+
+  const confirmIntent = useCallback(async (paymentIntentId: string) => {
+    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
+      throw new Error('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
+    }
+
+    return confirmPaymentIntentApi(Number(preparedSubmission.id), paymentIntentId);
+  }, [preparedSubmission]);
+
+  const handleAuthorizedState = useCallback((event: 'resume' | 'authorized', meta: StripePaymentResolutionMeta) => {
+    if (!preparedSubmission) {
       return;
     }
 
-    if (!clientSecret) {
-      setError('Le formulaire bancaire sécurisé n’est pas encore prêt. Merci de patienter quelques secondes.');
-      return;
-    }
-
-    if (!stripeRef.current || !cardRef.current) {
-      setError('Le formulaire bancaire sécurisé n’est pas encore prêt. Merci de patienter quelques secondes.');
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      const cfg = getConfigOrThrow();
-      const billingName = safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(cfg) || undefined;
-      const billingEmail = typeof cfg.currentUser?.email === 'string' && cfg.currentUser.email.trim() !== ''
-        ? cfg.currentUser.email.trim()
-        : undefined;
-
-      const result = await stripeRef.current.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardRef.current,
-          billing_details: {
-            name: billingName,
-            email: billingEmail,
-          },
-        },
-      });
-
-      if (result?.error) {
-        throw new Error(result.error.message || 'La vérification de votre carte n’a pas pu aboutir.');
-      }
-
-      const confirmedPaymentIntentId = typeof result?.paymentIntent?.id === 'string' && result.paymentIntent.id.trim() !== ''
-        ? result.paymentIntent.id.trim()
-        : paymentIntentId;
-
-      if (!confirmedPaymentIntentId) {
-        throw new Error('La vérification bancaire n’a pas pu être finalisée.');
-      }
-
-      const confirmPayload = await confirmPaymentIntentApi(Number(preparedSubmission.id), confirmedPaymentIntentId);
-      const confirmStatus = confirmPayload && typeof confirmPayload === 'object' && 'status' in confirmPayload
-        ? String((confirmPayload as { status?: unknown }).status || '').toLowerCase()
-        : '';
-
-      if (confirmStatus !== '' && confirmStatus !== 'requires_capture' && confirmStatus !== 'succeeded') {
-        throw new Error('La vérification bancaire est encore en cours. Merci de patienter quelques secondes puis de réessayer.');
-      }
-
-      frontendLog('payment_authorization_ok', 'info', {
+    if (event === 'resume') {
+      frontendLog('payment_authorization_resume_ok', 'info', {
         prescription_id: preparedSubmission.id,
         uid: preparedSubmission.uid,
-        payment_intent_id: confirmedPaymentIntentId,
+        payment_intent_id: meta.paymentIntentId,
         priority,
-        status: confirmStatus || String(result?.paymentIntent?.status || '').toLowerCase() || null,
+        status: meta.status,
       });
-
-      onAuthorized();
-    } catch (err) {
-      const message = toPatientSafePaymentErrorMessage(err);
-      frontendLog('payment_authorization_error', 'error', {
-        prescription_id: preparedSubmission.id,
-        uid: preparedSubmission.uid,
-        priority,
-        message,
-      });
-      setError(message);
-    } finally {
-      setSubmitting(false);
+      return;
     }
-  }, [clientSecret, fullName, onAuthorized, paymentIntentId, preparedSubmission, priority]);
+
+    frontendLog('payment_authorization_ok', 'info', {
+      prescription_id: preparedSubmission.id,
+      uid: preparedSubmission.uid,
+      payment_intent_id: meta.paymentIntentId,
+      priority,
+      status: meta.status,
+    });
+  }, [preparedSubmission, priority]);
+
+  const handlePaymentError = useCallback(({ message }: { mode: 'tunnel' | 'patient_space'; error: unknown; message: string }) => {
+    if (!preparedSubmission) {
+      return;
+    }
+
+    frontendLog('payment_authorization_error', 'error', {
+      prescription_id: preparedSubmission.id,
+      uid: preparedSubmission.uid,
+      priority,
+      message,
+    });
+  }, [preparedSubmission, priority]);
 
   return (
-    <div className="sp-app-stack">
-      <section className="sp-app-card sp-app-card--payment">
-        <div className="sp-app-section__header">
-          <div>
-            <h2 className="sp-app-section__title">Paiement sécurisé</h2>
-            <p className="sp-app-section__hint">
-              Votre carte est uniquement autorisée avant la transmission au médecin. Aucun débit n’est réalisé avant validation médicale.
-            </p>
-          </div>
-        </div>
-
-        {pricingLoading ? (
-          <div className="sp-app-inline-status">
-            <Spinner />
-            <span>Préparation du montant de votre demande…</span>
-          </div>
-        ) : null}
-
-        <div className="sp-app-payment-summary" role="list" aria-label="Récapitulatif avant paiement">
-          <div className="sp-app-payment-summary__item" role="listitem">
-            <span className="sp-app-payment-summary__label">Montant</span>
-            <strong className="sp-app-payment-summary__value">
-              {pricing && selectedAmount != null ? formatMoney(selectedAmount, pricing.currency) : '—'}
-            </strong>
-          </div>
-          <div className="sp-app-payment-summary__item" role="listitem">
-            <span className="sp-app-payment-summary__label">Délai</span>
-            <strong className="sp-app-payment-summary__value">{selectedPriorityEta || '—'}</strong>
-          </div>
-        </div>
-
-        <div className="sp-app-payment-panel" data-loading={submitting ? 'true' : initializing ? 'setup' : 'false'} aria-busy={initializing || submitting}>
-          <div className="sp-app-inline-note sp-app-inline-note--payment">
-            Carte bancaire sécurisée par Stripe • Autorisation uniquement • Aucun débit avant validation médicale
-          </div>
-
-          {error ? (
-            <div className="sp-app-block">
-              <Notice variant="error">{error}</Notice>
-            </div>
-          ) : null}
-
-          <div className="sp-app-payment-panel__mount-frame">
-            {initializing ? (
-              <div className="sp-app-inline-status">
-                <Spinner />
-                <span>Chargement du formulaire bancaire sécurisé…</span>
-              </div>
-            ) : null}
-            <div ref={mountRef} data-sp-stripe-mount="1" />
-          </div>
-        </div>
-      </section>
-
-      <div className="sp-app-actions">
-        <Button type="button" variant="secondary" onClick={onBack} disabled={submitting}>
-          Modifier mon choix
-        </Button>
-        <Button
-          type="button"
-          onClick={() => { void handleAuthorize(); }}
-          disabled={initializing || submitting || !preparedSubmission}
-          aria-busy={submitting}
-          data-loading={submitting ? 'true' : 'false'}
-        >
-          {submitting ? (
-            <>
-              <Spinner />
-              <span>Validation sécurisée en cours…</span>
-            </>
-          ) : (
-            'Valider et envoyer ma demande'
-          )}
-        </Button>
-      </div>
-
-      {submitting ? (
-        <div className="sp-app-inline-status sp-app-inline-status--payment" role="status" aria-live="polite">
-          <Spinner />
-          <span>Validation bancaire sécurisée en cours. Ne fermez pas la page et ne cliquez pas une seconde fois.</span>
-        </div>
-      ) : null}
-    </div>
+    <StripePaymentModule
+      mode="tunnel"
+      title="Paiement sécurisé"
+      intro="Votre carte est uniquement autorisée avant la transmission au médecin. Aucun débit n’est réalisé avant validation médicale."
+      note="Carte bancaire sécurisée par Stripe • Autorisation uniquement • Aucun débit avant validation médicale"
+      amountCents={selectedAmount}
+      currency={pricing?.currency || 'EUR'}
+      etaValue={selectedPriorityEta || null}
+      summaryLoading={pricingLoading}
+      billingName={billingName}
+      billingEmail={billingEmail}
+      fallbackPublishableKey={String(paymentsConfig?.publishable_key || '').trim() || null}
+      prerequisiteError={prerequisiteError}
+      createIntent={createIntent}
+      confirmIntent={confirmIntent}
+      onAuthorized={onAuthorized}
+      onAuthorizedState={handleAuthorizedState}
+      onErrorState={handlePaymentError}
+      safeErrorMessage={toMedicalGradePaymentErrorMessage}
+      onBack={onBack}
+      backLabel="Modifier mon choix"
+      submitIdleLabel="Valider et envoyer ma demande"
+      submitBusyLabel="Validation sécurisée en cours…"
+      mountLoadingLabel="Chargement du formulaire bancaire sécurisé…"
+      submittingStatusLabel="Validation bancaire sécurisée en cours. Ne fermez pas la page et ne cliquez pas une seconde fois."
+    />
   );
 }
 

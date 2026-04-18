@@ -6,7 +6,6 @@ namespace SosPrescription\Shortcodes;
 
 use SOSPrescription\Assets\Assets;
 use SOSPrescription\Services\Logger;
-use SOSPrescription\Services\Notices;
 use SOSPrescription\UI\ScreenFrame;
 use SosPrescription\UI\AuthMagicLinkUi;
 
@@ -37,7 +36,6 @@ final class PatientShortcode
         wp_dequeue_script('sosprescription-patient-chat-enhancements');
         wp_dequeue_script('sosprescription-patient-profile-enhancements');
 
-        $notice = Notices::render('patient');
         $display_name = self::resolve_patient_display_name(get_current_user_id());
 
         $toolbar = '<div class="sp-card">'
@@ -50,8 +48,7 @@ final class PatientShortcode
         $content  = ScreenFrame::toolbarMeta('patient', $toolbar);
         $content .= ScreenFrame::statusSurface(
             'patient',
-            $notice
-            . '<div id="sp-error-surface-patient" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>'
+            '<div id="sp-error-surface-patient" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>'
         );
         $content .= ScreenFrame::mount(
             'patient',
