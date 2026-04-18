@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V8.1.3
+// PatientConsole.tsx · V8.2.0
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1356,17 +1356,66 @@ function normalizePaymentShadow(value: unknown): PaymentShadow | undefined {
     return undefined;
   }
 
-  return {
+  const pricingSnapshot = isRecord(value.pricing_snapshot) ? value.pricing_snapshot : null;
+
+  const directAmount = value.amount_cents === null ? null : toOptionalNumber(value.amount_cents);
+  const snapshotAmount = pricingSnapshot && pricingSnapshot.amount_cents !== null
+    ? toOptionalNumber(pricingSnapshot.amount_cents)
+    : undefined;
+
+  const directCurrency = typeof value.currency === 'string' ? value.currency : null;
+  const snapshotCurrency = pricingSnapshot && typeof pricingSnapshot.currency === 'string'
+    ? pricingSnapshot.currency
+    : null;
+
+  const directPriority = typeof value.priority === 'string' ? value.priority : null;
+  const snapshotPriority = pricingSnapshot && typeof pricingSnapshot.selected_priority === 'string'
+    ? pricingSnapshot.selected_priority
+    : pricingSnapshot && typeof pricingSnapshot.priority === 'string'
+    ? pricingSnapshot.priority
+    : null;
+
+  const directFlow = typeof value.flow === 'string' ? value.flow : null;
+  const snapshotFlow = pricingSnapshot && typeof pricingSnapshot.selected_flow === 'string'
+    ? pricingSnapshot.selected_flow
+    : pricingSnapshot && typeof pricingSnapshot.flow === 'string'
+    ? pricingSnapshot.flow
+    : null;
+
+  const directProvider = typeof value.provider === 'string' ? value.provider : null;
+  const snapshotProvider = pricingSnapshot && typeof pricingSnapshot.provider === 'string'
+    ? pricingSnapshot.provider
+    : null;
+
+  const directReference = typeof value.reference === 'string'
+    ? value.reference
+    : typeof value.payment_reference === 'string'
+    ? value.payment_reference
+    : typeof value.payment_intent_id === 'string'
+    ? value.payment_intent_id
+    : null;
+  const snapshotReference = pricingSnapshot && typeof pricingSnapshot.payment_intent_id === 'string'
+    ? pricingSnapshot.payment_intent_id
+    : null;
+
+  const directTransactionAt = typeof value.transaction_at === 'string' ? value.transaction_at : null;
+  const snapshotTransactionAt = pricingSnapshot && typeof pricingSnapshot.created_at === 'string'
+    ? pricingSnapshot.created_at
+    : null;
+
+  const normalized: PaymentShadow = {
     local_status: typeof value.local_status === 'string' ? value.local_status : null,
-    provider: typeof value.provider === 'string' ? value.provider : null,
+    provider: directProvider || snapshotProvider || null,
     status: typeof value.status === 'string' ? value.status : null,
-    amount_cents: value.amount_cents === null ? null : toOptionalNumber(value.amount_cents),
-    currency: typeof value.currency === 'string' ? value.currency : null,
-    priority: typeof value.priority === 'string' ? value.priority : null,
-    flow: typeof value.flow === 'string' ? value.flow : null,
-    reference: typeof value.reference === 'string' ? value.reference : null,
-    transaction_at: typeof value.transaction_at === 'string' ? value.transaction_at : null,
+    amount_cents: directAmount ?? snapshotAmount ?? null,
+    currency: directCurrency || snapshotCurrency || null,
+    priority: directPriority || snapshotPriority || null,
+    flow: directFlow || snapshotFlow || null,
+    reference: directReference || snapshotReference || null,
+    transaction_at: directTransactionAt || snapshotTransactionAt || null,
   };
+
+  return hasStructuredPaymentDetails(normalized) ? normalized : undefined;
 }
 
 function normalizePatientPulseResponse(payload: unknown): PatientPulseResponse | null {
@@ -2070,6 +2119,15 @@ function paymentTransactionDateLabel(status: string, payment: PaymentShadow | un
   return 'Non communiquée';
 }
 
+function paymentDisclosureSummaryText(status: string, payment: PaymentShadow | undefined): string {
+  const statusLabel = paymentSurfaceStatusLabel(status, payment);
+  const amountLabel = paymentAmountLabel(payment);
+
+  return amountLabel !== 'Non communiqué'
+    ? `${statusLabel} · ${amountLabel}`
+    : statusLabel;
+}
+
 function PaymentDetailsCard({
   status,
   payment,
@@ -2085,10 +2143,18 @@ function PaymentDetailsCard({
     return null;
   }
 
+  const summaryMeta = paymentDisclosureSummaryText(status, payment);
+  const defaultOpen = isPaymentPendingStatus(status);
+
   return (
-    <div className="sp-card sp-payment-details-card">
-      <div className="sp-stack sp-stack--compact">
-        <div className="sp-section__title">Détails du paiement</div>
+    <details className="sp-disclosure sp-disclosure--payment sp-payment-details-card" open={defaultOpen}>
+      <summary>
+        <span className="sp-disclosure__summary-copy">
+          <span className="sp-disclosure__summary-title">Détails du paiement</span>
+          {summaryMeta ? <span className="sp-disclosure__summary-meta">{summaryMeta}</span> : null}
+        </span>
+      </summary>
+      <div className="sp-disclosure__content sp-disclosure__content--payment">
         <div className="sp-payment-details-card__grid">
           <div className="sp-inline-card sp-payment-details-card__item">
             <div className="sp-inline-card__title">Montant exact</div>
@@ -2118,7 +2184,7 @@ function PaymentDetailsCard({
           </div>
         </div>
       </div>
-    </div>
+    </details>
   );
 }
 

@@ -177,7 +177,7 @@ function formatMessageDate(value: string): string {
 const MessageList = React.memo(
   function MessageListComponent({ messages, viewerRole, currentUserRoles: _currentUserRoles, fileIndex, onDownloadFile }: Props) {
     return (
-      <div className={cx('sp-thread-list', `sp-thread-list--viewer-${viewerRole.toLowerCase()}`)}>
+      <div className="sp-thread-list" data-viewer-role={viewerRole.toLowerCase()}>
         {messages.map((message, index) => {
           const mine = isOwnMessage(message);
           const roleLabel = getRoleLabel(message);
@@ -200,9 +200,9 @@ const MessageList = React.memo(
                 mine && 'sp-thread-item--mine',
                 normalizedRole === 'DOCTOR' && 'sp-thread-item--role-doctor',
                 normalizedRole === 'PATIENT' && 'sp-thread-item--role-patient',
-                viewerRole === 'PATIENT' && 'sp-thread-item--viewer-patient',
-                viewerRole === 'DOCTOR' && 'sp-thread-item--viewer-doctor',
               )}
+              data-viewer-role={viewerRole.toLowerCase()}
+              data-author-role={normalizedRole.toLowerCase()}
             >
               <article className="sp-thread-item__bubble">
                 <div

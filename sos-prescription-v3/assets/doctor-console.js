@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V7.5.2
+// assets/doctor-console.js · V8.2.0
 (function () {
   'use strict';
 
@@ -34,13 +34,15 @@
     editedItems: {},
     medEditor: null,
     ui: null,
-    visibilityBound: false
+    visibilityBound: false,
+    selectedRefreshMeta: { id: 0, at: 0 }
   };
 
   var OPTIMISTIC_LOCK_MIN_MS = 15 * 1000;
   var OPTIMISTIC_LOCK_ORPHAN_MS = 6 * 60 * 60 * 1000;
   var REQUEST_TIMEOUT_GET_MS = 12000;
   var REQUEST_TIMEOUT_MUTATION_MS = 20000;
+  var STABLE_SELECTED_REFRESH_MS = 3 * 60 * 1000;
 
   var DOCTOR_CHAT_UTILITY_STYLE_ID = 'sp-doctor-chat-utility-styles';
   var DOCTOR_CHAT_UTILITY_CSS = [
@@ -4094,6 +4096,123 @@
     });
   }
 
+  function getSelectedRefreshMeta() {
+    var current = asObject(state.selectedRefreshMeta);
+    return {
+      id: Number(current.id || 0),
+      at: Number(current.at || 0)
+    };
+  }
+
+  function rememberSelectedRefresh(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return;
+    state.selectedRefreshMeta = {
+      id: numericId,
+      at: Date.now()
+    };
+  }
+
+  function getSelectedDetailRecord(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return {};
+    return asObject(state.details[numericId]);
+  }
+
+  function getSelectedListRecord(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return {};
+    return asObject(findListItemById(numericId));
+  }
+
+  function getSelectedStatusValue(id) {
+    var detail = getSelectedDetailRecord(id);
+    var listRow = getSelectedListRecord(id);
+    return normalizeText(firstText([
+      detail.status,
+      listRow.status
+    ])).toLowerCase();
+  }
+
+  function isStableSelectedStatus(status) {
+    var normalized = normalizeText(status).toLowerCase();
+    return normalized === 'approved'
+      || normalized === 'rejected'
+      || normalized === 'closed'
+      || normalized === 'cancelled'
+      || normalized === 'canceled'
+      || normalized === 'archived'
+      || normalized === 'completed'
+      || normalized === 'done'
+      || normalized === 'expired';
+  }
+
+  function getSelectedUnreadCount(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return 0;
+
+    var threadStore = getThreadStore(numericId);
+    var threadState = asObject(threadStore.threadState);
+    var currentUnread = Number(threadState.unread_count_doctor || 0);
+    if (currentUnread > 0) {
+      return currentUnread;
+    }
+
+    var detailUnread = Number(extractThreadShadowState(getSelectedDetailRecord(numericId)).unread_count_doctor || 0);
+    if (detailUnread > 0) {
+      return detailUnread;
+    }
+
+    return Number(extractThreadShadowState(getSelectedListRecord(numericId)).unread_count_doctor || 0);
+  }
+
+  function isSelectedPdfSettled(id, status) {
+    var numericId = Number(id || 0);
+    var normalizedStatus = normalizeText(status).toLowerCase();
+    if (numericId < 1) return false;
+    if (normalizedStatus !== 'approved') return true;
+
+    var pdfState = asObject(state.pdf[numericId]);
+    var pdfStatus = normalizeText(pdfState.status).toLowerCase();
+    var processingStatus = normalizeText(pdfState.processing_status).toLowerCase();
+    var workerStatus = normalizeText(pdfState.worker_status).toLowerCase();
+
+    return pdfStatus === 'done'
+      || pdfStatus === 'failed'
+      || pdfStatus === 'degraded'
+      || processingStatus === 'done'
+      || processingStatus === 'failed'
+      || workerStatus === 'done'
+      || workerStatus === 'failed';
+  }
+
+  function shouldThrottleSelectedRefresh(id) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) return false;
+    if (hasPendingAction(numericId)) return false;
+    if (state.refusalOpen) return false;
+
+    var status = getSelectedStatusValue(numericId);
+    if (!isStableSelectedStatus(status)) {
+      return false;
+    }
+
+    if (getSelectedUnreadCount(numericId) > 0) {
+      return false;
+    }
+
+    if (!isSelectedPdfSettled(numericId, status)) {
+      return false;
+    }
+
+    var refreshMeta = getSelectedRefreshMeta();
+    if (refreshMeta.id !== numericId || refreshMeta.at < 1) {
+      return false;
+    }
+
+    return Date.now() - refreshMeta.at < STABLE_SELECTED_REFRESH_MS;
+  }
+
   function fetchDetail(id, opts) {
     opts = opts || {};
     var numericId = Number(id || 0);
@@ -4117,6 +4236,7 @@
 
       if (Number(state.selectedId) === numericId) {
         state.detailLoading = false;
+        rememberSelectedRefresh(numericId);
         if (!opts.skipDetailRender && (detailChanged || !opts.silent)) {
           renderDetail();
         }
@@ -4233,10 +4353,14 @@
     });
   }
 
-  function refreshSelected() {
+  function refreshSelected(opts) {
+    opts = opts || {};
     var numericId = Number(state.selectedId || 0);
     if (numericId < 1) return Promise.resolve(null);
     if (state.refusalOpen && !hasPendingAction(numericId)) {
+      return Promise.resolve(null);
+    }
+    if (!opts.force && shouldThrottleSelectedRefresh(numericId)) {
       return Promise.resolve(null);
     }
 
@@ -4380,7 +4504,7 @@
         })
         .then(function () {
           if (state.selectedId) {
-            return refreshSelected();
+            return refreshSelected({ force: false });
           }
           return null;
         });

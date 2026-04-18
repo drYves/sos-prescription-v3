@@ -207,7 +207,6 @@
   box-shadow: var(--sp-app-shadow);
 }
 
-
 .sp-app-card {
   padding: 20px;
 }
@@ -1077,7 +1076,6 @@
   }
 }
 
-
 .sp-page-shell.sp-app-container {
   width: min(100%, var(--sp-workspace-max, 75rem)) !important;
   margin-inline: auto;
@@ -1170,80 +1168,16 @@
   border-bottom: 0;
 }
 
-.sp-thread-list--viewer-patient {
-  gap: 16px;
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item {
-  justify-content: flex-start;
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item.is-own {
-  justify-content: flex-end;
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item__bubble {
-  max-width: var(--sp-message-bubble-max, 70%);
-  padding: 16px 18px;
-  border-radius: var(--sp-app-radius);
-  background: var(--sp-color-surface);
-  border: var(--sp-app-border);
-  box-shadow: var(--sp-app-shadow);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item--role-doctor .sp-thread-item__bubble {
-  background: var(--sp-color-accent-soft);
-  border-color: var(--sp-app-accent-border);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__bubble,
-.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__bubble {
-  background: var(--sp-color-surface);
-  border-color: var(--sp-color-border-hairline);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item__author {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--sp-app-text-soft);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item--role-doctor .sp-thread-item__author {
-  color: var(--sp-color-primary-dark);
-  font-weight: 800;
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__author {
-  color: var(--sp-app-text-soft);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item__body {
-  margin-top: 10px;
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item__meta {
-  margin-top: 12px;
-  font-size: 0.78rem;
-  color: var(--sp-app-text-soft);
-}
-
 @media (max-width: 900px) {
   .sp-page-shell.sp-app-container,
   .sp-profile-card {
     width: min(100%, var(--sp-workspace-max, 75rem)) !important;
   }
 
-  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
-    max-width: 100%;
-  }
-
   .sp-profile-card__header {
     align-items: flex-start;
   }
 }
-
 
 .sp-app-button:active,
 .sp-button:active,
@@ -1365,13 +1299,6 @@
   max-width: min(100%, var(--sp-container-reading, 47.5rem));
 }
 
-.sp-thread-list--viewer-patient .sp-thread-item__bubble {
-  max-width: var(--sp-message-bubble-max, 70%);
-  background: var(--sp-color-surface);
-  border-color: var(--sp-color-border-hairline);
-  box-shadow: var(--sp-app-shadow);
-}
-
 .sp-profile-card,
 .sp-page-shell.sp-app-container {
   max-width: none !important;
@@ -1384,10 +1311,6 @@
 @media (max-width: 900px) {
   .sp-app-stagebar {
     grid-template-columns: 1fr;
-  }
-
-  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
-    max-width: 100%;
   }
 }
 
@@ -2524,7 +2447,6 @@ a.sp-app-button.sp-app-button--primary:hover {
   }
 }
 
-
 /* --------------------------------------------------------------------------
    V6.4.1 — Shell/App contract, calmer motion, stacked mobile search, A11y
    -------------------------------------------------------------------------- */
@@ -2773,10 +2695,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
     gap: 10px;
   }
 
-  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
-    max-width: 100%;
-  }
-
   .sp-thread-composer {
     padding: 14px;
   }
@@ -2785,7 +2703,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
     width: 100%;
   }
 }
-
 
 /* --------------------------------------------------------------------------
    V6.5.0 — Architecture visuelle cible
@@ -2809,16 +2726,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
 
 .sp-page-shell--narrow,
 .sp-thread-item__bubble,
-.sp-thread-list--viewer-patient .sp-thread-item__bubble,
-.sp-app-header__subtitle,
-.sp-app-section__hint,
-.sp-app-note-card__text,
-.sp-app-priority-selection__summary,
-.sp-app-confirmation__text,
-.sp-app-confirmation__label,
-.sp-app-inline-note {
-  max-inline-size: var(--sp-app-reading-max);
-}
 
 .sp-app-header,
 .sp-app-stagebar {
@@ -3043,12 +2950,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-app-search__badge {
     min-height: 30px;
   }
-
-  .sp-thread-list--viewer-patient .sp-thread-item__bubble {
-    max-width: 100%;
-  }
 }
-
 
 /* --------------------------------------------------------------------------
    V6.5.1 — Medical-Grade polish (visibility, calm, hierarchy)
@@ -3548,7 +3450,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   }
 }
 
-
 /* --------------------------------------------------------------------------
    V6.5.3 — QA final polish: controls, stepper, consent, status, payment
    -------------------------------------------------------------------------- */
@@ -3736,7 +3637,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
     grid-template-columns: 1fr;
   }
 }
-
 
 /* --------------------------------------------------------------------------
    V6.5.4 — QA final: stronger controls, uniform stepper, lighter consent,
@@ -4002,7 +3902,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
     grid-template-columns: 1fr;
   }
 }
-
 
 /* --------------------------------------------------------------------------
    V7.0.1 — Local harmonization authority block
@@ -4515,7 +4414,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   }
 }
 
-
 /* --------------------------------------------------------------------------
    V7.0.2 — Surgical polish local : hero patient résilient et ajustements ciblés
    du step 2 du tunnel, sans dépendance au body.
@@ -4767,7 +4665,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   }
 }
 
-
 /* --------------------------------------------------------------------------
    V7.0.3 — Emergency fix local : hero patient réellement résilient,
    colonne "Mes demandes" verrouillée et sans dépendance au body.
@@ -4930,7 +4827,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   }
 }
 
-
 /* --------------------------------------------------------------------------
    V7.0.4 — Final QA : hero patient Plan B robuste + tunnel étape 2.
    -------------------------------------------------------------------------- */
@@ -5055,7 +4951,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   inline-size: 1rem;
   block-size: 1rem;
 }
-
 
 /* --------------------------------------------------------------------------
    V7.0.5 — Fast track : step 2 resserré, hero date simple et bouton profil rehaussé.
@@ -5272,18 +5167,6 @@ a.sp-app-button.sp-app-button--secondary:hover {
   font-size: 0.8rem;
 }
 
-.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__bubble,
-.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__bubble {
-  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 82%, #ffffff 18%);
-  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72), 0 10px 20px rgba(15, 23, 42, 0.04);
-}
-
-.sp-thread-list--viewer-patient .sp-thread-item--role-patient .sp-thread-item__author,
-.sp-thread-list--viewer-patient .sp-thread-item--mine .sp-thread-item__author {
-  color: var(--sp-shell-color-text-2, #334155);
-}
-
 @media (max-width: 720px) {
   .sp-patient-session-bar {
     flex-direction: column;
@@ -5297,5 +5180,96 @@ a.sp-app-button.sp-app-button--secondary:hover {
 
   .sp-patient-session-bar__identity {
     white-space: normal;
+  }
+}
+
+/* V8.2.0 — authoritative messaging surface shared by patient and doctor */
+.sp-patient-console .sp-payment-details-card,
+.sp-patient-console .sp-disclosure--payment {
+  margin: 0;
+}
+
+.sp-patient-console .sp-disclosure__content--payment {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sp-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sp-thread-item {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.sp-thread-item.is-own,
+.sp-thread-item.sp-thread-item--mine {
+  justify-content: flex-end;
+}
+
+.sp-thread-item__bubble {
+  width: min(100%, 44rem);
+  max-width: min(100%, 72%);
+  padding: 1rem 1.05rem;
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-border, rgba(148, 163, 184, 0.24)) 88%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f8fafc) 6%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.sp-thread-item--role-doctor .sp-thread-item__bubble {
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 86%, #ffffff 14%);
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #2563eb) 16%, transparent);
+}
+
+.sp-thread-item--role-patient .sp-thread-item__bubble,
+.sp-thread-item--mine .sp-thread-item__bubble {
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 84%, #ffffff 16%);
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72), 0 10px 20px rgba(15, 23, 42, 0.04);
+}
+
+.sp-thread-item__author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-thread-item--role-doctor .sp-thread-item__author,
+.sp-thread-item__author--doctor {
+  color: color-mix(in srgb, var(--sp-shell-color-accent, #2563eb) 82%, #1e3a8a 18%);
+}
+
+.sp-thread-item--role-patient .sp-thread-item__author,
+.sp-thread-item--mine .sp-thread-item__author {
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+.sp-thread-item__body {
+  margin-top: 0.65rem;
+  color: var(--sp-shell-color-text-1, #0f172a);
+  line-height: 1.68;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sp-thread-item__meta {
+  margin-top: 0.7rem;
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+@media (max-width: 900px) {
+  .sp-thread-item__bubble {
+    width: 100%;
+    max-width: 100%;
   }
 }

@@ -326,6 +326,7 @@ final class PatientV4Controller extends \WP_REST_Controller
             }
 
             $payment = $this->build_payment_shadow_payload($localRow);
+            $paymentPayload = $this->payment_shadow_has_content($payment) ? $payment : null;
             $effectiveStatus = $this->compose_effective_status((string) ($item['status'] ?? 'pending'), $payment);
             $rowRev = $this->build_row_revision((string) ($item['worker_row_rev'] ?? ''), $effectiveStatus, $payment);
 
@@ -343,7 +344,7 @@ final class PatientV4Controller extends \WP_REST_Controller
                 'has_proof' => !empty($item['has_proof']),
                 'proof_count' => isset($item['proof_count']) ? (int) $item['proof_count'] : 0,
                 'pdf_ready' => !empty($item['pdf_ready']),
-                'payment' => $payment,
+                'payment' => $paymentPayload,
             ];
         }
 
@@ -368,7 +369,7 @@ final class PatientV4Controller extends \WP_REST_Controller
 
         $table = $wpdb->prefix . 'sosprescription_prescriptions';
         $columns = ['id', 'uid'];
-        foreach (['status', 'payment_provider', 'payment_status', 'amount_cents', 'currency', 'priority', 'flow', 'payment_intent_id', 'payment_reference', 'payment_updated_at', 'paid_at', 'captured_at', 'updated_at'] as $column) {
+        foreach (['status', 'payment_provider', 'payment_status', 'amount_cents', 'currency', 'priority', 'flow', 'pricing_snapshot_json', 'payment_intent_id', 'payment_reference', 'payment_updated_at', 'paid_at', 'captured_at', 'updated_at'] as $column) {
             if ($this->prescription_table_has_column($column)) {
                 $columns[] = $column;
             }
@@ -425,29 +426,116 @@ final class PatientV4Controller extends \WP_REST_Controller
             ];
         }
 
+        $pricingSnapshot = $this->decode_payment_pricing_snapshot($localRow);
+
+        $amountCents = isset($localRow['amount_cents']) && $localRow['amount_cents'] !== null
+            ? (int) $localRow['amount_cents']
+            : $this->resolve_pricing_snapshot_amount_cents($pricingSnapshot);
+
         $currency = isset($localRow['currency']) && is_scalar($localRow['currency'])
             ? strtoupper(trim((string) $localRow['currency']))
             : '';
+        if ($currency === '') {
+            $currency = $this->resolve_pricing_snapshot_currency($pricingSnapshot) ?? '';
+        }
+
+        $provider = isset($localRow['payment_provider']) && is_scalar($localRow['payment_provider'])
+            ? trim((string) $localRow['payment_provider'])
+            : '';
+        if ($provider === '') {
+            $provider = $this->normalize_optional_scalar_string($pricingSnapshot['provider'] ?? null) ?? '';
+        }
+
+        $priority = $this->normalize_optional_scalar_string($localRow['priority'] ?? null)
+            ?? $this->normalize_optional_scalar_string($pricingSnapshot['selected_priority'] ?? null)
+            ?? $this->normalize_optional_scalar_string($pricingSnapshot['priority'] ?? null);
+
+        $flow = $this->normalize_optional_scalar_string($localRow['flow'] ?? null)
+            ?? $this->normalize_optional_scalar_string($pricingSnapshot['selected_flow'] ?? null)
+            ?? $this->normalize_optional_scalar_string($pricingSnapshot['flow'] ?? null);
 
         return [
             'local_status' => isset($localRow['status']) && is_scalar($localRow['status'])
                 ? strtolower(trim((string) $localRow['status']))
                 : null,
-            'provider' => isset($localRow['payment_provider']) && is_scalar($localRow['payment_provider'])
-                ? trim((string) $localRow['payment_provider'])
-                : null,
+            'provider' => $provider !== '' ? $provider : null,
             'status' => isset($localRow['payment_status']) && is_scalar($localRow['payment_status'])
                 ? trim((string) $localRow['payment_status'])
                 : null,
-            'amount_cents' => isset($localRow['amount_cents']) && $localRow['amount_cents'] !== null
-                ? (int) $localRow['amount_cents']
-                : null,
+            'amount_cents' => $amountCents,
             'currency' => $currency !== '' ? $currency : null,
-            'priority' => $this->normalize_optional_scalar_string($localRow['priority'] ?? null),
-            'flow' => $this->normalize_optional_scalar_string($localRow['flow'] ?? null),
+            'priority' => $priority,
+            'flow' => $flow,
             'reference' => $this->resolve_payment_shadow_reference($localRow),
             'transaction_at' => $this->resolve_payment_shadow_transaction_at($localRow),
         ];
+    }
+
+    /**
+     * @param array<string, mixed>|null $payment
+     */
+    private function payment_shadow_has_content(?array $payment): bool
+    {
+        if (!is_array($payment)) {
+            return false;
+        }
+
+        return ($payment['amount_cents'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['provider'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['status'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['local_status'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['priority'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['flow'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['reference'] ?? null) !== null
+            || $this->normalize_optional_scalar_string($payment['transaction_at'] ?? null) !== null;
+    }
+
+    /**
+     * @param array<string, mixed> $localRow
+     * @return array<string, mixed>
+     */
+    private function decode_payment_pricing_snapshot(array $localRow): array
+    {
+        $raw = $localRow['pricing_snapshot_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<string, mixed> $pricingSnapshot
+     */
+    private function resolve_pricing_snapshot_amount_cents(array $pricingSnapshot): ?int
+    {
+        foreach (['amount_cents', 'selected_amount_cents', 'price_cents'] as $key) {
+            if (!array_key_exists($key, $pricingSnapshot) || $pricingSnapshot[$key] === null) {
+                continue;
+            }
+
+            return (int) $pricingSnapshot[$key];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $pricingSnapshot
+     */
+    private function resolve_pricing_snapshot_currency(array $pricingSnapshot): ?string
+    {
+        if (!array_key_exists('currency', $pricingSnapshot) || !is_scalar($pricingSnapshot['currency'])) {
+            return null;
+        }
+
+        $currency = strtoupper(trim((string) $pricingSnapshot['currency']));
+        return $currency !== '' ? $currency : null;
     }
 
     private function normalize_optional_scalar_string(mixed $value): ?string
@@ -487,7 +575,8 @@ final class PatientV4Controller extends \WP_REST_Controller
             }
         }
 
-        return null;
+        $pricingSnapshot = $this->decode_payment_pricing_snapshot($localRow);
+        return $this->normalize_optional_scalar_string($pricingSnapshot['created_at'] ?? null);
     }
 
     /**
