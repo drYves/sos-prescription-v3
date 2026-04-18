@@ -2400,17 +2400,6 @@ a.sp-app-button.sp-app-button--primary:hover {
   margin: 0;
 }
 
-.sp-patient-console .sp-thread-item__author--doctor {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 0.28rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid var(--sp-app-accent-border);
-  background: color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 10%, #ffffff 90%);
-  color: var(--sp-color-primary-dark) !important;
-}
-
 .sp-patient-console .sp-thread-composer.is-readonly {
   background: var(--sp-app-surface-soft);
 }
@@ -5207,36 +5196,35 @@ a.sp-app-button.sp-app-button--secondary:hover {
 }
 
 .sp-thread-item.is-own,
-.sp-thread-item.sp-thread-item--mine {
+.sp-thread-item.sp-thread-item--mine,
+.sp-thread-item.sp-thread-item--outgoing {
   justify-content: flex-end;
 }
 
 .sp-thread-item__bubble {
   width: min(100%, 44rem);
-  max-width: min(100%, 72%);
+  max-width: min(100%, 88%);
   padding: 1rem 1.05rem;
-  border-radius: 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--sp-shell-color-border, rgba(148, 163, 184, 0.24)) 88%, transparent);
-  background: color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f8fafc) 6%);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-border, rgba(148, 163, 184, 0.24)) 92%, transparent);
+  background: #f9fafb;
+  color: var(--sp-shell-color-text-1, #111827);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
 }
 
-.sp-thread-item--role-doctor .sp-thread-item__bubble {
-  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 86%, #ffffff 14%);
-  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #2563eb) 16%, transparent);
-}
-
-.sp-thread-item--role-patient .sp-thread-item__bubble,
-.sp-thread-item--mine .sp-thread-item__bubble {
-  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 84%, #ffffff 16%);
-  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72), 0 10px 20px rgba(15, 23, 42, 0.04);
+.sp-thread-item.is-own .sp-thread-item__bubble,
+.sp-thread-item.sp-thread-item--mine .sp-thread-item__bubble,
+.sp-thread-item.sp-thread-item--outgoing .sp-thread-item__bubble {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
 }
 
 .sp-thread-item__author {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  margin-bottom: 0.5rem;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -5244,19 +5232,15 @@ a.sp-app-button.sp-app-button--secondary:hover {
   color: var(--sp-shell-color-text-3, #64748b);
 }
 
-.sp-thread-item--role-doctor .sp-thread-item__author,
-.sp-thread-item__author--doctor {
-  color: color-mix(in srgb, var(--sp-shell-color-accent, #2563eb) 82%, #1e3a8a 18%);
-}
-
-.sp-thread-item--role-patient .sp-thread-item__author,
-.sp-thread-item--mine .sp-thread-item__author {
-  color: var(--sp-shell-color-text-2, #334155);
+.sp-thread-item.is-own .sp-thread-item__author,
+.sp-thread-item.sp-thread-item--mine .sp-thread-item__author,
+.sp-thread-item.sp-thread-item--outgoing .sp-thread-item__author {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .sp-thread-item__body {
-  margin-top: 0.65rem;
-  color: var(--sp-shell-color-text-1, #0f172a);
+  margin-top: 0;
+  color: inherit;
   line-height: 1.68;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -5265,6 +5249,12 @@ a.sp-app-button.sp-app-button--secondary:hover {
 .sp-thread-item__meta {
   margin-top: 0.7rem;
   color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-thread-item.is-own .sp-thread-item__meta,
+.sp-thread-item.sp-thread-item--mine .sp-thread-item__meta,
+.sp-thread-item.sp-thread-item--outgoing .sp-thread-item__meta {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 @media (max-width: 900px) {

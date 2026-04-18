@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V7.0.1
+// DoctorMessagingApp.tsx · V8.2.1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 
@@ -80,6 +80,40 @@ type DoctorMessagingWindow = Window & {
 
 const POLL_VISIBLE_MS = 15000;
 const POLL_HIDDEN_MS = 30000;
+
+type DoctorMessagingHostElement = HTMLElement & {
+  dataset: DOMStringMap;
+};
+
+function findDoctorMessagingHost(prescriptionId: number): DoctorMessagingHostElement | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return document.querySelector(`[data-sp-doctor-chat-root="1"][data-prescription-id="${String(prescriptionId)}"]`) as DoctorMessagingHostElement | null;
+}
+
+function normalizeDoctorSelectedStatus(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isDoctorStableSelectionStatus(value: unknown): boolean {
+  const normalized = normalizeDoctorSelectedStatus(value);
+  return normalized === 'approved'
+    || normalized === 'rejected'
+    || normalized === 'closed'
+    || normalized === 'cancelled'
+    || normalized === 'canceled'
+    || normalized === 'archived'
+    || normalized === 'completed'
+    || normalized === 'done'
+    || normalized === 'expired';
+}
+
+function shouldSuspendDoctorThreadPolling(selectedStatus: unknown, nextThreadState: ThreadState): boolean {
+  return isDoctorStableSelectionStatus(selectedStatus)
+    && Number(nextThreadState.unread_count_doctor || 0) < 1;
+}
 
 function cx(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');
@@ -498,15 +532,22 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [hidden, setHidden] = useState<boolean>(typeof document !== 'undefined' ? document.hidden : false);
+  const [selectedStatus, setSelectedStatus] = useState<string>(() => normalizeDoctorSelectedStatus(findDoctorMessagingHost(prescriptionId)?.dataset.prescriptionStatus || ''));
 
   const requestRef = useRef(0);
   const smartRepliesRequestRef = useRef(0);
   const mountedRef = useRef(true);
   const markReadSeqRef = useRef(0);
+  const interactionRefreshAtRef = useRef(0);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
 
   const viewerRole: ViewerRole = 'DOCTOR';
   const mode = normalizeMode(threadState.mode);
   const modeNotice = useMemo(() => threadModeNotice(mode), [mode]);
+  const threadPollingSuspended = useMemo(
+    () => shouldSuspendDoctorThreadPolling(selectedStatus, threadState),
+    [selectedStatus, threadState],
+  );
 
   const fileIndex = useMemo(() => files, [files]);
   const currentUserRoles = cfg.currentUser?.roles;
@@ -620,6 +661,34 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, []);
 
   useEffect(() => {
+    const host = findDoctorMessagingHost(prescriptionId);
+    if (!(host instanceof HTMLElement) || typeof MutationObserver === 'undefined') {
+      setSelectedStatus(normalizeDoctorSelectedStatus(host?.dataset.prescriptionStatus || ''));
+      return;
+    }
+
+    const syncSelectedStatus = (): void => {
+      setSelectedStatus(normalizeDoctorSelectedStatus(host.dataset.prescriptionStatus || ''));
+    };
+
+    syncSelectedStatus();
+
+    const observer = new MutationObserver(syncSelectedStatus);
+    observer.observe(host, {
+      attributes: true,
+      attributeFilter: ['data-prescription-status'],
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [prescriptionId]);
+
+  useEffect(() => {
+    if (threadPollingSuspended) {
+      return;
+    }
+
     const interval = window.setInterval(() => {
       void loadThread(true);
     }, hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS);
@@ -627,7 +696,38 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     return () => {
       window.clearInterval(interval);
     };
-  }, [hidden, loadThread]);
+  }, [hidden, loadThread, threadPollingSuspended]);
+
+  useEffect(() => {
+    if (!threadPollingSuspended) {
+      return;
+    }
+
+    const surface = surfaceRef.current;
+    if (!(surface instanceof HTMLElement)) {
+      return;
+    }
+
+    const handleInteractionRefresh = (): void => {
+      const now = Date.now();
+      if (now - interactionRefreshAtRef.current < 1500) {
+        return;
+      }
+
+      interactionRefreshAtRef.current = now;
+      void loadThread(true);
+    };
+
+    surface.addEventListener('click', handleInteractionRefresh);
+    surface.addEventListener('focusin', handleInteractionRefresh);
+    surface.addEventListener('keydown', handleInteractionRefresh);
+
+    return () => {
+      surface.removeEventListener('click', handleInteractionRefresh);
+      surface.removeEventListener('focusin', handleInteractionRefresh);
+      surface.removeEventListener('keydown', handleInteractionRefresh);
+    };
+  }, [loadThread, threadPollingSuspended]);
 
   useEffect(() => {
     if (!flash) {
@@ -672,7 +772,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, [fileIndex, prescriptionId]);
 
   return (
-    <div className="sp-card dc-message-react-panel">
+    <div ref={surfaceRef} className="sp-card dc-message-react-panel">
       {flash ? <Notice variant="success">{flash}</Notice> : null}
       {error ? <Notice variant="error">{error}</Notice> : null}
       {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}

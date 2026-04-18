@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V8.2.0
+// PatientConsole.tsx · V8.2.1
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -2029,12 +2029,10 @@ function hasStructuredPaymentDetails(payment: PaymentShadow | undefined): boolea
 
   return (
     typeof payment.amount_cents === 'number'
-    || Boolean(payment.provider && String(payment.provider).trim() !== '')
     || Boolean(payment.status && String(payment.status).trim() !== '')
     || Boolean(payment.local_status && String(payment.local_status).trim() !== '')
     || Boolean(payment.priority && String(payment.priority).trim() !== '')
     || Boolean(payment.flow && String(payment.flow).trim() !== '')
-    || Boolean(payment.reference && String(payment.reference).trim() !== '')
     || Boolean(payment.transaction_at && String(payment.transaction_at).trim() !== '')
   );
 }
@@ -2157,11 +2155,11 @@ function PaymentDetailsCard({
       <div className="sp-disclosure__content sp-disclosure__content--payment">
         <div className="sp-payment-details-card__grid">
           <div className="sp-inline-card sp-payment-details-card__item">
-            <div className="sp-inline-card__title">Montant exact</div>
+            <div className="sp-inline-card__title">Montant</div>
             <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentAmountLabel(payment)}</div>
           </div>
           <div className="sp-inline-card sp-payment-details-card__item">
-            <div className="sp-inline-card__title">Formule choisie</div>
+            <div className="sp-inline-card__title">Formule</div>
             <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentFormulaLabel(payment, fallbackPriority)}</div>
           </div>
           <div className="sp-inline-card sp-payment-details-card__item">
@@ -2169,18 +2167,8 @@ function PaymentDetailsCard({
             <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentSurfaceStatusLabel(status, payment)}</div>
           </div>
           <div className="sp-inline-card sp-payment-details-card__item">
-            <div className="sp-inline-card__title">Date de transaction</div>
+            <div className="sp-inline-card__title">Date</div>
             <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentTransactionDateLabel(status, payment)}</div>
-          </div>
-          <div className="sp-inline-card sp-payment-details-card__item">
-            <div className="sp-inline-card__title">Référence interne</div>
-            <div className="sp-inline-card__meta sp-payment-details-card__value sp-payment-details-card__value--reference">
-              {paymentReferenceLabel(payment, fallbackUid)}
-            </div>
-          </div>
-          <div className="sp-inline-card sp-payment-details-card__item">
-            <div className="sp-inline-card__title">Prestataire</div>
-            <div className="sp-inline-card__meta sp-payment-details-card__value">{paymentProviderLabel(payment?.provider)}</div>
           </div>
         </div>
       </div>

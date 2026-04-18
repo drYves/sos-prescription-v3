@@ -198,6 +198,7 @@ const MessageList = React.memo(
                 'sp-thread-item',
                 mine && 'is-own',
                 mine && 'sp-thread-item--mine',
+                mine ? 'sp-thread-item--outgoing' : 'sp-thread-item--incoming',
                 normalizedRole === 'DOCTOR' && 'sp-thread-item--role-doctor',
                 normalizedRole === 'PATIENT' && 'sp-thread-item--role-patient',
               )}

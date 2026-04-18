@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V8.2.0
+// assets/doctor-console.js · V8.2.1
 (function () {
   'use strict';
 
@@ -28,6 +28,8 @@
     refusalReason: '',
     pollHandle: null,
     pollInFlight: false,
+    pollSuspended: false,
+    pollForceRun: false,
     hydratedIds: {},
     pendingActions: {},
     optimisticLocks: {},
@@ -327,6 +329,9 @@
     }
 
     destroyDoctorMessagingHosts(detailEl, host);
+
+    var currentStatus = normalizeText(detail && detail.status || getSelectedStatusValue(detailId)).toLowerCase();
+    host.setAttribute('data-prescription-status', currentStatus);
 
     var mountedId = normalizeText(host.getAttribute('data-sp-mounted-prescription-id'));
     if (host.getAttribute('data-sp-mounted') === '1' && mountedId === String(detailId)) {
@@ -3689,9 +3694,10 @@
 
   function renderMessagesPanel(detail) {
     var detailId = Number(detail && detail.id || state.selectedId || 0);
+    var detailStatus = normalizeText(detail && detail.status || '').toLowerCase();
     return [
       '<div class="dc-message-react-shell">',
-      '  <div class="dc-message-react-host" data-sp-doctor-chat-root="1" data-prescription-id="' + escHtml(detailId) + '">',
+      '  <div class="dc-message-react-host" data-sp-doctor-chat-root="1" data-prescription-id="' + escHtml(detailId) + '" data-prescription-status="' + escHtml(detailStatus) + '">',
       '    <div class="dc-message-empty">Chargement de la messagerie sécurisée…</div>',
       '  </div>',
       '</div>'
@@ -3967,6 +3973,8 @@
     root.addEventListener('click', handleRootClick);
     root.addEventListener('change', handleRootChange);
     root.addEventListener('input', handleRootInput);
+    root.addEventListener('keydown', handleRootKeydown);
+    root.addEventListener('focusin', handleRootFocusIn);
 
     return state.ui;
   }
@@ -4471,6 +4479,45 @@
     return document.hidden ? 30000 : 15000;
   }
 
+  function shouldSuspendStablePolling() {
+    var numericId = Number(state.selectedId || 0);
+    if (numericId < 1) return false;
+    if (hasPendingAction(numericId)) return false;
+    if (state.refusalOpen) return false;
+
+    var status = getSelectedStatusValue(numericId);
+    if (!isStableSelectedStatus(status)) {
+      return false;
+    }
+
+    if (getSelectedUnreadCount(numericId) > 0) {
+      return false;
+    }
+
+    if (!isSelectedPdfSettled(numericId, status)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function suspendPolling() {
+    state.pollSuspended = true;
+    state.pollInFlight = false;
+    stopPolling();
+  }
+
+  function resumePollingFromInteraction(delayMs) {
+    if (!state.pollSuspended) {
+      return;
+    }
+
+    state.pollSuspended = false;
+    state.pollForceRun = true;
+    state.pollInFlight = false;
+    scheduleNextPoll(Math.max(350, Number(delayMs || 450)));
+  }
+
   function stopPolling() {
     if (state.pollHandle) {
       clearTimeout(state.pollHandle);
@@ -4489,11 +4536,19 @@
   }
 
   function runPollCycle() {
+    if (!state.pollForceRun && shouldSuspendStablePolling()) {
+      suspendPolling();
+      return;
+    }
+
     if (state.pollInFlight) {
       scheduleNextPoll(5000);
       return;
     }
 
+    var forceRun = !!state.pollForceRun;
+    state.pollForceRun = false;
+    state.pollSuspended = false;
     state.pollInFlight = true;
 
     var chain;
@@ -4504,7 +4559,7 @@
         })
         .then(function () {
           if (state.selectedId) {
-            return refreshSelected({ force: false });
+            return refreshSelected({ force: forceRun });
           }
           return null;
         });
@@ -4522,11 +4577,13 @@
 
   function handleVisibilityChange() {
     if (document.hidden) {
-      scheduleNextPoll(getPollDelay());
+      if (!state.pollSuspended) {
+        scheduleNextPoll(getPollDelay());
+      }
       return;
     }
 
-    if (!state.pollInFlight) {
+    if (!state.pollInFlight && !state.pollSuspended) {
       scheduleNextPoll(1200);
     }
   }
@@ -4539,10 +4596,25 @@
       state.visibilityBound = true;
     }
 
+    if (shouldSuspendStablePolling()) {
+      state.pollSuspended = true;
+      state.pollForceRun = false;
+      return;
+    }
+
     scheduleNextPoll(getPollDelay());
   }
 
+  function handleRootFocusIn() {
+    resumePollingFromInteraction(450);
+  }
+
+  function handleRootKeydown() {
+    resumePollingFromInteraction(450);
+  }
+
   function handleRootClick(event) {
+    resumePollingFromInteraction(450);
     var target = event.target;
     if (!target || typeof target.closest !== 'function') return;
 
@@ -4711,6 +4783,7 @@
     }
   }
   function handleRootChange(event) {
+    resumePollingFromInteraction(600);
     var target = event.target;
     if (!target || !target.getAttribute) return;
 
@@ -4812,6 +4885,7 @@
     }
   }
   function handleRootInput(event) {
+    resumePollingFromInteraction(800);
     var target = event.target;
     if (!target) return;
 
