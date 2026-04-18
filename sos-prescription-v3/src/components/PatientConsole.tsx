@@ -7,12 +7,20 @@ type Scope = 'patient' | 'form' | 'admin';
 
 type AppConfig = {
   restBase: string;
+  restV4Base?: string;
   nonce: string;
   currentUser?: {
     id?: number;
     displayName?: string;
     email?: string;
     roles?: string[] | string;
+    firstName?: string;
+    lastName?: string;
+    first_name?: string;
+    last_name?: string;
+    birthDate?: string;
+    birthdate?: string;
+    sosp_birthdate?: string;
   };
   patientProfile?: {
     fullname?: string;
@@ -28,8 +36,24 @@ type AppConfig = {
     medical_notes?: string;
     medicalNotes?: string;
     weight_kg?: string;
+    weightKg?: string;
     height_cm?: string;
+    heightCm?: string;
+    bmi_label?: string;
   };
+  capabilities?: {
+    manage?: boolean;
+    manageData?: boolean;
+    validate?: boolean;
+  };
+};
+
+type PaymentShadow = {
+  local_status?: string | null;
+  provider?: string | null;
+  status?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
 };
 
 type PatientProfileSnapshot = {
@@ -49,6 +73,17 @@ type PrescriptionSummary = {
   created_at: string;
   priority?: string;
   primary_reason?: string;
+  row_rev?: string;
+  updated_at?: string | null;
+  last_activity_at?: string | null;
+  processing_status?: string;
+  message_count?: number;
+  last_message_seq?: number;
+  unread_count_patient?: number;
+  has_proof?: boolean;
+  proof_count?: number;
+  pdf_ready?: boolean;
+  payment?: PaymentShadow;
 };
 
 type PrescriptionFile = {
@@ -77,6 +112,7 @@ type PrescriptionDetail = {
   request_details?: RequestDetailField[];
   files?: PrescriptionFile[];
   items: PrescriptionItem[];
+  payment?: PaymentShadow;
 };
 
 type MessageItem = {
@@ -91,8 +127,6 @@ type MessageItem = {
 };
 
 type PatientMessagingState = 'WAITING_DOCTOR' | 'OPEN' | 'CLOSED';
-
-type UploadedFile = PrescriptionFile;
 
 type PdfState = {
   status?: string;
@@ -110,6 +144,42 @@ type PaymentIntentResponse = {
   amount_cents: number;
   currency: string;
   publishable_key: string;
+};
+
+type PatientPulseItem = {
+  id: number;
+  uid: string;
+  row_rev: string;
+  status: string;
+  processing_status?: string;
+  updated_at?: string | null;
+  last_activity_at?: string | null;
+  message_count?: number;
+  last_message_seq?: number;
+  unread_count_patient?: number;
+  has_proof?: boolean;
+  proof_count?: number;
+  pdf_ready?: boolean;
+  payment?: PaymentShadow;
+};
+
+type PatientPulseResponse = {
+  count: number;
+  max_updated_at?: string | null;
+  collection_hash: string;
+  unchanged: boolean;
+  items: PatientPulseItem[];
+};
+
+type PatientProfileFormState = {
+  first_name: string;
+  last_name: string;
+  birthdate: string;
+  email: string;
+  weight_kg: string;
+  height_cm: string;
+  note: string;
+  bmi_label: string;
 };
 
 type ApiPayloadRecord = Record<string, unknown>;
@@ -719,6 +789,7 @@ function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | nul
     request_details: extractRequestDetailsFromPayload(payload),
     files: normalizePrescriptionFileArray(payload.files),
     items: normalizePrescriptionItemArray(payload.items),
+    payment: normalizePaymentShadow(payload.payment),
   };
 }
 
@@ -930,6 +1001,470 @@ async function apiJson<T>(path: string, init: RequestInit, scope: Scope = 'patie
   return payload as T;
 }
 
+function resolveRestV4Base(cfg: AppConfig): string {
+  const explicitBase = String(cfg.restV4Base || '').trim();
+  if (explicitBase !== '') {
+    return explicitBase.replace(/\/+$/, '');
+  }
+
+  const restBase = String(cfg.restBase || '').trim();
+  if (restBase === '') {
+    throw new Error('Configuration REST V4 absente.');
+  }
+
+  return restBase.replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4').replace(/\/+$/, '');
+}
+
+async function apiJsonV4<T>(path: string, init: RequestInit, scope: Scope = 'patient'): Promise<T> {
+  const cfg = getAppConfig();
+  const method = String(init.method || 'GET').toUpperCase();
+  const headers = new Headers(init.headers || {});
+  headers.set('X-WP-Nonce', cfg.nonce);
+  headers.set('Accept', 'application/json');
+  headers.set('X-Sos-Scope', scope);
+
+  if (method === 'GET') {
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+  }
+
+  const response = await fetch(resolveRestV4Base(cfg) + withCacheBuster(path, method), {
+    ...init,
+    method,
+    headers,
+    credentials: 'same-origin',
+    cache: method === 'GET' ? 'no-store' : init.cache,
+  });
+
+  const text = await response.text();
+  let payload: unknown = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = text;
+  }
+
+  if (!response.ok) {
+    debugApiPayload(payload, {
+      endpoint: path,
+      method,
+      status: response.status,
+      scope,
+    });
+
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof (payload as { message?: unknown }).message === 'string'
+        ? String((payload as { message: string }).message)
+        : `Erreur API (${response.status})`;
+    throw new ApiPayloadError(message, response.status, payload);
+  }
+
+  return payload as T;
+}
+
+async function getPatientPulse(knownCollectionHash?: string): Promise<unknown> {
+  const query = knownCollectionHash && /^[a-f0-9]{12,128}$/i.test(knownCollectionHash)
+    ? `?known_collection_hash=${encodeURIComponent(knownCollectionHash)}`
+    : '';
+
+  return apiJsonV4<unknown>(`/patient/pulse${query}`, { method: 'GET' }, 'patient');
+}
+
+async function getPatientProfile(): Promise<unknown> {
+  return apiJsonV4<unknown>('/patient/profile', { method: 'GET' }, 'patient');
+}
+
+async function savePatientProfile(payload: Record<string, unknown>): Promise<unknown> {
+  return apiJsonV4<unknown>(
+    '/patient/profile',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    'patient'
+  );
+}
+
+async function deleteOwnPatientAccount(): Promise<unknown> {
+  return apiJsonV4<unknown>(
+    '/account/delete',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    },
+    'patient'
+  );
+}
+
+function normalizeProfileMetricInput(value: unknown): string {
+  return String(value ?? '').trim().replace(/,/g, '.');
+}
+
+function formatIsoToFr(value: string): string {
+  const normalized = String(value || '').trim();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return normalized;
+  }
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function parseMetricNumber(value: string): number | null {
+  const raw = normalizeProfileMetricInput(value);
+  if (raw === '') {
+    return null;
+  }
+
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function computeBmiLabel(weightKg: string, heightCm: string): string {
+  const weight = parseMetricNumber(weightKg);
+  const height = parseMetricNumber(heightCm);
+
+  if (!weight || !height || weight < 1 || weight > 500 || height < 30 || height > 300) {
+    return 'IMC —';
+  }
+
+  const meters = height / 100;
+  if (meters <= 0) {
+    return 'IMC —';
+  }
+
+  const bmi = weight / (meters * meters);
+  if (!Number.isFinite(bmi) || bmi <= 0) {
+    return 'IMC —';
+  }
+
+  const rounded = Math.round(bmi * 10) / 10;
+  let suffix = 'Corpulence normale';
+  if (rounded < 18.5) suffix = 'Insuffisance pondérale';
+  else if (rounded < 25) suffix = 'Corpulence normale';
+  else if (rounded < 30) suffix = 'Surpoids';
+  else if (rounded < 35) suffix = 'Obésité (classe I)';
+  else if (rounded < 40) suffix = 'Obésité (classe II)';
+  else suffix = 'Obésité (classe III)';
+
+  return `IMC ${String(rounded).replace('.', ',')} • ${suffix}`;
+}
+
+function splitHumanDisplayName(value: string): { firstName: string; lastName: string } {
+  const normalized = normalizeMultilineText(value).replace(/\s+/g, ' ').trim();
+  if (normalized === '' || isEmailLike(normalized)) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const parts = normalized.split(/\s+/u).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 1) {
+    return { firstName: '', lastName: '' };
+  }
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: '' };
+  }
+
+  const firstName = parts.shift() || '';
+  return { firstName, lastName: parts.join(' ') };
+}
+
+function buildPatientProfileSeed(
+  profile: AppConfig['patientProfile'] | undefined,
+  currentUser: AppConfig['currentUser'] | undefined
+): PatientProfileFormState {
+  const displaySplit = splitHumanDisplayName(
+    cleanHumanText(profile?.fullname)
+      || cleanHumanText(profile?.full_name)
+      || cleanHumanText(profile?.fullName)
+      || cleanHumanText(currentUser?.displayName)
+      || ''
+  );
+
+  const firstName = cleanHumanText(currentUser?.firstName)
+    || cleanHumanText(currentUser?.first_name)
+    || cleanHumanText(profile?.first_name)
+    || displaySplit.firstName
+    || '';
+
+  const lastName = cleanHumanText(currentUser?.lastName)
+    || cleanHumanText(currentUser?.last_name)
+    || cleanHumanText(profile?.last_name)
+    || displaySplit.lastName
+    || '';
+
+  const birthdate = cleanHumanText(profile?.birthdate_fr)
+    || formatIsoToFr(
+      cleanHumanText(profile?.birthdate_iso)
+      || cleanHumanText(profile?.birthdate)
+      || cleanHumanText(currentUser?.birthDate)
+      || cleanHumanText(currentUser?.birthdate)
+      || cleanHumanText(currentUser?.sosp_birthdate)
+      || ''
+    )
+    || '';
+
+  const email = String(
+    cleanHumanText(profile?.email)
+    || cleanHumanText(currentUser?.email)
+    || ''
+  ).toLowerCase();
+
+  const weightKg = normalizeProfileMetricInput(profile?.weight_kg || profile?.weightKg || '');
+  const heightCm = normalizeProfileMetricInput(profile?.height_cm || profile?.heightCm || '');
+  const note = String(
+    cleanHumanText(profile?.note)
+    || cleanHumanText(profile?.medical_notes)
+    || cleanHumanText(profile?.medicalNotes)
+    || ''
+  );
+
+  return {
+    first_name: firstName,
+    last_name: lastName,
+    birthdate,
+    email,
+    weight_kg: weightKg,
+    height_cm: heightCm,
+    note,
+    bmi_label: cleanHumanText(profile?.bmi_label) || computeBmiLabel(weightKg, heightCm),
+  };
+}
+
+function buildPatientProfilePayload(form: PatientProfileFormState): Record<string, unknown> {
+  const note = normalizeMultilineText(form.note || '');
+  const weightKg = normalizeProfileMetricInput(form.weight_kg);
+  const heightCm = normalizeProfileMetricInput(form.height_cm);
+
+  return {
+    first_name: normalizeMultilineText(form.first_name || ''),
+    last_name: normalizeMultilineText(form.last_name || ''),
+    birthdate: String(form.birthdate || '').trim(),
+    email: String(form.email || '').trim().toLowerCase(),
+    weight_kg: weightKg,
+    weightKg: weightKg,
+    height_cm: heightCm,
+    heightCm: heightCm,
+    note,
+    medical_notes: note,
+    medicalNotes: note,
+  };
+}
+
+function profileFormToConfig(form: PatientProfileFormState): AppConfig['patientProfile'] {
+  const fullName = normalizeMultilineText([form.first_name, form.last_name].filter(Boolean).join(' '));
+  const bmiLabel = computeBmiLabel(form.weight_kg, form.height_cm);
+
+  return {
+    fullname: fullName,
+    full_name: fullName,
+    fullName: fullName,
+    birthdate: String(form.birthdate || '').trim(),
+    birthdate_fr: String(form.birthdate || '').trim(),
+    first_name: normalizeMultilineText(form.first_name || ''),
+    last_name: normalizeMultilineText(form.last_name || ''),
+    email: String(form.email || '').trim().toLowerCase(),
+    note: normalizeMultilineText(form.note || ''),
+    medical_notes: normalizeMultilineText(form.note || ''),
+    medicalNotes: normalizeMultilineText(form.note || ''),
+    weight_kg: normalizeProfileMetricInput(form.weight_kg),
+    weightKg: normalizeProfileMetricInput(form.weight_kg),
+    height_cm: normalizeProfileMetricInput(form.height_cm),
+    heightCm: normalizeProfileMetricInput(form.height_cm),
+    bmi_label: bmiLabel,
+  };
+}
+
+function normalizePatientProfileFromResponse(
+  payload: unknown,
+  fallback: PatientProfileFormState,
+  currentUser?: AppConfig['currentUser']
+): PatientProfileFormState {
+  const profile = isRecord(payload) && isRecord(payload.profile)
+    ? payload.profile
+    : (isRecord(payload) ? payload : {});
+
+  const seed = buildPatientProfileSeed(profile as AppConfig['patientProfile'], currentUser);
+
+  const merged: PatientProfileFormState = {
+    first_name: seed.first_name || fallback.first_name,
+    last_name: seed.last_name || fallback.last_name,
+    birthdate: seed.birthdate || fallback.birthdate,
+    email: seed.email || fallback.email,
+    weight_kg: seed.weight_kg || fallback.weight_kg,
+    height_cm: seed.height_cm || fallback.height_cm,
+    note: seed.note || fallback.note,
+    bmi_label: seed.bmi_label || fallback.bmi_label,
+  };
+
+  return {
+    ...merged,
+    bmi_label: computeBmiLabel(merged.weight_kg, merged.height_cm),
+  };
+}
+
+function updateGlobalPatientProfileConfig(profile: AppConfig['patientProfile'] | undefined): void {
+  if (!profile) {
+    return;
+  }
+
+  const g = window as PatientConsoleWindow;
+  const cfg = g.SosPrescription || g.SOSPrescription;
+  if (!cfg) {
+    return;
+  }
+
+  const currentUser = { ...(cfg.currentUser || {}) };
+  const nextProfile = { ...(cfg.patientProfile || {}), ...profile };
+  const fullName = cleanHumanText(profile.fullname)
+    || cleanHumanText(profile.full_name)
+    || cleanHumanText(profile.fullName)
+    || normalizeMultilineText([String(profile.first_name || ''), String(profile.last_name || '')].filter(Boolean).join(' '));
+
+  if (profile.first_name) {
+    currentUser.firstName = profile.first_name;
+    currentUser.first_name = profile.first_name;
+  }
+  if (profile.last_name) {
+    currentUser.lastName = profile.last_name;
+    currentUser.last_name = profile.last_name;
+  }
+  if (profile.birthdate_iso || profile.birthdate) {
+    const birthValue = String(profile.birthdate_iso || profile.birthdate || '').trim();
+    currentUser.birthDate = birthValue;
+    currentUser.birthdate = birthValue;
+    currentUser.sosp_birthdate = birthValue;
+  }
+  if (profile.email) {
+    currentUser.email = profile.email;
+  }
+  if (fullName && (!cleanHumanText(currentUser.displayName) || isEmailLike(String(currentUser.displayName || '')))) {
+    currentUser.displayName = fullName;
+  }
+
+  cfg.currentUser = currentUser;
+  cfg.patientProfile = nextProfile;
+  g.SosPrescription = cfg;
+  g.SOSPrescription = cfg;
+
+  window.dispatchEvent(new CustomEvent('sosprescription:patient-profile-updated', {
+    detail: {
+      profile: nextProfile,
+    },
+  }));
+}
+
+function normalizePaymentShadow(value: unknown): PaymentShadow | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    local_status: typeof value.local_status === 'string' ? value.local_status : null,
+    provider: typeof value.provider === 'string' ? value.provider : null,
+    status: typeof value.status === 'string' ? value.status : null,
+    amount_cents: value.amount_cents === null ? null : toOptionalNumber(value.amount_cents),
+    currency: typeof value.currency === 'string' ? value.currency : null,
+  };
+}
+
+function normalizePatientPulseResponse(payload: unknown): PatientPulseResponse | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const collectionHash = toRequiredString(payload.collection_hash, '').trim();
+  if (collectionHash === '') {
+    return null;
+  }
+
+  const unchanged = Boolean(payload.unchanged);
+  const items = Array.isArray(payload.items)
+    ? payload.items
+        .map((entry): PatientPulseItem | null => {
+          if (!isRecord(entry)) {
+            return null;
+          }
+
+          const id = toPositiveInteger(entry.id);
+          if (id < 1) {
+            return null;
+          }
+
+          const rowRev = toRequiredString(entry.row_rev, '').trim();
+          if (rowRev === '') {
+            return null;
+          }
+
+          return {
+            id,
+            uid: toRequiredString(entry.uid, `#${id}`),
+            row_rev: rowRev,
+            status: toRequiredString(entry.status, ''),
+            processing_status: toOptionalString(entry.processing_status),
+            updated_at: toOptionalNullableString(entry.updated_at),
+            last_activity_at: toOptionalNullableString(entry.last_activity_at),
+            message_count: toOptionalNumber(entry.message_count),
+            last_message_seq: toOptionalNumber(entry.last_message_seq),
+            unread_count_patient: toOptionalNumber(entry.unread_count_patient),
+            has_proof: typeof entry.has_proof === 'boolean' ? entry.has_proof : Boolean(entry.has_proof),
+            proof_count: toOptionalNumber(entry.proof_count),
+            pdf_ready: typeof entry.pdf_ready === 'boolean' ? entry.pdf_ready : Boolean(entry.pdf_ready),
+            payment: normalizePaymentShadow(entry.payment),
+          };
+        })
+        .filter((entry): entry is PatientPulseItem => entry !== null)
+    : [];
+
+  return {
+    count: toPositiveInteger(payload.count),
+    max_updated_at: toOptionalNullableString(payload.max_updated_at),
+    collection_hash: collectionHash,
+    unchanged,
+    items,
+  };
+}
+
+function mergeSummaryWithPulseRow(row: PrescriptionSummary, pulse: PatientPulseItem | undefined): PrescriptionSummary {
+  if (!pulse) {
+    return row;
+  }
+
+  return {
+    ...row,
+    uid: pulse.uid || row.uid,
+    status: pulse.status || row.status,
+    row_rev: pulse.row_rev,
+    updated_at: pulse.updated_at,
+    last_activity_at: pulse.last_activity_at,
+    processing_status: pulse.processing_status,
+    message_count: typeof pulse.message_count === 'number' ? pulse.message_count : row.message_count,
+    last_message_seq: typeof pulse.last_message_seq === 'number' ? pulse.last_message_seq : row.last_message_seq,
+    unread_count_patient: typeof pulse.unread_count_patient === 'number' ? pulse.unread_count_patient : row.unread_count_patient,
+    has_proof: typeof pulse.has_proof === 'boolean' ? pulse.has_proof : row.has_proof,
+    proof_count: typeof pulse.proof_count === 'number' ? pulse.proof_count : row.proof_count,
+    pdf_ready: typeof pulse.pdf_ready === 'boolean' ? pulse.pdf_ready : row.pdf_ready,
+    payment: pulse.payment || row.payment,
+  };
+}
+
+function applyPulseToSummaries(rows: PrescriptionSummary[], items: PatientPulseItem[]): PrescriptionSummary[] {
+  const index = new Map<number, PatientPulseItem>();
+  items.forEach((item) => {
+    index.set(item.id, item);
+  });
+
+  return rows.map((row) => mergeSummaryWithPulseRow(row, index.get(row.id)));
+}
+
+function canSelfDeletePatientAccount(cfg: AppConfig): boolean {
+  return !Boolean(cfg.capabilities?.manage || cfg.capabilities?.manageData || cfg.capabilities?.validate);
+}
+
 async function listPatientPrescriptions(): Promise<unknown> {
   return apiJson<unknown>('/prescriptions', { method: 'GET' }, 'patient');
 }
@@ -944,17 +1479,6 @@ async function getPatientMessages(id: number): Promise<unknown> {
 
 async function getPatientPdfStatus(id: number): Promise<unknown> {
   return apiJson<unknown>(`/prescriptions/${id}/pdf-status`, { method: 'GET' }, 'patient');
-}
-
-async function uploadPatientFile(file: File, purpose: string, prescriptionId?: number): Promise<UploadedFile> {
-  const formData = new FormData();
-  formData.append('purpose', purpose);
-  if (prescriptionId && prescriptionId > 0) {
-    formData.append('prescription_id', String(prescriptionId));
-  }
-  formData.append('file', file);
-
-  return apiJson<UploadedFile>('/files', { method: 'POST', body: formData }, 'form');
 }
 
 async function postPatientMessage(id: number, body: string, attachments?: number[]): Promise<MessageItem> {
@@ -1703,6 +2227,312 @@ function PdfCard({ status, pdf }: { status: string; pdf: PdfState | null }) {
   );
 }
 
+function PatientProfilePanel({
+  snapshot,
+  onProfileChange,
+  canDeleteAccount,
+}: {
+  snapshot: PatientProfileSnapshot;
+  onProfileChange: (profile: AppConfig['patientProfile']) => void;
+  canDeleteAccount: boolean;
+}) {
+  const initialSeed = useMemo(
+    () => buildPatientProfileSeed(snapshot.patientProfile, snapshot.currentUser),
+    [
+      snapshot.currentUser?.displayName,
+      snapshot.currentUser?.email,
+      snapshot.currentUser?.firstName,
+      snapshot.currentUser?.lastName,
+      snapshot.currentUser?.first_name,
+      snapshot.currentUser?.last_name,
+      snapshot.currentUser?.birthDate,
+      snapshot.currentUser?.birthdate,
+      snapshot.currentUser?.sosp_birthdate,
+      snapshot.patientProfile?.fullname,
+      snapshot.patientProfile?.full_name,
+      snapshot.patientProfile?.fullName,
+      snapshot.patientProfile?.birthdate,
+      snapshot.patientProfile?.birthdate_fr,
+      snapshot.patientProfile?.birthdate_iso,
+      snapshot.patientProfile?.first_name,
+      snapshot.patientProfile?.last_name,
+      snapshot.patientProfile?.email,
+      snapshot.patientProfile?.note,
+      snapshot.patientProfile?.medical_notes,
+      snapshot.patientProfile?.medicalNotes,
+      snapshot.patientProfile?.weight_kg,
+      snapshot.patientProfile?.weightKg,
+      snapshot.patientProfile?.height_cm,
+      snapshot.patientProfile?.heightCm,
+      snapshot.patientProfile?.bmi_label,
+    ]
+  );
+
+  const [form, setForm] = useState<PatientProfileFormState>(initialSeed);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    setForm(initialSeed);
+  }, [initialSeed]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function boot(): Promise<void> {
+      setLoading(true);
+      try {
+        const payload = await getPatientProfile();
+        if (disposed) {
+          return;
+        }
+
+        const normalized = normalizePatientProfileFromResponse(payload, initialSeed, snapshot.currentUser);
+        setForm(normalized);
+        const nextProfile = profileFormToConfig(normalized);
+        updateGlobalPatientProfileConfig(nextProfile);
+        onProfileChange(nextProfile);
+      } catch {
+        // keep local seed when V4 profile fetch is unavailable
+      } finally {
+        if (!disposed) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void boot();
+
+    return () => {
+      disposed = true;
+    };
+  }, [initialSeed, onProfileChange, snapshot.currentUser]);
+  const updateField = (field: keyof PatientProfileFormState, value: string): void => {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'weight_kg' || field === 'height_cm'
+        ? {
+            bmi_label: computeBmiLabel(
+              field === 'weight_kg' ? value : current.weight_kg,
+              field === 'height_cm' ? value : current.height_cm,
+            ),
+          }
+        : {}),
+    }));
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    setFeedback(null);
+
+    const payload = buildPatientProfilePayload(form);
+    const firstName = String(payload.first_name || '').trim();
+    const lastName = String(payload.last_name || '').trim();
+    const email = String(payload.email || '').trim();
+
+    if (firstName !== '' && isEmailLike(firstName)) {
+      setFeedback({ tone: 'error', text: 'Le prénom ne peut pas être une adresse e-mail.' });
+      return;
+    }
+    if (lastName !== '' && isEmailLike(lastName)) {
+      setFeedback({ tone: 'error', text: 'Le nom ne peut pas être une adresse e-mail.' });
+      return;
+    }
+    if (email !== '' && !isEmailLike(email)) {
+      setFeedback({ tone: 'error', text: 'Adresse e-mail invalide.' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await savePatientProfile(payload);
+      const normalized = normalizePatientProfileFromResponse(response, form, snapshot.currentUser);
+      const nextProfile = isRecord(response) && isRecord(response.profile)
+        ? ({ ...profileFormToConfig(normalized), ...(response.profile as AppConfig['patientProfile']) })
+        : profileFormToConfig(normalized);
+
+      setForm(normalized);
+      updateGlobalPatientProfileConfig(nextProfile);
+      onProfileChange(nextProfile);
+      setFeedback({ tone: 'success', text: 'Profil enregistré avec succès.' });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        text: resolveUnknownErrorMessage(error, 'Impossible d’enregistrer le profil patient.'),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async (): Promise<void> => {
+    const confirmed = window.confirm(
+      "Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setFeedback(null);
+    setDeleting(true);
+    try {
+      await deleteOwnPatientAccount();
+      setFeedback({ tone: 'success', text: 'Compte supprimé. Redirection…' });
+      window.location.assign('/');
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        text: resolveUnknownErrorMessage(error, 'La suppression du compte a échoué.'),
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="sp-profile-card sp-profile-card--embedded">
+      {feedback ? (
+        <div className="sp-inline-note">
+          <Notice variant={feedback.tone === 'success' ? 'success' : feedback.tone === 'info' ? 'info' : 'error'}>
+            {feedback.text}
+          </Notice>
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="sp-empty-note">Synchronisation silencieuse du profil…</div>
+      ) : null}
+
+      <form id="sp-patient-profile-form" noValidate onSubmit={(event) => void handleSubmit(event)}>
+        <div className="sp-profile-grid">
+          <label className="sp-field">
+            <span>Prénom</span>
+            <input
+              type="text"
+              name="first_name"
+              maxLength={100}
+              autoComplete="given-name"
+              value={form.first_name}
+              onChange={(event) => updateField('first_name', event.currentTarget.value)}
+            />
+          </label>
+
+          <label className="sp-field">
+            <span>Nom</span>
+            <input
+              type="text"
+              name="last_name"
+              maxLength={120}
+              autoComplete="family-name"
+              value={form.last_name}
+              onChange={(event) => updateField('last_name', event.currentTarget.value)}
+            />
+          </label>
+
+          <label className="sp-field">
+            <span>Date de naissance</span>
+            <input
+              type="text"
+              name="birthdate"
+              placeholder="JJ/MM/AAAA"
+              inputMode="numeric"
+              autoComplete="bday"
+              value={form.birthdate}
+              onChange={(event) => updateField('birthdate', event.currentTarget.value)}
+            />
+          </label>
+
+          <label className="sp-field">
+            <span>Email</span>
+            <input
+              type="email"
+              name="email"
+              maxLength={190}
+              autoComplete="email"
+              value={form.email}
+              onChange={(event) => updateField('email', event.currentTarget.value)}
+            />
+          </label>
+
+          <label className="sp-field">
+            <span>Poids (kg)</span>
+            <input
+              type="number"
+              name="weight_kg"
+              min="1"
+              max="500"
+              step="0.1"
+              inputMode="decimal"
+              value={form.weight_kg}
+              onChange={(event) => updateField('weight_kg', event.currentTarget.value)}
+            />
+          </label>
+
+          <label className="sp-field">
+            <span>Taille (cm)</span>
+            <input
+              type="number"
+              name="height_cm"
+              min="30"
+              max="300"
+              step="0.1"
+              inputMode="decimal"
+              value={form.height_cm}
+              onChange={(event) => updateField('height_cm', event.currentTarget.value)}
+            />
+          </label>
+
+          <div className="sp-field sp-field--readonly">
+            <span>IMC</span>
+            <div className="sp-profile-bmi">{form.bmi_label || 'IMC —'}</div>
+          </div>
+        </div>
+
+        <div className="sp-field sp-field--full">
+          <label className="sp-field__label" htmlFor="sp-profile-medical-notes">
+            Précisions médicales (optionnel)
+          </label>
+          <textarea
+            id="sp-profile-medical-notes"
+            name="note"
+            className="sp-textarea"
+            rows={4}
+            placeholder="Allergies, antécédents, contre-indications ou toute information utile au médecin…"
+            value={form.note}
+            onChange={(event) => updateField('note', event.currentTarget.value)}
+          />
+        </div>
+
+        <div className="sp-profile-actions">
+          <Button type="submit" className="sp-profile-actions__submit" disabled={saving || deleting}>
+            {saving ? <Spinner /> : 'Enregistrer mes informations'}
+          </Button>
+        </div>
+      </form>
+
+      {canDeleteAccount ? (
+        <div className="sp-card" style={{ marginTop: '1rem' }}>
+          <div className="sp-stack">
+            <h3>Suppression de compte</h3>
+            <p className="sp-field__help">
+              Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.
+            </p>
+            <div>
+              <Button type="button" variant="secondary" disabled={saving || deleting} onClick={() => void handleDeleteAccount()}>
+                {deleting ? <Spinner /> : 'Supprimer mon compte'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function PatientConsole() {
   const cfg = getAppConfig();
   const isLoggedIn = Boolean(cfg.currentUser?.id && Number(cfg.currentUser.id) > 0);
@@ -1718,17 +2548,19 @@ export default function PatientConsole() {
   const [apiBanner, setApiBanner] = useState<string | null>(null);
   const [pdfStates, setPdfStates] = useState<Record<number, PdfState>>({});
   const [workspace, setWorkspace] = useState<'requests' | 'profile'>('requests');
-  const [paymentPreview, setPaymentPreview] = useState<{ amountCents: number; currency: string } | null>(null);
-  const [profileReady, setProfileReady] = useState(false);
   const [profileSnapshot, setProfileSnapshot] = useState<PatientProfileSnapshot>(() => ({
     patientProfile: cfg.patientProfile,
     currentUser: cfg.currentUser,
   }));
 
   const paymentSectionRef = useRef<HTMLDivElement | null>(null);
-  const profileHostRef = useRef<HTMLDivElement | null>(null);
-  const profileRestoreRef = useRef<{ parent: HTMLElement | null; nextSibling: Node | null } | null>(null);
-
+  const prescriptionsRef = useRef<PrescriptionSummary[]>([]);
+  const selectedIdRef = useRef<number | null>(null);
+  const pulseCollectionHashRef = useRef<string>('');
+  const pulseInFlightRef = useRef(false);
+  const listRequestSeqRef = useRef(0);
+  const detailRequestSeqRef = useRef(0);
+  const messagesRequestSeqRef = useRef(0);
 
   const requestedId = useMemo(() => {
     try {
@@ -1740,21 +2572,30 @@ export default function PatientConsole() {
     }
   }, []);
 
-  const selectedSummary = useMemo(
-    () => prescriptions.find((row) => Number(row.id) === Number(selectedId)) || null,
-    [prescriptions, selectedId]
-  );
+  useEffect(() => {
+    prescriptionsRef.current = prescriptions;
+  }, [prescriptions]);
 
   useEffect(() => {
-    setProfileSnapshot({
-      patientProfile: cfg.patientProfile,
-      currentUser: cfg.currentUser,
-    });
-  }, [cfg.currentUser, cfg.patientProfile]);
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      pulseCollectionHashRef.current = '';
+      setPrescriptions([]);
+      setSelectedId(null);
+      setDetail(null);
+      setMessages([]);
+      setPdfStates({});
+    }
+  }, [isLoggedIn]);
 
   useEffect(() => {
     const handlePatientProfileUpdated = (event: Event): void => {
-      const detail = event instanceof CustomEvent ? event.detail as { profile?: AppConfig['patientProfile'] } | undefined : undefined;
+      const detail = event instanceof CustomEvent
+        ? (event.detail as { profile?: AppConfig['patientProfile'] } | undefined)
+        : undefined;
       const nextConfig = getAppConfig();
       setProfileSnapshot({
         patientProfile: detail?.profile || nextConfig.patientProfile,
@@ -1768,12 +2609,25 @@ export default function PatientConsole() {
     };
   }, []);
 
+  const handleProfileChange = useCallback((profile: AppConfig['patientProfile']): void => {
+    const nextConfig = getAppConfig();
+    setProfileSnapshot({
+      patientProfile: { ...(nextConfig.patientProfile || {}), ...(profile || {}) },
+      currentUser: nextConfig.currentUser,
+    });
+  }, []);
+
+  const selectedSummary = useMemo(
+    () => prescriptions.find((row) => Number(row.id) === Number(selectedId)) || null,
+    [prescriptions, selectedId]
+  );
+
   const profileComplete = useMemo(
     () => isPatientProfileComplete(profileSnapshot.patientProfile, profileSnapshot.currentUser),
     [profileSnapshot.currentUser, profileSnapshot.patientProfile]
   );
 
-  const selectedStatus = normalizeStatusValue(detail?.status || selectedSummary?.status || '');
+  const selectedStatus = normalizeStatusValue(selectedSummary?.status || detail?.status || '');
   const selectedPdf = selectedId ? pdfStates[selectedId] || null : null;
   const requestTitle = useMemo(
     () => buildPrescriptionTitle(detail?.primary_reason || selectedSummary?.primary_reason, detail?.created_at || selectedSummary?.created_at || ''),
@@ -1781,15 +2635,15 @@ export default function PatientConsole() {
   );
   const requestDetails = detail?.request_details || [];
   const messagingState = useMemo<PatientMessagingState>(
-    () => (detail ? resolvePatientMessagingState(detail.status, messages) : 'WAITING_DOCTOR'),
-    [detail, messages]
+    () => (selectedId ? resolvePatientMessagingState(selectedStatus, messages) : 'WAITING_DOCTOR'),
+    [messages, selectedId, selectedStatus]
   );
   const messagingLocked = messagingState !== 'OPEN';
-  const messagingReadOnlyNotice = detail
-    ? patientMessagingReadOnlyNotice(detail.status, messagingState)
+  const messagingReadOnlyNotice = selectedId
+    ? patientMessagingReadOnlyNotice(selectedStatus, messagingState)
     : "Le médecin n'a pas encore sollicité d'information pour ce dossier.";
-  const messagingEmptyText = detail
-    ? patientMessagingEmptyText(detail.status, messagingState)
+  const messagingEmptyText = selectedId
+    ? patientMessagingEmptyText(selectedStatus, messagingState)
     : "Le médecin n'a pas encore sollicité d'information. Cet espace s'ouvrira automatiquement dès qu'un message médical sera envoyé.";
   const messagingSubtitle = messagingState === 'OPEN'
     ? 'Messagerie sécurisée associée à votre dossier.'
@@ -1803,10 +2657,15 @@ export default function PatientConsole() {
     return index;
   }, [detail?.files]);
 
-  const refreshList = useCallback(async () => {
-    setError(null);
-    setApiBanner(null);
-    setListLoading(true);
+  const refreshList = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<void> => {
+    const requestSeq = ++listRequestSeqRef.current;
+
+    if (!silent) {
+      setError(null);
+      setApiBanner(null);
+      setListLoading(true);
+    }
+
     try {
       const payload = await listPatientPrescriptions();
       if (!Array.isArray(payload)) {
@@ -1815,25 +2674,49 @@ export default function PatientConsole() {
           expected: 'array',
           received_type: typeof payload,
         });
+
         const banner = resolveBannerFromPayload(payload);
-        if (banner) {
+        if (!silent && banner) {
           setApiBanner(banner);
-        } else {
+          setError(null);
+        } else if (!silent) {
           setError('Réponse API inattendue pour la liste des demandes. Consultez la console pour le payload brut.');
         }
-        setPrescriptions([]);
-        setSelectedId(null);
         return;
       }
 
       const rows = normalizePrescriptionSummaryArray(payload);
-      setPrescriptions((current) => rows.map((row) => {
-        const existing = current.find((item) => Number(item.id) === Number(row.id));
-        return {
-          ...row,
-          primary_reason: row.primary_reason || existing?.primary_reason,
-        };
-      }));
+      setPrescriptions((current) => {
+        const index = new Map<number, PrescriptionSummary>();
+        current.forEach((row) => {
+          index.set(Number(row.id), row);
+        });
+
+        return rows.map((row) => {
+          const existing = index.get(Number(row.id));
+          if (!existing) {
+            return row;
+          }
+
+          return {
+            ...row,
+            status: existing.status || row.status,
+            primary_reason: row.primary_reason || existing.primary_reason,
+            row_rev: existing.row_rev,
+            updated_at: existing.updated_at,
+            last_activity_at: existing.last_activity_at,
+            processing_status: existing.processing_status,
+            message_count: existing.message_count,
+            last_message_seq: existing.last_message_seq,
+            unread_count_patient: existing.unread_count_patient,
+            has_proof: existing.has_proof,
+            proof_count: existing.proof_count,
+            pdf_ready: existing.pdf_ready,
+            payment: existing.payment,
+          };
+        });
+      });
+
       setSelectedId((current) => {
         if (current && rows.some((row) => Number(row.id) === Number(current))) {
           return current;
@@ -1843,25 +2726,35 @@ export default function PatientConsole() {
         }
         return rows.length > 0 ? Number(rows[0].id) : null;
       });
+
+      if (rows.length < 1 && !silent) {
+        setDetail(null);
+        setMessages([]);
+      }
     } catch (err) {
       const banner = resolveBannerFromError(err);
-      if (banner) {
+      if (!silent && banner) {
         setApiBanner(banner);
         setError(null);
-      } else {
+      } else if (!silent) {
         setError(resolveUnknownErrorMessage(err, 'Erreur chargement'));
       }
-      setPrescriptions([]);
-      setSelectedId(null);
     } finally {
-      setListLoading(false);
+      if (!silent && listRequestSeqRef.current === requestSeq) {
+        setListLoading(false);
+      }
     }
   }, [requestedId]);
 
-  const loadDetail = useCallback(async (id: number) => {
-    setError(null);
-    setApiBanner(null);
-    setDetailLoading(true);
+  const loadDetail = useCallback(async (id: number, silent = false): Promise<void> => {
+    const requestSeq = ++detailRequestSeqRef.current;
+
+    if (!silent) {
+      setError(null);
+      setApiBanner(null);
+      setDetailLoading(true);
+    }
+
     try {
       const payload = await getPatientPrescription(id);
       const normalized = normalizePrescriptionDetail(payload);
@@ -1873,13 +2766,19 @@ export default function PatientConsole() {
           received_type: typeof payload,
         });
         const banner = resolveBannerFromPayload(payload);
-        if (banner) {
+        if (!silent && banner) {
           setApiBanner(banner);
           setError(null);
-        } else {
+        } else if (!silent) {
           setError('Réponse API inattendue sur le détail patient. Consultez la console pour le payload brut.');
         }
-        setDetail(null);
+        if (!silent && selectedIdRef.current === id) {
+          setDetail(null);
+        }
+        return;
+      }
+
+      if (selectedIdRef.current !== id) {
         return;
       }
 
@@ -1893,28 +2792,36 @@ export default function PatientConsole() {
           ...row,
           created_at: normalized.created_at || row.created_at,
           primary_reason: normalized.primary_reason || row.primary_reason,
+          payment: normalized.payment || row.payment,
         };
       }));
     } catch (err) {
       const banner = resolveBannerFromError(err);
-      if (banner) {
+      if (!silent && banner) {
         setApiBanner(banner);
         setError(null);
-      } else {
+      } else if (!silent) {
         setError(resolveUnknownErrorMessage(err, 'Erreur chargement'));
       }
-      setDetail(null);
+      if (!silent && selectedIdRef.current === id) {
+        setDetail(null);
+      }
     } finally {
-      setDetailLoading(false);
+      if (!silent && detailRequestSeqRef.current === requestSeq) {
+        setDetailLoading(false);
+      }
     }
   }, []);
 
-  const loadMessages = useCallback(async (id: number, silent = false) => {
+  const loadMessages = useCallback(async (id: number, silent = false): Promise<void> => {
+    const requestSeq = ++messagesRequestSeqRef.current;
+
     if (!silent) {
       setError(null);
       setApiBanner(null);
       setMessagesLoading(true);
     }
+
     try {
       const payload = await getPatientMessages(id);
       const messagesArray = Array.isArray(payload)
@@ -1928,15 +2835,15 @@ export default function PatientConsole() {
           received_type: typeof payload,
         });
         const banner = resolveBannerFromPayload(payload);
-        if (banner) {
+        if (!silent && banner) {
           setApiBanner(banner);
-          if (!silent) {
-            setError(null);
-          }
+          setError(null);
         } else if (!silent) {
           setError('Réponse API inattendue sur la messagerie. Consultez la console pour le payload brut.');
         }
-        setMessages([]);
+        if (!silent && selectedIdRef.current === id) {
+          setMessages([]);
+        }
         return;
       }
 
@@ -1949,34 +2856,36 @@ export default function PatientConsole() {
         return String(message.body || '').trim() !== '' || (Array.isArray(message.attachments) && message.attachments.length > 0);
       });
 
+      if (selectedIdRef.current !== id) {
+        return;
+      }
+
       setMessages(normalizedMessages);
     } catch (err) {
       const banner = resolveBannerFromError(err);
-      if (banner) {
+      if (!silent && banner) {
         setApiBanner(banner);
-        if (!silent) {
-          setError(null);
-        }
+        setError(null);
       } else if (!silent) {
         setError(resolveUnknownErrorMessage(err, 'Erreur messagerie'));
       }
-      setMessages([]);
+      if (!silent && selectedIdRef.current === id) {
+        setMessages([]);
+      }
     } finally {
-      if (!silent) {
+      if (!silent && messagesRequestSeqRef.current === requestSeq) {
         setMessagesLoading(false);
       }
     }
   }, []);
 
-  const loadPdfStatus = useCallback(async (id: number, silent = false) => {
+  const loadPdfStatus = useCallback(async (id: number, silent = false): Promise<void> => {
     try {
       const payload = await getPatientPdfStatus(id);
       const banner = resolveBannerFromPayload(payload);
-      if (banner) {
+      if (!silent && banner) {
         setApiBanner(banner);
-        if (!silent) {
-          setError(null);
-        }
+        setError(null);
       }
       setPdfStates((current) => ({
         ...current,
@@ -1984,50 +2893,171 @@ export default function PatientConsole() {
       }));
     } catch (err) {
       const banner = resolveBannerFromError(err);
-      if (banner) {
+      if (!silent && banner) {
         setApiBanner(banner);
-        if (!silent) {
-          setError(null);
-        }
+        setError(null);
       } else if (!silent) {
         setError(resolveUnknownErrorMessage(err, 'Erreur document'));
       }
-      setPdfStates((current) => ({
-        ...current,
-        [id]: {
-          status: 'failed',
-          message: 'Impossible de récupérer le statut PDF.',
-          last_error_message: resolveUnknownErrorMessage(err, 'Erreur document'),
-          last_error_code: err instanceof ApiPayloadError ? extractApiCode(err.payload) || null : null,
-        },
-      }));
+
+      if (!silent) {
+        setPdfStates((current) => ({
+          ...current,
+          [id]: {
+            status: 'failed',
+            message: 'Impossible de récupérer le statut PDF.',
+            last_error_message: resolveUnknownErrorMessage(err, 'Erreur document'),
+            last_error_code: err instanceof ApiPayloadError ? extractApiCode(err.payload) || null : null,
+          },
+        }));
+      }
     }
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    await refreshList();
-    if (selectedId) {
-      await Promise.all([
-        loadDetail(selectedId),
-        loadMessages(selectedId, true),
-        selectedStatus === 'approved' ? loadPdfStatus(selectedId, true) : Promise.resolve(),
-      ]);
-    }
-  }, [loadDetail, loadMessages, loadPdfStatus, refreshList, selectedId, selectedStatus]);
-
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    void refreshList();
-  }, [isLoggedIn, refreshList]);
-
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    if (!selectedId) {
-      setDetail(null);
-      setMessages([]);
+  const syncPulse = useCallback(async (): Promise<void> => {
+    if (!isLoggedIn || pulseInFlightRef.current) {
       return;
     }
 
+    pulseInFlightRef.current = true;
+    try {
+      const payload = await getPatientPulse(pulseCollectionHashRef.current || undefined);
+      const normalized = normalizePatientPulseResponse(payload);
+      if (!normalized) {
+        debugApiPayload(payload, {
+          endpoint: '/patient/pulse',
+          expected: 'pulse payload',
+        });
+        return;
+      }
+
+      pulseCollectionHashRef.current = normalized.collection_hash;
+      if (normalized.unchanged) {
+        return;
+      }
+
+      const previousRows = prescriptionsRef.current;
+      const previousMap = new Map<number, PrescriptionSummary>();
+      previousRows.forEach((row) => {
+        previousMap.set(Number(row.id), row);
+      });
+
+      const nextMap = new Map<number, PatientPulseItem>();
+      normalized.items.forEach((item) => {
+        nextMap.set(Number(item.id), item);
+      });
+
+      setPrescriptions((current) => applyPulseToSummaries(current, normalized.items));
+
+      let shouldReloadList = normalized.count !== previousRows.length;
+      if (!shouldReloadList) {
+        for (const item of normalized.items) {
+          if (!previousMap.has(Number(item.id))) {
+            shouldReloadList = true;
+            break;
+          }
+        }
+      }
+      if (!shouldReloadList) {
+        for (const row of previousRows) {
+          if (!nextMap.has(Number(row.id))) {
+            shouldReloadList = true;
+            break;
+          }
+        }
+      }
+
+      if (shouldReloadList) {
+        await refreshList({ silent: true });
+      }
+
+      const activeId = selectedIdRef.current;
+      if (!activeId) {
+        return;
+      }
+
+      const previousActive = previousMap.get(Number(activeId));
+      const nextActive = nextMap.get(Number(activeId));
+      if (!nextActive) {
+        return;
+      }
+
+      const detailChanged = !previousActive || nextActive.row_rev !== previousActive.row_rev;
+      const activityChanged = !previousActive
+        || nextActive.last_activity_at !== previousActive.last_activity_at
+        || nextActive.last_message_seq !== previousActive.last_message_seq
+        || nextActive.message_count !== previousActive.message_count
+        || nextActive.unread_count_patient !== previousActive.unread_count_patient;
+      const pdfChanged = !previousActive
+        || nextActive.status !== previousActive.status
+        || Boolean(nextActive.pdf_ready) !== Boolean(previousActive.pdf_ready)
+        || nextActive.updated_at !== previousActive.updated_at
+        || nextActive.processing_status !== previousActive.processing_status;
+
+      if (detailChanged) {
+        await loadDetail(activeId, true);
+      }
+      if (activityChanged) {
+        await loadMessages(activeId, true);
+      }
+      if (normalizeStatusValue(nextActive.status) === 'approved' && (pdfChanged || detailChanged)) {
+        await loadPdfStatus(activeId, true);
+      }
+
+      if (
+        previousActive
+        && normalizeStatusValue(previousActive.status) === 'approved'
+        && normalizeStatusValue(nextActive.status) !== 'approved'
+      ) {
+        setPdfStates((current) => {
+          if (!(activeId in current)) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[activeId];
+          return next;
+        });
+      }
+    } catch {
+      // silent refresh must never destabilize the current UI snapshot
+    } finally {
+      pulseInFlightRef.current = false;
+    }
+  }, [isLoggedIn, loadDetail, loadMessages, loadPdfStatus, refreshList]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      return;
+    }
+
+    let disposed = false;
+    void (async () => {
+      await refreshList();
+      if (!disposed) {
+        await syncPulse();
+      }
+    })();
+
+    return () => {
+      disposed = true;
+    };
+  }, [isLoggedIn, refreshList, syncPulse]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      return;
+    }
+
+    if (!selectedId) {
+      setDetail(null);
+      setMessages([]);
+      setDetailLoading(false);
+      setMessagesLoading(false);
+      return;
+    }
+
+    setDetail(null);
+    setMessages([]);
     void loadDetail(selectedId);
     void loadMessages(selectedId);
   }, [isLoggedIn, loadDetail, loadMessages, selectedId]);
@@ -2058,134 +3088,68 @@ export default function PatientConsole() {
   }, [isLoggedIn, loadPdfStatus, selectedId, selectedPdf?.can_download, selectedPdf?.download_url, selectedPdf?.status, selectedStatus]);
 
   useEffect(() => {
-    if (!selectedId || !isPaymentPendingStatus(selectedStatus)) {
-      setPaymentPreview(null);
-    }
-  }, [selectedId, selectedStatus]);
-
-  const openSelectedPrescriptionPdf = useCallback(() => {
-    const downloadUrl = String(selectedPdf?.download_url || '');
-    if (!downloadUrl) {
+    if (!isLoggedIn) {
       return;
     }
 
-    openPresignedPdf(downloadUrl);
-  }, [selectedPdf?.download_url]);
-
-  const scrollToPayment = useCallback(() => {
-    paymentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
-  const syncExternalProfileRoot = useCallback((): boolean => {
-    const profileRoot = document.getElementById('sp-patient-profile-root');
-    if (!(profileRoot instanceof HTMLElement)) {
-      setProfileReady(false);
-      return false;
-    }
-
-    if (!profileRestoreRef.current) {
-      profileRestoreRef.current = {
-        parent: profileRoot.parentElement,
-        nextSibling: profileRoot.nextSibling,
-      };
-    }
-
-    if (workspace === 'profile' && profileHostRef.current) {
-      if (profileRoot.parentElement !== profileHostRef.current) {
-        profileHostRef.current.appendChild(profileRoot);
-      }
-      profileRoot.hidden = false;
-      setProfileReady(true);
-      return true;
-    }
-
-    const restoreTarget = profileRestoreRef.current;
-    if (restoreTarget?.parent && profileRoot.parentElement !== restoreTarget.parent) {
-      if (restoreTarget.nextSibling && restoreTarget.nextSibling.parentNode === restoreTarget.parent) {
-        restoreTarget.parent.insertBefore(profileRoot, restoreTarget.nextSibling);
-      } else {
-        restoreTarget.parent.appendChild(profileRoot);
-      }
-    }
-
-    profileRoot.hidden = true;
-    setProfileReady(true);
-    return true;
-  }, [workspace]);
-
-  useEffect(() => {
     let disposed = false;
     let timer = 0;
 
-    setProfileReady(false);
-
-    const attemptSync = (remainingAttempts: number): void => {
+    const schedule = (): void => {
       if (disposed) {
         return;
       }
 
-      if (syncExternalProfileRoot() || remainingAttempts <= 0) {
-        return;
-      }
-
-      timer = window.setTimeout(() => attemptSync(remainingAttempts - 1), 250);
+      const delay = document.hidden ? 60000 : 20000;
+      timer = window.setTimeout(async () => {
+        await syncPulse();
+        schedule();
+      }, delay);
     };
 
-    attemptSync(40);
+    const trigger = (): void => {
+      if (disposed) {
+        return;
+      }
+      window.clearTimeout(timer);
+      void syncPulse();
+      schedule();
+    };
+
+    const handleVisibility = (): void => {
+      if (!document.hidden) {
+        trigger();
+      }
+    };
+
+    schedule();
+    window.addEventListener('focus', trigger);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       disposed = true;
       window.clearTimeout(timer);
+      window.removeEventListener('focus', trigger);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [syncExternalProfileRoot]);
+  }, [isLoggedIn, syncPulse]);
 
-  useEffect(() => () => {
-    const profileRoot = document.getElementById('sp-patient-profile-root');
-    const restoreTarget = profileRestoreRef.current;
-
-    if (!(profileRoot instanceof HTMLElement)) {
-      return;
-    }
-
-    if (restoreTarget?.parent && profileRoot.parentElement !== restoreTarget.parent) {
-      if (restoreTarget.nextSibling && restoreTarget.nextSibling.parentNode === restoreTarget.parent) {
-        restoreTarget.parent.insertBefore(profileRoot, restoreTarget.nextSibling);
-      } else {
-        restoreTarget.parent.appendChild(profileRoot);
+  const handleMessageCreated = useCallback(async (message: MessageItem): Promise<void> => {
+    setMessages((current) => mergeNormalizedMessages(current, [message]));
+    setPrescriptions((current) => current.map((row) => {
+      if (Number(row.id) !== Number(selectedIdRef.current)) {
+        return row;
       }
-    }
-
-    profileRoot.hidden = false;
-  }, []);
-
-  const registerUploadedFiles = useCallback((uploadedFiles: UploadedFile[]) => {
-    if (!uploadedFiles || uploadedFiles.length === 0) return;
-
-    setDetail((current) => {
-      if (!current) return current;
-
-      const nextFiles = new Map<number, PrescriptionFile>();
-      (current.files || []).forEach((file) => {
-        nextFiles.set(file.id, file);
-      });
-      uploadedFiles.forEach((file) => {
-        nextFiles.set(file.id, file);
-      });
 
       return {
-        ...current,
-        files: Array.from(nextFiles.values()),
+        ...row,
+        last_activity_at: message.created_at,
+        message_count: (row.message_count || 0) + 1,
+        last_message_seq: typeof message.seq === 'number' ? message.seq : row.last_message_seq,
       };
-    });
-  }, []);
-
-  const handleMessageCreated = useCallback(
-    async (message: MessageItem): Promise<void> => {
-      setMessages((current) => mergeNormalizedMessages(current, [message]));
-      await refreshList();
-    },
-    [refreshList]
-  );
+    }));
+    void syncPulse();
+  }, [syncPulse]);
 
   const handleMessageAttachmentDownload = useCallback(
     async (attachmentId: number): Promise<void> => {
@@ -2211,17 +3175,6 @@ export default function PatientConsole() {
         <div className="sp-page-heading">
           <div className="sp-page-title">Espace patient</div>
           <div className="sp-page-subtitle">Suivi de vos demandes et échanges médicaux sécurisés.</div>
-        </div>
-
-        <div className="sp-page-actions">
-          <Button
-            type="button" 
-            variant="secondary"
-            onClick={() => void refreshAll()}
-            disabled={listLoading || detailLoading || messagesLoading}
-          >
-            {listLoading || detailLoading || messagesLoading ? <Spinner /> : 'Actualiser'}
-          </Button>
         </div>
       </div>
 
@@ -2284,8 +3237,11 @@ export default function PatientConsole() {
           </div>
 
           <div className="sp-panel__body">
-            <div ref={profileHostRef} className="sp-patient-console__profile-host" />
-            {!profileReady ? <div className="sp-empty-note">Chargement du profil…</div> : null}
+            <PatientProfilePanel
+              snapshot={profileSnapshot}
+              onProfileChange={handleProfileChange}
+              canDeleteAccount={canSelfDeletePatientAccount(cfg)}
+            />
           </div>
         </section>
       ) : (
@@ -2336,7 +3292,7 @@ export default function PatientConsole() {
               <div className="sp-card sp-patient-console__detail-state">Sélectionnez une demande à gauche.</div>
             ) : null}
 
-            {selectedId && detailLoading ? (
+            {selectedId && detailLoading && !detail ? (
               <div className="sp-card sp-patient-console__detail-state sp-patient-console__detail-state--loading">
                 <div className="sp-loading-row">
                   <Spinner />
@@ -2350,26 +3306,25 @@ export default function PatientConsole() {
                 <div className="sp-patient-console__detail-stack">
                   <HeroBanner
                     title={requestTitle}
-                    status={detail.status}
+                    status={selectedStatus}
                     createdAt={detail.created_at || selectedSummary?.created_at || ''}
                     pdf={selectedPdf}
                     decisionReason={detail.decision_reason}
                   />
 
-                  <PdfCard status={detail.status} pdf={selectedPdf} />
+                  <PdfCard status={selectedStatus} pdf={selectedPdf} />
 
                   <RequestDetailsDisclosure fields={requestDetails} />
 
-                  {isPaymentPendingStatus(detail.status) ? (
+                  {isPaymentPendingStatus(selectedStatus) ? (
                     <div ref={paymentSectionRef} className="sp-section">
                       <PaymentCard
                         prescriptionId={detail.id}
                         priority={(selectedSummary?.priority || detail.priority || '').toLowerCase() === 'express' ? 'express' : 'standard'}
-                        onIntentReady={setPaymentPreview}
                         onPaid={() => {
-                          setPaymentPreview(null);
-                          void loadDetail(detail.id);
-                          void refreshList();
+                          void refreshList({ silent: true });
+                          void loadDetail(detail.id, true);
+                          void syncPulse();
                         }}
                       />
                     </div>

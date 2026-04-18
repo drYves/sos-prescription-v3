@@ -34,20 +34,8 @@ final class PatientShortcode
 
         Assets::enqueue_form_app();
 
-        if (defined('SOSPRESCRIPTION_URL') && defined('SOSPRESCRIPTION_PATH')) {
-            $patientChatEnhancementsPath = SOSPRESCRIPTION_PATH . 'assets/patient-chat-enhancements.js';
-            $patientChatEnhancementsVersion = file_exists($patientChatEnhancementsPath)
-                ? (string) filemtime($patientChatEnhancementsPath)
-                : (defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null);
-
-            wp_enqueue_script(
-                'sosprescription-patient-chat-enhancements',
-                SOSPRESCRIPTION_URL . 'assets/patient-chat-enhancements.js',
-                [],
-                $patientChatEnhancementsVersion,
-                true
-            );
-        }
+        wp_dequeue_script('sosprescription-patient-chat-enhancements');
+        wp_dequeue_script('sosprescription-patient-profile-enhancements');
 
         $notice = Notices::render('patient');
         $display_name = self::resolve_patient_display_name(get_current_user_id());
@@ -60,7 +48,6 @@ final class PatientShortcode
             . '</div>';
 
         $content  = ScreenFrame::toolbarMeta('patient', $toolbar);
-        $content .= ScreenFrame::profileSlot('patient', '<div id="sp-patient-profile-root"></div>');
         $content .= ScreenFrame::statusSurface(
             'patient',
             $notice
@@ -76,45 +63,17 @@ final class PatientShortcode
             . '</div>'
         );
 
-        if (self::can_self_delete_account()) {
-            $content .= ScreenFrame::mount('patient', self::render_delete_account_section(), [], ['sp-ui']);
-        }
-
         return ScreenFrame::screen('patient', $content, [], ['sp-ui'])
             . '<noscript>Activez JavaScript pour accéder à votre espace patient.</noscript>';
     }
 
-    
-private static function render_logout_form(): string
+    private static function render_logout_form(): string
     {
         return LogoutShortcode::render([
             'class' => 'sp-button sp-button--secondary',
             'form_class' => 'sp-form sp-logout-form',
             'redirect' => home_url('/'),
         ]);
-    }
-
-
-    private static function can_self_delete_account(): bool
-    {
-        return !current_user_can('sosprescription_validate')
-            && !current_user_can('sosprescription_manage')
-            && !current_user_can('manage_options');
-    }
-
-    private static function render_delete_account_section(): string
-    {
-        $html = '';
-        $html .= '<div class="sp-card">';
-        $html .= '<div class="sp-stack">';
-        $html .= '<h2>Suppression de compte</h2>';
-        $html .= '<p class="sp-field__help">Votre accès sera immédiatement détruit. Vos données strictement nécessaires seront conservées sous forme d’archives inactives pour répondre aux obligations légales de traçabilité.</p>';
-        $html .= '<div id="sp-delete-account-feedback" class="sp-alert sp-alert--error" hidden role="alert" aria-live="polite"></div>';
-        $html .= '<button type="button" class="sp-button sp-button--secondary" style="color: var(--sp-color-warning, #c2410c); border-color: currentColor;" id="sp-delete-account-btn">Supprimer mon compte</button>';
-        $html .= '</div>';
-        $html .= '</div>';
-
-        return $html;
     }
 
     private static function resolve_patient_display_name(int $user_id): string

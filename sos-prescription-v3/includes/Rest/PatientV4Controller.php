@@ -15,8 +15,13 @@ defined('ABSPATH') || exit;
 final class PatientV4Controller extends \WP_REST_Controller
 {
     private const NAMESPACE_V4 = 'sosprescription/v4';
+    private const ROW_REV_HASH_LENGTH = 24;
+    private const COLLECTION_HASH_LENGTH = 32;
 
     private ?WorkerApiClient $workerApiClient = null;
+
+    /** @var array<string, true>|null */
+    private ?array $prescriptionTableColumnsCache = null;
 
     public static function register(): void
     {
@@ -32,6 +37,20 @@ final class PatientV4Controller extends \WP_REST_Controller
             'methods' => 'PUT',
             'callback' => [$controller, 'update_profile'],
             'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+        ]);
+
+        register_rest_route(self::NAMESPACE_V4, '/patient/pulse', [
+            'methods' => 'GET',
+            'callback' => [$controller, 'get_pulse'],
+            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+            'args' => [
+                'known_collection_hash' => [
+                    'required' => false,
+                    'sanitize_callback' => static function ($value): string {
+                        return is_scalar($value) ? trim((string) $value) : '';
+                    },
+                ],
+            ],
         ]);
     }
 
@@ -106,6 +125,497 @@ final class PatientV4Controller extends \WP_REST_Controller
                 'patient_v4.profile.update.failed'
             );
         }
+    }
+
+
+    public function get_pulse(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $reqId = $this->build_req_id();
+        $actor = $this->build_patient_actor_payload();
+        $knownCollectionHash = $this->normalize_collection_hash($request->get_param('known_collection_hash'));
+
+        try {
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                '/api/v2/patient/prescriptions/pulse',
+                [
+                    'actor' => $actor,
+                ],
+                $reqId,
+                'patient_v4_pulse_get'
+            );
+
+            $workerItems = $this->normalize_worker_pulse_items($workerPayload['items'] ?? []);
+            $items = $this->compose_pulse_items_with_payment_shadow($workerItems, $actor['wp_user_id']);
+            $maxUpdatedAt = $this->resolve_max_updated_at($items);
+            $collectionHash = $this->build_collection_hash($items, $maxUpdatedAt);
+            $unchanged = $knownCollectionHash !== null && hash_equals($collectionHash, $knownCollectionHash);
+
+            $responsePayload = [
+                'count' => count($items),
+                'max_updated_at' => $maxUpdatedAt,
+                'collection_hash' => $collectionHash,
+                'unchanged' => $unchanged,
+            ];
+
+            if (!$unchanged) {
+                $responsePayload['items'] = $items;
+            }
+
+            return $this->to_rest_response($responsePayload, 200, $reqId);
+        } catch (\Throwable $e) {
+            return ErrorResponder::worker_bridge_error(
+                $e,
+                'sosprescription_patient_pulse_failed',
+                'Le rafraîchissement silencieux est temporairement indisponible.',
+                502,
+                $reqId,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'get_pulse',
+                    'wp_user_id' => $actor['wp_user_id'],
+                ],
+                'patient_v4.pulse.failed'
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalize_worker_pulse_items(array $payload): array
+    {
+        if (!is_array($payload)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($payload as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $uid = isset($entry['uid']) && is_scalar($entry['uid']) ? trim((string) $entry['uid']) : '';
+            $workerId = isset($entry['id']) && is_scalar($entry['id']) ? trim((string) $entry['id']) : '';
+            if ($uid === '' || $workerId === '') {
+                continue;
+            }
+
+            $workerRowRev = isset($entry['row_rev']) && is_scalar($entry['row_rev'])
+                ? trim((string) $entry['row_rev'])
+                : '';
+            if ($workerRowRev === '') {
+                $encoded = wp_json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $workerRowRev = substr(hash('sha256', is_string($encoded) ? $encoded : $uid . '|' . $workerId), 0, self::ROW_REV_HASH_LENGTH);
+            }
+
+            $items[] = [
+                'worker_prescription_id' => $workerId,
+                'uid' => $uid,
+                'worker_row_rev' => strtolower($workerRowRev),
+                'status' => isset($entry['status']) && is_scalar($entry['status']) ? trim((string) $entry['status']) : 'pending',
+                'processing_status' => isset($entry['processing_status']) && is_scalar($entry['processing_status']) ? trim((string) $entry['processing_status']) : 'pending',
+                'updated_at' => isset($entry['updated_at']) && is_scalar($entry['updated_at']) ? trim((string) $entry['updated_at']) : null,
+                'last_activity_at' => isset($entry['last_activity_at']) && is_scalar($entry['last_activity_at']) ? trim((string) $entry['last_activity_at']) : null,
+                'message_count' => isset($entry['message_count']) ? max(0, (int) $entry['message_count']) : 0,
+                'last_message_seq' => isset($entry['last_message_seq']) ? max(0, (int) $entry['last_message_seq']) : 0,
+                'unread_count_patient' => isset($entry['unread_count_patient']) ? max(0, (int) $entry['unread_count_patient']) : 0,
+                'has_proof' => !empty($entry['has_proof']),
+                'proof_count' => isset($entry['proof_count']) ? max(0, (int) $entry['proof_count']) : 0,
+                'pdf_ready' => !empty($entry['pdf_ready']),
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $workerItems
+     * @return array<int, array<string, mixed>>
+     */
+    private function compose_pulse_items_with_payment_shadow(array $workerItems, int $patientWpUserId): array
+    {
+        $uids = [];
+        foreach ($workerItems as $item) {
+            $uid = isset($item['uid']) && is_string($item['uid']) ? trim($item['uid']) : '';
+            if ($uid !== '') {
+                $uids[] = $uid;
+            }
+        }
+
+        $localRowsByUid = $this->load_local_shadow_rows_by_uid($uids);
+
+        foreach ($workerItems as $item) {
+            $uid = isset($item['uid']) && is_string($item['uid']) ? trim($item['uid']) : '';
+            if ($uid === '' || isset($localRowsByUid[$uid])) {
+                continue;
+            }
+
+            $workerPrescriptionId = isset($item['worker_prescription_id']) && is_string($item['worker_prescription_id'])
+                ? trim($item['worker_prescription_id'])
+                : '';
+            $status = isset($item['status']) && is_string($item['status']) ? trim($item['status']) : 'pending';
+            $insertedId = $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId, $patientWpUserId);
+            if ($insertedId > 0) {
+                $reloaded = $this->load_local_shadow_rows_by_uid([$uid]);
+                if (isset($reloaded[$uid])) {
+                    $localRowsByUid[$uid] = $reloaded[$uid];
+                }
+            }
+        }
+
+        $items = [];
+        foreach ($workerItems as $item) {
+            $uid = isset($item['uid']) && is_string($item['uid']) ? trim($item['uid']) : '';
+            if ($uid === '') {
+                continue;
+            }
+
+            $localRow = $localRowsByUid[$uid] ?? null;
+            $localId = is_array($localRow) && isset($localRow['id']) ? (int) $localRow['id'] : 0;
+            if ($localId < 1) {
+                continue;
+            }
+
+            $payment = $this->build_payment_shadow_payload($localRow);
+            $effectiveStatus = $this->compose_effective_status((string) ($item['status'] ?? 'pending'), $payment);
+            $rowRev = $this->build_row_revision((string) ($item['worker_row_rev'] ?? ''), $effectiveStatus, $payment);
+
+            $items[] = [
+                'id' => $localId,
+                'uid' => $uid,
+                'row_rev' => $rowRev,
+                'status' => $effectiveStatus,
+                'processing_status' => (string) ($item['processing_status'] ?? 'pending'),
+                'updated_at' => isset($item['updated_at']) && is_string($item['updated_at']) ? $item['updated_at'] : null,
+                'last_activity_at' => isset($item['last_activity_at']) && is_string($item['last_activity_at']) ? $item['last_activity_at'] : null,
+                'message_count' => isset($item['message_count']) ? (int) $item['message_count'] : 0,
+                'last_message_seq' => isset($item['last_message_seq']) ? (int) $item['last_message_seq'] : 0,
+                'unread_count_patient' => isset($item['unread_count_patient']) ? (int) $item['unread_count_patient'] : 0,
+                'has_proof' => !empty($item['has_proof']),
+                'proof_count' => isset($item['proof_count']) ? (int) $item['proof_count'] : 0,
+                'pdf_ready' => !empty($item['pdf_ready']),
+                'payment' => $payment,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param array<int, string> $uids
+     * @return array<string, array<string, mixed>>
+     */
+    private function load_local_shadow_rows_by_uid(array $uids): array
+    {
+        global $wpdb;
+
+        $normalizedUids = array_values(array_unique(array_filter(array_map(static function ($value): string {
+            return is_string($value) ? trim($value) : '';
+        }, $uids), static fn (string $uid): bool => $uid !== '')));
+
+        if ($normalizedUids === [] || !$this->prescription_table_has_column('uid')) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . 'sosprescription_prescriptions';
+        $columns = ['id', 'uid'];
+        foreach (['status', 'payment_provider', 'payment_status', 'amount_cents', 'currency'] as $column) {
+            if ($this->prescription_table_has_column($column)) {
+                $columns[] = $column;
+            }
+        }
+
+        $placeholders = implode(',', array_fill(0, count($normalizedUids), '%s'));
+        $sql = $wpdb->prepare(
+            sprintf('SELECT %s FROM `%s` WHERE uid IN (%s)', implode(', ', $columns), $table, $placeholders),
+            $normalizedUids
+        );
+
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            if ($uid === '' || $id < 1) {
+                continue;
+            }
+
+            $row['id'] = $id;
+            $row['uid'] = $uid;
+            $out[$uid] = $row;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, mixed>|null $localRow
+     * @return array<string, mixed>
+     */
+    private function build_payment_shadow_payload(?array $localRow): array
+    {
+        if (!is_array($localRow)) {
+            return [
+                'local_status' => null,
+                'provider' => null,
+                'status' => null,
+                'amount_cents' => null,
+                'currency' => null,
+            ];
+        }
+
+        $currency = isset($localRow['currency']) && is_scalar($localRow['currency'])
+            ? strtoupper(trim((string) $localRow['currency']))
+            : '';
+
+        return [
+            'local_status' => isset($localRow['status']) && is_scalar($localRow['status'])
+                ? strtolower(trim((string) $localRow['status']))
+                : null,
+            'provider' => isset($localRow['payment_provider']) && is_scalar($localRow['payment_provider'])
+                ? trim((string) $localRow['payment_provider'])
+                : null,
+            'status' => isset($localRow['payment_status']) && is_scalar($localRow['payment_status'])
+                ? trim((string) $localRow['payment_status'])
+                : null,
+            'amount_cents' => isset($localRow['amount_cents']) && $localRow['amount_cents'] !== null
+                ? (int) $localRow['amount_cents']
+                : null,
+            'currency' => $currency !== '' ? $currency : null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payment
+     */
+    private function compose_effective_status(string $workerStatus, array $payment): string
+    {
+        $normalizedWorker = strtolower(trim($workerStatus));
+        $localStatus = isset($payment['local_status']) && is_scalar($payment['local_status'])
+            ? strtolower(trim((string) $payment['local_status']))
+            : '';
+
+        if ($localStatus === 'payment_pending') {
+            return 'payment_pending';
+        }
+
+        if ($normalizedWorker !== '') {
+            return $normalizedWorker;
+        }
+
+        return $localStatus !== '' ? $localStatus : 'pending';
+    }
+
+    /**
+     * @param array<string, mixed> $payment
+     */
+    private function build_row_revision(string $workerRowRev, string $effectiveStatus, array $payment): string
+    {
+        $material = implode('|', [
+            'worker_row_rev=' . strtolower(trim($workerRowRev)),
+            'status=' . strtolower(trim($effectiveStatus)),
+            'payment_local_status=' . strtolower(trim((string) ($payment['local_status'] ?? ''))),
+            'payment_provider=' . strtolower(trim((string) ($payment['provider'] ?? ''))),
+            'payment_status=' . strtolower(trim((string) ($payment['status'] ?? ''))),
+            'payment_amount_cents=' . (($payment['amount_cents'] ?? null) !== null ? (string) (int) $payment['amount_cents'] : ''),
+            'payment_currency=' . strtoupper(trim((string) ($payment['currency'] ?? ''))),
+        ]);
+
+        return substr(hash('sha256', $material), 0, self::ROW_REV_HASH_LENGTH);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function resolve_max_updated_at(array $items): ?string
+    {
+        $maxUpdatedAt = null;
+        foreach ($items as $item) {
+            $updatedAt = isset($item['updated_at']) && is_string($item['updated_at']) ? trim($item['updated_at']) : '';
+            if ($updatedAt === '') {
+                continue;
+            }
+
+            if ($maxUpdatedAt === null || strcmp($updatedAt, $maxUpdatedAt) > 0) {
+                $maxUpdatedAt = $updatedAt;
+            }
+        }
+
+        return $maxUpdatedAt;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function build_collection_hash(array $items, ?string $maxUpdatedAt): string
+    {
+        $parts = [];
+        foreach ($items as $item) {
+            $id = isset($item['id']) ? (int) $item['id'] : 0;
+            $rowRev = isset($item['row_rev']) && is_scalar($item['row_rev']) ? trim((string) $item['row_rev']) : '';
+            if ($id < 1 || $rowRev === '') {
+                continue;
+            }
+            $parts[] = $id . ':' . strtolower($rowRev);
+        }
+
+        sort($parts, SORT_STRING);
+
+        $material = implode('|', [
+            'count=' . count($items),
+            'max_updated_at=' . ($maxUpdatedAt ?? ''),
+            'items=' . implode(',', $parts),
+        ]);
+
+        return substr(hash('sha256', $material), 0, self::COLLECTION_HASH_LENGTH);
+    }
+
+    private function normalize_collection_hash(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $hash = strtolower(trim((string) $value));
+        if ($hash === '' || !preg_match('/^[a-f0-9]{12,128}$/', $hash)) {
+            return null;
+        }
+
+        return $hash;
+    }
+
+    private function insert_local_prescription_stub(string $uid, string $status, string $workerPrescriptionId, int $patientWpUserId): int
+    {
+        global $wpdb;
+
+        $uid = trim($uid);
+        if ($uid === '' || !$this->prescription_table_has_column('uid')) {
+            return 0;
+        }
+
+        $existingId = $this->find_local_prescription_id_by_uid($uid);
+        if ($existingId > 0) {
+            return $existingId;
+        }
+
+        $table = $wpdb->prefix . 'sosprescription_prescriptions';
+        $now = current_time('mysql');
+
+        $data = [
+            'uid' => $uid,
+        ];
+        $formats = ['%s'];
+
+        if ($this->prescription_table_has_column('patient_user_id') && $patientWpUserId > 0) {
+            $data['patient_user_id'] = $patientWpUserId;
+            $formats[] = '%d';
+        }
+
+        if ($this->prescription_table_has_column('status')) {
+            $data['status'] = strtolower(trim($status)) !== '' ? strtolower(trim($status)) : 'pending';
+            $formats[] = '%s';
+        }
+
+        if ($this->prescription_table_has_column('payload_json')) {
+            $data['payload_json'] = $this->build_local_stub_payload_json($workerPrescriptionId);
+            $formats[] = '%s';
+        }
+
+        if ($this->prescription_table_has_column('created_at')) {
+            $data['created_at'] = $now;
+            $formats[] = '%s';
+        }
+
+        if ($this->prescription_table_has_column('updated_at')) {
+            $data['updated_at'] = $now;
+            $formats[] = '%s';
+        }
+
+        $inserted = $wpdb->insert($table, $data, $formats);
+        if ($inserted !== false) {
+            return (int) $wpdb->insert_id;
+        }
+
+        return $this->find_local_prescription_id_by_uid($uid);
+    }
+
+    private function find_local_prescription_id_by_uid(string $uid): int
+    {
+        global $wpdb;
+
+        $uid = trim($uid);
+        if ($uid === '' || !$this->prescription_table_has_column('uid')) {
+            return 0;
+        }
+
+        $table = $wpdb->prefix . 'sosprescription_prescriptions';
+        $id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM `{$table}` WHERE uid = %s LIMIT 1",
+            $uid
+        ));
+
+        return is_numeric($id) ? (int) $id : 0;
+    }
+
+    private function build_local_stub_payload_json(string $workerPrescriptionId): string
+    {
+        $payload = [
+            'shadow' => [
+                'mode' => 'worker-postgres',
+                'zero_pii' => true,
+            ],
+            'worker' => [
+                'prescription_id' => trim($workerPrescriptionId),
+            ],
+        ];
+
+        $json = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return is_string($json) && $json !== ''
+            ? $json
+            : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+    }
+
+    private function prescription_table_has_column(string $column): bool
+    {
+        $columns = $this->get_prescription_table_columns();
+        return isset($columns[$column]);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function get_prescription_table_columns(): array
+    {
+        global $wpdb;
+
+        if (is_array($this->prescriptionTableColumnsCache)) {
+            return $this->prescriptionTableColumnsCache;
+        }
+
+        $table = $wpdb->prefix . 'sosprescription_prescriptions';
+        $safeTable = str_replace('`', '', $table);
+        $rows = $wpdb->get_results("SHOW COLUMNS FROM `{$safeTable}`", ARRAY_A);
+        $columns = [];
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (!is_array($row) || empty($row['Field'])) {
+                    continue;
+                }
+                $columns[(string) $row['Field']] = true;
+            }
+        }
+
+        $this->prescriptionTableColumnsCache = $columns;
+        return $columns;
     }
 
     /**
