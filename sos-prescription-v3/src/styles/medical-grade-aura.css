@@ -2378,6 +2378,23 @@ a.sp-app-button.sp-app-button--primary:hover {
   display: none;
 }
 
+.sp-patient-console .sp-disclosure__summary-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sp-patient-console .sp-disclosure__summary-title {
+  color: var(--sp-app-text);
+  font-weight: 800;
+}
+
+.sp-patient-console .sp-disclosure__summary-meta {
+  color: var(--sp-app-text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .sp-patient-console .sp-disclosure > summary::after {
   content: '+';
   display: inline-flex;
@@ -2399,6 +2416,14 @@ a.sp-app-button.sp-app-button--primary:hover {
   display: grid;
   gap: 12px;
   padding: 0 18px 18px;
+}
+
+.sp-patient-console .sp-disclosure--thread > summary {
+  align-items: flex-start;
+}
+
+.sp-patient-console .sp-disclosure--thread > .sp-disclosure__content {
+  padding-top: 16px;
 }
 
 .sp-patient-console .sp-disclosure__row {
@@ -5171,7 +5196,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 18%, transparent), 0 10px 20px color-mix(in srgb, var(--sp-color-accent, #0f6cbd) 22%, transparent);
 }
 
-/* V8.1.2 — Patient polish: session bar, payment details, calmer patient bubbles */
+/* V8.1.3 — Patient finalization: compact session bar, payment details, calmer patient bubbles, collapsible thread */
 .sp-patient-session-bar {
   display: flex;
   align-items: center;

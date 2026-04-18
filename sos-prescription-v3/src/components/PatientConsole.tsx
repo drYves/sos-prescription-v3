@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V8.1.1
+// PatientConsole.tsx · V8.1.3
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -2785,6 +2785,14 @@ export default function PatientConsole() {
   const messagingSubtitle = messagingState === 'OPEN'
     ? 'Messagerie sécurisée associée à votre dossier.'
     : '';
+  const unreadPatientMessages = toPositiveInteger(selectedSummary?.unread_count_patient);
+  const messagingDisclosureDefaultOpen = unreadPatientMessages > 0 || messagingState === 'OPEN';
+  const messagingDisclosureSummary = unreadPatientMessages > 1
+    ? `${unreadPatientMessages} messages non lus`
+    : unreadPatientMessages === 1
+      ? '1 message non lu'
+      : '';
+  const messagingDisclosureResetKey = `patient-thread-${detail?.id || selectedId || 0}-${messagingDisclosureDefaultOpen ? 'open' : 'closed'}-${unreadPatientMessages}`;
 
   const fileIndex = useMemo(() => {
     const index: Record<number, PrescriptionFile> = {};
@@ -3361,13 +3369,6 @@ export default function PatientConsole() {
 
   return (
     <div className="sp-page-shell sp-app-theme sp-app-container sp-patient-console">
-      <div className="sp-page-header sp-app-header sp-app-header--compact">
-        <div className="sp-page-heading">
-          <div className="sp-page-title">Espace patient</div>
-          <div className="sp-page-subtitle">Suivi de vos demandes et échanges médicaux sécurisés.</div>
-        </div>
-      </div>
-
       <div className="sp-patient-console__workspace-nav" role="tablist" aria-label="Navigation de l’espace patient">
         <button
           id="sp-workspace-tab-requests"
@@ -3580,24 +3581,40 @@ export default function PatientConsole() {
                   ) : null}
 
                   <div className="sp-section">
-                    <MessageThread
-                      prescriptionId={detail.id}
-                      viewerRole="PATIENT"
-                      currentUserRoles={cfg.currentUser?.roles}
-                      title="Échanges avec le médecin"
-                      subtitle={messagingSubtitle}
-                      loading={messagesLoading}
-                      emptyText={messagingLocked ? '' : messagingEmptyText}
-                      messages={messages}
-                      fileIndex={fileIndex}
-                      onDownloadFile={handleMessageAttachmentDownload}
-                      canCompose={!messagingLocked}
-                      readOnlyNotice={messagingReadOnlyNotice}
-                      hideComposerWhenReadOnly={messagingLocked}
-                      postMessage={postPatientMessage}
-                      onMessageCreated={handleMessageCreated}
-                      onSurfaceError={setError}
-                    />
+                    <details
+                      key={messagingDisclosureResetKey}
+                      className="sp-disclosure sp-disclosure--thread"
+                      defaultOpen={messagingDisclosureDefaultOpen}
+                    >
+                      <summary>
+                        <span className="sp-disclosure__summary-copy">
+                          <span className="sp-disclosure__summary-title">Échanges avec le médecin</span>
+                          {messagingDisclosureSummary ? (
+                            <span className="sp-disclosure__summary-meta">{messagingDisclosureSummary}</span>
+                          ) : null}
+                        </span>
+                      </summary>
+                      <div className="sp-disclosure__content sp-disclosure__content--thread">
+                        <MessageThread
+                          prescriptionId={detail.id}
+                          viewerRole="PATIENT"
+                          currentUserRoles={cfg.currentUser?.roles}
+                          title=""
+                          subtitle={messagingSubtitle}
+                          loading={messagesLoading}
+                          emptyText={messagingLocked ? '' : messagingEmptyText}
+                          messages={messages}
+                          fileIndex={fileIndex}
+                          onDownloadFile={handleMessageAttachmentDownload}
+                          canCompose={!messagingLocked}
+                          readOnlyNotice={messagingReadOnlyNotice}
+                          hideComposerWhenReadOnly={messagingLocked}
+                          postMessage={postPatientMessage}
+                          onMessageCreated={handleMessageCreated}
+                          onSurfaceError={setError}
+                        />
+                      </div>
+                    </details>
                   </div>
                 </div>
               </div>

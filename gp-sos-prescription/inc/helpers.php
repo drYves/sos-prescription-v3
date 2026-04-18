@@ -442,7 +442,7 @@ function sp_get_rolebar_description($variant)
 {
     $descriptions = array(
         'request'        => __('Décrivez l’essentiel. Un médecin décide.', 'gp-sos-prescription'),
-        'patient'        => __('Retrouvez vos demandes, vos documents et votre suivi.', 'gp-sos-prescription'),
+        'patient'        => __('Retrouvez vos ordonnances, vos documents et votre suivi médical.', 'gp-sos-prescription'),
         'doctor-account' => __('Gérez vos informations professionnelles et votre signature.', 'gp-sos-prescription'),
         'doctor-catalog' => __('Recherchez rapidement dans le Référentiel Médicaments (BDPM).', 'gp-sos-prescription'),
         'console'        => __('Validez, refusez ou réorientez sans friction.', 'gp-sos-prescription'),
