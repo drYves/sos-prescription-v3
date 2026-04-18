@@ -1,6 +1,6 @@
 /*
- * SOS Prescription : Base V7.0.9
- * Fondations typographiques, reset léger et neutralisation stricte du logo principal.
+ * SOS Prescription : Base V8.4.0
+ * Fondations typographiques, reset léger et neutralisation autoritaire du lien de marque.
  */
 
 html {
@@ -276,24 +276,6 @@ body.sp-context-verify .entry-content > *:first-child {
   margin-top: 0;
 }
 
-body.sp-context-public .inside-header a[rel="home"],
-body.sp-context-public .site-logo a,
-body.sp-context-public .site-title a,
-body.sp-context-patient .inside-header a[rel="home"],
-body.sp-context-doctor .inside-header a[rel="home"],
-body.sp-context-console .inside-header a[rel="home"] {
-  text-decoration: none;
-}
-
-body.sp-context-public .inside-header a[rel="home"]:hover,
-body.sp-context-public .site-logo a:hover,
-body.sp-context-public .site-title a:hover,
-body.sp-context-patient .inside-header a[rel="home"]:hover,
-body.sp-context-doctor .inside-header a[rel="home"]:hover,
-body.sp-context-console .inside-header a[rel="home"]:hover {
-  text-decoration: none;
-}
-
 blockquote {
   padding: var(--sp-space-4) var(--sp-space-5);
   border-left: 4px solid var(--sp-color-accent);
@@ -368,7 +350,7 @@ pre {
   color: inherit;
 }
 
-/* V7.0.9 · Neutralisation stricte du logo principal au niveau du socle shell */
+/* V8.4.0 · Neutralisation autoritaire du lien de marque au niveau du socle shell */
 :is(
   .inside-header a[rel="home"],
   .inside-header .custom-logo-link,

@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : App Shell V4.8.1
+ * SOS Prescription : App Shell V8.4.0
  * Layout patient, médecin et console.
  */
 
@@ -191,10 +191,6 @@ body.admin-bar .sp-app-sidebar {
   min-width: 0;
 }
 
-.sp-shell--console .sosprescription-doctor .dc-shell {
-  margin-top: 0;
-}
-
 .sp-shell--app .sp-plugin-root,
 .sp-shell--app .sp-ui,
 .sp-shell--app #sosprescription-root-form,
@@ -331,7 +327,6 @@ body.admin-bar .sp-app-sidebar {
   margin-right: 0 !important;
 }
 
-.sp-shell--console .sosprescription-doctor .dc-shell,
 .sp-app-frame--no-sidebar .sosprescription-bdpm .sp-card {
   width: 100%;
 }
@@ -1164,14 +1159,6 @@ body.admin-bar .sp-console-bar {
   width: 100%;
 }
 
-.sp-shell--console .sosprescription-doctor .dc-shell {
-  max-width: var(--sp-workspace-max);
-  margin-inline: auto;
-  grid-template-columns: minmax(15rem, var(--sp-sidebar-width)) minmax(0, 1fr);
-  gap: var(--sp-space-4);
-  min-height: clamp(34rem, 72vh, 52rem);
-}
-
 @media (max-width: 1080px) {
   .sp-app-frame {
     grid-template-columns: 1fr;
@@ -1183,9 +1170,6 @@ body.admin-bar .sp-console-bar {
     margin-inline: auto;
   }
 
-  .sp-shell--console .sosprescription-doctor .dc-shell {
-    grid-template-columns: 1fr;
-  }
 }
 
 

@@ -5,11 +5,11 @@ Description: Thème enfant GeneratePress Premium - Shell premium GeneratePress n
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 8.3.0
+Version: 8.4.0
 Text Domain: gp-sos-prescription
 */
 
-/* V7.0.9 · Final doc : neutralisation stricte du logo principal et bible technique UI V7 */
+/* V8.4.0 · Aurora Phase 1 : masthead autoritaire et neutralisation de marque unifiée */
 
 :root {
   --sp-shell-frame-max: 1200px;
@@ -81,24 +81,18 @@ body.sp-context-public .site-content {
   background: transparent;
 }
 
-.site-header,
-#masthead {
-  border-top: 4px solid var(--sp-shell-header-accent) !important;
-}
-
 #masthead {
   position: sticky;
   top: 0;
   z-index: 1200;
-  background: color-mix(in srgb, var(--sp-shell-glass-fill) 78%, transparent);
-  border-bottom: 1px solid var(--sp-shell-glass-border);
-  -webkit-backdrop-filter: blur(16px) saturate(145%);
-  backdrop-filter: blur(16px) saturate(145%);
-  box-shadow: 0 18px 40px -32px color-mix(in srgb, var(--contrast) 26%, transparent);
+  border-top: 4px solid var(--sp-shell-header-accent) !important;
+  background: var(--sp-glass-surface, color-mix(in srgb, var(--sp-shell-glass-fill) 78%, transparent));
+  border-bottom: var(--sp-border-hairline, 1px solid var(--sp-shell-glass-border));
+  -webkit-backdrop-filter: var(--sp-glass-effect, blur(16px) saturate(145%));
+  backdrop-filter: var(--sp-glass-effect, blur(16px) saturate(145%));
+  box-shadow: var(--sp-shadow-premium, 0 18px 40px -32px color-mix(in srgb, var(--contrast) 26%, transparent));
 }
 
-.site-header,
-#masthead,
 #masthead .inside-header,
 #masthead #site-navigation,
 #masthead #site-navigation .inside-navigation {
@@ -489,14 +483,6 @@ body.sp-context-public .sp-faq-item:hover {
 }
 
 /* --- V6.5.4 · Shell premium unifié, surfaces critiques reprises et finitions QA --- */
-#masthead {
-  background: var(--sp-glass-surface);
-  border-bottom: var(--sp-border-hairline);
-  -webkit-backdrop-filter: var(--sp-glass-effect);
-  backdrop-filter: var(--sp-glass-effect);
-  box-shadow: var(--sp-shadow-premium);
-}
-
 .main-navigation .main-nav > ul > li > a,
 .main-navigation .main-nav > div > ul > li > a,
 .main-navigation .menu > li > a,
@@ -541,45 +527,4 @@ body:not(.sp-context-public) .sp-widget-card,
 body:not(.sp-context-public) .sp-final-cta-card,
 body:not(.sp-context-public) .sp-faq-item {
   transition: none;
-}
-
-/* V7.0.9 · Neutralisation radicale du logo principal */
-:is(
-  .inside-header a[rel="home"],
-  .inside-header .custom-logo-link,
-  .inside-header .site-logo a,
-  .inside-header .site-branding a,
-  .inside-header .site-title a
-),
-:is(
-  .inside-header a[rel="home"],
-  .inside-header .custom-logo-link,
-  .inside-header .site-logo a,
-  .inside-header .site-branding a,
-  .inside-header .site-title a
-):is(:hover, :focus, :focus-visible, :active) {
-  text-decoration: none !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-}
-
-:is(
-  .inside-header a[rel="home"],
-  .inside-header .custom-logo-link,
-  .inside-header .site-logo a,
-  .inside-header .site-branding a,
-  .inside-header .site-title a
-)::before,
-:is(
-  .inside-header a[rel="home"],
-  .inside-header .custom-logo-link,
-  .inside-header .site-logo a,
-  .inside-header .site-branding a,
-  .inside-header .site-title a
-)::after {
-  content: none !important;
-  display: none !important;
-  border: none !important;
-  box-shadow: none !important;
 }
