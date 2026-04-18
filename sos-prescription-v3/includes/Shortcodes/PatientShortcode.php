@@ -37,10 +37,11 @@ final class PatientShortcode
         wp_dequeue_script('sosprescription-patient-profile-enhancements');
 
         $display_name = self::resolve_patient_display_name(get_current_user_id());
+        $lock_icon = '<svg class="sp-lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
 
         $toolbar = '<div class="sp-patient-session-bar">'
             . '<div class="sp-patient-session-bar__copy">'
-            . '<span class="sp-patient-session-bar__eyebrow">Session sécurisée</span>'
+            . '<span class="sp-patient-session-bar__eyebrow"><span class="sp-patient-session-bar__icon" aria-hidden="true">' . $lock_icon . '</span>Session sécurisée</span>'
             . '<span class="sp-patient-session-bar__identity">Connecté · ' . esc_html($display_name) . '</span>'
             . '</div>'
             . '<div class="sp-patient-session-bar__actions">'

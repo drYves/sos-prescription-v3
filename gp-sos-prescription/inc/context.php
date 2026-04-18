@@ -80,17 +80,18 @@ function sp_filter_body_classes($classes)
 }
 
 /**
- * Force GeneratePress en no-sidebar sur les shells app/console/verify.
+ * Force GeneratePress en no-sidebar uniquement sur les shells structurellement monocolonnes.
  *
- * Cela évite l’apparition d’une colonne fantôme GP quand nos templates
- * gèrent eux-mêmes leur structure interne.
+ * Les surfaces request / patient / doctor-account doivent désormais respecter
+ * la configuration native GeneratePress (no-sidebar / right-sidebar) afin que
+ * la géométrie shell reste cohérente avec le réglage de page.
  *
  * @param string $layout Layout courant GP.
  * @return string
  */
 function sp_force_no_sidebar_for_shell_templates($layout)
 {
-    if (sp_is_patient_context() || sp_is_doctor_context() || sp_is_console_context() || sp_is_verify_context()) {
+    if (sp_is_console_context() || sp_is_verify_context() || sp_current_page_is('doctor-catalog')) {
         return 'no-sidebar';
     }
 

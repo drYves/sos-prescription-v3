@@ -1,4 +1,4 @@
-/* SOS Prescription : Doctor Console V8.5.0 */
+/* SOS Prescription : Doctor Console V8.6.0 */
 .sosprescription-doctor {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
@@ -2145,4 +2145,93 @@
   .sosprescription-doctor .dc-shell {
     grid-template-columns: minmax(24rem, 26.5rem) minmax(0, 1fr);
   }
+}
+
+
+/* --------------------------------------------------------------------------
+   V8.6.0 — Aurora Premium Phase 3
+   Toolbar console premium calm : hiérarchie consolidée, hover logout adouci
+   -------------------------------------------------------------------------- */
+.sp-plugin-toolbar-meta--console [data-dc-toolbar-meta] {
+  gap: clamp(1rem, 0.86rem + 0.46vw, 1.35rem);
+  padding: clamp(1rem, 0.88rem + 0.34vw, 1.25rem);
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 9%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 14px 32px rgba(15, 23, 42, 0.05);
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console {
+  grid-template-columns: minmax(0, 1.16fr) minmax(14.75rem, 16rem) minmax(13.75rem, 14.75rem);
+  gap: clamp(0.9rem, 0.76rem + 0.4vw, 1.15rem);
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__context {
+  gap: 0.32rem;
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__caption {
+  font-size: 0.83rem;
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__session,
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__filters {
+  padding-left: clamp(0.6rem, 0.44rem + 0.28vw, 0.78rem);
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__select {
+  min-height: 3.05rem;
+  transition:
+    background-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-console__select:hover {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 38%, #ffffff 62%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 90%, var(--sp-shell-color-accent-soft, #eff6ff) 10%)
+  );
+}
+
+.sp-plugin-toolbar-meta--console .dc-session-pill {
+  padding: 1rem 1.05rem;
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button {
+  color: var(--sp-shell-color-text-1, #111827);
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, #ffffff 26%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f6f8fb) 6%)
+  );
+  transition:
+    background-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-motion-fast, 0.14s) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button:hover,
+.sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button:focus-visible {
+  color: var(--sp-shell-color-danger-ink, #9f2f2f);
+  border-color: var(--sp-shell-color-danger-border, rgba(192, 58, 58, 0.22));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 42%, #ffffff 58%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 86%, var(--sp-shell-color-danger-soft, #fef2f2) 14%)
+  );
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 70%, transparent),
+    0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.sp-plugin-toolbar-meta--console .dc-toolbar-meta__logout-button:active {
+  transform: translateY(0);
 }

@@ -1,4 +1,4 @@
-<?php // includes/Plugin.php
+<?php // includes/Plugin.php · V8.6.0
 declare(strict_types=1);
 
 namespace SosPrescription;

@@ -1,4 +1,4 @@
-// src/entries/form.tsx · V8.5.0
+// src/entries/form.tsx · V8.6.0
 import '../runtime/installFetchPatch';
 import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1120,13 +1120,23 @@ function resolveFlowFromUrl(): FlowType | null {
   try {
     const raw = new URLSearchParams(window.location.search).get('type');
     const normalized = String(raw || '').trim().toLowerCase();
-    if (normalized === 'renouvellement' || normalized === 'renewal' || normalized === 'ro_proof') {
+    if (normalized === 'standard' || normalized === 'renouvellement' || normalized === 'renewal' || normalized === 'ro_proof') {
       return 'ro_proof';
     }
     if (normalized === 'depannage-sos' || normalized === 'depannage_no_proof' || normalized === 'depannage' || normalized === 'sos') {
       return 'depannage_no_proof';
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveRequestedStepFromUrl(): number | null {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('step');
+    const step = Number.parseInt(String(raw || '').trim(), 10);
+    return Number.isFinite(step) && step > 0 ? step : null;
   } catch {
     return null;
   }
@@ -3607,7 +3617,12 @@ function PublicFormApp() {
 
   const resumeDraftRefFromUrl = useMemo(() => resolveResumeDraftRefFromUrl(), []);
   const initialFlow = useMemo<FlowType | null>(() => resolveFlowFromUrl(), []);
-  const [stage, setStage] = useState<Stage>(() => (resumeDraftRefFromUrl ? 'priority_selection' : (initialFlow ? 'form' : 'choose')));
+  const requestedStepFromUrl = useMemo(() => resolveRequestedStepFromUrl(), []);
+  const [stage, setStage] = useState<Stage>(() => (
+    resumeDraftRefFromUrl
+      ? 'priority_selection'
+      : (requestedStepFromUrl && requestedStepFromUrl >= 2 && initialFlow ? 'form' : (initialFlow ? 'form' : 'choose'))
+  ));
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [paymentsConfig, setPaymentsConfig] = useState<PaymentsConfig | null>(null);
   const [pricingLoading, setPricingLoading] = useState(true);

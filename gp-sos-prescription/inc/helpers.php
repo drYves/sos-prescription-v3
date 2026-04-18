@@ -167,7 +167,13 @@ function sp_get_request_entry_url($type)
         return sp_get_page_url('request');
     }
 
-    return add_query_arg('type', (string) $config['type'], sp_get_page_url('request'));
+    $url = add_query_arg('type', (string) $config['type'], sp_get_page_url('request'));
+
+    if ((string) $config['type'] === 'standard') {
+        $url = add_query_arg('step', '2', $url);
+    }
+
+    return $url;
 }
 
 /**
@@ -499,6 +505,28 @@ function sp_get_sidebar_hook_name($variant)
 
 
 /**
+ * Retourne le layout sidebar GeneratePress courant.
+ *
+ * La configuration native GP devient la source d’autorité pour décider
+ * si le shell applicatif doit réserver une colonne latérale.
+ *
+ * @return string
+ */
+function sp_get_generatepress_sidebar_layout()
+{
+    if (function_exists('generate_get_layout')) {
+        $layout = generate_get_layout();
+        if (is_string($layout) && trim($layout) !== '') {
+            return trim($layout);
+        }
+    }
+
+    $layout = apply_filters('generate_sidebar_layout', 'right-sidebar');
+
+    return is_string($layout) && trim($layout) !== '' ? trim($layout) : 'right-sidebar';
+}
+
+/**
  * Indique si la page courante doit afficher une sidebar de widgets contextuels.
  *
  * Le référentiel BDPM et la console restent volontairement sans widgets.
@@ -512,7 +540,11 @@ function sp_page_has_context_sidebar($variant = '')
         $variant = sp_get_page_shell_variant();
     }
 
-    return in_array($variant, array('request', 'patient', 'doctor-account'), true);
+    if (! in_array($variant, array('request', 'patient', 'doctor-account'), true)) {
+        return false;
+    }
+
+    return sp_get_generatepress_sidebar_layout() !== 'no-sidebar';
 }
 
 /**
@@ -529,7 +561,11 @@ function sp_rolebar_uses_compact_layout($variant = '')
         $variant = sp_get_page_shell_variant();
     }
 
-    return in_array($variant, array('doctor-catalog', 'console'), true);
+    if (in_array($variant, array('doctor-catalog', 'console'), true)) {
+        return true;
+    }
+
+    return ! sp_page_has_context_sidebar($variant);
 }
 
 /**
@@ -546,7 +582,11 @@ function sp_rolebar_shows_chip($variant = '')
         $variant = sp_get_page_shell_variant();
     }
 
-    return ! in_array($variant, array('doctor-catalog', 'console'), true);
+    if (in_array($variant, array('doctor-catalog', 'console'), true)) {
+        return false;
+    }
+
+    return sp_page_has_context_sidebar($variant);
 }
 
 /**
@@ -591,7 +631,11 @@ function sp_uses_compact_app_container($variant = '')
         $variant = sp_get_page_shell_variant();
     }
 
-    return in_array($variant, array('doctor-catalog', 'console'), true);
+    if (in_array($variant, array('doctor-catalog', 'console'), true)) {
+        return true;
+    }
+
+    return ! sp_page_has_context_sidebar($variant);
 }
 
 /**

@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS Console Layout V2
- * Version: 7.0.1
+ * Version: 8.6.0
  *
  * Shell console médecin dédié.
  *
@@ -38,9 +38,9 @@ $sp_privacy_url        = is_array($sp_compliance) && isset($sp_compliance['priva
         </div>
 
         <?php if ($sp_cgu_url !== '' || $sp_privacy_url !== '') : ?>
-        <div class="sp-app-legal-footer" aria-label="Informations juridiques applicatives">
+        <footer class="sp-app-legal-footer" aria-label="Informations juridiques applicatives">
             <div class="sp-app-legal-footer__inner">
-                <span class="sp-app-legal-footer__eyebrow">Cadre sécurisé</span>
+                <span class="sp-app-legal-footer__eyebrow"><span class="sp-app-legal-footer__icon" aria-hidden="true"><?php echo sp_get_secure_menu_icon_svg('doctor-account'); ?></span>Cadre sécurisé</span>
                 <nav class="sp-app-legal-footer__links" aria-label="Liens juridiques applicatifs">
                     <?php if ($sp_cgu_url !== '') : ?>
                     <a href="<?php echo esc_url($sp_cgu_url); ?>" target="_blank" rel="noreferrer noopener">CGU</a>
@@ -50,7 +50,7 @@ $sp_privacy_url        = is_array($sp_compliance) && isset($sp_compliance['priva
                     <?php endif; ?>
                 </nav>
             </div>
-        </div>
+        </footer>
         <?php endif; ?>
     </div>
 </div>

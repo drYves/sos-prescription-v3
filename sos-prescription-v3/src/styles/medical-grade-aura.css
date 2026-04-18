@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V8.5.0 */
+/* SOS Prescription : Medical-Grade Aura V8.6.0 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -5277,11 +5277,26 @@ a.sp-app-button.sp-app-button--secondary:hover {
 }
 
 .sp-patient-session-bar__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-patient-session-bar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+.sp-patient-session-bar__icon .sp-lucide {
+  width: 0.82rem;
+  height: 0.82rem;
 }
 
 .sp-patient-session-bar__identity {
