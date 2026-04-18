@@ -160,9 +160,12 @@ final class PatientV4Controller extends \WP_REST_Controller
             $workerItemsPayload = [];
 
             if ($workerResponseUnchanged) {
-                $workerItemsPayload = $this->extract_cached_worker_items_raw($cachedSnapshot);
+                $hasCachedWorkerItems = $this->has_cached_worker_items_snapshot($cachedSnapshot);
+                $workerItemsPayload = $hasCachedWorkerItems
+                    ? $this->extract_cached_worker_items_raw($cachedSnapshot)
+                    : [];
 
-                if ($workerItemsPayload === []) {
+                if (!$hasCachedWorkerItems) {
                     $workerPayload = $this->get_worker_api_client()->postSignedJson(
                         '/api/v2/patient/prescriptions/pulse',
                         [
@@ -544,7 +547,7 @@ final class PatientV4Controller extends \WP_REST_Controller
     }
 
     /**
-     * @return array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null
+     * @return array{worker_collection_hash:?string, worker_items_present:bool, worker_items:array<int, mixed>, bff_collection_hash:?string}|null
      */
     private function load_pulse_cache_snapshot(int $patientWpUserId): ?array
     {
@@ -557,9 +560,12 @@ final class PatientV4Controller extends \WP_REST_Controller
             return null;
         }
 
+        $workerItemsPresent = array_key_exists('worker_items', $snapshot) && is_array($snapshot['worker_items']);
+
         return [
             'worker_collection_hash' => $this->normalize_collection_hash($snapshot['worker_collection_hash'] ?? null),
-            'worker_items' => is_array($snapshot['worker_items'] ?? null) ? array_values($snapshot['worker_items']) : [],
+            'worker_items_present' => $workerItemsPresent,
+            'worker_items' => $workerItemsPresent ? array_values($snapshot['worker_items']) : [],
             'bff_collection_hash' => $this->normalize_collection_hash($snapshot['bff_collection_hash'] ?? null),
         ];
     }
@@ -577,6 +583,7 @@ final class PatientV4Controller extends \WP_REST_Controller
             $this->build_pulse_cache_key($patientWpUserId),
             [
                 'worker_collection_hash' => $this->normalize_collection_hash($workerCollectionHash),
+                'worker_items_present' => true,
                 'worker_items' => array_values($workerItems),
                 'bff_collection_hash' => $this->normalize_collection_hash($bffCollectionHash),
             ],
@@ -585,7 +592,7 @@ final class PatientV4Controller extends \WP_REST_Controller
     }
 
     /**
-     * @param array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
+     * @param array{worker_collection_hash:?string, worker_items_present:bool, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
      */
     private function resolve_known_worker_collection_hash(?string $knownCollectionHash, ?array $snapshot): ?string
     {
@@ -602,12 +609,22 @@ final class PatientV4Controller extends \WP_REST_Controller
     }
 
     /**
-     * @param array{worker_collection_hash:?string, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
+     * @param array{worker_collection_hash:?string, worker_items_present:bool, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
+     */
+    private function has_cached_worker_items_snapshot(?array $snapshot): bool
+    {
+        return is_array($snapshot)
+            && !empty($snapshot['worker_items_present'])
+            && is_array($snapshot['worker_items'] ?? null);
+    }
+
+    /**
+     * @param array{worker_collection_hash:?string, worker_items_present:bool, worker_items:array<int, mixed>, bff_collection_hash:?string}|null $snapshot
      * @return array<int, mixed>
      */
     private function extract_cached_worker_items_raw(?array $snapshot): array
     {
-        if (!is_array($snapshot) || !is_array($snapshot['worker_items'] ?? null)) {
+        if (!$this->has_cached_worker_items_snapshot($snapshot)) {
             return [];
         }
 

@@ -1,4 +1,4 @@
-// PatientConsole.tsx · V8.1.0
+// PatientConsole.tsx · V8.1.1
 // src/components/PatientConsole.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
@@ -1255,6 +1255,19 @@ function profileFormToConfig(form: PatientProfileFormState): AppConfig['patientP
   };
 }
 
+function buildPatientProfileFormRevision(form: PatientProfileFormState): string {
+  return JSON.stringify({
+    first_name: normalizeMultilineText(form.first_name || ''),
+    last_name: normalizeMultilineText(form.last_name || ''),
+    birthdate: String(form.birthdate || '').trim(),
+    email: String(form.email || '').trim().toLowerCase(),
+    weight_kg: normalizeProfileMetricInput(form.weight_kg),
+    height_cm: normalizeProfileMetricInput(form.height_cm),
+    note: normalizeMultilineText(form.note || ''),
+    bmi_label: computeBmiLabel(form.weight_kg, form.height_cm),
+  });
+}
+
 function normalizePatientProfileFromResponse(
   payload: unknown,
   fallback: PatientProfileFormState,
@@ -2177,36 +2190,101 @@ function PatientProfilePanel({
     ]
   );
 
+  const profileOwnerId = useMemo(() => {
+    const snapshotId = toPositiveInteger(snapshot.currentUser?.id);
+    if (snapshotId > 0) {
+      return snapshotId;
+    }
+
+    const globalId = getCurrentWpUserId();
+    return typeof globalId === 'number' && globalId > 0 ? globalId : 0;
+  }, [snapshot.currentUser?.id]);
+
   const [form, setForm] = useState<PatientProfileFormState>(initialSeed);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const initialSeedRef = useRef(initialSeed);
+  const currentUserRef = useRef(snapshot.currentUser);
+  const initialProfileLoadDoneRef = useRef(false);
+  const formDirtyRef = useRef(false);
+  const lastAppliedFormRevisionRef = useRef<string>(buildPatientProfileFormRevision(initialSeed));
 
   useEffect(() => {
+    initialSeedRef.current = initialSeed;
+  }, [initialSeed]);
+
+  useEffect(() => {
+    currentUserRef.current = snapshot.currentUser;
+  }, [snapshot.currentUser]);
+
+  useEffect(() => {
+    const nextRevision = buildPatientProfileFormRevision(initialSeed);
+
+    if (!initialProfileLoadDoneRef.current) {
+      setForm(initialSeed);
+      lastAppliedFormRevisionRef.current = nextRevision;
+      return;
+    }
+
+    if (formDirtyRef.current) {
+      return;
+    }
+
+    if (lastAppliedFormRevisionRef.current === nextRevision) {
+      return;
+    }
+
     setForm(initialSeed);
+    lastAppliedFormRevisionRef.current = nextRevision;
   }, [initialSeed]);
 
   useEffect(() => {
     let disposed = false;
+    const seed = initialSeedRef.current;
+    const currentUser = currentUserRef.current;
+    const seedRevision = buildPatientProfileFormRevision(seed);
+
+    if (profileOwnerId < 1) {
+      initialProfileLoadDoneRef.current = true;
+      formDirtyRef.current = false;
+      lastAppliedFormRevisionRef.current = seedRevision;
+      setForm(seed);
+      setLoading(false);
+      return () => {
+        disposed = true;
+      };
+    }
+
+    initialProfileLoadDoneRef.current = false;
+    formDirtyRef.current = false;
+    lastAppliedFormRevisionRef.current = seedRevision;
+    setForm(seed);
+    setLoading(true);
+    setFeedback(null);
 
     async function boot(): Promise<void> {
-      setLoading(true);
       try {
         const payload = await getPatientProfile();
         if (disposed) {
           return;
         }
 
-        const normalized = normalizePatientProfileFromResponse(payload, initialSeed, snapshot.currentUser);
+        const normalized = normalizePatientProfileFromResponse(payload, seed, currentUser);
+        const nextRevision = buildPatientProfileFormRevision(normalized);
+        lastAppliedFormRevisionRef.current = nextRevision;
         setForm(normalized);
         const nextProfile = profileFormToConfig(normalized);
         updateGlobalPatientProfileConfig(nextProfile);
         onProfileChange(nextProfile);
       } catch {
-        // keep local seed when V4 profile fetch is unavailable
+        if (!disposed) {
+          lastAppliedFormRevisionRef.current = seedRevision;
+        }
       } finally {
         if (!disposed) {
+          initialProfileLoadDoneRef.current = true;
           setLoading(false);
         }
       }
@@ -2217,8 +2295,11 @@ function PatientProfilePanel({
     return () => {
       disposed = true;
     };
-  }, [initialSeed, onProfileChange, snapshot.currentUser]);
+  }, [onProfileChange, profileOwnerId]);
+
   const updateField = (field: keyof PatientProfileFormState, value: string): void => {
+    formDirtyRef.current = true;
+
     setForm((current) => ({
       ...current,
       [field]: value,
@@ -2262,7 +2343,10 @@ function PatientProfilePanel({
       const nextProfile = isRecord(response) && isRecord(response.profile)
         ? ({ ...profileFormToConfig(normalized), ...(response.profile as AppConfig['patientProfile']) })
         : profileFormToConfig(normalized);
+      const nextRevision = buildPatientProfileFormRevision(normalized);
 
+      formDirtyRef.current = false;
+      lastAppliedFormRevisionRef.current = nextRevision;
       setForm(normalized);
       updateGlobalPatientProfileConfig(nextProfile);
       onProfileChange(nextProfile);
@@ -2302,6 +2386,27 @@ function PatientProfilePanel({
     }
   };
 
+  if (loading) {
+    return (
+      <div className="sp-profile-card sp-profile-card--embedded">
+        {feedback ? (
+          <div className="sp-inline-note">
+            <Notice variant={feedback.tone === 'success' ? 'success' : feedback.tone === 'info' ? 'info' : 'error'}>
+              {feedback.text}
+            </Notice>
+          </div>
+        ) : null}
+
+        <Notice variant="info" title="Profil patient">
+          <div className="sp-loading-row">
+            <Spinner />
+            <span>Chargement sécurisé du profil…</span>
+          </div>
+        </Notice>
+      </div>
+    );
+  }
+
   return (
     <div className="sp-profile-card sp-profile-card--embedded">
       {feedback ? (
@@ -2310,10 +2415,6 @@ function PatientProfilePanel({
             {feedback.text}
           </Notice>
         </div>
-      ) : null}
-
-      {loading ? (
-        <div className="sp-empty-note">Synchronisation silencieuse du profil…</div>
       ) : null}
 
       <form id="sp-patient-profile-form" noValidate onSubmit={(event) => void handleSubmit(event)}>
@@ -2442,6 +2543,7 @@ function PatientProfilePanel({
   );
 }
 
+
 export default function PatientConsole() {
   const cfg = getAppConfig();
   const isLoggedIn = Boolean(cfg.currentUser?.id && Number(cfg.currentUser.id) > 0);
@@ -2464,9 +2566,9 @@ export default function PatientConsole() {
 
   const prescriptionsRef = useRef<PrescriptionSummary[]>([]);
   const selectedIdRef = useRef<number | null>(null);
-  const [pulseCollectionHash, setPulseCollectionHash] = useState<string>('');
   const pulseCollectionHashRef = useRef<string>('');
   const pulseInFlightRef = useRef(false);
+  const pulseTimerRef = useRef<number | null>(null);
   const listRequestSeqRef = useRef(0);
   const detailRequestSeqRef = useRef(0);
   const messagesRequestSeqRef = useRef(0);
@@ -2489,17 +2591,25 @@ export default function PatientConsole() {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  const clearPulseTimer = useCallback((): void => {
+    if (pulseTimerRef.current !== null) {
+      window.clearTimeout(pulseTimerRef.current);
+      pulseTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoggedIn) {
+      clearPulseTimer();
       pulseCollectionHashRef.current = '';
-      setPulseCollectionHash('');
+      pulseInFlightRef.current = false;
       setPrescriptions([]);
       setSelectedId(null);
       setDetail(null);
       setMessages([]);
       setPdfStates({});
     }
-  }, [isLoggedIn]);
+  }, [clearPulseTimer, isLoggedIn]);
 
   useEffect(() => {
     const handlePatientProfileUpdated = (event: Event): void => {
@@ -2858,7 +2968,7 @@ export default function PatientConsole() {
 
     pulseInFlightRef.current = true;
     try {
-      const knownCollectionHash = pulseCollectionHashRef.current || pulseCollectionHash || undefined;
+      const knownCollectionHash = pulseCollectionHashRef.current || undefined;
       const payload = await getPatientPulse(knownCollectionHash);
       const normalized = normalizePatientPulseResponse(payload);
       if (!normalized) {
@@ -2870,7 +2980,6 @@ export default function PatientConsole() {
       }
 
       pulseCollectionHashRef.current = normalized.collection_hash;
-      setPulseCollectionHash((current) => current === normalized.collection_hash ? current : normalized.collection_hash);
       if (normalized.unchanged) {
         return;
       }
@@ -2962,7 +3071,7 @@ export default function PatientConsole() {
     } finally {
       pulseInFlightRef.current = false;
     }
-  }, [isLoggedIn, loadDetail, loadMessages, loadPdfStatus, pulseCollectionHash, refreshList]);
+  }, [isLoggedIn, loadDetail, loadMessages, loadPdfStatus, refreshList]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -3028,50 +3137,60 @@ export default function PatientConsole() {
 
   useEffect(() => {
     if (!isLoggedIn) {
+      clearPulseTimer();
       return;
     }
 
     let disposed = false;
-    let timer = 0;
 
-    const schedule = (): void => {
+    const scheduleNext = (): void => {
       if (disposed) {
         return;
       }
 
+      clearPulseTimer();
       const delay = document.hidden ? 60000 : 20000;
-      timer = window.setTimeout(async () => {
-        await syncPulse();
-        schedule();
+      pulseTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          await syncPulse();
+          if (!disposed) {
+            scheduleNext();
+          }
+        })();
       }, delay);
     };
 
-    const trigger = (): void => {
+    const triggerNow = (): void => {
       if (disposed) {
         return;
       }
-      window.clearTimeout(timer);
-      void syncPulse();
-      schedule();
+
+      clearPulseTimer();
+      void (async () => {
+        await syncPulse();
+        if (!disposed) {
+          scheduleNext();
+        }
+      })();
     };
 
     const handleVisibility = (): void => {
       if (!document.hidden) {
-        trigger();
+        triggerNow();
       }
     };
 
-    schedule();
-    window.addEventListener('focus', trigger);
+    scheduleNext();
+    window.addEventListener('focus', triggerNow);
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       disposed = true;
-      window.clearTimeout(timer);
-      window.removeEventListener('focus', trigger);
+      clearPulseTimer();
+      window.removeEventListener('focus', triggerNow);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isLoggedIn, syncPulse]);
+  }, [clearPulseTimer, isLoggedIn, syncPulse]);
 
   const handleMessageCreated = useCallback(async (message: MessageItem): Promise<void> => {
     setMessages((current) => mergeNormalizedMessages(current, [message]));
