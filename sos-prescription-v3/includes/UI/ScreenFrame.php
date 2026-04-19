@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V8.8.1 — guards priorisés : racine explicite pour l'isolement structurel du shell.
+ * V8.9.0 — guards premium calm : surface sécurisée alignée sur le sas de déconnexion.
  */
 final class ScreenFrame
 {
@@ -88,6 +88,8 @@ final class ScreenFrame
      */
     public static function guard(string $screen, string $variant, string $title, string $message, array $actions = []): string
     {
+        self::enqueue_guard_surface_styles();
+
         $variant = sanitize_html_class($variant);
         $eyebrow = 'Compte professionnel sécurisé';
 
@@ -97,16 +99,17 @@ final class ScreenFrame
             $eyebrow = 'Accès médecin sécurisé';
         }
 
-        $content = '<div class="sp-plugin-guard sp-guard-surface sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
+        $content = '<article class="sp-plugin-guard sp-guard-surface sp-plugin-guard--' . esc_attr($variant) . '" data-sp-guard-variant="' . esc_attr($variant) . '">';
         $content .= '<div class="sp-plugin-guard__shell">';
         $content .= '<div class="sp-plugin-guard__brand" aria-hidden="true">';
-        $content .= '<span class="sp-plugin-guard__favicon">' . self::guard_icon('stethoscope') . '</span>';
+        $content .= '<span class="sp-plugin-guard__favicon">' . self::guard_icon('shield-plus') . '</span>';
         $content .= '</div>';
         $content .= '<p class="sp-plugin-guard__eyebrow">' . esc_html($eyebrow) . '</p>';
         $content .= '<div class="sp-plugin-guard__header">';
         $content .= '<h3 class="sp-plugin-guard__title">' . esc_html($title) . '</h3>';
         $content .= '<p class="sp-plugin-guard__body">' . esc_html($message) . '</p>';
         $content .= '</div>';
+        $content .= self::guard_context_card(self::guard_context_label($screen));
 
         if ($actions !== []) {
             $content .= '<div class="sp-plugin-guard__actions">';
@@ -120,17 +123,81 @@ final class ScreenFrame
         }
 
         $content .= '<div class="sp-plugin-guard__icons" aria-hidden="true">';
-        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('shield-plus') . '</span>';
+        $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('stethoscope') . '</span>';
         $content .= '<span class="sp-plugin-guard__icon-chip">' . self::guard_icon('lock') . '</span>';
         $content .= '</div>';
         $content .= '</div>';
-        $content .= '</div>';
+        $content .= '</article>';
 
         return self::screen(
             $screen,
             $content,
             ['sp-plugin-root--guarded', 'sp-plugin-root--secure-surface'],
-            ['sp-plugin-shell--guarded', 'sp-plugin-shell--secure-surface']
+            ['sp-ui', 'sp-page-shell', 'sp-app-container', 'sp-plugin-shell--guarded', 'sp-plugin-shell--secure-surface']
+        );
+    }
+
+    private static function guard_context_label(string $screen): string
+    {
+        $screen = strtolower(trim($screen));
+
+        if ($screen === 'console') {
+            return 'Console médecin';
+        }
+
+        if ($screen === 'doctor-account') {
+            return 'Compte médecin';
+        }
+
+        if ($screen === 'patient') {
+            return 'Espace patient';
+        }
+
+        return 'Espace sécurisé';
+    }
+
+    private static function guard_context_card(string $label): string
+    {
+        $label = trim($label);
+        if ($label === '') {
+            return '';
+        }
+
+        return '<div class="sp-inline-card">'
+            . '<div class="sp-inline-card__content">'
+            . '<div class="sp-inline-card__title">Contexte</div>'
+            . '<div class="sp-inline-card__meta">' . esc_html($label) . '</div>'
+            . '</div>'
+            . '</div>';
+    }
+
+    private static function enqueue_guard_surface_styles(): void
+    {
+        if (!defined('SOSPRESCRIPTION_URL') || !function_exists('wp_enqueue_style')) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'sosprescription-ui-kit',
+            SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
+            [],
+            defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null
+        );
+
+        if (!defined('SOSPRESCRIPTION_PATH')) {
+            return;
+        }
+
+        $buildPath = SOSPRESCRIPTION_PATH . 'build/form.css';
+        if (!file_exists($buildPath)) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'sosprescription-guard-surface',
+            SOSPRESCRIPTION_URL . 'build/form.css',
+            ['sosprescription-ui-kit'],
+            defined('SOSPRESCRIPTION_VERSION') ? SOSPRESCRIPTION_VERSION : null
         );
     }
 

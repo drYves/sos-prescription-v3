@@ -5,11 +5,11 @@ Description: Thème enfant GeneratePress Premium - shell natif SOS Prescription,
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 8.8.1
+Version: 8.9.0
 Text Domain: gp-sos-prescription
 */
 
-/* V8.8.1 · Recovery structurel GP / SOS : points d'appui restaurés, shell pragmatique */
+/* V8.9.0 · Polish visuel des accès réservés : guards premium calm alignés sur le sas sécurisé */
 
 :root {
   --sp-shell-frame-max: var(--container-width, var(--gb-container-width, 1200px));
