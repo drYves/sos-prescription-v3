@@ -12,7 +12,7 @@ use SosPrescription\UI\AuthMagicLinkUi;
 
 /**
  * Shortcode : interface "Compte médecin" (profil, RPPS, signature).
- * V7.0.8 — ajustements de grille : sections principales empilées et contact réaligné.
+ * V8.10.0 — finition premium du compte médecin : session harmonisée, RPPS ancré, signature rendue visible.
  *
  * Objectif MVP :
  * - permettre au médecin de compléter ses infos pro (RPPS, spécialité, adresse),
@@ -248,7 +248,11 @@ final class DoctorAccountShortcode
                     'initialHelp' => 'Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.',
                     'verifiedTitle' => '✓ Identité professionnelle certifiée',
                     'verifiedFooterPrefix' => 'Vérification effectuée avec succès via l\'Annuaire Santé le ',
-                    'deleteAccountConfirm' => 'Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d\'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?',
+                    'deleteAccountConfirm' => 'Vous êtes sur le point de supprimer définitivement ce compte médecin. L’accès à l’espace sécurisé sera fermé et les données médicales strictement nécessaires resteront conservées sous forme d\'archives inactives afin de respecter les obligations légales de traçabilité. Souhaitez-vous confirmer cette suppression ?',
+                    'signatureRemoveConfirm' => 'Vous êtes sur le point de retirer la signature actuellement enregistrée. Ce retrait sera appliqué lors de l\'enregistrement du formulaire. Souhaitez-vous confirmer ce retrait ?',
+                    'signatureRemoveLabel' => 'Retirer la signature actuelle',
+                    'signatureKeepLabel' => 'Conserver la signature actuelle',
+                    'signatureRemoveState' => 'La signature actuelle sera retirée lors de l\'enregistrement.',
                     'deleteAccountBusy' => 'Suppression…',
                     'deleteAccountError' => 'La suppression du compte a échoué. Merci de réessayer.',
                     'signatureInvalidType' => 'Format non supporté. Merci d\'utiliser JPG ou PNG uniquement.',
@@ -310,23 +314,27 @@ final class DoctorAccountShortcode
         $current_user = wp_get_current_user();
         $current_label = self::resolve_doctor_label($current_user instanceof \WP_User ? $current_user : null, $current_id);
         $target_label = self::resolve_doctor_label($target_user, (int) $target_user->ID);
+        $session_meta = $is_admin_view && !$is_self
+            ? 'Profil consulté : ' . $target_label
+            : 'Connexion sécurisée maintenue sur cet appareil.';
 
         $html = '';
         $html .= '<section class="sp-doctor-account__session-card">';
         $html .= '<div class="sp-doctor-account__session-shell">';
-        $html .= '<div class="sp-doctor-account__session-copy">';
-        $html .= '<p class="sp-doctor-account__session-eyebrow">Session active</p>';
-        $html .= '<div class="sp-doctor-account__session-badges">';
-        $html .= ScreenFrame::badge($current_label, 'success', true);
-
-        if ($is_admin_view && !$is_self) {
-            $html .= ScreenFrame::badge('Profil affiché : ' . $target_label, 'info', false);
-        }
-
+        $html .= '<div class="sp-doctor-account__session-context dc-toolbar-console__context">';
+        $html .= '<p class="sp-doctor-account__session-eyebrow dc-toolbar-console__eyebrow">Session active</p>';
+        $html .= '<p class="sp-doctor-account__session-title dc-toolbar-console__title">Compte médecin sécurisé</p>';
+        $html .= '<p class="sp-field__help sp-doctor-account__session-note dc-toolbar-console__caption">Votre identité professionnelle, votre RPPS et votre signature restent réservés aux ordonnances et aux documents médicaux sécurisés générés par la plateforme.</p>';
         $html .= '</div>';
-        $html .= '<p class="sp-field__help sp-doctor-account__session-note">Votre identité professionnelle, votre RPPS et votre signature restent réservés aux documents médicaux sécurisés générés par la plateforme.</p>';
+        $html .= '<div class="sp-doctor-account__session-panel dc-toolbar-console__session">';
+        $html .= '<article class="sp-doctor-account__session-pill dc-session-pill">';
+        $html .= '<p class="sp-doctor-account__session-pill-eyebrow dc-session-pill__eyebrow">Session</p>';
+        $html .= '<p class="sp-doctor-account__session-pill-value">' . esc_html($current_label) . '</p>';
+        $html .= '<p class="sp-doctor-account__session-pill-meta">' . esc_html($session_meta) . '</p>';
+        $html .= '</article>';
         $html .= '</div>';
-        $html .= '<div class="sp-doctor-account__session-actions">';
+        $html .= '<div class="sp-doctor-account__session-actions dc-toolbar-console__logout">';
+        $html .= '<p class="sp-doctor-account__session-action-label dc-toolbar-console__label dc-toolbar-console__label--logout">Fermeture de session</p>';
         $html .= self::render_logout_form();
         $html .= '</div>';
         $html .= '</div>';
@@ -341,8 +349,8 @@ final class DoctorAccountShortcode
             'mode' => 'entry',
             'context' => 'doctor-account',
             'return_to' => LogoutShortcode::current_page_url(),
-            'class' => 'sp-button sp-button--secondary',
-            'form_class' => 'sp-form sp-doctor-account__form sp-logout-form',
+            'class' => 'sp-button sp-button--secondary dc-toolbar-meta__logout-button',
+            'form_class' => 'sp-form sp-doctor-account__form sp-logout-form dc-toolbar-meta__logout-form',
         ]);
     }
 
@@ -520,8 +528,10 @@ final class DoctorAccountShortcode
 
         $html .= '<div class="sp-field">';
         $html .= '<label class="sp-field__label" for="sp_doc_rpps">Numéro RPPS</label>';
+        $html .= '<div class="sp-doctor-account__rpps-inline">';
         $html .= '<input class="sp-input" type="text" id="sp_doc_rpps" name="rpps" value="' . esc_attr($rpps) . '" placeholder="Ex : 10001234567" inputmode="numeric" maxlength="11" autocomplete="off" data-sp-rpps-managed="1" />';
         $html .= '<div class="sp-stack" data-sp-rpps-actions="1"></div>';
+        $html .= '</div>';
         $html .= '<div id="sp_doc_rpps_verify_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
         $html .= '<p id="sp_doc_rpps_verify_footer" class="sp-field__help">Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.</p>';
         $html .= '</div>';
@@ -622,6 +632,7 @@ final class DoctorAccountShortcode
     {
         $html = '';
         $html .= '<div class="sp-doctor-account__signature-field">';
+        $html .= '<input type="hidden" name="remove_signature" id="sp_signature_remove" value="0" />';
 
         if ($sig_file_id > 0) {
             $download_url = wp_nonce_url(
@@ -629,14 +640,20 @@ final class DoctorAccountShortcode
                 'sosprescription_doctor_file_download'
             );
 
-            $html .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">';
-            $html .= '<p class="sp-alert__title">Signature enregistrée</p>';
-            $html .= '<p class="sp-alert__body">Une signature privée est déjà associée à votre profil. <a href="' . esc_url($download_url) . '" target="_blank" rel="noopener">Prévisualiser la signature actuelle</a>.</p>';
+            $html .= '<div id="sp_signature_current" class="sp-doctor-account__signature-preview-card sp-doctor-account__signature-preview-card--stored">';
+            $html .= '<div class="sp-doctor-account__signature-preview sp-doctor-account__signature-preview--stored">';
+            $html .= '<div class="sp-doctor-account__signature-preview-head">';
+            $html .= '<p class="sp-field__label sp-doctor-account__signature-preview-label">Signature actuelle</p>';
+            $html .= '<p class="sp-field__help sp-doctor-account__signature-preview-copy">Cette image privée continue d’être utilisée sur vos ordonnances et documents médicaux sécurisés tant qu’aucune nouvelle signature n’est enregistrée.</p>';
             $html .= '</div>';
-            $html .= '<label class="sp-choice">';
-            $html .= '<input class="sp-choice__input" type="checkbox" name="remove_signature" value="1" />';
-            $html .= '<span class="sp-choice__label">Supprimer la signature actuelle lors de l’enregistrement</span>';
-            $html .= '</label>';
+            $html .= '<img id="sp_signature_current_img" src="' . esc_url($download_url) . '" alt="Signature actuelle enregistrée" loading="lazy" decoding="async" />';
+            $html .= '<div class="sp-doctor-account__signature-actions">';
+            $html .= '<a class="sp-button sp-button--secondary" href="' . esc_url($download_url) . '" target="_blank" rel="noopener">Ouvrir l’image</a>';
+            $html .= '<button type="button" id="sp_signature_mark_remove" class="sp-button sp-button--secondary sp-doctor-account__signature-remove-button" aria-pressed="false">Retirer la signature actuelle</button>';
+            $html .= '</div>';
+            $html .= '<p id="sp_signature_state" class="sp-field__help sp-doctor-account__signature-state" hidden></p>';
+            $html .= '</div>';
+            $html .= '</div>';
         } else {
             $html .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">';
             $html .= '<p class="sp-alert__title">Aucune signature enregistrée</p>';
@@ -651,10 +668,13 @@ final class DoctorAccountShortcode
         $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, largeur 600 à 1000 px, hauteur 120 à 250 px, idéalement moins de 200 ko.</p>';
         $html .= '<div id="sp_signature_feedback" class="sp-alert sp-alert--info" hidden role="status" aria-live="polite"></div>';
         $html .= '<p id="sp_signature_meta" class="sp-field__help" hidden></p>';
-        $html .= '<div id="sp_signature_preview" class="sp-doctor-account__signature-preview-card" hidden>';
-        $html .= '<div class="sp-doctor-account__signature-preview">';
-        $html .= '<p class="sp-field__help">Prévisualisation locale avant enregistrement.</p>';
-        $html .= '<img id="sp_signature_preview_img" alt="Prévisualisation de la signature" />';
+        $html .= '<div id="sp_signature_preview" class="sp-doctor-account__signature-preview-card sp-doctor-account__signature-preview-card--pending" hidden>';
+        $html .= '<div class="sp-doctor-account__signature-preview sp-doctor-account__signature-preview--pending">';
+        $html .= '<div class="sp-doctor-account__signature-preview-head">';
+        $html .= '<p class="sp-field__label sp-doctor-account__signature-preview-label">Nouveau fichier sélectionné</p>';
+        $html .= '<p class="sp-field__help sp-doctor-account__signature-preview-copy">Prévisualisation locale avant enregistrement.</p>';
+        $html .= '</div>';
+        $html .= '<img id="sp_signature_preview_img" alt="Prévisualisation de la nouvelle signature" />';
         $html .= '<div class="sp-doctor-account__signature-actions">';
         $html .= '<button type="button" id="sp_signature_clear" class="sp-button sp-button--secondary">Retirer le fichier sélectionné</button>';
         $html .= '</div>';

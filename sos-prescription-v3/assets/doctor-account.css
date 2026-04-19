@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Account V7.0.8 */
+/* SOS Prescription – Doctor Account V8.10.0 */
 
 .sp-plugin-root--doctor-account {
   --sp-doctor-gap: clamp(1rem, 0.9rem + 0.35vw, 1.35rem);
@@ -211,41 +211,163 @@
 
 .sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.95rem 1rem;
-  align-items: center;
+  grid-template-columns: minmax(0, 1.16fr) minmax(14.75rem, 16rem) minmax(13.75rem, 14.75rem);
+  align-items: stretch;
+  gap: clamp(0.9rem, 0.76rem + 0.4vw, 1.15rem);
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-copy {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-context {
+  min-width: 0;
   display: grid;
-  gap: 0.72rem;
+  align-content: center;
+  gap: 0.32rem;
+  padding-right: clamp(0.15rem, 0.08rem + 0.2vw, 0.4rem);
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-badges {
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-eyebrow, .dc-toolbar-console__eyebrow) {
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-title, .dc-toolbar-console__title) {
+  margin: 0;
+  color: var(--sp-shell-color-text-1, #111827);
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-note, .dc-toolbar-console__caption) {
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-panel,
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
+  align-items: stretch;
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-badges .sp-badge {
-  border-radius: 999px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+.sp-plugin-root--doctor-account .sp-doctor-account__session-panel {
+  padding-left: clamp(0.6rem, 0.44rem + 0.28vw, 0.78rem);
+  border-left: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-pill, .dc-session-pill) {
+  display: grid;
+  align-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  padding: 1rem 1.05rem;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 18%, transparent);
+  border-radius: 1rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 68%, #ffffff 32%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-accent-soft, #eff6ff) 6%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-pill-eyebrow, .dc-session-pill__eyebrow) {
+  margin: 0;
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill-value {
+  margin: 0.14rem 0 0;
+  color: var(--sp-shell-color-text-1, #111827);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill-meta {
+  margin: 0.28rem 0 0;
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
+  display: grid;
+  align-content: center;
+  justify-items: stretch;
+  gap: 0.42rem;
+  padding-left: clamp(0.6rem, 0.44rem + 0.28vw, 0.78rem);
+  border-left: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-logout-form {
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-action-label, .dc-toolbar-console__label, .dc-toolbar-console__label--logout) {
+  margin: 0;
+  color: var(--sp-shell-color-text-3, #64748b);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-actions .sp-logout-form, .dc-toolbar-meta__logout-form) {
+  display: block;
+  width: 100%;
   margin: 0;
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-button {
-  min-height: 2.9rem;
-  border-radius: 999px;
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button {
+  width: 100%;
+  min-height: 3rem;
+  min-width: 10rem;
+  padding-inline: 1.15rem;
+  border-radius: 1rem;
+  white-space: nowrap;
+  font-weight: 800;
+  color: var(--sp-shell-color-text-1, #111827);
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 74%, #ffffff 26%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f6f8fb) 6%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 24px rgba(15, 23, 42, 0.05);
+  transition:
+    background-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--sp-motion-base, 0.22s) var(--sp-ease-standard, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--sp-motion-fast, 0.14s) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:hover,
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:focus-visible {
+  color: var(--sp-shell-color-danger-ink, #9f2f2f);
+  border-color: var(--sp-shell-color-danger-border, rgba(192, 58, 58, 0.22));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 42%, #ffffff 58%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 86%, var(--sp-shell-color-danger-soft, #fef2f2) 14%)
+  );
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 70%, transparent),
+    0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:active {
+  transform: translateY(0);
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__content,
@@ -350,27 +472,102 @@
   align-items: center;
 }
 
+.sp-plugin-root--doctor-account :is(.sp-doctor-account__rpps-button, [data-sp-rpps-actions='1'] .sp-button) {
+  min-height: 3rem;
+  padding-inline: 1.05rem;
+  border-radius: 1rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__rpps-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__rpps-inline [data-sp-rpps-actions='1'] {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
 .sp-plugin-root--doctor-account .sp-doctor-account__signature-field {
   display: grid;
   gap: 0.9rem;
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card {
-  padding: 1rem;
+  padding: 1rem 1.05rem;
+  display: grid;
+  gap: 0.85rem;
+  border-color: var(--sp-doctor-border-soft);
+  border-radius: var(--sp-doctor-radius-inner);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card--stored {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 18%, #ffffff 82%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-accent-soft, #eff6ff) 6%)
+  );
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card--pending {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 70%, #ffffff 30%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, var(--sp-shell-color-surface-alt, #f6f8fb) 5%)
+  );
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card.is-pending-removal {
+  border-color: var(--sp-shell-color-danger-border, rgba(192, 58, 58, 0.22));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 48%, #ffffff 52%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-danger-soft, #fef2f2) 12%)
+  );
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__signature-preview {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.85rem;
 }
 
-.sp-plugin-root--doctor-account #sp_signature_preview_img {
-  max-width: min(100%, 340px);
-  max-height: 140px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-head {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-label,
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-copy {
+  margin: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-label {
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sp-plugin-root--doctor-account :is(#sp_signature_current_img, #sp_signature_preview_img) {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--sp-doctor-border-soft);
-  padding: 0.5rem;
+  padding: 0.6rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card.is-pending-removal #sp_signature_current_img {
+  opacity: 0.42;
+  filter: grayscale(0.15);
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__signature-actions,
@@ -379,6 +576,26 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-actions .sp-button {
+  min-height: 2.9rem;
+  border-radius: 999px;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-remove-button[aria-pressed='true'] {
+  color: var(--sp-shell-color-danger-ink, #9f2f2f);
+  border-color: var(--sp-shell-color-danger-border, rgba(192, 58, 58, 0.22));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-danger-soft, #fef2f2) 46%, #ffffff 54%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 86%, var(--sp-shell-color-danger-soft, #fef2f2) 14%)
+  );
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-state {
+  color: var(--sp-shell-color-danger-ink, #9f2f2f);
+  font-weight: 600;
 }
 
 .sp-plugin-root--doctor-account .sp-doctor-account__form-actions {
@@ -461,6 +678,15 @@
   .sp-plugin-root--doctor-account .sp-doctor-account__group-fields--contact {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sp-plugin-root--doctor-account :is(.sp-doctor-account__session-panel, .sp-doctor-account__session-actions) {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 @media (max-width: 782px) {
@@ -469,12 +695,18 @@
     --sp-doctor-pad: 1rem;
   }
 
-  .sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
+  .sp-plugin-root--doctor-account .sp-doctor-account__rpps-inline {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions,
+  .sp-plugin-root--doctor-account .sp-doctor-account__signature-actions {
     justify-content: flex-start;
+  }
+
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button {
+    width: 100%;
+    min-width: 0;
   }
 
   .sp-plugin-root--doctor-account .sp-doctor-account__summary-grid {

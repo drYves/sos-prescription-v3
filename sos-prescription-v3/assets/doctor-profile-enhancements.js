@@ -1,4 +1,4 @@
-/* SOS Prescription – Doctor Profile Enhancements (profile save, RPPS persistence, signature UX) */
+/* SOS Prescription – Doctor Profile Enhancements V8.10.0 (profile save, RPPS persistence, signature UX) */
 
 (function () {
   function ready(fn) {
@@ -48,11 +48,15 @@
       initialHelp: normalizeString(strings.initialHelp) || 'Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.',
       verifiedTitle: normalizeString(strings.verifiedTitle) || '✓ Identité professionnelle certifiée',
       verifiedFooterPrefix: normalizeString(strings.verifiedFooterPrefix) || 'Vérification effectuée avec succès via l\'Annuaire Santé le ',
-      deleteAccountConfirm: normalizeString(strings.deleteAccountConfirm) || 'Action irréversible. Votre accès sera immédiatement détruit et vous ne pourrez plus vous connecter. Vos données médicales strictement nécessaires seront conservées sous forme d\'archives inactives pour répondre aux obligations légales de traçabilité. Confirmer la suppression ?',
+      deleteAccountConfirm: normalizeString(strings.deleteAccountConfirm) || 'Vous êtes sur le point de supprimer définitivement ce compte médecin. L’accès à l’espace sécurisé sera fermé et les données médicales strictement nécessaires resteront conservées sous forme d\'archives inactives afin de respecter les obligations légales de traçabilité. Souhaitez-vous confirmer cette suppression ?',
       deleteAccountBusy: normalizeString(strings.deleteAccountBusy) || 'Suppression…',
       deleteAccountError: normalizeString(strings.deleteAccountError) || 'La suppression du compte a échoué. Merci de réessayer.',
       signatureInvalidType: normalizeString(strings.signatureInvalidType) || 'Format non supporté. Merci d\'utiliser JPG ou PNG uniquement.',
-      signatureTooLarge: normalizeString(strings.signatureTooLarge) || 'Fichier trop lourd. La limite est de 1 Mo.'
+      signatureTooLarge: normalizeString(strings.signatureTooLarge) || 'Fichier trop lourd. La limite est de 1 Mo.',
+      signatureRemoveConfirm: normalizeString(strings.signatureRemoveConfirm) || 'Vous êtes sur le point de retirer la signature actuellement enregistrée. Ce retrait sera appliqué lors de l\'enregistrement du formulaire. Souhaitez-vous confirmer ce retrait ?',
+      signatureRemoveLabel: normalizeString(strings.signatureRemoveLabel) || 'Retirer la signature actuelle',
+      signatureKeepLabel: normalizeString(strings.signatureKeepLabel) || 'Conserver la signature actuelle',
+      signatureRemoveState: normalizeString(strings.signatureRemoveState) || 'La signature actuelle sera retirée lors de l\'enregistrement.'
     };
   }
 
@@ -234,6 +238,20 @@
     return el && typeof el.value === 'string' ? el.value : '';
   }
 
+  function isTruthyInputValue(input) {
+    if (!input) {
+      return false;
+    }
+
+    var type = normalizeString(input.getAttribute('type') || input.type).toLowerCase();
+    if (type === 'checkbox' || type === 'radio') {
+      return !!input.checked;
+    }
+
+    var value = normalizeString(input.value).toLowerCase();
+    return value === '1' || value === 'true';
+  }
+
   function normalizeStoredRppsData(value) {
     var raw = value;
     if (typeof raw === 'string') {
@@ -391,7 +409,7 @@
 
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'sp-button sp-button--secondary';
+    button.className = 'sp-button sp-button--secondary sp-doctor-account__rpps-button';
     button.textContent = strings.verifyLabel;
 
     var feedback = document.createElement('div');
@@ -501,7 +519,7 @@
     clearAlert(profileFeedback);
 
     if (actionsHost && rppsInput) {
-      var verifyButton = createElement('button', 'sp-button sp-button--secondary', strings.verifyLabel);
+      var verifyButton = createElement('button', 'sp-button sp-button--secondary sp-doctor-account__rpps-button', strings.verifyLabel);
       verifyButton.type = 'button';
       actionsHost.replaceChildren(verifyButton);
 
@@ -601,7 +619,7 @@
         issue_place: getInputValue(form, '#sp_doc_issue_place'),
         address: getInputValue(form, '#sp_doc_address'),
         phone: getInputValue(form, '#sp_doc_phone'),
-        remove_signature: !!(removeSignatureInput && removeSignatureInput.checked),
+        remove_signature: isTruthyInputValue(removeSignatureInput),
         rpps_verified: !!state.rppsVerified,
         rpps_data: state.rppsVerified && state.rppsData ? state.rppsData : {}
       };
@@ -647,15 +665,39 @@
     var config = getConfig();
     var strings = getStrings(config || {});
     var input = document.getElementById('signature_file');
-    if (!input) {
-      return;
-    }
-
     var feedback = document.getElementById('sp_signature_feedback');
     var meta = document.getElementById('sp_signature_meta');
     var preview = document.getElementById('sp_signature_preview');
     var previewImg = document.getElementById('sp_signature_preview_img');
     var clearButton = document.getElementById('sp_signature_clear');
+    var currentCard = document.getElementById('sp_signature_current');
+    var currentImg = document.getElementById('sp_signature_current_img');
+    var removeInput = document.getElementById('sp_signature_remove');
+    var removeButton = document.getElementById('sp_signature_mark_remove');
+    var stateNote = document.getElementById('sp_signature_state');
+
+    if (!input && !removeButton) {
+      return;
+    }
+
+    function syncStoredSignatureState() {
+      if (!removeInput) {
+        return;
+      }
+
+      var active = isTruthyInputValue(removeInput);
+      if (currentCard) {
+        currentCard.classList.toggle('is-pending-removal', active);
+      }
+      if (removeButton) {
+        removeButton.textContent = active ? strings.signatureKeepLabel : strings.signatureRemoveLabel;
+        removeButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+      if (stateNote) {
+        stateNote.hidden = !active;
+        stateNote.textContent = active ? strings.signatureRemoveState : '';
+      }
+    }
 
     function resetSignatureUi() {
       clearAlert(feedback);
@@ -689,6 +731,38 @@
       if (clearButton) {
         clearButton.hidden = true;
       }
+    }
+
+    if (removeButton && removeInput) {
+      syncStoredSignatureState();
+      removeButton.addEventListener('click', function () {
+        if (isTruthyInputValue(removeInput)) {
+          removeInput.value = '0';
+          syncStoredSignatureState();
+          return;
+        }
+
+        if (!window.confirm(strings.signatureRemoveConfirm)) {
+          return;
+        }
+
+        removeInput.value = '1';
+        syncStoredSignatureState();
+      });
+    }
+
+    if (currentImg && stateNote) {
+      currentImg.addEventListener('error', function () {
+        if (isTruthyInputValue(removeInput)) {
+          return;
+        }
+        stateNote.hidden = false;
+        stateNote.textContent = 'La signature actuelle n’a pas pu être affichée ici. Utilisez “Ouvrir l’image” pour la consulter.';
+      });
+    }
+
+    if (!input) {
+      return;
     }
 
     input.addEventListener('change', function () {
