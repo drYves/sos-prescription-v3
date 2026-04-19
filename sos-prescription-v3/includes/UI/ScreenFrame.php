@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
 /**
  * Small HTML helper for V2 shell wrappers.
  * Keeps plugin logic intact while normalizing screen roots.
- * V7.0.8 — contournement guards : stethoscope inline centré, sans dépendance image.
+ * V8.8.1 — guards priorisés : racine explicite pour l'isolement structurel du shell.
  */
 final class ScreenFrame
 {
@@ -126,7 +126,12 @@ final class ScreenFrame
         $content .= '</div>';
         $content .= '</div>';
 
-        return self::screen($screen, $content);
+        return self::screen(
+            $screen,
+            $content,
+            ['sp-plugin-root--guarded', 'sp-plugin-root--secure-surface'],
+            ['sp-plugin-shell--guarded', 'sp-plugin-shell--secure-surface']
+        );
     }
 
     private static function guard_icon(string $name): string

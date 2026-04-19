@@ -5,11 +5,11 @@ Description: Thème enfant GeneratePress Premium - shell natif SOS Prescription,
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 8.8.0
+Version: 8.8.1
 Text Domain: gp-sos-prescription
 */
 
-/* V8.8.0 · GPP-Ready Phase 1 : conteneurs natifs GeneratePress, shell applicatif assoupli */
+/* V8.8.1 · Recovery structurel GP / SOS : points d'appui restaurés, shell pragmatique */
 
 :root {
   --sp-shell-frame-max: var(--container-width, var(--gb-container-width, 1200px));
@@ -503,7 +503,7 @@ body.sp-context-public .sp-faq-item:hover {
 
 /* V6.4.1 — Public motion only, workspace doctrine and CTA polish */
 :root {
-  --sp-shell-frame-max: 1240px;
+  --sp-shell-frame-max: var(--container-width, var(--gb-container-width, 1200px));
 }
 
 body.sp-context-public .sp-button,
@@ -527,4 +527,35 @@ body:not(.sp-context-public) .sp-widget-card,
 body:not(.sp-context-public) .sp-final-cta-card,
 body:not(.sp-context-public) .sp-faq-item {
   transition: none;
+}
+
+
+/* --------------------------------------------------------------------------
+   V8.8.1 — Structural Recovery
+   Réaligne le footer GP et les zones latérales sur la même largeur utile
+   que le shell, sans réécrire la logique native du parent.
+   -------------------------------------------------------------------------- */
+:where(.inside-footer-widgets, .footer-widgets-container, .inside-site-info) {
+  box-sizing: border-box;
+}
+
+:where(.inside-footer-widgets, .footer-widgets-container) {
+  width: 100%;
+  max-width: var(--sp-shell-frame-max) !important;
+  margin-inline: auto !important;
+  padding-inline: var(--sp-shell-frame-gutter) !important;
+}
+
+:where(#right-sidebar, #left-sidebar, .widget-area) {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+:where(.inside-right-sidebar, .inside-left-sidebar) {
+  min-width: 0;
+}
+
+body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify) #page,
+body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify) .site {
+  overflow-x: clip;
 }

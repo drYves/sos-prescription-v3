@@ -1,5 +1,5 @@
 /*
- * SOS Prescription : App Shell V8.6.0
+ * SOS Prescription : App Shell V8.8.1
  * Layout patient, médecin et console.
  */
 
@@ -1527,5 +1527,182 @@ body.no-sidebar .sp-shell--console .sp-app-sidebar {
   .sp-console-bar > .sp-container,
   .sp-rolebar--no-sidebar > .sp-container {
     padding-inline: clamp(0.9rem, 4vw, 1.1rem) !important;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   V8.8.1 — Recovery structurel GP / SOS
+   Le shell récupère un scaffolding pragmatique : axe partagé, sidebar
+   contextuelle stable, footer applicatif contenu et guards prioritaires.
+   -------------------------------------------------------------------------- */
+.sp-shell--app,
+.sp-shell--console {
+  --sp-layout-workspace: var(--container-width, var(--gb-container-width, 75rem));
+  --sp-layout-axis-width: var(--sp-layout-workspace);
+}
+
+.sp-shell--app {
+  --sp-layout-axis-sidebar: var(--sp-sidebar-width, 18rem);
+}
+
+.sp-shell--console {
+  --sp-layout-axis-sidebar: 0px;
+}
+
+.sp-shell--app .sp-container--app,
+.sp-shell--console .sp-container--console,
+.sp-shell--app .sp-rolebar > .sp-container,
+.sp-shell--console .sp-console-bar > .sp-container {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap, clamp(1.5rem, 3vw, 2.75rem)))
+  ) !important;
+  max-width: calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap, clamp(1.5rem, 3vw, 2.75rem))) !important;
+  margin-inline: auto !important;
+  padding-inline: 0 !important;
+  box-sizing: border-box;
+}
+
+.sp-shell--app .sp-container--app-compact,
+.sp-shell--console .sp-container--console-compact,
+.sp-shell--app .sp-rolebar--no-sidebar > .sp-container,
+.sp-shell--console .sp-console-bar--no-sidebar > .sp-container,
+.sp-shell--guarded .sp-container--app,
+.sp-shell--guarded .sp-container--app-compact,
+.sp-shell--guarded .sp-container--console,
+.sp-shell--guarded .sp-container--console-compact {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    var(--sp-layout-axis-width)
+  ) !important;
+  max-width: var(--sp-layout-axis-width) !important;
+  margin-inline: auto !important;
+  padding-inline: 0 !important;
+  box-sizing: border-box;
+}
+
+.sp-shell--app .sp-app-frame {
+  grid-template-columns: minmax(0, var(--sp-layout-axis-width)) minmax(15rem, var(--sp-layout-axis-sidebar));
+  justify-content: start;
+  gap: var(--sp-layout-axis-gap, clamp(1.5rem, 3vw, 2.75rem));
+  max-width: calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap, clamp(1.5rem, 3vw, 2.75rem)));
+  margin-inline: auto;
+}
+
+.sp-shell--app .sp-app-main,
+.sp-shell--app .sp-app-frame--no-sidebar .sp-app-main,
+.sp-shell--console .sp-console-frame {
+  min-width: 0;
+}
+
+.sp-shell--app .sp-app-frame--no-sidebar {
+  max-width: var(--sp-layout-axis-width);
+  margin-inline: auto;
+}
+
+.sp-shell--app .sp-app-frame--no-sidebar .sp-app-main > * {
+  width: min(100%, var(--sp-layout-axis-width));
+  max-width: var(--sp-layout-axis-width);
+  margin-inline: 0 auto;
+}
+
+.sp-shell--console .sp-console-frame {
+  width: min(100%, var(--sp-layout-axis-width));
+  max-width: var(--sp-layout-axis-width);
+  margin-inline: auto;
+}
+
+.sp-shell--app .sp-app-sidebar {
+  width: 100%;
+  min-width: 0;
+}
+
+.sp-shell--guarded {
+  --sp-layout-axis-sidebar: 0px;
+}
+
+.sp-shell--guarded .sp-app-frame,
+.sp-shell--guarded .sp-console-frame {
+  display: block;
+  max-width: var(--sp-layout-axis-width);
+  margin-inline: auto;
+}
+
+.sp-shell--guarded .sp-app-main,
+.sp-shell--guarded .sp-console-frame,
+.sp-shell--guarded .sp-plugin-shell--guarded {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+}
+
+.sp-shell--guarded :is(.sp-plugin-root--guarded, .sp-plugin-guard, .sp-auth-entry--guarded, .sp-auth-surface--guarded) {
+  width: min(100%, var(--sp-layout-reading));
+  margin-inline: auto;
+}
+
+.sp-shell--guarded .sp-app-sidebar,
+.sp-shell--guarded .sp-app-legal-footer,
+.sp-shell--guarded .sp-rolebar,
+.sp-shell--guarded .sp-console-bar {
+  display: none !important;
+}
+
+.sp-shell--app .sp-app-legal-footer,
+.sp-shell--console .sp-app-legal-footer {
+  width: 100%;
+  max-width: none;
+  margin-top: clamp(1.1rem, 1rem + 0.35vw, 1.45rem);
+}
+
+.sp-shell--app .sp-app-legal-footer__inner,
+.sp-shell--console .sp-app-legal-footer__inner {
+  width: 100%;
+}
+
+@media (max-width: 1080px) {
+  .sp-shell--app {
+    --sp-layout-axis-sidebar: 0px;
+  }
+
+  .sp-shell--app .sp-container--app,
+  .sp-shell--console .sp-container--console,
+  .sp-shell--app .sp-rolebar > .sp-container,
+  .sp-shell--console .sp-console-bar > .sp-container,
+  .sp-shell--app .sp-container--app-compact,
+  .sp-shell--console .sp-container--console-compact,
+  .sp-shell--app .sp-rolebar--no-sidebar > .sp-container,
+  .sp-shell--console .sp-console-bar--no-sidebar > .sp-container {
+    width: min(
+      calc(100% - (var(--sp-workspace-gutter, 18px) * 2)),
+      calc(var(--sp-layout-axis-width) + var(--sp-layout-axis-sidebar) + var(--sp-layout-axis-gap, clamp(1.5rem, 3vw, 2.75rem)))
+    ) !important;
+  }
+
+  .sp-shell--app .sp-app-frame {
+    grid-template-columns: 1fr;
+    max-width: var(--sp-layout-axis-width);
+  }
+
+  .sp-shell--app .sp-app-sidebar {
+    position: static;
+    top: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .sp-shell--app .sp-container--app,
+  .sp-shell--console .sp-container--console,
+  .sp-shell--app .sp-container--app-compact,
+  .sp-shell--console .sp-container--console-compact,
+  .sp-shell--app .sp-rolebar > .sp-container,
+  .sp-shell--console .sp-console-bar > .sp-container,
+  .sp-shell--app .sp-rolebar--no-sidebar > .sp-container,
+  .sp-shell--console .sp-console-bar--no-sidebar > .sp-container {
+    width: min(
+      calc(100% - (var(--sp-workspace-gutter, 16px) * 2)),
+      var(--sp-layout-axis-width)
+    ) !important;
   }
 }
