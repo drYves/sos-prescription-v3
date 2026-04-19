@@ -1,30 +1,41 @@
 <?php // includes/Rest/WorkerCallbackController.php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
-use SOSPrescription\Core\Mls1Verifier;
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\NonceStore;
+use SosPrescription\Core\Mls1Verifier;
+use SosPrescription\Core\NdjsonLogger;
+use SosPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
 use SOSPrescription\Repositories\FileRepository;
 use SOSPrescription\Services\FileStorage;
+use SosPrescription\Services\PrescriptionProjectionStore;
+use SosPrescription\Services\PrescriptionProjectionSynchronizer;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 use wpdb;
 
+require_once dirname(__DIR__) . '/Services/PrescriptionProjectionStore.php';
+require_once dirname(__DIR__) . '/Services/PrescriptionProjectionSynchronizer.php';
+
 final class WorkerCallbackController
 {
     private string $jobsTable;
+
+    private PrescriptionProjectionSynchronizer $projectionSynchronizer;
 
     public function __construct(
         private wpdb $db,
         private NdjsonLogger $logger,
         private Mls1Verifier $verifier,
-        private string $siteId
+        private string $siteId,
+        ?PrescriptionProjectionSynchronizer $projectionSynchronizer = null
     ) {
         $this->jobsTable = $db->prefix . 'sosprescription_jobs';
+        $this->projectionSynchronizer = $projectionSynchronizer instanceof PrescriptionProjectionSynchronizer
+            ? $projectionSynchronizer
+            : new PrescriptionProjectionSynchronizer($db, new PrescriptionProjectionStore($db));
     }
 
     public static function register(): void
@@ -40,7 +51,9 @@ final class WorkerCallbackController
                 $env = self::readConfigString('SOSPRESCRIPTION_ENV', 'prod');
                 $logger = new NdjsonLogger('web', $siteId, $env);
                 $verifier = Mls1Verifier::fromEnv(new NonceStore($db, $siteId), $logger);
-                $controller = new self($db, $logger, $verifier, $siteId);
+                $projectionStore = new PrescriptionProjectionStore($db);
+                $projectionSynchronizer = new PrescriptionProjectionSynchronizer($db, $projectionStore);
+                $controller = new self($db, $logger, $verifier, $siteId, $projectionSynchronizer);
 
                 register_rest_route('sosprescription/v3', '/worker/jobs/(?P<job_id>[A-Fa-f0-9\-]{36})/callback', [
                     'methods' => 'POST',
@@ -172,6 +185,11 @@ final class WorkerCallbackController
                     'incoming_status' => $status,
                 ], $reqId);
 
+                $projectionSync = $this->projectionSynchronizer->syncProjectionFromJobCallback($jobId, $data, $this->siteId, $reqId);
+                if (is_wp_error($projectionSync)) {
+                    return $projectionSync;
+                }
+
                 do_action('sosprescription_v3_worker_callback_received', $jobId, $status, $data, $reqId);
                 return new WP_REST_Response(['ok' => true, 'idempotent' => true, 'job_id' => $jobId, 'status' => $currentStatus], 200);
             }
@@ -204,6 +222,11 @@ final class WorkerCallbackController
             }
 
             do_action('sosprescription_v3_job_failed', $jobId, $data, $reqId);
+        }
+
+        $projectionSync = $this->projectionSynchronizer->syncProjectionFromJobCallback($jobId, $data, $this->siteId, $reqId);
+        if (is_wp_error($projectionSync)) {
+            return $projectionSync;
         }
 
         do_action('sosprescription_v3_worker_callback_received', $jobId, $status, $data, $reqId);

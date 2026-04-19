@@ -1,27 +1,34 @@
 <?php // includes/Rest/PrescriptionController.php
 declare(strict_types=1);
 
-namespace SOSPrescription\Rest;
+namespace SosPrescription\Rest;
 
 use SOSPrescription\Repositories\JobRepository;
 use SOSPrescription\Repositories\PrescriptionRepository;
-use SOSPrescription\Services\AccessPolicy;
-use SOSPrescription\Services\Audit;
-use SOSPrescription\Services\RestGuard;
-use SOSPrescription\Services\StripeConfig;
-use SOSPrescription\Services\UidGenerator;
+use SosPrescription\Services\AccessPolicy;
+use SosPrescription\Services\Audit;
+use SosPrescription\Services\RestGuard;
+use SosPrescription\Services\StripeConfig;
+use SosPrescription\Services\UidGenerator;
 use SOSPrescription\Core\JobDispatcher;
-use SOSPrescription\Core\Mls1Verifier;
-use SOSPrescription\Core\NdjsonLogger;
-use SOSPrescription\Core\NonceStore;
+use SosPrescription\Core\Mls1Verifier;
+use SosPrescription\Core\NdjsonLogger;
+use SosPrescription\Core\NonceStore;
 use SOSPrescription\Core\ReqId;
 use SOSPrescription\Core\WorkerApiClient;
 use SosPrescription\Rest\ErrorResponder;
+use SosPrescription\Services\PrescriptionProjectionReader;
+use SosPrescription\Services\PrescriptionProjectionStore;
+use SosPrescription\Services\PrescriptionProjectionSynchronizer;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 
 defined('ABSPATH') || exit;
+
+require_once dirname(__DIR__) . '/Services/PrescriptionProjectionStore.php';
+require_once dirname(__DIR__) . '/Services/PrescriptionProjectionReader.php';
+require_once dirname(__DIR__) . '/Services/PrescriptionProjectionSynchronizer.php';
 
 class PrescriptionController extends \WP_REST_Controller
 {
@@ -48,6 +55,15 @@ class PrescriptionController extends \WP_REST_Controller
 
     /** @var array<string, true>|null */
     protected $prescription_table_columns_cache = null;
+
+    /** @var PrescriptionProjectionStore|null */
+    protected $projection_store = null;
+
+    /** @var PrescriptionProjectionReader|null */
+    protected $projection_reader = null;
+
+    /** @var PrescriptionProjectionSynchronizer|null */
+    protected $projection_synchronizer = null;
 
     public function __construct($job_dispatcher = null, $jobs = null, $wpdb = null)
     {
@@ -648,38 +664,19 @@ class PrescriptionController extends \WP_REST_Controller
             return new WP_Error('sosprescription_worker_callback_job_mismatch', 'Mauvais identifiant Worker.', ['status' => 400]);
         }
 
-        $localId = $this->find_shadow_prescription_id_by_worker_prescription_id($jobId);
+        $localId = $this->get_projection_store()->findShadowPrescriptionIdByWorkerPrescriptionId($jobId);
         if ($localId < 1) {
             return new WP_Error('sosprescription_worker_callback_not_found', 'Shadow record introuvable.', ['status' => 404]);
         }
 
-        $status = $this->normalize_worker_callback_status(isset($job['status']) ? $job['status'] : 'DONE');
-        $processing = $this->normalize_worker_processing_status(
-            isset($job['processing_status']) ? $job['processing_status'] : $status,
-            $status
-        );
-
-        $workerUpdate = [
-            'prescription_id' => $jobId,
-            'job_id' => $jobId,
-            'status' => $status,
-            'processing_status' => $processing,
-            'source_req_id' => isset($job['source_req_id']) && is_scalar($job['source_req_id']) ? (string) $job['source_req_id'] : $req_id,
-            'worker_ref' => isset($job['worker_ref']) && is_scalar($job['worker_ref']) ? substr(sanitize_text_field((string) $job['worker_ref']), 0, 191) : '',
-            's3_key_ref' => isset($job['s3_key_ref']) && is_scalar($job['s3_key_ref']) ? substr(trim((string) $job['s3_key_ref']), 0, 1024) : '',
-            's3_bucket' => isset($job['s3_bucket']) && is_scalar($job['s3_bucket']) ? substr(sanitize_text_field((string) $job['s3_bucket']), 0, 191) : '',
-            's3_region' => isset($job['s3_region']) && is_scalar($job['s3_region']) ? substr(sanitize_text_field((string) $job['s3_region']), 0, 64) : '',
-            'artifact_sha256_hex' => isset($job['artifact_sha256_hex']) && is_scalar($job['artifact_sha256_hex']) ? strtolower(trim((string) $job['artifact_sha256_hex'])) : '',
-            'artifact_size_bytes' => isset($job['artifact_size_bytes']) && is_numeric($job['artifact_size_bytes']) ? (int) $job['artifact_size_bytes'] : null,
-            'artifact_content_type' => isset($job['artifact_content_type']) && is_scalar($job['artifact_content_type']) ? substr(sanitize_text_field((string) $job['artifact_content_type']), 0, 128) : '',
-            'last_error_code' => isset($job['last_error_code']) && is_scalar($job['last_error_code']) ? substr(preg_replace('/[^A-Z0-9_\-]/i', '_', strtoupper((string) $job['last_error_code'])) ?? 'ML_WORKER_CALLBACK', 0, 64) : '',
-            'last_error_message_safe' => isset($job['last_error_message_safe']) && is_scalar($job['last_error_message_safe']) ? substr(trim(wp_strip_all_tags((string) $job['last_error_message_safe'])), 0, 255) : '',
-        ];
-
-        $shadowStore = $this->store_shadow_worker_state($localId, $workerUpdate);
+        $workerUpdate = $this->get_projection_synchronizer()->buildLegacyCallbackWorkerUpdate($job, $jobId, $req_id);
+        $shadowStore = $this->get_projection_synchronizer()->applyWorkerUpdate($localId, $workerUpdate);
         if (is_wp_error($shadowStore)) {
             return $shadowStore;
         }
+
+        $status = isset($workerUpdate['status']) && is_scalar($workerUpdate['status']) ? (string) $workerUpdate['status'] : 'PENDING';
+        $processing = isset($workerUpdate['processing_status']) && is_scalar($workerUpdate['processing_status']) ? (string) $workerUpdate['processing_status'] : 'pending';
 
         $row = $this->prescriptions->get($localId);
         $pdf = is_array($row) ? $this->build_shadow_pdf_state($localId, $row) : ['status' => strtolower($processing)];
@@ -1652,25 +1649,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_worker_shadow_payload(array $workerData): array
     {
-        return [
-            'prescription_id' => isset($workerData['prescription_id']) && is_scalar($workerData['prescription_id']) ? (string) $workerData['prescription_id'] : '',
-            'job_id' => isset($workerData['job_id']) && is_scalar($workerData['job_id']) ? (string) $workerData['job_id'] : '',
-            'uid' => isset($workerData['uid']) && is_scalar($workerData['uid']) ? (string) $workerData['uid'] : '',
-            'status' => isset($workerData['status']) && is_scalar($workerData['status']) ? (string) $workerData['status'] : 'PENDING',
-            'processing_status' => isset($workerData['processing_status']) && is_scalar($workerData['processing_status']) ? (string) $workerData['processing_status'] : 'PENDING',
-            'source_req_id' => isset($workerData['source_req_id']) && is_scalar($workerData['source_req_id']) ? (string) $workerData['source_req_id'] : '',
-            'verify_token' => isset($workerData['verify_token']) && is_scalar($workerData['verify_token']) ? (string) $workerData['verify_token'] : '',
-            'verify_code' => isset($workerData['verify_code']) && is_scalar($workerData['verify_code']) ? (string) $workerData['verify_code'] : '',
-            's3_key_ref' => isset($workerData['s3_key_ref']) && is_scalar($workerData['s3_key_ref']) ? (string) $workerData['s3_key_ref'] : '',
-            's3_bucket' => isset($workerData['s3_bucket']) && is_scalar($workerData['s3_bucket']) ? (string) $workerData['s3_bucket'] : '',
-            's3_region' => isset($workerData['s3_region']) && is_scalar($workerData['s3_region']) ? (string) $workerData['s3_region'] : '',
-            'artifact_sha256_hex' => isset($workerData['artifact_sha256_hex']) && is_scalar($workerData['artifact_sha256_hex']) ? (string) $workerData['artifact_sha256_hex'] : '',
-            'artifact_size_bytes' => isset($workerData['artifact_size_bytes']) && is_numeric($workerData['artifact_size_bytes']) ? (int) $workerData['artifact_size_bytes'] : null,
-            'artifact_content_type' => isset($workerData['artifact_content_type']) && is_scalar($workerData['artifact_content_type']) ? (string) $workerData['artifact_content_type'] : '',
-            'last_error_code' => isset($workerData['last_error_code']) && is_scalar($workerData['last_error_code']) ? (string) $workerData['last_error_code'] : '',
-            'last_error_message_safe' => isset($workerData['last_error_message_safe']) && is_scalar($workerData['last_error_message_safe']) ? (string) $workerData['last_error_message_safe'] : '',
-            'last_sync_at' => current_time('mysql'),
-        ];
+        return $this->get_projection_store()->buildWorkerShadowPayload($workerData);
     }
 
     /**
@@ -1679,17 +1658,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function extract_worker_shadow_state(array $row): array
     {
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-        if ($payload === [] && isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
-            $decoded = json_decode($row['payload_json'], true);
-            if (is_array($decoded)) {
-                $payload = $decoded;
-            }
-        }
-
-        $payloadNode = $this->normalize_worker_payload($payload['payload'] ?? []);
-        $worker = $this->normalize_worker_payload($payloadNode['worker'] ?? ($payload['worker'] ?? []));
-        return $worker;
+        return $this->get_projection_store()->extractWorkerShadowState($row);
     }
 
     /**
@@ -1698,125 +1667,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function store_shadow_worker_state(int $prescription_id, array $workerData): true|WP_Error
     {
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
-        $row = $this->wpdb->get_row(
-            $this->wpdb->prepare(
-                "SELECT id, payload_json FROM `{$table}` WHERE id = %d LIMIT 1",
-                $prescription_id
-            ),
-            ARRAY_A
-        );
-
-        if (!is_array($row)) {
-            $sqlError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
-            return new WP_Error(
-                'shadow_store_payload',
-                $sqlError !== '' ? $sqlError : 'Shadow record introuvable avant synchronisation du payload.',
-                ['status' => 422]
-            );
-        }
-
-        $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
-        if (!is_array($payload)) {
-            $payload = [];
-        }
-
-        $existingWorker = isset($payload['worker']) && is_array($payload['worker']) ? $payload['worker'] : [];
-        $incomingWorker = $this->build_worker_shadow_payload($workerData);
-
-        $proofArtifactIds = isset($payload['proof_artifact_ids']) && is_array($payload['proof_artifact_ids'])
-            ? $this->normalize_worker_artifact_ids($payload['proof_artifact_ids'])
-            : [];
-
-        $existingShadow = isset($payload['shadow']) && is_array($payload['shadow']) ? $payload['shadow'] : [];
-        $payload['shadow'] = array_merge($existingShadow, [
-            'zero_pii' => true,
-            'mode' => 'worker-postgres',
-        ]);
-
-        if (!isset($payload['shadow']['worker_thread']) || !is_array($payload['shadow']['worker_thread'])) {
-            $payload['shadow']['worker_thread'] = [
-                'message_count' => 0,
-                'last_message_seq' => 0,
-                'last_message_at' => null,
-                'last_message_role' => null,
-                'doctor_last_read_seq' => 0,
-                'patient_last_read_seq' => 0,
-                'unread_count_doctor' => 0,
-                'unread_count_patient' => 0,
-            ];
-        }
-
-        if (!isset($payload['shadow']['worker_evidence']) || !is_array($payload['shadow']['worker_evidence'])) {
-            $payload['shadow']['worker_evidence'] = [
-                'has_proof' => $proofArtifactIds !== [],
-                'proof_count' => count($proofArtifactIds),
-                'proof_artifact_ids' => $proofArtifactIds,
-            ];
-        } else {
-            $payload['shadow']['worker_evidence']['has_proof'] = $proofArtifactIds !== [];
-            $payload['shadow']['worker_evidence']['proof_count'] = count($proofArtifactIds);
-            $payload['shadow']['worker_evidence']['proof_artifact_ids'] = $proofArtifactIds;
-        }
-
-        $payload['worker'] = $this->merge_shadow_worker_payload($existingWorker, $incomingWorker);
-
-        $update = [
-            'payload_json' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'updated_at' => current_time('mysql'),
-        ];
-        $formats = ['%s', '%s'];
-
-        if ($this->prescription_table_has_column('verify_token')
-            && isset($incomingWorker['verify_token'])
-            && is_scalar($incomingWorker['verify_token'])
-            && (string) $incomingWorker['verify_token'] !== '') {
-            $update['verify_token'] = (string) $incomingWorker['verify_token'];
-            $formats[] = '%s';
-        }
-        if ($this->prescription_table_has_column('verify_code')
-            && isset($incomingWorker['verify_code'])
-            && is_scalar($incomingWorker['verify_code'])
-            && (string) $incomingWorker['verify_code'] !== '') {
-            $update['verify_code'] = (string) $incomingWorker['verify_code'];
-            $formats[] = '%s';
-        }
-
-        $updated = $this->wpdb->update(
-            $table,
-            $update,
-            ['id' => $prescription_id],
-            $formats,
-            ['%d']
-        );
-
-        if ($updated === false) {
-            $sqlError = is_string($this->wpdb->last_error) ? trim((string) $this->wpdb->last_error) : '';
-            return new WP_Error(
-                'shadow_store_payload',
-                $sqlError !== '' ? $sqlError : 'Échec SQL local lors de la mise à jour du payload shadow.',
-                ['status' => 422]
-            );
-        }
-
-        return true;
-    }
-    /**
-     * @param array<string, mixed> $existing
-     * @param array<string, mixed> $incoming
-     * @return array<string, mixed>
-     */
-    protected function merge_shadow_worker_payload(array $existing, array $incoming): array
-    {
-        $merged = $existing;
-        foreach ($incoming as $key => $value) {
-            if ($this->should_preserve_existing_worker_value($key, $value, $existing, $incoming)) {
-                continue;
-            }
-            $merged[$key] = $value;
-        }
-
-        return $merged;
+        return $this->get_projection_synchronizer()->applyWorkerUpdate($prescription_id, $workerData);
     }
 
     /**
@@ -2232,56 +2083,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function swap_worker_row_ids_with_local_ids(array $rows, ?string $reqId = null): array
     {
-        $uids = [];
-        foreach ($rows as $index => $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-            if ($uid === '') {
-                continue;
-            }
-
-            $uids[] = $uid;
-        }
-
-        try {
-            $localIdsByUid = $this->find_local_prescription_ids_by_uid($uids);
-        } catch (\Throwable $e) {
-            $localIdsByUid = [];
-        }
-
-        foreach ($rows as $index => $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-            $workerId = $this->extract_worker_prescription_id_from_worker_row($row);
-
-            if ($uid === '') {
-                continue;
-            }
-
-            try {
-                if (!isset($localIdsByUid[$uid])) {
-                    $localId = $this->ensure_local_prescription_stub_for_worker_row($row);
-                    if ($localId > 0) {
-                        $localIdsByUid[$uid] = $localId;
-                    }
-                }
-
-                if (!isset($localIdsByUid[$uid])) {
-                    continue;
-                }
-
-                $rows[$index]['id'] = (int) $localIdsByUid[$uid];
-            } catch (\Throwable $e) {
-            }
-        }
-
-        return $rows;
+        return $this->get_projection_store()->swapWorkerRowIdsWithLocalIds($rows);
     }
 
     /**
@@ -2289,31 +2091,12 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function ensure_local_prescription_stub_for_worker_row(array $row): int
     {
-        $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-        if ($uid === '') {
-            return 0;
-        }
-
-        $existingId = $this->find_local_prescription_id_by_uid($uid);
-        if ($existingId > 0) {
-            return $existingId;
-        }
-
-        $workerPrescriptionId = $this->extract_worker_prescription_id_from_worker_row($row);
-        $status = $this->normalize_local_stub_status($row['status'] ?? null);
-
-        return $this->insert_local_prescription_stub($uid, $status, $workerPrescriptionId);
+        return $this->get_projection_store()->ensureLocalPrescriptionStubForWorkerRow($row);
     }
 
     protected function find_local_prescription_id_by_uid(string $uid): int
     {
-        $uid = trim($uid);
-        if ($uid === '') {
-            return 0;
-        }
-
-        $mapped = $this->find_local_prescription_ids_by_uid([$uid]);
-        return isset($mapped[$uid]) ? (int) $mapped[$uid] : 0;
+        return $this->get_projection_store()->findLocalPrescriptionIdByUid($uid);
     }
 
     /**
@@ -2420,43 +2203,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function find_local_prescription_ids_by_uid(array $uids): array
     {
-        if ($uids === [] || !$this->prescription_table_has_column('uid')) {
-            return [];
-        }
-
-        $uids = array_values(array_unique(array_filter(array_map(static function ($value): string {
-            return is_string($value) ? trim($value) : '';
-        }, $uids), static fn (string $uid): bool => $uid !== '')));
-        if ($uids === []) {
-            return [];
-        }
-
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
-        $placeholders = implode(',', array_fill(0, count($uids), '%s'));
-        $sql = $this->wpdb->prepare(
-            "SELECT id, uid FROM `{$table}` WHERE uid IN ({$placeholders})",
-            $uids
-        );
-
-        $rows = $this->wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows)) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $uid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-            $id = isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0;
-            if ($uid === '' || $id < 1) {
-                continue;
-            }
-            $out[$uid] = $id;
-        }
-
-        return $out;
+        return $this->get_projection_store()->findLocalPrescriptionIdsByUid($uids);
     }
 
     /**
@@ -2464,33 +2211,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function find_local_prescription_stub_by_id(int $id): ?array
     {
-        $id = (int) $id;
-        if ($id < 1) {
-            return null;
-        }
-
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
-        $select = ['id'];
-        if ($this->prescription_table_has_column('uid')) {
-            $select[] = 'uid';
-        }
-        if ($this->prescription_table_has_column('status')) {
-            $select[] = 'status';
-        }
-        if ($this->prescription_table_has_column('updated_at')) {
-            $select[] = 'updated_at';
-        }
-        if ($this->prescription_table_has_column('payload_json')) {
-            $select[] = 'payload_json';
-        }
-
-        $sql = $this->wpdb->prepare(
-            sprintf('SELECT %s FROM `%s` WHERE id = %%d LIMIT 1', implode(', ', $select), $table),
-            $id
-        );
-        $row = $this->wpdb->get_row($sql, ARRAY_A);
-
-        return is_array($row) ? $row : null;
+        return $this->get_projection_store()->findLocalPrescriptionStubById($id);
     }
 
     /**
@@ -2774,70 +2495,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_local_doctor_inbox_freshness_snapshot(array $filters, array $actorContext): ?array
     {
-        if (($actorContext['kind'] ?? '') !== 'doctor') {
-            return null;
-        }
-
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
-        $select = ['id'];
-        if ($this->prescription_table_has_column('uid')) {
-            $select[] = 'uid';
-        }
-        if ($this->prescription_table_has_column('status')) {
-            $select[] = 'status';
-        }
-        if ($this->prescription_table_has_column('updated_at')) {
-            $select[] = 'updated_at';
-        }
-        if ($this->prescription_table_has_column('payload_json')) {
-            $select[] = 'payload_json';
-        }
-
-        $status = isset($filters['status']) && is_scalar($filters['status']) ? strtolower(trim((string) $filters['status'])) : '';
-        $limit = max(1, min(200, (int) ($filters['limit'] ?? 100)));
-        $offset = max(0, (int) ($filters['offset'] ?? 0));
-
-        $sql = sprintf('SELECT %s FROM `%s` WHERE 1=1', implode(', ', $select), $table);
-        if ($status !== '') {
-            if (!$this->prescription_table_has_column('status')) {
-                return null;
-            }
-
-            $sql = $this->wpdb->prepare($sql . ' AND LOWER(status) = %s', $status);
-        }
-
-        $sql .= $this->prescription_table_has_column('updated_at')
-            ? ' ORDER BY updated_at DESC, id DESC'
-            : ' ORDER BY id DESC';
-        $sql .= sprintf(' LIMIT %d OFFSET %d', $limit, $offset);
-
-        $rows = $this->wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows)) {
-            $rows = [];
-        }
-
-        $fingerprintRows = [];
-        $maxUpdatedAt = null;
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $fingerprint = $this->build_local_doctor_inbox_fingerprint($row);
-            $fingerprintRows[] = $fingerprint;
-
-            $candidateUpdatedAt = $this->normalize_updated_at_string($fingerprint['updated_at'] ?? null);
-            if ($candidateUpdatedAt !== null && ($maxUpdatedAt === null || strcmp($candidateUpdatedAt, $maxUpdatedAt) > 0)) {
-                $maxUpdatedAt = $candidateUpdatedAt;
-            }
-        }
-
-        return [
-            'collection_hash' => $this->build_prescription_collection_hash($fingerprintRows, $filters, $actorContext),
-            'max_updated_at' => $maxUpdatedAt,
-            'count' => count($fingerprintRows),
-            'rows' => $fingerprintRows,
-        ];
+        return $this->get_projection_reader()->buildLocalDoctorInboxFreshnessSnapshot($filters, $actorContext);
     }
 
     /**
@@ -2877,36 +2535,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_local_doctor_inbox_fingerprint(array $row): array
     {
-        $worker = $this->extract_worker_shadow_state($row);
-        $shadow = $this->extract_local_shadow_state($row);
-        $thread = isset($shadow['worker_thread']) && is_array($shadow['worker_thread']) ? $shadow['worker_thread'] : [];
-        $evidence = isset($shadow['worker_evidence']) && is_array($shadow['worker_evidence']) ? $shadow['worker_evidence'] : [];
-
-        return [
-            'id' => isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0,
-            'uid' => isset($row['uid']) && is_scalar($row['uid']) && trim((string) $row['uid']) !== ''
-                ? trim((string) $row['uid'])
-                : (isset($worker['uid']) && is_scalar($worker['uid']) ? trim((string) $worker['uid']) : ''),
-            'status' => $this->normalize_fingerprint_status($row['status'] ?? ($worker['status'] ?? null)),
-            'updated_at' => $this->normalize_updated_at_string($row['updated_at'] ?? ($worker['last_sync_at'] ?? null)),
-            'processing_status' => isset($worker['processing_status']) && is_scalar($worker['processing_status'])
-                ? strtoupper(trim((string) $worker['processing_status']))
-                : '',
-            'last_message_seq' => isset($thread['last_message_seq']) && is_numeric($thread['last_message_seq'])
-                ? max(0, (int) $thread['last_message_seq'])
-                : 0,
-            'unread_count_doctor' => isset($thread['unread_count_doctor']) && is_numeric($thread['unread_count_doctor'])
-                ? max(0, (int) $thread['unread_count_doctor'])
-                : 0,
-            'unread_count_patient' => isset($thread['unread_count_patient']) && is_numeric($thread['unread_count_patient'])
-                ? max(0, (int) $thread['unread_count_patient'])
-                : 0,
-            'pdf_ready' => $this->is_worker_pdf_ready($worker),
-            'has_proof' => !empty($evidence['has_proof']) || (isset($evidence['proof_count']) && (int) $evidence['proof_count'] > 0),
-            'proof_count' => isset($evidence['proof_count']) && is_numeric($evidence['proof_count'])
-                ? max(0, (int) $evidence['proof_count'])
-                : 0,
-        ];
+        return $this->get_projection_reader()->buildLocalDoctorInboxFingerprint($row);
     }
 
     /**
@@ -2956,19 +2585,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_local_prescription_detail_fingerprint(array $row): array
     {
-        $worker = $this->extract_worker_shadow_state($row);
-        $fingerprint = $this->build_local_doctor_inbox_fingerprint($row);
-        $fingerprint['worker_prescription_id'] = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
-            ? trim((string) $worker['prescription_id'])
-            : '';
-        $fingerprint['s3_key_ref'] = isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref'])
-            ? trim((string) $worker['s3_key_ref'])
-            : '';
-        $fingerprint['artifact_size_bytes'] = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes'])
-            ? max(0, (int) $worker['artifact_size_bytes'])
-            : 0;
-
-        return $fingerprint;
+        return $this->get_projection_reader()->buildLocalPrescriptionDetailFingerprint($row);
     }
 
     /**
@@ -2999,21 +2616,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_prescription_collection_hash(array $rows, array $filters, array $actorContext): string
     {
-        $payload = [
-            'kind' => isset($actorContext['kind']) && is_string($actorContext['kind']) ? $actorContext['kind'] : '',
-            'role' => isset($actorContext['actor']['role']) && is_string($actorContext['actor']['role']) ? $actorContext['actor']['role'] : '',
-            'status' => isset($filters['status']) && is_scalar($filters['status']) ? strtolower(trim((string) $filters['status'])) : '',
-            'limit' => max(1, min(200, (int) ($filters['limit'] ?? 100))),
-            'offset' => max(0, (int) ($filters['offset'] ?? 0)),
-            'rows' => array_values(array_map([$this, 'sanitize_proxy_value'], $rows)),
-        ];
-
-        $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!is_string($encoded) || $encoded === '') {
-            $encoded = serialize($payload);
-        }
-
-        return hash('sha256', $encoded);
+        return $this->get_projection_reader()->buildPrescriptionCollectionHash($rows, $filters, $actorContext);
     }
 
     /**
@@ -3021,16 +2624,7 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function build_prescription_detail_hash(array $fingerprint): string
     {
-        $payload = [
-            'fingerprint' => $this->sanitize_proxy_value($fingerprint),
-        ];
-
-        $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!is_string($encoded) || $encoded === '') {
-            $encoded = serialize($payload);
-        }
-
-        return hash('sha256', $encoded);
+        return $this->get_projection_reader()->buildPrescriptionDetailHash($fingerprint);
     }
 
     /**
@@ -3039,40 +2633,17 @@ class PrescriptionController extends \WP_REST_Controller
      */
     protected function extract_local_shadow_state(array $row): array
     {
-        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
-        if ($payload === [] && isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
-            $decoded = json_decode($row['payload_json'], true);
-            if (is_array($decoded)) {
-                $payload = $decoded;
-            }
-        }
-
-        $payloadNode = $this->normalize_worker_payload($payload['payload'] ?? []);
-        return $this->normalize_worker_payload($payloadNode['shadow'] ?? ($payload['shadow'] ?? []));
+        return $this->get_projection_store()->extractLocalShadowState($row);
     }
 
     protected function normalize_freshness_hash(mixed $value): ?string
     {
-        if (!is_scalar($value)) {
-            return null;
-        }
-
-        $normalized = trim((string) $value);
-        if ($normalized === '' || strlen($normalized) < 16 || strlen($normalized) > 128) {
-            return null;
-        }
-
-        return $normalized;
+        return $this->get_projection_reader()->normalizeFreshnessHash($value);
     }
 
     protected function normalize_updated_at_string(mixed $value): ?string
     {
-        if (!is_scalar($value)) {
-            return null;
-        }
-
-        $normalized = trim((string) $value);
-        return $normalized === '' ? null : $normalized;
+        return $this->get_projection_reader()->normalizeUpdatedAtString($value);
     }
 
     protected function normalize_fingerprint_status(mixed $value): string
@@ -3132,29 +2703,37 @@ class PrescriptionController extends \WP_REST_Controller
 
     protected function find_shadow_prescription_id_by_worker_prescription_id(string $workerPrescriptionId): int
     {
-        $workerPrescriptionId = trim($workerPrescriptionId);
-        if (!$this->is_valid_worker_prescription_id($workerPrescriptionId)) {
-            return 0;
+        return $this->get_projection_store()->findShadowPrescriptionIdByWorkerPrescriptionId($workerPrescriptionId);
+    }
+
+    protected function get_projection_store(): PrescriptionProjectionStore
+    {
+        if ($this->projection_store instanceof PrescriptionProjectionStore) {
+            return $this->projection_store;
         }
 
-        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $this->projection_store = new PrescriptionProjectionStore($this->wpdb);
+        return $this->projection_store;
+    }
 
-        $id = $this->wpdb->get_var($this->wpdb->prepare(
-            "SELECT id FROM `{$table}` WHERE JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.worker.prescription_id')) = %s LIMIT 1",
-            $workerPrescriptionId
-        ));
-
-        if (is_numeric($id) && (int) $id > 0) {
-            return (int) $id;
+    protected function get_projection_reader(): PrescriptionProjectionReader
+    {
+        if ($this->projection_reader instanceof PrescriptionProjectionReader) {
+            return $this->projection_reader;
         }
 
-        $like = '%"prescription_id":"' . $this->wpdb->esc_like($workerPrescriptionId) . '"%';
-        $id = $this->wpdb->get_var($this->wpdb->prepare(
-            "SELECT id FROM `{$table}` WHERE payload_json LIKE %s LIMIT 1",
-            $like
-        ));
+        $this->projection_reader = new PrescriptionProjectionReader($this->wpdb, $this->get_projection_store());
+        return $this->projection_reader;
+    }
 
-        return is_numeric($id) && (int) $id > 0 ? (int) $id : 0;
+    protected function get_projection_synchronizer(): PrescriptionProjectionSynchronizer
+    {
+        if ($this->projection_synchronizer instanceof PrescriptionProjectionSynchronizer) {
+            return $this->projection_synchronizer;
+        }
+
+        $this->projection_synchronizer = new PrescriptionProjectionSynchronizer($this->wpdb, $this->get_projection_store());
+        return $this->projection_synchronizer;
     }
 
     protected function normalize_worker_callback_status($value): string
