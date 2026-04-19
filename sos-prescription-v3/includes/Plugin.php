@@ -1,4 +1,4 @@
-<?php // includes/Plugin.php · V8.11.0
+<?php // includes/Plugin.php · V8.12.0
 declare(strict_types=1);
 
 namespace SosPrescription;
@@ -285,7 +285,7 @@ final class Plugin
             'sosprescription-legal-documents',
             SOSPRESCRIPTION_URL . 'assets/legal-documents.css',
             [],
-            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '8.11.0'
+            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '8.12.0'
         );
     }
 

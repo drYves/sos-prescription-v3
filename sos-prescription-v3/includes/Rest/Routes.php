@@ -101,9 +101,12 @@ final class Routes
             'methods' => 'GET',
             'callback' => [$rx, 'get_one'],
             'permission_callback' => [$rx, 'permissions_check_logged_in_nonce'],
-            'args' => [
-                'id' => EndpointArgs::id(),
-            ],
+            'args' => array_merge(
+                [
+                    'id' => EndpointArgs::id(),
+                ],
+                EndpointArgs::get_prescription_v1()
+            ),
         ]);
 
         register_rest_route('sosprescription/v1', '/prescriptions/(?P<id>\d+)/decision', [

@@ -40,6 +40,26 @@ final class EndpointArgs
                 'default' => 0,
                 'minimum' => 0,
             ],
+            'known_collection_hash' => [
+                'type' => 'string',
+                'required' => false,
+                'minLength' => 12,
+                'maxLength' => 128,
+                'pattern' => '^[A-Fa-f0-9]+$',
+            ],
+        ];
+    }
+
+    public static function get_prescription_v1(): array
+    {
+        return [
+            'known_state_hash' => [
+                'type' => 'string',
+                'required' => false,
+                'minLength' => 12,
+                'maxLength' => 128,
+                'pattern' => '^[A-Fa-f0-9]+$',
+            ],
         ];
     }
 

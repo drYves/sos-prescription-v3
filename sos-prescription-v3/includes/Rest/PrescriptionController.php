@@ -112,6 +112,34 @@ class PrescriptionController extends \WP_REST_Controller
             $filters['status'] = $status;
         }
 
+        $knownCollectionHash = $this->normalize_freshness_hash($request->get_param('known_collection_hash'));
+        $localInboxSnapshot = $actorContext['kind'] === 'doctor'
+            ? $this->build_local_doctor_inbox_freshness_snapshot($filters, $actorContext)
+            : null;
+
+        if (
+            $knownCollectionHash !== null
+            && is_array($localInboxSnapshot)
+            && hash_equals($localInboxSnapshot['collection_hash'], $knownCollectionHash)
+        ) {
+            return $this->to_proxy_response(
+                [
+                    'unchanged' => true,
+                    'collection_hash' => $localInboxSnapshot['collection_hash'],
+                    'max_updated_at' => $localInboxSnapshot['max_updated_at'],
+                    'count' => $localInboxSnapshot['count'],
+                ],
+                200,
+                $req_id,
+                [
+                    'X-SOSPrescription-Collection-Hash' => $localInboxSnapshot['collection_hash'],
+                    'X-SOSPrescription-Max-Updated-At' => (string) ($localInboxSnapshot['max_updated_at'] ?? ''),
+                    'X-SOSPrescription-Smart-Polling' => 'doctor_inbox_unchanged',
+                    'X-SOSPrescription-Unchanged' => '1',
+                ]
+            );
+        }
+
         $path = $actorContext['kind'] === 'doctor'
             ? '/api/v2/doctor/inbox'
             : '/api/v2/patient/prescriptions/query';
@@ -162,7 +190,13 @@ class PrescriptionController extends \WP_REST_Controller
             $rows = [];
         }
 
-        return $this->to_proxy_response($rows, 200, $req_id);
+        $responseHeaders = [];
+        if ($actorContext['kind'] === 'doctor') {
+            $responseHeaders = $this->build_doctor_inbox_freshness_headers_from_rows($rows, $filters, $actorContext);
+            $responseHeaders['X-SOSPrescription-Smart-Polling'] = 'doctor_inbox_full';
+        }
+
+        return $this->to_proxy_response($rows, 200, $req_id, $responseHeaders);
     }
 
     public function get_one(WP_REST_Request $request)
@@ -181,6 +215,29 @@ class PrescriptionController extends \WP_REST_Controller
         $localRow = $this->find_local_prescription_stub_by_id($id);
         if (!is_array($localRow)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        $knownDetailHash = $this->normalize_freshness_hash($request->get_param('known_state_hash'));
+        $localDetailFingerprint = $this->build_local_prescription_detail_fingerprint($localRow);
+        $localDetailHash = $this->build_prescription_detail_hash($localDetailFingerprint);
+        $localDetailUpdatedAt = $this->normalize_updated_at_string($localDetailFingerprint['updated_at'] ?? null);
+
+        if ($knownDetailHash !== null && hash_equals($localDetailHash, $knownDetailHash)) {
+            return $this->to_proxy_response(
+                [
+                    'unchanged' => true,
+                    'state_hash' => $localDetailHash,
+                    'updated_at' => $localDetailUpdatedAt,
+                ],
+                200,
+                $req_id,
+                [
+                    'X-SOSPrescription-State-Hash' => $localDetailHash,
+                    'X-SOSPrescription-State-Updated-At' => (string) ($localDetailUpdatedAt ?? ''),
+                    'X-SOSPrescription-Smart-Polling' => 'prescription_detail_unchanged',
+                    'X-SOSPrescription-Unchanged' => '1',
+                ]
+            );
         }
 
         try {
@@ -252,7 +309,21 @@ class PrescriptionController extends \WP_REST_Controller
 
         $row['id'] = $id;
 
-        return $this->to_proxy_response($row, 200, $req_id);
+        $detailFingerprint = $this->build_prescription_detail_fingerprint($row);
+        $detailHash = $this->build_prescription_detail_hash($detailFingerprint);
+        $detailUpdatedAt = $this->normalize_updated_at_string($detailFingerprint['updated_at'] ?? null)
+            ?? $localDetailUpdatedAt;
+
+        return $this->to_proxy_response(
+            $row,
+            200,
+            $req_id,
+            [
+                'X-SOSPrescription-State-Hash' => $detailHash,
+                'X-SOSPrescription-State-Updated-At' => (string) ($detailUpdatedAt ?? ''),
+                'X-SOSPrescription-Smart-Polling' => 'prescription_detail_full',
+            ]
+        );
     }
 
     public function update_item($request)
@@ -2403,6 +2474,12 @@ class PrescriptionController extends \WP_REST_Controller
         if ($this->prescription_table_has_column('uid')) {
             $select[] = 'uid';
         }
+        if ($this->prescription_table_has_column('status')) {
+            $select[] = 'status';
+        }
+        if ($this->prescription_table_has_column('updated_at')) {
+            $select[] = 'updated_at';
+        }
         if ($this->prescription_table_has_column('payload_json')) {
             $select[] = 'payload_json';
         }
@@ -2654,7 +2731,7 @@ class PrescriptionController extends \WP_REST_Controller
     /**
      * @param mixed $payload
      */
-    protected function to_proxy_response($payload, int $status, string $reqId): WP_REST_Response
+    protected function to_proxy_response($payload, int $status, string $reqId, array $extraHeaders = []): WP_REST_Response
     {
         $normalized = is_array($payload) ? $this->sanitize_proxy_value($payload) : [];
         $isList = array_is_list($normalized);
@@ -2671,7 +2748,356 @@ class PrescriptionController extends \WP_REST_Controller
         $response->header('Pragma', 'no-cache');
         $response->header('Expires', '0');
 
+        foreach ($extraHeaders as $headerName => $headerValue) {
+            if (!is_string($headerName) || trim($headerName) === '') {
+                continue;
+            }
+            if (!is_scalar($headerValue)) {
+                continue;
+            }
+
+            $normalizedHeaderValue = trim((string) $headerValue);
+            if ($normalizedHeaderValue === '') {
+                continue;
+            }
+
+            $response->header($headerName, $normalizedHeaderValue);
+        }
+
         return $response;
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @param array{kind:string,actor:array{role:string,wp_user_id:int}} $actorContext
+     * @return array{collection_hash:string,max_updated_at:?string,count:int,rows:array<int,array<string, mixed>>}|null
+     */
+    protected function build_local_doctor_inbox_freshness_snapshot(array $filters, array $actorContext): ?array
+    {
+        if (($actorContext['kind'] ?? '') !== 'doctor') {
+            return null;
+        }
+
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $select = ['id'];
+        if ($this->prescription_table_has_column('uid')) {
+            $select[] = 'uid';
+        }
+        if ($this->prescription_table_has_column('status')) {
+            $select[] = 'status';
+        }
+        if ($this->prescription_table_has_column('updated_at')) {
+            $select[] = 'updated_at';
+        }
+        if ($this->prescription_table_has_column('payload_json')) {
+            $select[] = 'payload_json';
+        }
+
+        $status = isset($filters['status']) && is_scalar($filters['status']) ? strtolower(trim((string) $filters['status'])) : '';
+        $limit = max(1, min(200, (int) ($filters['limit'] ?? 100)));
+        $offset = max(0, (int) ($filters['offset'] ?? 0));
+
+        $sql = sprintf('SELECT %s FROM `%s` WHERE 1=1', implode(', ', $select), $table);
+        if ($status !== '') {
+            if (!$this->prescription_table_has_column('status')) {
+                return null;
+            }
+
+            $sql = $this->wpdb->prepare($sql . ' AND LOWER(status) = %s', $status);
+        }
+
+        $sql .= $this->prescription_table_has_column('updated_at')
+            ? ' ORDER BY updated_at DESC, id DESC'
+            : ' ORDER BY id DESC';
+        $sql .= sprintf(' LIMIT %d OFFSET %d', $limit, $offset);
+
+        $rows = $this->wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+
+        $fingerprintRows = [];
+        $maxUpdatedAt = null;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $fingerprint = $this->build_local_doctor_inbox_fingerprint($row);
+            $fingerprintRows[] = $fingerprint;
+
+            $candidateUpdatedAt = $this->normalize_updated_at_string($fingerprint['updated_at'] ?? null);
+            if ($candidateUpdatedAt !== null && ($maxUpdatedAt === null || strcmp($candidateUpdatedAt, $maxUpdatedAt) > 0)) {
+                $maxUpdatedAt = $candidateUpdatedAt;
+            }
+        }
+
+        return [
+            'collection_hash' => $this->build_prescription_collection_hash($fingerprintRows, $filters, $actorContext),
+            'max_updated_at' => $maxUpdatedAt,
+            'count' => count($fingerprintRows),
+            'rows' => $fingerprintRows,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $filters
+     * @param array{kind:string,actor:array{role:string,wp_user_id:int}} $actorContext
+     * @return array<string, string>
+     */
+    protected function build_doctor_inbox_freshness_headers_from_rows(array $rows, array $filters, array $actorContext): array
+    {
+        $fingerprintRows = [];
+        $maxUpdatedAt = null;
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $fingerprint = $this->build_doctor_inbox_fingerprint($row);
+            $fingerprintRows[] = $fingerprint;
+
+            $candidateUpdatedAt = $this->normalize_updated_at_string($fingerprint['updated_at'] ?? null);
+            if ($candidateUpdatedAt !== null && ($maxUpdatedAt === null || strcmp($candidateUpdatedAt, $maxUpdatedAt) > 0)) {
+                $maxUpdatedAt = $candidateUpdatedAt;
+            }
+        }
+
+        return [
+            'X-SOSPrescription-Collection-Hash' => $this->build_prescription_collection_hash($fingerprintRows, $filters, $actorContext),
+            'X-SOSPrescription-Max-Updated-At' => (string) ($maxUpdatedAt ?? ''),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function build_local_doctor_inbox_fingerprint(array $row): array
+    {
+        $worker = $this->extract_worker_shadow_state($row);
+        $shadow = $this->extract_local_shadow_state($row);
+        $thread = isset($shadow['worker_thread']) && is_array($shadow['worker_thread']) ? $shadow['worker_thread'] : [];
+        $evidence = isset($shadow['worker_evidence']) && is_array($shadow['worker_evidence']) ? $shadow['worker_evidence'] : [];
+
+        return [
+            'id' => isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0,
+            'uid' => isset($row['uid']) && is_scalar($row['uid']) && trim((string) $row['uid']) !== ''
+                ? trim((string) $row['uid'])
+                : (isset($worker['uid']) && is_scalar($worker['uid']) ? trim((string) $worker['uid']) : ''),
+            'status' => $this->normalize_fingerprint_status($row['status'] ?? ($worker['status'] ?? null)),
+            'updated_at' => $this->normalize_updated_at_string($row['updated_at'] ?? ($worker['last_sync_at'] ?? null)),
+            'processing_status' => isset($worker['processing_status']) && is_scalar($worker['processing_status'])
+                ? strtoupper(trim((string) $worker['processing_status']))
+                : '',
+            'last_message_seq' => isset($thread['last_message_seq']) && is_numeric($thread['last_message_seq'])
+                ? max(0, (int) $thread['last_message_seq'])
+                : 0,
+            'unread_count_doctor' => isset($thread['unread_count_doctor']) && is_numeric($thread['unread_count_doctor'])
+                ? max(0, (int) $thread['unread_count_doctor'])
+                : 0,
+            'unread_count_patient' => isset($thread['unread_count_patient']) && is_numeric($thread['unread_count_patient'])
+                ? max(0, (int) $thread['unread_count_patient'])
+                : 0,
+            'pdf_ready' => $this->is_worker_pdf_ready($worker),
+            'has_proof' => !empty($evidence['has_proof']) || (isset($evidence['proof_count']) && (int) $evidence['proof_count'] > 0),
+            'proof_count' => isset($evidence['proof_count']) && is_numeric($evidence['proof_count'])
+                ? max(0, (int) $evidence['proof_count'])
+                : 0,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function build_doctor_inbox_fingerprint(array $row): array
+    {
+        $worker = isset($row['worker']) && is_array($row['worker']) ? $row['worker'] : [];
+        $shadow = isset($row['shadow']) && is_array($row['shadow']) ? $row['shadow'] : [];
+        $thread = isset($shadow['worker_thread']) && is_array($shadow['worker_thread']) ? $shadow['worker_thread'] : [];
+        $evidence = isset($shadow['worker_evidence']) && is_array($shadow['worker_evidence']) ? $shadow['worker_evidence'] : [];
+
+        $lastMessageSeq = isset($row['last_message_seq']) && is_numeric($row['last_message_seq'])
+            ? max(0, (int) $row['last_message_seq'])
+            : (isset($thread['last_message_seq']) && is_numeric($thread['last_message_seq']) ? max(0, (int) $thread['last_message_seq']) : 0);
+        $unreadCountDoctor = isset($row['unread_count_doctor']) && is_numeric($row['unread_count_doctor'])
+            ? max(0, (int) $row['unread_count_doctor'])
+            : (isset($thread['unread_count_doctor']) && is_numeric($thread['unread_count_doctor']) ? max(0, (int) $thread['unread_count_doctor']) : 0);
+        $unreadCountPatient = isset($row['unread_count_patient']) && is_numeric($row['unread_count_patient'])
+            ? max(0, (int) $row['unread_count_patient'])
+            : (isset($thread['unread_count_patient']) && is_numeric($thread['unread_count_patient']) ? max(0, (int) $thread['unread_count_patient']) : 0);
+        $proofCount = isset($row['proof_count']) && is_numeric($row['proof_count'])
+            ? max(0, (int) $row['proof_count'])
+            : (isset($evidence['proof_count']) && is_numeric($evidence['proof_count']) ? max(0, (int) $evidence['proof_count']) : 0);
+
+        return [
+            'id' => isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0,
+            'uid' => isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '',
+            'status' => $this->normalize_fingerprint_status($row['status'] ?? ($worker['status'] ?? null)),
+            'updated_at' => $this->normalize_updated_at_string($row['updated_at'] ?? null),
+            'processing_status' => isset($row['processing_status']) && is_scalar($row['processing_status'])
+                ? strtoupper(trim((string) $row['processing_status']))
+                : (isset($worker['processing_status']) && is_scalar($worker['processing_status']) ? strtoupper(trim((string) $worker['processing_status'])) : ''),
+            'last_message_seq' => $lastMessageSeq,
+            'unread_count_doctor' => $unreadCountDoctor,
+            'unread_count_patient' => $unreadCountPatient,
+            'pdf_ready' => isset($row['pdf_ready']) ? (bool) $row['pdf_ready'] : $this->is_worker_pdf_ready($worker),
+            'has_proof' => isset($row['has_proof']) ? (bool) $row['has_proof'] : ($proofCount > 0 || !empty($evidence['has_proof'])),
+            'proof_count' => $proofCount,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function build_local_prescription_detail_fingerprint(array $row): array
+    {
+        $worker = $this->extract_worker_shadow_state($row);
+        $fingerprint = $this->build_local_doctor_inbox_fingerprint($row);
+        $fingerprint['worker_prescription_id'] = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+            ? trim((string) $worker['prescription_id'])
+            : '';
+        $fingerprint['s3_key_ref'] = isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref'])
+            ? trim((string) $worker['s3_key_ref'])
+            : '';
+        $fingerprint['artifact_size_bytes'] = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes'])
+            ? max(0, (int) $worker['artifact_size_bytes'])
+            : 0;
+
+        return $fingerprint;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function build_prescription_detail_fingerprint(array $row): array
+    {
+        $worker = isset($row['worker']) && is_array($row['worker']) ? $row['worker'] : [];
+        $fingerprint = $this->build_doctor_inbox_fingerprint($row);
+        $fingerprint['worker_prescription_id'] = isset($worker['prescription_id']) && is_scalar($worker['prescription_id'])
+            ? trim((string) $worker['prescription_id'])
+            : '';
+        $fingerprint['s3_key_ref'] = isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref'])
+            ? trim((string) $worker['s3_key_ref'])
+            : '';
+        $fingerprint['artifact_size_bytes'] = isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes'])
+            ? max(0, (int) $worker['artifact_size_bytes'])
+            : 0;
+
+        return $fingerprint;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $filters
+     * @param array{kind:string,actor:array{role:string,wp_user_id:int}} $actorContext
+     */
+    protected function build_prescription_collection_hash(array $rows, array $filters, array $actorContext): string
+    {
+        $payload = [
+            'kind' => isset($actorContext['kind']) && is_string($actorContext['kind']) ? $actorContext['kind'] : '',
+            'role' => isset($actorContext['actor']['role']) && is_string($actorContext['actor']['role']) ? $actorContext['actor']['role'] : '',
+            'status' => isset($filters['status']) && is_scalar($filters['status']) ? strtolower(trim((string) $filters['status'])) : '',
+            'limit' => max(1, min(200, (int) ($filters['limit'] ?? 100))),
+            'offset' => max(0, (int) ($filters['offset'] ?? 0)),
+            'rows' => array_values(array_map([$this, 'sanitize_proxy_value'], $rows)),
+        ];
+
+        $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded) || $encoded === '') {
+            $encoded = serialize($payload);
+        }
+
+        return hash('sha256', $encoded);
+    }
+
+    /**
+     * @param array<string, mixed> $fingerprint
+     */
+    protected function build_prescription_detail_hash(array $fingerprint): string
+    {
+        $payload = [
+            'fingerprint' => $this->sanitize_proxy_value($fingerprint),
+        ];
+
+        $encoded = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded) || $encoded === '') {
+            $encoded = serialize($payload);
+        }
+
+        return hash('sha256', $encoded);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function extract_local_shadow_state(array $row): array
+    {
+        $payload = isset($row['payload']) && is_array($row['payload']) ? $row['payload'] : [];
+        if ($payload === [] && isset($row['payload_json']) && is_string($row['payload_json']) && $row['payload_json'] !== '') {
+            $decoded = json_decode($row['payload_json'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        $payloadNode = $this->normalize_worker_payload($payload['payload'] ?? []);
+        return $this->normalize_worker_payload($payloadNode['shadow'] ?? ($payload['shadow'] ?? []));
+    }
+
+    protected function normalize_freshness_hash(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '' || strlen($normalized) < 16 || strlen($normalized) > 128) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    protected function normalize_updated_at_string(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        return $normalized === '' ? null : $normalized;
+    }
+
+    protected function normalize_fingerprint_status(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        return strtolower(trim((string) $value));
+    }
+
+    /**
+     * @param array<string, mixed> $worker
+     */
+    protected function is_worker_pdf_ready(array $worker): bool
+    {
+        if (isset($worker['s3_key_ref']) && is_scalar($worker['s3_key_ref']) && trim((string) $worker['s3_key_ref']) !== '') {
+            return true;
+        }
+
+        if (isset($worker['artifact_size_bytes']) && is_numeric($worker['artifact_size_bytes']) && (int) $worker['artifact_size_bytes'] > 0) {
+            return true;
+        }
+
+        return false;
     }
 
     protected function get_worker_api_client(): WorkerApiClient
