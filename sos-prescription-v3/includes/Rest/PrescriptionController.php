@@ -112,11 +112,6 @@ class PrescriptionController extends \WP_REST_Controller
             $filters['status'] = $status;
         }
 
-        if (($actorContext['kind'] ?? '') === 'doctor') {
-            $doctorInboxSemantics = $this->resolve_doctor_inbox_semantics($filters);
-            $filters = is_array($doctorInboxSemantics['filters'] ?? null) ? $doctorInboxSemantics['filters'] : $filters;
-        }
-
         $knownCollectionHash = $this->normalize_freshness_hash($request->get_param('known_collection_hash'));
         $localInboxSnapshot = $actorContext['kind'] === 'doctor'
             ? $this->build_local_doctor_inbox_freshness_snapshot($filters, $actorContext)
@@ -191,9 +186,6 @@ class PrescriptionController extends \WP_REST_Controller
             $rows = $this->extract_worker_rows_from_payload($workerPayload);
             $rows = $this->swap_worker_row_ids_with_local_ids($rows, $req_id);
             $rows = $this->sanitize_proxy_rows($rows, $req_id);
-            if (($actorContext['kind'] ?? '') === 'doctor') {
-                $rows = $this->apply_doctor_inbox_semantics_to_rows($rows, $filters);
-            }
         } catch (\Throwable $e) {
             $rows = [];
         }
@@ -316,10 +308,6 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         $row['id'] = $id;
-
-        if (($actorContext['kind'] ?? '') === 'doctor') {
-            $row = $this->decorate_doctor_inbox_row_semantics($row);
-        }
 
         $detailFingerprint = $this->build_prescription_detail_fingerprint($row);
         $detailHash = $this->build_prescription_detail_hash($detailFingerprint);
@@ -2546,66 +2534,46 @@ class PrescriptionController extends \WP_REST_Controller
             : 'prescriptions_v1_worker_id_patient_lookup';
 
         $limit = 200;
-        $filterSets = [
-            [],
-        ];
-
-        if (($actorContext['kind'] ?? '') === 'doctor') {
-            $filterSets = [
-                ['status' => 'pending'],
-                ['status' => 'approved'],
-                ['status' => 'rejected'],
-                [],
-            ];
-        }
-
-        foreach ($filterSets as $baseFilters) {
-            $offset = 0;
-            for ($page = 0; $page < 10; $page++) {
-                $requestFilters = array_merge(
-                    [
+        $offset = 0;
+        for ($page = 0; $page < 10; $page++) {
+            $workerPayload = $this->get_worker_api_client()->postSignedJson(
+                $path,
+                [
+                    'actor' => $actorContext['actor'],
+                    'filters' => [
                         'limit' => $limit,
                         'offset' => $offset,
                     ],
-                    is_array($baseFilters) ? $baseFilters : []
-                );
+                ],
+                $req_id,
+                $scope
+            );
 
-                $workerPayload = $this->get_worker_api_client()->postSignedJson(
-                    $path,
-                    [
-                        'actor' => $actorContext['actor'],
-                        'filters' => $requestFilters,
-                    ],
-                    $req_id,
-                    $scope
-                );
-
-                $rows = $this->extract_worker_rows_from_payload($workerPayload);
-                if ($rows === []) {
-                    break;
-                }
-
-                foreach ($rows as $row) {
-                    if (!is_array($row)) {
-                        continue;
-                    }
-                    $rowUid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
-                    if ($rowUid !== $uid) {
-                        continue;
-                    }
-
-                    $candidate = $this->extract_worker_prescription_id_from_worker_row($row);
-                    if ($this->is_valid_worker_prescription_id($candidate)) {
-                        return $candidate;
-                    }
-                }
-
-                if (count($rows) < $limit) {
-                    break;
-                }
-
-                $offset += $limit;
+            $rows = $this->extract_worker_rows_from_payload($workerPayload);
+            if ($rows === []) {
+                return '';
             }
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $rowUid = isset($row['uid']) && is_scalar($row['uid']) ? trim((string) $row['uid']) : '';
+                if ($rowUid !== $uid) {
+                    continue;
+                }
+
+                $candidate = $this->extract_worker_prescription_id_from_worker_row($row);
+                if ($this->is_valid_worker_prescription_id($candidate)) {
+                    return $candidate;
+                }
+            }
+
+            if (count($rows) < $limit) {
+                return '';
+            }
+
+            $offset += $limit;
         }
 
         return '';
@@ -2824,9 +2792,6 @@ class PrescriptionController extends \WP_REST_Controller
         if ($this->prescription_table_has_column('payload_json')) {
             $select[] = 'payload_json';
         }
-
-        $semantics = $this->resolve_doctor_inbox_semantics($filters);
-        $filters = is_array($semantics['filters'] ?? null) ? $semantics['filters'] : $filters;
 
         $status = isset($filters['status']) && is_scalar($filters['status']) ? strtolower(trim((string) $filters['status'])) : '';
         $limit = max(1, min(200, (int) ($filters['limit'] ?? 100)));
@@ -3117,146 +3082,6 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return strtolower(trim((string) $value));
-    }
-
-    /**
-     * @param array<string, mixed> $filters
-     * @return array{filters:array<string, mixed>,bucket:string,raw_status:string,normalized_status:string}
-     */
-    protected function resolve_doctor_inbox_semantics(array $filters): array
-    {
-        $rawStatus = isset($filters['status']) && is_scalar($filters['status'])
-            ? strtolower(trim((string) $filters['status']))
-            : '';
-
-        $normalizedStatus = $rawStatus;
-        $bucket = 'active';
-
-        if ($rawStatus === '' || in_array($rawStatus, ['active', 'pending', 'todo', 'to_treat', 'a_traiter'], true)) {
-            $normalizedStatus = 'pending';
-            $bucket = 'active';
-        } elseif (in_array($rawStatus, ['approved', 'done', 'completed', 'closed', 'archived', 'history', 'historique', 'treated'], true)) {
-            $normalizedStatus = 'approved';
-            $bucket = 'history';
-        } elseif ($this->is_doctor_clinically_resolved_status($rawStatus)) {
-            $bucket = 'history';
-        }
-
-        $normalizedFilters = $filters;
-        if ($normalizedStatus === '') {
-            unset($normalizedFilters['status']);
-        } else {
-            $normalizedFilters['status'] = $normalizedStatus;
-        }
-
-        return [
-            'filters' => $normalizedFilters,
-            'bucket' => $bucket,
-            'raw_status' => $rawStatus,
-            'normalized_status' => $normalizedStatus,
-        ];
-    }
-
-    protected function is_doctor_clinically_resolved_status(string $status): bool
-    {
-        $normalized = strtolower(trim($status));
-        return in_array($normalized, ['approved', 'done', 'rejected', 'closed', 'cancelled', 'canceled', 'archived', 'completed', 'expired'], true);
-    }
-
-    protected function is_doctor_technical_processing_pending(string $processingStatus, bool $pdfReady = false): bool
-    {
-        $normalized = strtoupper(trim($processingStatus));
-        if ($pdfReady) {
-            return false;
-        }
-        if ($normalized === '') {
-            return false;
-        }
-
-        return !in_array($normalized, ['DONE', 'FAILED', 'REJECTED', 'CANCELLED', 'CANCELED'], true);
-    }
-
-    protected function doctor_technical_processing_label(string $processingStatus): string
-    {
-        $normalized = strtoupper(trim($processingStatus));
-        if ($normalized === '') {
-            return '';
-        }
-
-        if (in_array($normalized, ['PENDING', 'CLAIMED', 'PDF_GEN', 'GENERATING', 'WAITING_APPROVAL', 'QUEUED'], true)) {
-            return 'Génération en cours…';
-        }
-
-        return 'Traitement technique en cours…';
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     * @return array<string, mixed>
-     */
-    protected function decorate_doctor_inbox_row_semantics(array $row): array
-    {
-        $status = $this->normalize_fingerprint_status(
-            $row['status'] ?? (isset($row['worker']['status']) && is_scalar($row['worker']['status']) ? $row['worker']['status'] : null)
-        );
-        $processingStatus = isset($row['processing_status']) && is_scalar($row['processing_status'])
-            ? strtoupper(trim((string) $row['processing_status']))
-            : (isset($row['worker']['processing_status']) && is_scalar($row['worker']['processing_status']) ? strtoupper(trim((string) $row['worker']['processing_status'])) : '');
-        $pdfReady = isset($row['pdf_ready'])
-            ? (bool) $row['pdf_ready']
-            : (isset($row['worker']) && is_array($row['worker']) ? $this->is_worker_pdf_ready($row['worker']) : false);
-        $clinicalClosed = $this->is_doctor_clinically_resolved_status($status);
-        $requiresMedicalAttention = !$clinicalClosed;
-        $technicalPending = in_array($status, ['approved', 'done'], true) && $this->is_doctor_technical_processing_pending($processingStatus, $pdfReady);
-        $technicalLabel = $technicalPending ? $this->doctor_technical_processing_label($processingStatus) : '';
-
-        $row['clinical_closed'] = $clinicalClosed;
-        $row['requires_medical_attention'] = $requiresMedicalAttention;
-        $row['clinical_bucket'] = $clinicalClosed ? 'history' : 'active';
-        $row['technical_processing_pending'] = $technicalPending;
-        $row['technical_processing_label'] = $technicalLabel;
-        $row['technical_badge'] = $technicalPending
-            ? [
-                'variant' => 'info',
-                'label' => $technicalLabel,
-            ]
-            : null;
-
-        return $row;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @param array<string, mixed> $filters
-     * @return array<int, array<string, mixed>>
-     */
-    protected function apply_doctor_inbox_semantics_to_rows(array $rows, array $filters): array
-    {
-        $semantics = $this->resolve_doctor_inbox_semantics($filters);
-        $bucket = isset($semantics['bucket']) && is_string($semantics['bucket']) ? $semantics['bucket'] : 'active';
-        $filtered = [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $decorated = $this->decorate_doctor_inbox_row_semantics($row);
-            $clinicalClosed = !empty($decorated['clinical_closed']);
-            $requiresMedicalAttention = !empty($decorated['requires_medical_attention']);
-
-            if ($bucket === 'active' && !$requiresMedicalAttention) {
-                continue;
-            }
-
-            if ($bucket === 'history' && !$clinicalClosed) {
-                continue;
-            }
-
-            $filtered[] = $decorated;
-        }
-
-        return array_values($filtered);
     }
 
     /**

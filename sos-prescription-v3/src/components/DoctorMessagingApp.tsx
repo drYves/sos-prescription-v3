@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V8.13.0
+// DoctorMessagingApp.tsx · V8.13.1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 
@@ -98,49 +98,6 @@ function findDoctorMessagingHost(prescriptionId: number): DoctorMessagingHostEle
 
 function normalizeDoctorSelectedStatus(value: unknown): string {
   return String(value || '').trim().toLowerCase();
-}
-
-function normalizeDoctorProcessingStatus(value: unknown): string {
-  return String(value || '').trim().toUpperCase();
-}
-
-function isDoctorTechnicalProcessingPending(selectedStatus: unknown, processingStatus: unknown): boolean {
-  const normalizedStatus = normalizeDoctorSelectedStatus(selectedStatus);
-  const normalizedProcessingStatus = normalizeDoctorProcessingStatus(processingStatus);
-
-  if (!(normalizedStatus === 'approved' || normalizedStatus === 'done')) {
-    return false;
-  }
-
-  if (normalizedProcessingStatus === '') {
-    return false;
-  }
-
-  return normalizedProcessingStatus !== 'DONE'
-    && normalizedProcessingStatus !== 'FAILED'
-    && normalizedProcessingStatus !== 'REJECTED'
-    && normalizedProcessingStatus !== 'CANCELLED'
-    && normalizedProcessingStatus !== 'CANCELED';
-}
-
-function doctorTechnicalProcessingLabel(selectedStatus: unknown, processingStatus: unknown): string {
-  if (!isDoctorTechnicalProcessingPending(selectedStatus, processingStatus)) {
-    return '';
-  }
-
-  const normalizedProcessingStatus = normalizeDoctorProcessingStatus(processingStatus);
-  if (
-    normalizedProcessingStatus === 'PENDING'
-    || normalizedProcessingStatus === 'CLAIMED'
-    || normalizedProcessingStatus === 'PDF_GEN'
-    || normalizedProcessingStatus === 'GENERATING'
-    || normalizedProcessingStatus === 'WAITING_APPROVAL'
-    || normalizedProcessingStatus === 'QUEUED'
-  ) {
-    return 'Génération en cours…';
-  }
-
-  return 'Traitement technique en cours…';
 }
 
 function isDoctorStableSelectionStatus(value: unknown): boolean {
@@ -620,7 +577,6 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const [flash, setFlash] = useState<string | null>(null);
   const [hidden, setHidden] = useState<boolean>(typeof document !== 'undefined' ? document.hidden : false);
   const [selectedStatus, setSelectedStatus] = useState<string>(() => normalizeDoctorSelectedStatus(findDoctorMessagingHost(prescriptionId)?.dataset.prescriptionStatus || ''));
-  const [selectedProcessingStatus, setSelectedProcessingStatus] = useState<string>(() => normalizeDoctorProcessingStatus(findDoctorMessagingHost(prescriptionId)?.dataset.prescriptionProcessingStatus || ''));
 
   const requestRef = useRef(0);
   const smartRepliesRequestRef = useRef(0);
@@ -639,10 +595,6 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const threadPollingSuspended = useMemo(
     () => shouldSuspendDoctorThreadPolling(selectedStatus, threadState),
     [selectedStatus, threadState],
-  );
-  const technicalStatusLabel = useMemo(
-    () => doctorTechnicalProcessingLabel(selectedStatus, selectedProcessingStatus),
-    [selectedProcessingStatus, selectedStatus],
   );
 
   const fileIndex = useMemo(() => files, [files]);
@@ -820,13 +772,11 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     const host = findDoctorMessagingHost(prescriptionId);
     if (!(host instanceof HTMLElement) || typeof MutationObserver === 'undefined') {
       setSelectedStatus(normalizeDoctorSelectedStatus(host?.dataset.prescriptionStatus || ''));
-      setSelectedProcessingStatus(normalizeDoctorProcessingStatus(host?.dataset.prescriptionProcessingStatus || ''));
       return;
     }
 
     const syncSelectedStatus = (): void => {
       setSelectedStatus(normalizeDoctorSelectedStatus(host.dataset.prescriptionStatus || ''));
-      setSelectedProcessingStatus(normalizeDoctorProcessingStatus(host.dataset.prescriptionProcessingStatus || ''));
     };
 
     syncSelectedStatus();
@@ -834,7 +784,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     const observer = new MutationObserver(syncSelectedStatus);
     observer.observe(host, {
       attributes: true,
-      attributeFilter: ['data-prescription-status', 'data-prescription-processing-status'],
+      attributeFilter: ['data-prescription-status'],
     });
 
     return () => {
@@ -957,12 +907,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       {flash ? <Notice variant="success">{flash}</Notice> : null}
       {error ? <Notice variant="error">{error}</Notice> : null}
       {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
-      {technicalStatusLabel ? (
-        <Notice variant="info">
-          <InlineSpinner />{' '}
-          {technicalStatusLabel}
-        </Notice>
-      ) : null}
+
 
       <div className="sp-top-gap">
         <MessageThread
