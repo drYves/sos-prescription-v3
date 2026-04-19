@@ -17,6 +17,11 @@ type SmartPulseCacheEntry = {
   lastNetworkAt: number;
   stableCount: number;
   stable: boolean;
+  historyQuery: boolean;
+  statusValue?: string;
+  processingStatus?: string;
+  clinicalResolved?: boolean;
+  technicalPending?: boolean;
 };
 
 type FetchPatchState = {
@@ -39,6 +44,15 @@ type TrackedRequest = {
   kind: SmartPulseKind;
   networkUrl: string;
   hashParam: 'known_collection_hash' | 'known_state_hash';
+  historyQuery: boolean;
+};
+
+type TrackedEntrySemantics = {
+  historyQuery: boolean;
+  statusValue?: string;
+  processingStatus?: string;
+  clinicalResolved: boolean;
+  technicalPending: boolean;
 };
 
 function getGlobalWindow(): GlobalWindow {
@@ -226,6 +240,98 @@ function normalizeHash(value: unknown): string | undefined {
   return normalized;
 }
 
+const DOCTOR_ACTIVE_STATUS = 'pending';
+const DOCTOR_HISTORY_STATUS = 'approved';
+const HISTORY_VISIBLE_CACHE_TTL_MS = 90_000;
+const RESOLVED_DETAIL_VISIBLE_CACHE_TTL_MS = 90_000;
+
+function normalizeSemanticStatus(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isClinicallyResolvedStatus(status: string): boolean {
+  const normalized = normalizeSemanticStatus(status);
+  return normalized === 'approved'
+    || normalized === 'done'
+    || normalized === 'rejected'
+    || normalized === 'closed'
+    || normalized === 'cancelled'
+    || normalized === 'canceled'
+    || normalized === 'archived'
+    || normalized === 'completed'
+    || normalized === 'expired';
+}
+
+function isTechnicalPendingStatus(processingStatus: string, pdfReady = false): boolean {
+  const normalized = String(processingStatus || '').trim().toUpperCase();
+  if (pdfReady || normalized === '') {
+    return false;
+  }
+
+  return normalized !== 'DONE'
+    && normalized !== 'FAILED'
+    && normalized !== 'REJECTED'
+    && normalized !== 'CANCELLED'
+    && normalized !== 'CANCELED';
+}
+
+function isHistoryStatusQuery(status: string): boolean {
+  const normalized = normalizeSemanticStatus(status);
+  return normalized === 'approved'
+    || normalized === 'done'
+    || normalized === 'completed'
+    || normalized === 'closed'
+    || normalized === 'archived'
+    || normalized === 'history'
+    || normalized === 'historique'
+    || normalized === 'treated'
+    || normalized === 'rejected'
+    || normalized === 'cancelled'
+    || normalized === 'canceled'
+    || normalized === 'expired';
+}
+
+function canonicalizeDoctorInboxStatus(status: string): string {
+  const normalized = normalizeSemanticStatus(status);
+  if (
+    normalized === ''
+    || normalized === 'active'
+    || normalized === 'pending'
+    || normalized === 'todo'
+    || normalized === 'to_treat'
+    || normalized === 'a_traiter'
+  ) {
+    return DOCTOR_ACTIVE_STATUS;
+  }
+
+  if (
+    normalized === 'approved'
+    || normalized === 'done'
+    || normalized === 'completed'
+    || normalized === 'closed'
+    || normalized === 'archived'
+    || normalized === 'history'
+    || normalized === 'historique'
+    || normalized === 'treated'
+  ) {
+    return DOCTOR_HISTORY_STATUS;
+  }
+
+  return normalized;
+}
+
+function normalizeDoctorInboxTrackedUrl(input: URL): URL {
+  const output = stripDynamicSearchParams(input);
+  const normalizedStatus = canonicalizeDoctorInboxStatus(output.searchParams.get('status') || '');
+  if (normalizedStatus) {
+    output.searchParams.set('status', normalizedStatus);
+  } else {
+    output.searchParams.delete('status');
+  }
+  output.search = normalizeTrackedQuery(output);
+  return output;
+}
+
 function normalizeTrackedQuery(url: URL): string {
   const pairs: Array<[string, string]> = [];
   url.searchParams.forEach((value, key) => {
@@ -271,23 +377,27 @@ function classifyTrackedRequest(requestUrl: string, restBase: string, scope: str
       ? absoluteRequestUrl.pathname.slice(absoluteRestBase.pathname.length)
       : '';
     const relativePath = relativePathRaw.startsWith('/') ? relativePathRaw : `/${relativePathRaw}`;
-    const strippedRequestUrl = stripDynamicSearchParams(absoluteRequestUrl);
 
     if (relativePath === '/prescriptions') {
+      const trackedRequestUrl = normalizeDoctorInboxTrackedUrl(absoluteRequestUrl);
+      const trackedStatus = normalizeSemanticStatus(trackedRequestUrl.searchParams.get('status') || '');
       return {
-        key: `doctor_inbox:${strippedRequestUrl.pathname}${strippedRequestUrl.search}`,
+        key: `doctor_inbox:${trackedRequestUrl.pathname}${trackedRequestUrl.search}`,
         kind: 'doctor_inbox',
-        networkUrl: strippedRequestUrl.toString(),
+        networkUrl: trackedRequestUrl.toString(),
         hashParam: 'known_collection_hash',
+        historyQuery: isHistoryStatusQuery(trackedStatus),
       };
     }
 
     if (/^\/prescriptions\/\d+$/.test(relativePath)) {
+      const strippedRequestUrl = stripDynamicSearchParams(absoluteRequestUrl);
       return {
         key: `doctor_prescription:${strippedRequestUrl.pathname}${strippedRequestUrl.search}`,
         kind: 'doctor_prescription',
         networkUrl: strippedRequestUrl.toString(),
         hashParam: 'known_state_hash',
+        historyQuery: false,
       };
     }
   } catch {
@@ -364,12 +474,103 @@ function buildResponseFromCache(entry: SmartPulseCacheEntry, extraHeaders?: Reco
   });
 }
 
+function readPayloadObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function extractTrackedSemantics(tracked: TrackedRequest, payload: unknown): TrackedEntrySemantics {
+  if (tracked.kind !== 'doctor_prescription') {
+    return {
+      historyQuery: tracked.historyQuery,
+      clinicalResolved: false,
+      technicalPending: false,
+    };
+  }
+
+  const root = readPayloadObject(payload);
+  const worker = readPayloadObject(root?.worker);
+  const pdf = readPayloadObject(root?.pdf);
+  const statusValue = normalizeSemanticStatus(root?.status ?? worker?.status ?? '');
+  const processingStatus = String(root?.processing_status ?? worker?.processing_status ?? '').trim().toUpperCase();
+  const pdfReady = Boolean(root?.pdf_ready)
+    || Boolean(pdf && (
+      normalizeSemanticStatus(pdf.status) === 'done'
+      || pdf.can_download === true
+      || (typeof pdf.download_url === 'string' && pdf.download_url.trim() !== '')
+    ));
+  const clinicalResolved = isClinicallyResolvedStatus(statusValue);
+  const technicalPending = (statusValue === 'approved' || statusValue === 'done')
+    && isTechnicalPendingStatus(processingStatus, pdfReady);
+
+  return {
+    historyQuery: tracked.historyQuery || clinicalResolved,
+    statusValue: statusValue || undefined,
+    processingStatus: processingStatus || undefined,
+    clinicalResolved,
+    technicalPending,
+  };
+}
+
+function extractTrackedPrescriptionId(requestUrl: string): string {
+  try {
+    const parsed = new URL(absolutizeUrl(requestUrl));
+    const match = parsed.pathname.match(/\/prescriptions\/(\d+)(?:\/)?$/);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+function syncDoctorMessagingHostFromTrackedEntry(entry: SmartPulseCacheEntry): void {
+  if (entry.kind !== 'doctor_prescription' || typeof document === 'undefined') {
+    return;
+  }
+
+  const prescriptionId = extractTrackedPrescriptionId(entry.requestUrl);
+  if (!prescriptionId) {
+    return;
+  }
+
+  const host = document.querySelector(`[data-sp-doctor-chat-root="1"][data-prescription-id="${prescriptionId}"]`);
+  if (!(host instanceof HTMLElement)) {
+    return;
+  }
+
+  if (entry.statusValue) {
+    host.dataset.prescriptionStatus = entry.statusValue;
+  }
+  if (entry.processingStatus) {
+    host.dataset.prescriptionProcessingStatus = entry.processingStatus;
+  }
+}
+
 function shouldServeTrackedCacheWhileHidden(entry: SmartPulseCacheEntry): boolean {
   if (typeof document === 'undefined') {
     return false;
   }
 
-  return document.hidden && entry.stable;
+  return document.hidden && (entry.stable || entry.historyQuery || Boolean(entry.clinicalResolved));
+}
+
+function shouldServeTrackedCacheWhileVisible(entry: SmartPulseCacheEntry): boolean {
+  if (typeof document === 'undefined' || document.hidden) {
+    return false;
+  }
+
+  const age = Date.now() - entry.lastNetworkAt;
+  if (entry.kind === 'doctor_inbox' && entry.historyQuery) {
+    return age < HISTORY_VISIBLE_CACHE_TTL_MS;
+  }
+
+  if (entry.kind === 'doctor_prescription' && entry.clinicalResolved) {
+    return age < RESOLVED_DETAIL_VISIBLE_CACHE_TTL_MS;
+  }
+
+  return false;
 }
 
 function updateTrackedCache(
@@ -391,6 +592,9 @@ function updateTrackedCache(
   const nextHash = tracked.kind === 'doctor_inbox' ? collectionHash : stateHash;
   const previousHash = previous ? getTrackedHash(previous, tracked) : undefined;
   const sameHash = Boolean(nextHash && previousHash && nextHash === previousHash);
+  const nextSemantics = extractTrackedSemantics(tracked, payload);
+  const detailSemanticsAvailable = tracked.kind === 'doctor_prescription'
+    && (typeof nextSemantics.statusValue === 'string' || typeof nextSemantics.processingStatus === 'string');
 
   if (unchanged) {
     if (!previous) {
@@ -404,6 +608,11 @@ function updateTrackedCache(
       lastNetworkAt: Date.now(),
       stableCount: previous.stableCount + 1,
       stable: true,
+      historyQuery: nextSemantics.historyQuery || previous.historyQuery,
+      statusValue: detailSemanticsAvailable ? nextSemantics.statusValue : previous.statusValue,
+      processingStatus: detailSemanticsAvailable ? nextSemantics.processingStatus : previous.processingStatus,
+      clinicalResolved: detailSemanticsAvailable ? nextSemantics.clinicalResolved : previous.clinicalResolved,
+      technicalPending: detailSemanticsAvailable ? nextSemantics.technicalPending : previous.technicalPending,
       headers: {
         ...previous.headers,
         ...headersToObject(response.headers),
@@ -426,6 +635,11 @@ function updateTrackedCache(
     lastNetworkAt: Date.now(),
     stableCount,
     stable: stableCount >= 1,
+    historyQuery: nextSemantics.historyQuery,
+    statusValue: nextSemantics.statusValue,
+    processingStatus: nextSemantics.processingStatus,
+    clinicalResolved: nextSemantics.clinicalResolved,
+    technicalPending: nextSemantics.technicalPending,
   };
 
   cache.set(tracked.key, nextEntry);
@@ -448,6 +662,9 @@ async function performTrackedNetworkFetch(
   const bodyText = await response.clone().text();
   const payload = parsePayloadFromText(bodyText);
   const updatedEntry = updateTrackedCache(state, tracked, response, bodyText, payload);
+  if (updatedEntry) {
+    syncDoctorMessagingHostFromTrackedEntry(updatedEntry);
+  }
 
   if (response.status >= 400) {
     await logRejectedResponse(request.url, response);
@@ -494,6 +711,7 @@ async function prefetchVisibleTrackedEndpoints(state: FetchPatchState): Promise<
         kind: entry.kind,
         networkUrl: entry.requestUrl,
         hashParam: entry.kind === 'doctor_inbox' ? 'known_collection_hash' : 'known_state_hash',
+        historyQuery: entry.historyQuery,
       };
 
       try {
@@ -579,9 +797,18 @@ function installFetchPatch(): void {
         const cachedEntry = cache.get(tracked.key);
 
         if (cachedEntry && shouldServeTrackedCacheWhileHidden(cachedEntry)) {
+          syncDoctorMessagingHostFromTrackedEntry(cachedEntry);
           return buildResponseFromCache(cachedEntry, {
             'X-SOSPrescription-Cache-Replay': '1',
             'X-SOSPrescription-Hidden-Suppressed': '1',
+          });
+        }
+
+        if (cachedEntry && shouldServeTrackedCacheWhileVisible(cachedEntry)) {
+          syncDoctorMessagingHostFromTrackedEntry(cachedEntry);
+          return buildResponseFromCache(cachedEntry, {
+            'X-SOSPrescription-Cache-Replay': '1',
+            'X-SOSPrescription-Visible-Semantic-Suppressed': '1',
           });
         }
 
@@ -589,6 +816,7 @@ function installFetchPatch(): void {
           return await performTrackedNetworkFetch(input, init, activeState, activeNonce, scope, tracked);
         } catch (error) {
           if (cachedEntry) {
+            syncDoctorMessagingHostFromTrackedEntry(cachedEntry);
             return buildResponseFromCache(cachedEntry, {
               'X-SOSPrescription-Cache-Replay': '1',
               'X-SOSPrescription-Network-Fallback': '1',
