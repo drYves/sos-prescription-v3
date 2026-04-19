@@ -130,6 +130,7 @@ final class MessagesController extends \WP_REST_Controller
                 'messages_query'
             );
             $result = $this->normalize_worker_payload($result);
+            $result = $this->normalize_list_payload($result, $afterSeq);
         } catch (\Throwable $e) {
             return ErrorResponder::worker_bridge_error(
                 $e,
@@ -509,6 +510,51 @@ final class MessagesController extends \WP_REST_Controller
         }
 
         return $default;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function normalize_list_payload(array $payload, int $afterSeq): array
+    {
+        if ($afterSeq < 1) {
+            return $payload;
+        }
+
+        if (!empty($payload['unchanged'])) {
+            $payload['unchanged'] = true;
+            if (isset($payload['messages']) && is_array($payload['messages']) && $payload['messages'] === []) {
+                unset($payload['messages']);
+            }
+
+            return $payload;
+        }
+
+        $messages = isset($payload['messages']) && is_array($payload['messages']) ? $payload['messages'] : null;
+        $hasDeltaMessages = is_array($messages) && count($messages) > 0;
+        $hasSingleMessage = isset($payload['message']) && is_array($payload['message']) && $payload['message'] !== [];
+        $lastMessageSeq = isset($payload['thread_state']) && is_array($payload['thread_state']) && isset($payload['thread_state']['last_message_seq'])
+            ? max(0, (int) $payload['thread_state']['last_message_seq'])
+            : 0;
+
+        if ($hasDeltaMessages || $hasSingleMessage || $lastMessageSeq > $afterSeq) {
+            return $payload;
+        }
+
+        $lightPayload = [
+            'unchanged' => true,
+        ];
+
+        if (isset($payload['thread_state']) && is_array($payload['thread_state'])) {
+            $lightPayload['thread_state'] = $payload['thread_state'];
+        }
+
+        if (isset($payload['req_id']) && is_scalar($payload['req_id']) && trim((string) $payload['req_id']) !== '') {
+            $lightPayload['req_id'] = (string) $payload['req_id'];
+        }
+
+        return $lightPayload;
     }
 
     /**

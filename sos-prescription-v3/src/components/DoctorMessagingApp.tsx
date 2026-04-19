@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V8.2.1
+// DoctorMessagingApp.tsx · V8.11.0
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 
@@ -46,6 +46,7 @@ type ThreadPayload = {
   messages?: MessageItem[];
   message?: MessageItem;
   thread_state?: ThreadState;
+  unchanged?: boolean;
 };
 
 type ArtifactAccessPayload = {
@@ -80,6 +81,8 @@ type DoctorMessagingWindow = Window & {
 
 const POLL_VISIBLE_MS = 15000;
 const POLL_HIDDEN_MS = 30000;
+const POLL_VISIBLE_STABLE_MS = 30000;
+const POLL_VISIBLE_IDLE_MS = 60000;
 
 type DoctorMessagingHostElement = HTMLElement & {
   dataset: DOMStringMap;
@@ -113,6 +116,45 @@ function isDoctorStableSelectionStatus(value: unknown): boolean {
 function shouldSuspendDoctorThreadPolling(selectedStatus: unknown, nextThreadState: ThreadState): boolean {
   return isDoctorStableSelectionStatus(selectedStatus)
     && Number(nextThreadState.unread_count_doctor || 0) < 1;
+}
+
+function getLastKnownMessageSeq(messages: MessageItem[], nextThreadState: ThreadState): number {
+  const lastMessageSeq = messages.reduce((maxValue, item) => {
+    const nextValue = Number(item.seq || 0);
+    return nextValue > maxValue ? nextValue : maxValue;
+  }, 0);
+
+  return Math.max(lastMessageSeq, Number(nextThreadState.last_message_seq || 0), 0);
+}
+
+function resolveDoctorThreadPollDelay(
+  hidden: boolean,
+  nextThreadState: ThreadState,
+  unchangedCount: number,
+  pollingSuspended: boolean,
+): number | null {
+  if (pollingSuspended) {
+    return null;
+  }
+
+  const unreadCount = Number(nextThreadState.unread_count_doctor || 0);
+  if (hidden) {
+    return unreadCount > 0 ? POLL_HIDDEN_MS : null;
+  }
+
+  if (unreadCount > 0) {
+    return POLL_VISIBLE_MS;
+  }
+
+  if (unchangedCount >= 4) {
+    return POLL_VISIBLE_IDLE_MS;
+  }
+
+  if (unchangedCount >= 2) {
+    return POLL_VISIBLE_STABLE_MS;
+  }
+
+  return POLL_VISIBLE_MS;
 }
 
 function cx(...classes: Array<string | false | null | undefined>): string {
@@ -397,8 +439,10 @@ function normalizePolishPayload(payload: unknown, originalDraft: string): Polish
   throw new Error('Réponse inattendue du service de reformulation.');
 }
 
-async function getDoctorMessages(prescriptionId: number): Promise<ThreadPayload> {
-  return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages`, { method: 'GET' }, 'admin');
+async function getDoctorMessages(prescriptionId: number, afterSeq = 0): Promise<ThreadPayload> {
+  const normalizedAfterSeq = Math.max(0, Number(afterSeq || 0));
+  const query = normalizedAfterSeq > 0 ? `?after_seq=${encodeURIComponent(String(normalizedAfterSeq))}` : '';
+  return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages${query}`, { method: 'GET' }, 'admin');
 }
 
 async function postDoctorMessage(prescriptionId: number, body: string, attachments?: number[]): Promise<MessageItem> {
@@ -539,6 +583,10 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const mountedRef = useRef(true);
   const markReadSeqRef = useRef(0);
   const interactionRefreshAtRef = useRef(0);
+  const messagesRef = useRef<MessageItem[]>([]);
+  const threadStateRef = useRef<ThreadState>({});
+  const threadPollTimerRef = useRef<number | null>(null);
+  const threadUnchangedCountRef = useRef(0);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
   const viewerRole: ViewerRole = 'DOCTOR';
@@ -551,6 +599,21 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
 
   const fileIndex = useMemo(() => files, [files]);
   const currentUserRoles = cfg.currentUser?.roles;
+
+  const clearThreadPollTimer = useCallback((): void => {
+    if (threadPollTimerRef.current !== null) {
+      window.clearTimeout(threadPollTimerRef.current);
+      threadPollTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    threadStateRef.current = threadState;
+  }, [threadState]);
 
   const markReadIfNeeded = useCallback(async (nextThreadState: ThreadState): Promise<void> => {
     const unreadCount = Number(nextThreadState.unread_count_doctor || 0);
@@ -568,6 +631,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
         return;
       }
       if (payload && payload.thread_state) {
+        threadStateRef.current = payload.thread_state;
         setThreadState(payload.thread_state);
       }
     } catch {
@@ -602,18 +666,34 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
 
     try {
-      const payload = await getDoctorMessages(prescriptionId);
+      const currentMessages = messagesRef.current;
+      const currentThreadState = threadStateRef.current;
+      const currentLastKnownSeq = getLastKnownMessageSeq(currentMessages, currentThreadState);
+      const payload = await getDoctorMessages(prescriptionId, currentLastKnownSeq);
       if (!mountedRef.current || requestRef.current !== requestId) {
         return;
       }
 
-      const nextMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
-      const nextThreadState = payload && payload.thread_state ? payload.thread_state : {};
+      const deltaMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+      const nextThreadState = payload && payload.thread_state ? payload.thread_state : currentThreadState;
+      const nextMessages = currentLastKnownSeq > 0
+        ? dedupeMessages(currentMessages.concat(deltaMessages))
+        : deltaMessages;
+      const nextLastKnownSeq = getLastKnownMessageSeq(nextMessages, nextThreadState);
+      const messagesChanged = nextMessages.length !== currentMessages.length || nextLastKnownSeq !== currentLastKnownSeq;
+      const unchanged = Boolean(payload?.unchanged) || (!messagesChanged && deltaMessages.length < 1);
+
+      messagesRef.current = nextMessages;
+      threadStateRef.current = nextThreadState;
+      threadUnchangedCountRef.current = unchanged ? threadUnchangedCountRef.current + 1 : 0;
 
       setMessages(nextMessages);
       setThreadState(nextThreadState);
       setError(null);
-      void loadSmartReplies();
+
+      if (smartRepliesRequestRef.current === 0 || messagesChanged) {
+        void loadSmartReplies();
+      }
 
       if (Number(nextThreadState.unread_count_doctor || 0) > 0) {
         void markReadIfNeeded(nextThreadState);
@@ -635,6 +715,10 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     requestRef.current = 0;
     smartRepliesRequestRef.current = 0;
     markReadSeqRef.current = 0;
+    messagesRef.current = [];
+    threadStateRef.current = {};
+    threadUnchangedCountRef.current = 0;
+    clearThreadPollTimer();
     setMessages([]);
     setThreadState({});
     setSmartReplies([]);
@@ -647,18 +731,42 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     return () => {
       mountedRef.current = false;
     };
-  }, [loadThread, prescriptionId]);
+  }, [clearThreadPollTimer, loadThread, prescriptionId]);
 
   useEffect(() => {
+    const triggerNow = (): void => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - interactionRefreshAtRef.current < 1500) {
+        return;
+      }
+
+      interactionRefreshAtRef.current = now;
+      void loadThread(true);
+    };
+
     const handleVisibilityChange = (): void => {
-      setHidden(document.hidden);
+      const nextHidden = document.hidden;
+      setHidden(nextHidden);
+      if (!nextHidden && document.visibilityState === 'visible') {
+        triggerNow();
+      }
+    };
+
+    const handleWindowFocus = (): void => {
+      triggerNow();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
     };
-  }, []);
+  }, [clearThreadPollTimer, loadThread]);
 
   useEffect(() => {
     const host = findDoctorMessagingHost(prescriptionId);
@@ -686,17 +794,40 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
 
   useEffect(() => {
     if (threadPollingSuspended) {
+      clearThreadPollTimer();
       return;
     }
 
-    const interval = window.setInterval(() => {
-      void loadThread(true);
-    }, hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS);
+    let disposed = false;
+
+    const scheduleNext = (): void => {
+      if (disposed) {
+        return;
+      }
+
+      clearThreadPollTimer();
+      const delay = resolveDoctorThreadPollDelay(hidden, threadStateRef.current, threadUnchangedCountRef.current, threadPollingSuspended);
+      if (delay === null) {
+        return;
+      }
+
+      threadPollTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          await loadThread(true);
+          if (!disposed) {
+            scheduleNext();
+          }
+        })();
+      }, delay);
+    };
+
+    scheduleNext();
 
     return () => {
-      window.clearInterval(interval);
+      disposed = true;
+      clearThreadPollTimer();
     };
-  }, [hidden, loadThread, threadPollingSuspended]);
+  }, [clearThreadPollTimer, hidden, loadThread, threadPollingSuspended]);
 
   useEffect(() => {
     if (!threadPollingSuspended) {
