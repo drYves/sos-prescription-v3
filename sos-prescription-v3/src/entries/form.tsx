@@ -3626,6 +3626,9 @@ function PublicFormApp() {
   const fullNameEditedRef = useRef(false);
   const birthdateEditedRef = useRef(false);
   const medicalNotesEditedRef = useRef(false);
+  const intakeAsyncStateRef = useRef<{ version: number; pending: number }>({ version: 0, pending: 0 });
+  const artifactResyncFileIdsRef = useRef<string[]>([]);
+  const preparedSubmissionFingerprintRef = useRef<string | null>(null);
 
   const compliance = config.compliance || {};
   const consentRequired = Boolean(compliance.consent_required);
@@ -3711,6 +3714,68 @@ function PublicFormApp() {
     stage,
     submissionResult,
   ]);
+
+  const preparedSubmissionFingerprint = useMemo(() => JSON.stringify({
+    flow: clinicalState.flow,
+    priority: clinicalState.priority,
+    fullName: safePatientNameValue(clinicalState.fullName),
+    birthdate: String(clinicalState.birthdate || '').trim(),
+    medicalNotes: String(clinicalState.medicalNotes || '').trim(),
+    items: clinicalState.items.map((item) => ({
+      cis: item.cis || null,
+      cip13: item.cip13 || null,
+      label: String(item.label || '').trim(),
+      quantite: item.quantite || null,
+      schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : null,
+    })),
+    files: clinicalState.files.map((entry) => ({
+      id: entry.id,
+      original_name: entry.original_name,
+      mime_type: entry.mime_type || entry.mime || '',
+      size_bytes: Number(entry.size_bytes || 0),
+      kind: entry.kind,
+      status: entry.status,
+    })),
+    attestationNoProof: clinicalState.attestationNoProof,
+    consentTelemedicine: clinicalState.consentTelemedicine,
+    consentTruth: clinicalState.consentTruth,
+    consentCgu: clinicalState.consentCgu,
+    consentPrivacy: clinicalState.consentPrivacy,
+  }), [clinicalState]);
+
+  const invalidatePreparedSubmission = useCallback(() => {
+    preparedSubmissionFingerprintRef.current = null;
+    setPreparedSubmission((current) => (current ? null : current));
+  }, []);
+
+  const invalidateIntakeAsyncContext = useCallback(() => {
+    intakeAsyncStateRef.current = {
+      version: intakeAsyncStateRef.current.version + 1,
+      pending: 0,
+    };
+    setAnalysisInProgress(false);
+  }, []);
+
+  const isResyncableLocalUpload = useCallback((entry: LocalUpload) => (
+    entry.file instanceof File && Number(entry.file.size || 0) > 0
+  ), []);
+
+  useEffect(() => {
+    if (!preparedSubmission) {
+      preparedSubmissionFingerprintRef.current = null;
+      return;
+    }
+
+    if (!preparedSubmissionFingerprintRef.current) {
+      preparedSubmissionFingerprintRef.current = preparedSubmissionFingerprint;
+      return;
+    }
+
+    if (preparedSubmissionFingerprintRef.current !== preparedSubmissionFingerprint) {
+      preparedSubmissionFingerprintRef.current = null;
+      setPreparedSubmission(null);
+    }
+  }, [preparedSubmission, preparedSubmissionFingerprint]);
 
   const { loadSubmissionDraft, saveSubmissionDraft, uploadDraftArtifacts } = useDraftNetwork({
     loadSubmissionDraftApi,
@@ -3931,6 +3996,7 @@ function PublicFormApp() {
       birthdateEditedRef.current = false;
       medicalNotesEditedRef.current = false;
       submissionRefStateRef.current = { ref: draftRef };
+      artifactResyncFileIdsRef.current = [];
       setFlow(null);
       setPriority('standard');
       setFullName('');
@@ -4135,6 +4201,7 @@ function PublicFormApp() {
       return;
     }
 
+    invalidatePreparedSubmission();
     setSubmitError(null);
     setRejectedFiles([]);
     setAnalysisMessage(null);
@@ -4146,6 +4213,11 @@ function PublicFormApp() {
       return;
     }
 
+    const intakeContextVersion = intakeAsyncStateRef.current.version;
+    intakeAsyncStateRef.current = {
+      version: intakeContextVersion,
+      pending: intakeAsyncStateRef.current.pending + 1,
+    };
     setAnalysisInProgress(true);
 
     const rejected: File[] = [];
@@ -4157,6 +4229,10 @@ function PublicFormApp() {
 
       // Repli sécurisé : les mutations UI par fichier restent locales pour préserver le timing READY / erreur.
       await uploadIntakeFiles(nextUploads, submissionRef, (result) => {
+        if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
+          return;
+        }
+
         if (result.error) {
           rejected.push(result.entry.file);
           if (!firstError) {
@@ -4192,6 +4268,10 @@ function PublicFormApp() {
         )));
       });
 
+      if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
+        return;
+      }
+
       setRejectedFiles((current) => mergeRejectedFiles(current, rejected));
       if (mergedInfo) {
         setAnalysisMessage('Traitement détecté et pré-rempli.');
@@ -4203,6 +4283,10 @@ function PublicFormApp() {
         setSubmitError(firstError);
       }
     } catch (error) {
+      if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
+        return;
+      }
+
       setRejectedFiles((current) => mergeRejectedFiles(current, nextUploads.map((entry) => entry.file)));
       setAnalysisMessage(null);
       const message = toPatientSafeSubmissionErrorMessage(error);
@@ -4212,9 +4296,18 @@ function PublicFormApp() {
           : 'Nous n’avons pas pu enregistrer votre document pour le moment. Merci de réessayer.',
       );
     } finally {
-      setAnalysisInProgress(false);
+      if (intakeAsyncStateRef.current.version === intakeContextVersion) {
+        const nextPending = Math.max(0, intakeAsyncStateRef.current.pending - 1);
+        intakeAsyncStateRef.current = {
+          version: intakeContextVersion,
+          pending: nextPending,
+        };
+        if (nextPending === 0) {
+          setAnalysisInProgress(false);
+        }
+      }
     }
-  }, [ensureSubmissionRef, flow, isLoggedIn, uploadIntakeFiles]);
+  }, [ensureSubmissionRef, flow, invalidatePreparedSubmission, isLoggedIn, uploadIntakeFiles]);
 
   const resetToChoose = useCallback(() => {
     const profileSnapshot = resolveLatestPatientProfileSnapshot(config);
@@ -4242,6 +4335,7 @@ function PublicFormApp() {
     setDraftSent(false);
     setDraftSuccessMessage(null);
     setResumedDraftRef(null);
+    artifactResyncFileIdsRef.current = [];
     submissionRefStateRef.current = { ref: null };
     setAttestationNoProof(false);
     setConsentTelemedicine(false);
@@ -4264,9 +4358,10 @@ function PublicFormApp() {
   }, [submissionResult?.uid]);
 
   const handleBackToChoice = useCallback(() => {
+    invalidateIntakeAsyncContext();
     setSubmitError(null);
     setStage('choose');
-  }, []);
+  }, [invalidateIntakeAsyncContext]);
 
   const handleSelectFlow = useCallback((nextFlow: FlowType) => {
     if (nextFlow === flow) {
@@ -4275,12 +4370,14 @@ function PublicFormApp() {
       return;
     }
 
+    invalidateIntakeAsyncContext();
+    artifactResyncFileIdsRef.current = [];
     setFlow(nextFlow);
     setFiles([]);
     setRejectedFiles([]);
     setAnalysisMessage(null);
     setSubmitError(null);
-    setPreparedSubmission(null);
+    invalidatePreparedSubmission();
     setSubmissionResult(null);
     setDraftSending(false);
     setDraftSent(false);
@@ -4288,7 +4385,36 @@ function PublicFormApp() {
     setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
     setStage('form');
-  }, [flow]);
+  }, [flow, invalidateIntakeAsyncContext, invalidatePreparedSubmission]);
+
+  const handlePriorityChange = useCallback((nextPriority: 'standard' | 'express') => {
+    invalidatePreparedSubmission();
+    setPriority(nextPriority);
+  }, [invalidatePreparedSubmission]);
+
+  const handleRemoveFile = useCallback((fileId: string) => {
+    invalidatePreparedSubmission();
+    invalidateIntakeAsyncContext();
+    setSubmitError(null);
+
+    const remainingFiles = files.filter((entry) => entry.id !== fileId);
+    const shouldInvalidateSubmissionCache = Boolean(String(submissionRefStateRef.current.ref || '').trim())
+      || artifactResyncFileIdsRef.current.length > 0
+      || Boolean(resumedDraftRef);
+
+    if (!shouldInvalidateSubmissionCache) {
+      setFiles(remainingFiles);
+      return;
+    }
+
+    const uploadableRemainingFiles = remainingFiles.filter((entry) => isResyncableLocalUpload(entry));
+    artifactResyncFileIdsRef.current = uploadableRemainingFiles.map((entry) => entry.id);
+    submissionRefStateRef.current = { ref: null };
+    setResumedDraftRef(null);
+    setAnalysisMessage(null);
+    setRejectedFiles([]);
+    setFiles(uploadableRemainingFiles);
+  }, [files, invalidateIntakeAsyncContext, invalidatePreparedSubmission, isResyncableLocalUpload, resumedDraftRef]);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -4473,6 +4599,46 @@ function PublicFormApp() {
         throw new Error('Merci de choisir un parcours avant de continuer.');
       }
 
+      if (artifactResyncFileIdsRef.current.length > 0) {
+        const resyncIds = new Set(artifactResyncFileIdsRef.current);
+        const resyncEntries = clinicalState.files.filter((entry) => (
+          resyncIds.has(entry.id) && isResyncableLocalUpload(entry)
+        ));
+
+        if (resyncEntries.length > 0) {
+          const resyncResults = await uploadDraftArtifacts(resyncEntries, submissionRef, (result) => {
+            if (result.error) {
+              setFiles((current) => current.map((file) => (
+                file.id === result.entry.id
+                  ? {
+                    ...file,
+                    status: 'QUEUED',
+                  }
+                  : file
+              )));
+              return;
+            }
+
+            setFiles((current) => current.map((file) => (
+              file.id === result.entry.id
+                ? {
+                  ...file,
+                  status: 'READY',
+                }
+                : file
+            )));
+          });
+
+          const failedResync = resyncResults.filter((result) => result.error);
+          if (failedResync.length > 0) {
+            artifactResyncFileIdsRef.current = failedResync.map((result) => result.entry.id);
+            throw failedResync[0].error;
+          }
+        }
+
+        artifactResyncFileIdsRef.current = [];
+      }
+
       const finalizeClinicalState: ClinicalState & { flow: TunnelFlowType } = {
         ...clinicalState,
         flow: activeFlow,
@@ -4520,6 +4686,7 @@ function PublicFormApp() {
         throw new Error('Prescription locale introuvable après préparation du paiement.');
       }
 
+      preparedSubmissionFingerprintRef.current = preparedSubmissionFingerprint;
       setPreparedSubmission(result);
       return result;
     } catch (error) {
@@ -4536,7 +4703,7 @@ function PublicFormApp() {
     } finally {
       setSubmitLoading(false);
     }
-  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, submitBlockInfo, workflowState]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, isResyncableLocalUpload, preparedSubmissionFingerprint, submitBlockInfo, uploadDraftArtifacts, workflowState]);
 
   const handleContinueToPaymentAuth = useCallback(async () => {
     setSubmitError(null);
@@ -4587,12 +4754,18 @@ function PublicFormApp() {
   }, [preparedSubmission]);
 
   const handleBackToClinicalForm = useCallback(() => {
-    setPreparedSubmission(null);
+    invalidatePreparedSubmission();
     setSubmitError(null);
     setDraftSent(false);
     setDraftSuccessMessage(null);
     setStage('form');
-  }, []);
+  }, [invalidatePreparedSubmission]);
+
+  const handleBackFromPayment = useCallback(() => {
+    invalidatePreparedSubmission();
+    setSubmitError(null);
+    setStage('priority_selection');
+  }, [invalidatePreparedSubmission]);
 
   const patientPortalUrl = useMemo(() => {
     const base = config.urls?.patientPortal || null;
@@ -4730,9 +4903,7 @@ function PublicFormApp() {
             onUnlockDraftEmail={() => setDraftEmailLocked(false)}
             onMedicalNotesChange={handleMedicalNotesChange}
             onFilesSelected={handleFilesSelected}
-            onRemoveFile={(fileId) => {
-              setFiles((current) => current.filter((entry) => entry.id !== fileId));
-            }}
+            onRemoveFile={handleRemoveFile}
             onAddMedication={addMedication}
             onUpdateMedication={updateMedication}
             onRemoveMedication={removeMedication}
@@ -4756,7 +4927,7 @@ function PublicFormApp() {
             paymentsConfig={paymentsConfig}
             selectedAmount={selectedAmount}
             selectedPriorityEta={selectedPriorityEta}
-            onPriorityChange={setPriority}
+            onPriorityChange={handlePriorityChange}
             onBack={handleBackToClinicalForm}
             onContinue={handleContinueToPaymentAuth}
             continueDisabled={submitLoading || pricingLoading || !pricing}
@@ -4800,7 +4971,7 @@ function PublicFormApp() {
               selectedPriorityEta={selectedPriorityEta}
               paymentsConfig={paymentsConfig}
               preparedSubmission={preparedSubmission}
-              onBack={() => setStage('priority_selection')}
+              onBack={handleBackFromPayment}
               onAuthorized={handlePaymentAuthorized}
             />
           )
