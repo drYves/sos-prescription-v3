@@ -8,6 +8,8 @@ import StripePaymentModule, { type StripePaymentResolutionMeta, toMedicalGradePa
 import { buildDraftFileManifest, buildDraftPayload, buildFinalizePayload } from './formTunnel/builders';
 import { hydrateStoredDraftPayload } from './formTunnel/hydrators';
 import type { ClinicalState, FlowType as TunnelFlowType, UIState, WorkflowState } from './formTunnel/types';
+import { useDraftNetwork } from './formTunnel/useDraftNetwork';
+import { useSubmissionNetwork } from './formTunnel/useSubmissionNetwork';
 
 type AppConfig = {
   restBase: string;
@@ -3697,6 +3699,18 @@ function PublicFormApp() {
     submissionResult,
   ]);
 
+  const { loadSubmissionDraft, saveSubmissionDraft, uploadDraftArtifacts } = useDraftNetwork({
+    loadSubmissionDraftApi,
+    saveSubmissionDraftApi,
+    directSubmissionArtifactUpload,
+  });
+  const { createSubmission, uploadIntakeFiles, finalizeSubmission } = useSubmissionNetwork({
+    createSubmissionApi,
+    directSubmissionArtifactUpload,
+    analyzeArtifactApi,
+    finalizeSubmissionApi,
+  });
+
   useEffect(() => {
     if (!medEditor) {
       return;
@@ -3931,7 +3945,8 @@ function PublicFormApp() {
       setSubmitError(null);
 
       try {
-        const payload = await loadSubmissionDraftApi(draftRef);
+        // Repli sécurisé : le reset et l’hydratation du state restent locaux à PublicFormApp.
+        const payload = await loadSubmissionDraft(draftRef);
         if (cancelled) {
           return;
         }
@@ -3996,7 +4011,7 @@ function PublicFormApp() {
     return () => {
       cancelled = true;
     };
-  }, [config.currentUser?.email, isLoggedIn, resumeDraftRefFromUrl]);
+  }, [config.currentUser?.email, isLoggedIn, loadSubmissionDraft, resumeDraftRefFromUrl]);
 
   const submitBlockInfo = useMemo(() => buildSubmitBlockInfo({
     loggedIn: isLoggedIn,
@@ -4084,7 +4099,7 @@ function PublicFormApp() {
       throw new Error('Référence de soumission manquante.');
     }
 
-    const initResponse = await createSubmissionApi({
+    const initResponse = await createSubmission({
       flow,
       priority,
     });
@@ -4095,7 +4110,7 @@ function PublicFormApp() {
 
     submissionRefStateRef.current = { ref: nextRef };
     return nextRef;
-  }, [flow, priority]);
+  }, [createSubmission, flow, priority]);
 
   const handleFilesSelected = useCallback(async (list: FileList | null) => {
     if (!list || list.length === 0 || flow !== 'ro_proof') {
@@ -4127,41 +4142,42 @@ function PublicFormApp() {
     try {
       const submissionRef = await ensureSubmissionRef();
 
-      for (const entry of nextUploads) {
-        try {
-          const uploaded = await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
-          const analysis = await analyzeArtifactApi(uploaded.id);
-          const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
-
-          if (Boolean(analysis && analysis.ok === false) || aiItems.length < 1) {
-            rejected.push(entry.file);
-            if (!firstError) {
-              firstError = toPatientSafeArtifactErrorMessage(
-                typeof analysis?.message === 'string' && analysis.message.trim() !== ''
-                  ? new Error(analysis.message.trim())
-                  : new Error('Lecture du document impossible.'),
-              );
-            }
-            continue;
-          }
-
-          mergedInfo = true;
-          setItems((current) => mergeMedicationItems(current, aiItems));
-          setFiles((current) => current.map((file) => (
-            file.id === entry.id
-              ? {
-                ...file,
-                status: 'READY',
-              }
-              : file
-          )));
-        } catch (error) {
-          rejected.push(entry.file);
+      // Repli sécurisé : les mutations UI par fichier restent locales pour préserver le timing READY / erreur.
+      await uploadIntakeFiles(nextUploads, submissionRef, (result) => {
+        if (result.error) {
+          rejected.push(result.entry.file);
           if (!firstError) {
-            firstError = toPatientSafeArtifactErrorMessage(error);
+            firstError = toPatientSafeArtifactErrorMessage(result.error);
           }
+          return;
         }
-      }
+
+        const analysis = result.analysis;
+        const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
+
+        if (Boolean(analysis && analysis.ok === false) || aiItems.length < 1) {
+          rejected.push(result.entry.file);
+          if (!firstError) {
+            firstError = toPatientSafeArtifactErrorMessage(
+              typeof analysis?.message === 'string' && analysis.message.trim() !== ''
+                ? new Error(analysis.message.trim())
+                : new Error('Lecture du document impossible.'),
+            );
+          }
+          return;
+        }
+
+        mergedInfo = true;
+        setItems((current) => mergeMedicationItems(current, aiItems));
+        setFiles((current) => current.map((file) => (
+          file.id === result.entry.id
+            ? {
+              ...file,
+              status: 'READY',
+            }
+            : file
+        )));
+      });
 
       setRejectedFiles((current) => mergeRejectedFiles(current, rejected));
       if (mergedInfo) {
@@ -4185,7 +4201,7 @@ function PublicFormApp() {
     } finally {
       setAnalysisInProgress(false);
     }
-  }, [ensureSubmissionRef, flow, isLoggedIn]);
+  }, [ensureSubmissionRef, flow, isLoggedIn, uploadIntakeFiles]);
 
   const resetToChoose = useCallback(() => {
     const profileSnapshot = resolveLatestPatientProfileSnapshot(config);
@@ -4316,7 +4332,7 @@ function PublicFormApp() {
     setDraftSending(true);
 
     try {
-      const response = await saveSubmissionDraftApi(buildDraftPayload({
+      const response = await saveSubmissionDraft(buildDraftPayload({
         clinicalState: draftClinicalState,
         redirectTo: buildCurrentFormRedirectUrl(),
         consentRequired,
@@ -4336,29 +4352,30 @@ function PublicFormApp() {
       const uploadableEntries = draftClinicalState.files.filter((entry) => entry.file instanceof File && Number(entry.file.size || 0) > 0);
       const failedUploads: string[] = [];
 
-      for (const entry of uploadableEntries) {
-        try {
-          await directSubmissionArtifactUpload(entry.file, submissionRef, 'PROOF');
+      // Repli sécurisé : les statuts READY / QUEUED restent pilotés depuis PublicFormApp.
+      await uploadDraftArtifacts(uploadableEntries, submissionRef, (result) => {
+        if (!result.error) {
           setFiles((current) => current.map((file) => (
-            file.id === entry.id
+            file.id === result.entry.id
               ? {
                 ...file,
                 status: 'READY',
               }
               : file
           )));
-        } catch {
-          failedUploads.push(entry.original_name || entry.file.name || 'document');
-          setFiles((current) => current.map((file) => (
-            file.id === entry.id
-              ? {
-                ...file,
-                status: 'QUEUED',
-              }
-              : file
-          )));
+          return;
         }
-      }
+
+        failedUploads.push(result.entry.original_name || result.entry.file.name || 'document');
+        setFiles((current) => current.map((file) => (
+          file.id === result.entry.id
+            ? {
+              ...file,
+              status: 'QUEUED',
+            }
+            : file
+        )));
+      });
 
       setDraftEmail(email);
       setDraftEmailLocked(true);
@@ -4383,7 +4400,7 @@ function PublicFormApp() {
     } finally {
       setDraftSending(false);
     }
-  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, submitBlockInfo]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, saveSubmissionDraft, submitBlockInfo, uploadDraftArtifacts]);
 
   const prepareSubmissionForPayment = useCallback(async (): Promise<SubmissionResult | null> => {
     setSubmitError(null);
@@ -4459,7 +4476,7 @@ function PublicFormApp() {
         files_count: finalizeClinicalState.files.length,
       });
 
-      const finalized = await finalizeSubmissionApi(submissionRef, finalizePayload);
+      const finalized = await finalizeSubmission(submissionRef, finalizePayload);
       const localPrescriptionId = Number((finalized as { local_prescription_id?: unknown }).local_prescription_id || finalized.id || 0);
       const result: SubmissionResult = {
         id: Number.isFinite(localPrescriptionId) ? localPrescriptionId : 0,
@@ -4495,7 +4512,7 @@ function PublicFormApp() {
     } finally {
       setSubmitLoading(false);
     }
-  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, isLoggedIn, submitBlockInfo, workflowState]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, submitBlockInfo, workflowState]);
 
   const handleContinueToPaymentAuth = useCallback(async () => {
     setSubmitError(null);
