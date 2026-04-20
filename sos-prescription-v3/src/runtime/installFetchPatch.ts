@@ -17,6 +17,7 @@ type GlobalWindow = Window & {
 };
 
 const INTERNAL_BYPASS_DEDUP_HEADER = 'X-Sos-Bypass-Dedup';
+const IN_FLIGHT_DEDUP_BYPASS_URL_PATTERNS = ['/medications'];
 
 function getGlobalWindow(): GlobalWindow {
   return (typeof globalThis !== 'undefined' ? globalThis : window) as unknown as GlobalWindow;
@@ -149,6 +150,15 @@ function buildInFlightRequestKey(url: string, method: string, headers: Headers):
 
   const scope = String(headers.get('X-Sos-Scope') || '').trim().toLowerCase();
   return `${String(method || 'GET').toUpperCase()} ${normalizedUrl} ${scope}`;
+}
+
+function shouldBypassInFlightDedupForUrl(url: string): boolean {
+  const normalizedUrl = absolutizeUrl(url).toLowerCase();
+  if (!normalizedUrl) {
+    return false;
+  }
+
+  return IN_FLIGHT_DEDUP_BYPASS_URL_PATTERNS.some((pattern) => normalizedUrl.includes(String(pattern || '').toLowerCase()));
 }
 
 function applyHeaders(target: Headers, source?: HeadersInit): void {
@@ -316,7 +326,9 @@ function installFetchPatch(): void {
         return response;
       };
 
-      if (requestMethod !== 'GET' || bypassInFlightDedup) {
+      const bypassUrlDedup = shouldBypassInFlightDedupForUrl(requestUrl);
+
+      if (requestMethod !== 'GET' || bypassInFlightDedup || bypassUrlDedup) {
         return executeRequest();
       }
 
