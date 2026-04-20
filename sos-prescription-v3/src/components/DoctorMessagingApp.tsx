@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V8.13.1
+// DoctorMessagingApp.tsx · V9.0.1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 
@@ -83,6 +83,21 @@ const POLL_VISIBLE_MS = 15000;
 const POLL_HIDDEN_MS = 30000;
 const POLL_VISIBLE_STABLE_MS = 30000;
 const POLL_VISIBLE_IDLE_MS = 60000;
+const DOCTOR_EXPLICIT_REFRESH_DEBOUNCE_MS = 160;
+const DOCTOR_EXPLICIT_REFRESH_MIN_INTERVAL_MS = 1200;
+const INTERNAL_BYPASS_DEDUP_HEADER = 'X-Sos-Bypass-Dedup';
+
+type ThreadRefreshReason = 'bootstrap' | 'poll' | 'message-created' | 'visibility' | 'focus' | 'interaction';
+
+type ApiRequestOptions = {
+  bypassInFlightDedup?: boolean;
+};
+
+type ThreadRefreshRequest = {
+  silent: boolean;
+  reason: ThreadRefreshReason;
+  bypassInFlightDedup: boolean;
+};
 
 type DoctorMessagingHostElement = HTMLElement & {
   dataset: DOMStringMap;
@@ -157,6 +172,25 @@ function resolveDoctorThreadPollDelay(
   return POLL_VISIBLE_MS;
 }
 
+function isExplicitDoctorThreadRefreshReason(reason: ThreadRefreshReason): boolean {
+  return reason === 'visibility' || reason === 'focus' || reason === 'interaction';
+}
+
+function mergeThreadRefreshRequest(
+  current: ThreadRefreshRequest | null,
+  next: ThreadRefreshRequest,
+): ThreadRefreshRequest {
+  if (!current) {
+    return next;
+  }
+
+  return {
+    silent: current.silent && next.silent,
+    reason: next.reason,
+    bypassInFlightDedup: current.bypassInFlightDedup || next.bypassInFlightDedup,
+  };
+}
+
 function cx(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');
 }
@@ -205,13 +239,20 @@ function getCurrentWpUserId(): number | undefined {
   return toPositiveWpUserId(getAppConfig().currentUser?.id);
 }
 
-async function apiJson<T>(path: string, init: RequestInit, scope = 'admin'): Promise<T> {
+function applyInternalFetchOptions(headers: Headers, method: string, options?: ApiRequestOptions): void {
+  if (String(method).toUpperCase() === 'GET' && options?.bypassInFlightDedup) {
+    headers.set(INTERNAL_BYPASS_DEDUP_HEADER, '1');
+  }
+}
+
+async function apiJson<T>(path: string, init: RequestInit, scope = 'admin', options?: ApiRequestOptions): Promise<T> {
   const cfg = getAppConfig();
   const method = String(init.method || 'GET').toUpperCase();
   const headers = new Headers(init.headers || {});
   headers.set('X-WP-Nonce', cfg.nonce);
   headers.set('Accept', 'application/json');
   headers.set('X-Sos-Scope', scope);
+  applyInternalFetchOptions(headers, method, options);
 
   if (method === 'GET') {
     headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -245,13 +286,14 @@ async function apiJson<T>(path: string, init: RequestInit, scope = 'admin'): Pro
   return payload as T;
 }
 
-async function v4ApiJson<T>(path: string, init: RequestInit, scope = 'admin'): Promise<T> {
+async function v4ApiJson<T>(path: string, init: RequestInit, scope = 'admin', options?: ApiRequestOptions): Promise<T> {
   const cfg = getAppConfig();
   const method = String(init.method || 'GET').toUpperCase();
   const headers = new Headers(init.headers || {});
   headers.set('X-WP-Nonce', cfg.nonce);
   headers.set('Accept', 'application/json');
   headers.set('X-Sos-Scope', scope);
+  applyInternalFetchOptions(headers, method, options);
 
   if (method === 'GET') {
     headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -439,10 +481,14 @@ function normalizePolishPayload(payload: unknown, originalDraft: string): Polish
   throw new Error('Réponse inattendue du service de reformulation.');
 }
 
-async function getDoctorMessages(prescriptionId: number, afterSeq = 0): Promise<ThreadPayload> {
+async function getDoctorMessages(
+  prescriptionId: number,
+  afterSeq = 0,
+  options?: ApiRequestOptions,
+): Promise<ThreadPayload> {
   const normalizedAfterSeq = Math.max(0, Number(afterSeq || 0));
   const query = normalizedAfterSeq > 0 ? `?after_seq=${encodeURIComponent(String(normalizedAfterSeq))}` : '';
-  return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages${query}`, { method: 'GET' }, 'admin');
+  return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages${query}`, { method: 'GET' }, 'admin', options);
 }
 
 async function postDoctorMessage(prescriptionId: number, body: string, attachments?: number[]): Promise<MessageItem> {
@@ -583,6 +629,10 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const mountedRef = useRef(true);
   const markReadSeqRef = useRef(0);
   const interactionRefreshAtRef = useRef(0);
+  const loadThreadPromiseRef = useRef<Promise<void> | null>(null);
+  const pendingThreadRefreshRef = useRef<ThreadRefreshRequest | null>(null);
+  const scheduledThreadRefreshRef = useRef<ThreadRefreshRequest | null>(null);
+  const explicitRefreshTimerRef = useRef<number | null>(null);
   const messagesRef = useRef<MessageItem[]>([]);
   const threadStateRef = useRef<ThreadState>({});
   const threadPollTimerRef = useRef<number | null>(null);
@@ -605,6 +655,14 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       window.clearTimeout(threadPollTimerRef.current);
       threadPollTimerRef.current = null;
     }
+  }, []);
+
+  const clearExplicitRefreshTimer = useCallback((): void => {
+    if (explicitRefreshTimerRef.current !== null) {
+      window.clearTimeout(explicitRefreshTimerRef.current);
+      explicitRefreshTimerRef.current = null;
+    }
+    scheduledThreadRefreshRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -657,7 +715,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
   }, [prescriptionId]);
 
-  const loadThread = useCallback(async (silent = false): Promise<void> => {
+  const loadThreadNow = useCallback(async (silent = false, options?: ApiRequestOptions): Promise<void> => {
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
 
@@ -669,7 +727,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       const currentMessages = messagesRef.current;
       const currentThreadState = threadStateRef.current;
       const currentLastKnownSeq = getLastKnownMessageSeq(currentMessages, currentThreadState);
-      const payload = await getDoctorMessages(prescriptionId, currentLastKnownSeq);
+      const payload = await getDoctorMessages(prescriptionId, currentLastKnownSeq, options);
       if (!mountedRef.current || requestRef.current !== requestId) {
         return;
       }
@@ -710,14 +768,109 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
   }, [loadSmartReplies, markReadIfNeeded, prescriptionId]);
 
+  const runThreadRefresh = useCallback(async function runThreadRefreshImpl(next: ThreadRefreshRequest): Promise<void> {
+    if (loadThreadPromiseRef.current) {
+      pendingThreadRefreshRef.current = mergeThreadRefreshRequest(pendingThreadRefreshRef.current, next);
+      await loadThreadPromiseRef.current;
+      return;
+    }
+
+    const refreshPromise = loadThreadNow(next.silent, {
+      bypassInFlightDedup: next.bypassInFlightDedup,
+    }).finally(() => {
+      if (loadThreadPromiseRef.current !== refreshPromise) {
+        return;
+      }
+
+      loadThreadPromiseRef.current = null;
+
+      const pending = pendingThreadRefreshRef.current;
+      pendingThreadRefreshRef.current = null;
+
+      if (!mountedRef.current || !pending) {
+        return;
+      }
+
+      void runThreadRefreshImpl(pending);
+    });
+
+    loadThreadPromiseRef.current = refreshPromise;
+    await refreshPromise;
+  }, [loadThreadNow]);
+
+  const flushScheduledThreadRefresh = useCallback((): void => {
+    explicitRefreshTimerRef.current = null;
+
+    const scheduled = scheduledThreadRefreshRef.current;
+    scheduledThreadRefreshRef.current = null;
+
+    if (!scheduled) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - interactionRefreshAtRef.current;
+    if (elapsed < DOCTOR_EXPLICIT_REFRESH_MIN_INTERVAL_MS) {
+      const delay = Math.max(
+        DOCTOR_EXPLICIT_REFRESH_DEBOUNCE_MS,
+        DOCTOR_EXPLICIT_REFRESH_MIN_INTERVAL_MS - elapsed,
+      );
+
+      scheduledThreadRefreshRef.current = mergeThreadRefreshRequest(scheduledThreadRefreshRef.current, scheduled);
+      explicitRefreshTimerRef.current = window.setTimeout(flushScheduledThreadRefresh, delay);
+      return;
+    }
+
+    interactionRefreshAtRef.current = now;
+    void runThreadRefresh(scheduled);
+  }, [runThreadRefresh]);
+
+  const requestThreadRefresh = useCallback((options: Partial<ThreadRefreshRequest> = {}): void => {
+    const next: ThreadRefreshRequest = {
+      silent: options.silent ?? true,
+      reason: options.reason ?? 'interaction',
+      bypassInFlightDedup: Boolean(options.bypassInFlightDedup),
+    };
+
+    if (isExplicitDoctorThreadRefreshReason(next.reason)) {
+      const now = Date.now();
+      const elapsed = now - interactionRefreshAtRef.current;
+      const delay = elapsed >= DOCTOR_EXPLICIT_REFRESH_MIN_INTERVAL_MS
+        ? DOCTOR_EXPLICIT_REFRESH_DEBOUNCE_MS
+        : Math.max(
+            DOCTOR_EXPLICIT_REFRESH_DEBOUNCE_MS,
+            DOCTOR_EXPLICIT_REFRESH_MIN_INTERVAL_MS - elapsed,
+          );
+
+      scheduledThreadRefreshRef.current = mergeThreadRefreshRequest(scheduledThreadRefreshRef.current, next);
+
+      if (explicitRefreshTimerRef.current !== null) {
+        return;
+      }
+
+      explicitRefreshTimerRef.current = window.setTimeout(flushScheduledThreadRefresh, delay);
+      return;
+    }
+
+    if (next.reason !== 'poll') {
+      interactionRefreshAtRef.current = Date.now();
+    }
+
+    void runThreadRefresh(next);
+  }, [flushScheduledThreadRefresh, runThreadRefresh]);
+
   useEffect(() => {
     mountedRef.current = true;
     requestRef.current = 0;
     smartRepliesRequestRef.current = 0;
     markReadSeqRef.current = 0;
+    interactionRefreshAtRef.current = 0;
+    loadThreadPromiseRef.current = null;
+    pendingThreadRefreshRef.current = null;
     messagesRef.current = [];
     threadStateRef.current = {};
     threadUnchangedCountRef.current = 0;
+    clearExplicitRefreshTimer();
     clearThreadPollTimer();
     setMessages([]);
     setThreadState({});
@@ -726,38 +879,40 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     setFlash(null);
     setLoading(false);
 
-    void loadThread(false);
+    requestThreadRefresh({
+      silent: false,
+      reason: 'bootstrap',
+    });
 
     return () => {
       mountedRef.current = false;
+      clearExplicitRefreshTimer();
     };
-  }, [clearThreadPollTimer, loadThread, prescriptionId]);
+  }, [clearExplicitRefreshTimer, clearThreadPollTimer, prescriptionId, requestThreadRefresh]);
 
   useEffect(() => {
-    const triggerNow = (): void => {
+    const triggerNow = (reason: 'visibility' | 'focus'): void => {
       if (document.visibilityState !== 'visible') {
         return;
       }
 
-      const now = Date.now();
-      if (now - interactionRefreshAtRef.current < 1500) {
-        return;
-      }
-
-      interactionRefreshAtRef.current = now;
-      void loadThread(true);
+      requestThreadRefresh({
+        silent: true,
+        reason,
+        bypassInFlightDedup: true,
+      });
     };
 
     const handleVisibilityChange = (): void => {
       const nextHidden = document.hidden;
       setHidden(nextHidden);
       if (!nextHidden && document.visibilityState === 'visible') {
-        triggerNow();
+        triggerNow('visibility');
       }
     };
 
     const handleWindowFocus = (): void => {
-      triggerNow();
+      triggerNow('focus');
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -766,7 +921,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [clearThreadPollTimer, loadThread]);
+  }, [requestThreadRefresh]);
 
   useEffect(() => {
     const host = findDoctorMessagingHost(prescriptionId);
@@ -813,7 +968,11 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
 
       threadPollTimerRef.current = window.setTimeout(() => {
         void (async () => {
-          await loadThread(true);
+          await runThreadRefresh({
+            silent: true,
+            reason: 'poll',
+            bypassInFlightDedup: false,
+          });
           if (!disposed) {
             scheduleNext();
           }
@@ -827,7 +986,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       disposed = true;
       clearThreadPollTimer();
     };
-  }, [clearThreadPollTimer, hidden, loadThread, threadPollingSuspended]);
+  }, [clearThreadPollTimer, hidden, runThreadRefresh, threadPollingSuspended]);
 
   useEffect(() => {
     if (!threadPollingSuspended) {
@@ -840,13 +999,11 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
 
     const handleInteractionRefresh = (): void => {
-      const now = Date.now();
-      if (now - interactionRefreshAtRef.current < 1500) {
-        return;
-      }
-
-      interactionRefreshAtRef.current = now;
-      void loadThread(true);
+      requestThreadRefresh({
+        silent: true,
+        reason: 'interaction',
+        bypassInFlightDedup: true,
+      });
     };
 
     surface.addEventListener('click', handleInteractionRefresh);
@@ -858,7 +1015,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       surface.removeEventListener('focusin', handleInteractionRefresh);
       surface.removeEventListener('keydown', handleInteractionRefresh);
     };
-  }, [loadThread, threadPollingSuspended]);
+  }, [requestThreadRefresh, threadPollingSuspended]);
 
   useEffect(() => {
     if (!flash) {
@@ -877,8 +1034,12 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const handleMessageCreated = useCallback(async (message: MessageItem): Promise<void> => {
     setMessages((current) => dedupeMessages(current.concat([normalizeMessage(message)])));
     setFlash('Message envoyé.');
-    await loadThread(true);
-  }, [loadThread]);
+    await runThreadRefresh({
+      silent: true,
+      reason: 'message-created',
+      bypassInFlightDedup: true,
+    });
+  }, [runThreadRefresh]);
 
   const handleAttachmentDownload = useCallback(async (attachmentId: number): Promise<void> => {
     try {

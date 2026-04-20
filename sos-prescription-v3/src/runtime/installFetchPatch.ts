@@ -1,11 +1,13 @@
 type AppConfig = {
   restBase?: string;
+  restV4Base?: string;
   nonce?: string;
 };
 
 type FetchPatchState = {
   originalFetch: typeof fetch;
   installed: boolean;
+  inFlightGetRequests: Map<string, Promise<Response>>;
 };
 
 type GlobalWindow = Window & {
@@ -13,6 +15,8 @@ type GlobalWindow = Window & {
   SOSPrescription?: AppConfig;
   __SosPrescriptionFetchPatch?: FetchPatchState;
 };
+
+const INTERNAL_BYPASS_DEDUP_HEADER = 'X-Sos-Bypass-Dedup';
 
 function getGlobalWindow(): GlobalWindow {
   return (typeof globalThis !== 'undefined' ? globalThis : window) as unknown as GlobalWindow;
@@ -31,6 +35,21 @@ function normalizeRestBase(value: unknown): string {
   return typeof value === 'string' ? value.replace(/\/$/, '') : '';
 }
 
+function deriveRestV4Base(restBase: string): string {
+  if (!restBase) {
+    return '';
+  }
+
+  return restBase.replace(/\/sosprescription\/v1\/?$/, '/sosprescription/v4');
+}
+
+function resolveRestBases(config: AppConfig | null): string[] {
+  const restBase = normalizeRestBase(config?.restBase);
+  const restV4Base = normalizeRestBase(config?.restV4Base || deriveRestV4Base(restBase));
+
+  return [restBase, restV4Base].filter((value, index, values) => value !== '' && values.indexOf(value) === index);
+}
+
 function resolveFetchUrl(input: RequestInfo | URL): string {
   if (typeof input === 'string') {
     return input;
@@ -45,6 +64,18 @@ function resolveFetchUrl(input: RequestInfo | URL): string {
   }
 
   return '';
+}
+
+function resolveRequestMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  if (typeof init?.method === 'string' && init.method.trim() !== '') {
+    return init.method.trim().toUpperCase();
+  }
+
+  if (typeof Request !== 'undefined' && input instanceof Request) {
+    return String(input.method || 'GET').toUpperCase();
+  }
+
+  return 'GET';
 }
 
 function absolutizeUrl(value: string): string {
@@ -66,6 +97,58 @@ function isTargetRestUrl(url: string, restBase: string): boolean {
   const normalizedUrl = absolutizeUrl(url);
   const normalizedRestBase = absolutizeUrl(restBase);
   return normalizedUrl !== '' && normalizedRestBase !== '' && normalizedUrl.startsWith(normalizedRestBase);
+}
+
+function isTargetRestRequest(url: string, restBases: string[]): boolean {
+  return restBases.some((restBase) => isTargetRestUrl(url, restBase));
+}
+
+function extractInternalBooleanHeader(headers: Headers, headerName: string): boolean {
+  const rawValue = String(headers.get(headerName) || '').trim().toLowerCase();
+  headers.delete(headerName);
+  return rawValue === '1' || rawValue === 'true' || rawValue === 'yes';
+}
+
+function normalizeUrlForRequestKey(value: string): string {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    const origin = typeof window !== 'undefined' && window.location && window.location.origin
+      ? window.location.origin
+      : 'https://sosprescription.local';
+    const url = new URL(value, origin);
+    const entries = Array.from(url.searchParams.entries())
+      .filter(([key]) => key !== '_ts')
+      .sort(([keyA, valueA], [keyB, valueB]) => {
+        if (keyA === keyB) {
+          return valueA.localeCompare(valueB);
+        }
+        return keyA.localeCompare(keyB);
+      });
+
+    const normalizedParams = new URLSearchParams();
+    entries.forEach(([key, entryValue]) => {
+      normalizedParams.append(key, entryValue);
+    });
+
+    url.hash = '';
+    url.search = normalizedParams.toString();
+    return url.toString();
+  } catch {
+    return String(value || '');
+  }
+}
+
+function buildInFlightRequestKey(url: string, method: string, headers: Headers): string {
+  const normalizedUrl = normalizeUrlForRequestKey(url);
+  if (!normalizedUrl) {
+    return '';
+  }
+
+  const scope = String(headers.get('X-Sos-Scope') || '').trim().toLowerCase();
+  return `${String(method || 'GET').toUpperCase()} ${normalizedUrl} ${scope}`;
 }
 
 function applyHeaders(target: Headers, source?: HeadersInit): void {
@@ -172,12 +255,16 @@ function installFetchPatch(): void {
 
   const existingState = g.__SosPrescriptionFetchPatch;
   if (existingState && existingState.installed && typeof existingState.originalFetch === 'function') {
+    if (!(existingState.inFlightGetRequests instanceof Map)) {
+      existingState.inFlightGetRequests = new Map<string, Promise<Response>>();
+    }
     return;
   }
 
   const state: FetchPatchState = {
     originalFetch: g.fetch.bind(g),
     installed: true,
+    inFlightGetRequests: new Map<string, Promise<Response>>(),
   };
 
   g.__SosPrescriptionFetchPatch = state;
@@ -188,10 +275,11 @@ function installFetchPatch(): void {
 
     try {
       const activeConfig = getConfigOrNull();
-      const activeRestBase = normalizeRestBase(activeConfig?.restBase);
+      const activeRestBases = resolveRestBases(activeConfig);
       const activeNonce = typeof activeConfig?.nonce === 'string' ? activeConfig.nonce : '';
       const requestUrl = resolveFetchUrl(input);
-      const isTargetRequest = Boolean(requestUrl && activeRestBase && isTargetRestUrl(requestUrl, activeRestBase));
+      const requestMethod = resolveRequestMethod(input, init);
+      const isTargetRequest = Boolean(requestUrl && activeRestBases.length > 0 && isTargetRestRequest(requestUrl, activeRestBases));
 
       if (!isTargetRequest) {
         return activeState.originalFetch(input, init);
@@ -202,6 +290,9 @@ function installFetchPatch(): void {
         applyHeaders(headers, input.headers);
       }
       applyHeaders(headers, init?.headers);
+
+      const bypassInFlightDedup = extractInternalBooleanHeader(headers, INTERNAL_BYPASS_DEDUP_HEADER);
+
       headers.set('X-Sos-Scope', detectScope());
       if (activeNonce) {
         headers.set('X-WP-Nonce', activeNonce);
@@ -209,18 +300,47 @@ function installFetchPatch(): void {
 
       const nextInit: RequestInit = {
         ...init,
+        method: requestMethod,
         headers,
       };
 
-      const response = typeof Request !== 'undefined' && input instanceof Request
-        ? await activeState.originalFetch(new Request(input, nextInit))
-        : await activeState.originalFetch(input, nextInit);
+      const executeRequest = async (): Promise<Response> => {
+        const response = typeof Request !== 'undefined' && input instanceof Request
+          ? await activeState.originalFetch(new Request(input, nextInit))
+          : await activeState.originalFetch(input, nextInit);
 
-      if (response.status >= 400) {
-        await logRejectedResponse(requestUrl, response);
+        if (response.status >= 400) {
+          await logRejectedResponse(requestUrl, response);
+        }
+
+        return response;
+      };
+
+      if (requestMethod !== 'GET' || bypassInFlightDedup) {
+        return executeRequest();
       }
 
-      return response;
+      const requestKey = buildInFlightRequestKey(requestUrl, requestMethod, headers);
+      if (!requestKey) {
+        return executeRequest();
+      }
+
+      const existingPromise = activeState.inFlightGetRequests.get(requestKey);
+      if (existingPromise) {
+        return existingPromise.then((response) => response.clone());
+      }
+
+      const requestPromise = executeRequest();
+      activeState.inFlightGetRequests.set(requestKey, requestPromise);
+
+      requestPromise.finally(() => {
+        const liveState = getGlobalWindow().__SosPrescriptionFetchPatch || activeState;
+        if (liveState.inFlightGetRequests.get(requestKey) === requestPromise) {
+          liveState.inFlightGetRequests.delete(requestKey);
+        }
+      });
+
+      return requestPromise.then((response) => response.clone());
     } catch (error) {
       const requestUrl = resolveFetchUrl(input);
       safeConsoleError(`[FetchPatch] Erreur réseau sur l'URL ${requestUrl || '(inconnue)'}`, {
