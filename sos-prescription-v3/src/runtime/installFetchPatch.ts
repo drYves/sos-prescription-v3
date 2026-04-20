@@ -18,6 +18,8 @@ type GlobalWindow = Window & {
 
 const INTERNAL_BYPASS_DEDUP_HEADER = 'X-Sos-Bypass-Dedup';
 const IN_FLIGHT_DEDUP_BYPASS_URL_PATTERNS = ['/medications'];
+const NONCE_STRIP_URL_PATTERNS = ['/medications/search'];
+const NONCE_STRIP_QUERY_PARAM_KEYS = ['_wpnonce'];
 
 function getGlobalWindow(): GlobalWindow {
   return (typeof globalThis !== 'undefined' ? globalThis : window) as unknown as GlobalWindow;
@@ -161,6 +163,38 @@ function shouldBypassInFlightDedupForUrl(url: string): boolean {
   return IN_FLIGHT_DEDUP_BYPASS_URL_PATTERNS.some((pattern) => normalizedUrl.includes(String(pattern || '').toLowerCase()));
 }
 
+function shouldStripNonceForUrl(url: string): boolean {
+  const normalizedUrl = absolutizeUrl(url).toLowerCase();
+  if (!normalizedUrl) {
+    return false;
+  }
+
+  return NONCE_STRIP_URL_PATTERNS.some((pattern) => normalizedUrl.includes(String(pattern || '').toLowerCase()));
+}
+
+function stripNonceFromUrl(value: string): string {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    const origin = typeof window !== 'undefined' && window.location && window.location.origin
+      ? window.location.origin
+      : 'https://sosprescription.local';
+    const url = new URL(value, origin);
+
+    Array.from(url.searchParams.keys()).forEach((key) => {
+      if (NONCE_STRIP_QUERY_PARAM_KEYS.includes(String(key || '').toLowerCase())) {
+        url.searchParams.delete(key);
+      }
+    });
+
+    return url.toString();
+  } catch {
+    return String(value || '');
+  }
+}
+
 function applyHeaders(target: Headers, source?: HeadersInit): void {
   if (!source) {
     return;
@@ -302,9 +336,15 @@ function installFetchPatch(): void {
       applyHeaders(headers, init?.headers);
 
       const bypassInFlightDedup = extractInternalBooleanHeader(headers, INTERNAL_BYPASS_DEDUP_HEADER);
+      const stripNonceForRequest = shouldStripNonceForUrl(requestUrl);
+      const effectiveRequestUrl = stripNonceForRequest ? stripNonceFromUrl(requestUrl) : requestUrl;
+
+      if (stripNonceForRequest) {
+        headers.delete('X-WP-Nonce');
+      }
 
       headers.set('X-Sos-Scope', detectScope());
-      if (activeNonce) {
+      if (activeNonce && !stripNonceForRequest) {
         headers.set('X-WP-Nonce', activeNonce);
       }
 
@@ -316,23 +356,39 @@ function installFetchPatch(): void {
 
       const executeRequest = async (): Promise<Response> => {
         const response = typeof Request !== 'undefined' && input instanceof Request
-          ? await activeState.originalFetch(new Request(input, nextInit))
-          : await activeState.originalFetch(input, nextInit);
+          ? await activeState.originalFetch(
+            stripNonceForRequest
+              ? new Request(effectiveRequestUrl, {
+                method: requestMethod,
+                headers,
+                cache: init?.cache ?? input.cache,
+                credentials: init?.credentials ?? input.credentials,
+                integrity: init?.integrity ?? input.integrity,
+                keepalive: init?.keepalive ?? input.keepalive,
+                mode: init?.mode ?? input.mode,
+                redirect: init?.redirect ?? input.redirect,
+                referrer: init?.referrer ?? input.referrer,
+                referrerPolicy: init?.referrerPolicy ?? input.referrerPolicy,
+                signal: init?.signal ?? input.signal,
+              })
+              : new Request(input, nextInit)
+          )
+          : await activeState.originalFetch(effectiveRequestUrl || input, nextInit);
 
         if (response.status >= 400) {
-          await logRejectedResponse(requestUrl, response);
+          await logRejectedResponse(effectiveRequestUrl, response);
         }
 
         return response;
       };
 
-      const bypassUrlDedup = shouldBypassInFlightDedupForUrl(requestUrl);
+      const bypassUrlDedup = shouldBypassInFlightDedupForUrl(effectiveRequestUrl);
 
       if (requestMethod !== 'GET' || bypassInFlightDedup || bypassUrlDedup) {
         return executeRequest();
       }
 
-      const requestKey = buildInFlightRequestKey(requestUrl, requestMethod, headers);
+      const requestKey = buildInFlightRequestKey(effectiveRequestUrl, requestMethod, headers);
       if (!requestKey) {
         return executeRequest();
       }
@@ -355,8 +411,9 @@ function installFetchPatch(): void {
       return requestPromise.then((response) => response.clone());
     } catch (error) {
       const requestUrl = resolveFetchUrl(input);
-      safeConsoleError(`[FetchPatch] Erreur réseau sur l'URL ${requestUrl || '(inconnue)'}`, {
-        url: requestUrl || '(inconnue)',
+      const effectiveRequestUrl = shouldStripNonceForUrl(requestUrl) ? stripNonceFromUrl(requestUrl) : requestUrl;
+      safeConsoleError(`[FetchPatch] Erreur réseau sur l'URL ${effectiveRequestUrl || '(inconnue)'}`, {
+        url: effectiveRequestUrl || '(inconnue)',
         error,
       });
       throw error;
