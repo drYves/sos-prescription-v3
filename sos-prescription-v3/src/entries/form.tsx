@@ -2679,8 +2679,15 @@ function StepClinicalData({
   onConsentPrivacyChange,
   onContinue,
 }: StepClinicalDataProps) {
+  const showMedicationFallback = flow === 'ro_proof' && rejectedFiles.length > 0;
+  const showMedicationSearch = flow === 'depannage_no_proof'
+    || showMedicationFallback;
   const showMedicationSection = flow === 'depannage_no_proof'
-    || flow === 'ro_proof';
+    || items.length > 0
+    || showMedicationFallback;
+  const medicationSectionHint = flow === 'ro_proof' && !showMedicationSearch
+    ? 'Vérifiez le traitement détecté puis ajustez la posologie si nécessaire.'
+    : 'Ajoutez chaque médicament puis ajustez la posologie si nécessaire.';
 
   return (
     <div className="sp-app-stack">
@@ -2904,15 +2911,17 @@ function StepClinicalData({
             <div>
               <h2 className="sp-app-section__title">Traitement demandé</h2>
               <p className="sp-app-section__hint">
-                Ajoutez chaque médicament puis ajustez la posologie si nécessaire.
+                {medicationSectionHint}
               </p>
             </div>
           </div>
 
-          <div className="sp-app-field sp-app-field--search">
-            <label className="sp-app-field__label">Médicament concerné</label>
-            <MedicationSearch onSelect={onAddMedication} />
-          </div>
+          {showMedicationSearch ? (
+            <div className="sp-app-field sp-app-field--search">
+              <label className="sp-app-field__label">Médicament concerné</label>
+              <MedicationSearch onSelect={onAddMedication} />
+            </div>
+          ) : null}
 
           {items.length > 0 ? (
             <div className="sp-app-medication-list">
@@ -3067,6 +3076,10 @@ function StepClinicalData({
       ) : null}
 
       <div className="sp-app-actions">
+        <Button type="button" variant="secondary" onClick={onBackToChoice} disabled={submitLoading}>
+          Retour
+        </Button>
+
         <Button type="button" onClick={onContinue} disabled={submitLoading}>
           Continuer
         </Button>
@@ -4250,7 +4263,18 @@ function PublicFormApp() {
     }
   }, [submissionResult?.uid]);
 
+  const handleBackToChoice = useCallback(() => {
+    setSubmitError(null);
+    setStage('choose');
+  }, []);
+
   const handleSelectFlow = useCallback((nextFlow: FlowType) => {
+    if (nextFlow === flow) {
+      setSubmitError(null);
+      setStage('form');
+      return;
+    }
+
     setFlow(nextFlow);
     setFiles([]);
     setRejectedFiles([]);
@@ -4264,7 +4288,7 @@ function PublicFormApp() {
     setResumedDraftRef(null);
     submissionRefStateRef.current = { ref: null };
     setStage('form');
-  }, []);
+  }, [flow]);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -4699,7 +4723,7 @@ function PublicFormApp() {
             consentPrivacy={consentPrivacy}
             compliance={compliance}
             submitLoading={submitLoading}
-            onBackToChoice={() => setStage('choose')}
+            onBackToChoice={handleBackToChoice}
             onFullNameChange={handleFullNameChange}
             onBirthdateChange={handleBirthdateChange}
             onDraftEmailChange={setDraftEmail}
