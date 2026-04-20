@@ -35,26 +35,6 @@ final class V4AuthGuard
         return true;
     }
 
-    /**
-     * @return true|WP_Error
-     */
-    public function requirePublicNonce(WP_REST_Request $request)
-    {
-        $nonce = $this->extractRestNonce($request);
-        if ($nonce === '') {
-            return true;
-        }
-
-        if (!wp_verify_nonce($nonce, 'wp_rest')) {
-            return new WP_Error(
-                'sosprescription_bad_nonce',
-                'Nonce REST invalide.',
-                ['status' => 403]
-            );
-        }
-
-        return true;
-    }
 
     /**
      * @return true|WP_Error

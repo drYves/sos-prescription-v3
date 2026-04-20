@@ -7,7 +7,6 @@ namespace SosPrescription\Rest;
 
 use SosPrescription\Services\DraftRepository;
 use SosPrescription\Services\PrescriptionProjectionStore;
-use SosPrescription\Services\V4AuthGuard;
 use SosPrescription\Services\V4InputNormalizer;
 use SosPrescription\Services\V4ProxyConfig;
 use SosPrescription\Services\V4WorkerTransport;
@@ -21,14 +20,9 @@ final class V4ProxyController
 
     public static function register(): void
     {
-        $authGuard = new V4AuthGuard();
-        $requirePublicNonce = static function (WP_REST_Request $request) use ($authGuard) {
-            return $authGuard->requirePublicNonce($request);
-        };
-
         register_rest_route(self::NAMESPACE_V4, '/medications/search', [
             'methods' => 'GET',
-            'permission_callback' => $requirePublicNonce,
+            'permission_callback' => '__return_true',
             'callback' => [self::class, 'medicationsSearchRoute'],
         ], true);
     }
