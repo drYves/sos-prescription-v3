@@ -5,6 +5,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import PatientConsole from '../components/PatientConsole';
 import StripePaymentModule, { type StripePaymentResolutionMeta, toMedicalGradePaymentErrorMessage } from '../components/payment/StripePaymentModule';
+import { buildDraftFileManifest, buildDraftPayload, buildFinalizePayload } from './formTunnel/builders';
+import { hydrateStoredDraftPayload } from './formTunnel/hydrators';
+import type { ClinicalState, FlowType as TunnelFlowType, UIState, WorkflowState } from './formTunnel/types';
 
 type AppConfig = {
   restBase: string;
@@ -1041,79 +1044,6 @@ function clearAppBrowserStateStorage(): void {
   } catch {
     // noop
   }
-}
-
-function createPlaceholderFile(name: string, mimeType: string): File {
-  try {
-    return new File([''], name || 'document', { type: mimeType || 'application/octet-stream' });
-  } catch {
-    return new Blob([''], { type: mimeType || 'application/octet-stream' }) as File;
-  }
-}
-
-function normalizeStoredDraftItems(value: unknown): MedicationItem[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null;
-      }
-
-      const item = entry as Record<string, unknown>;
-      const label = typeof item.label === 'string' ? item.label.trim() : '';
-      if (!label) {
-        return null;
-      }
-
-      return {
-        cis: typeof item.cis === 'string' && item.cis.trim() !== '' ? item.cis.trim() : undefined,
-        cip13: typeof item.cip13 === 'string' && item.cip13.trim() !== '' ? item.cip13.trim() : null,
-        label,
-        schedule: normalizeSchedule(item.schedule && typeof item.schedule === 'object' ? item.schedule as Partial<Schedule> : {}),
-        quantite: typeof item.quantite === 'string' && item.quantite.trim() !== '' ? item.quantite.trim() : undefined,
-      } satisfies MedicationItem;
-    })
-    .filter((entry): entry is MedicationItem => Boolean(entry));
-}
-
-function normalizeStoredDraftFiles(value: unknown): LocalUpload[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry, index) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null;
-      }
-
-      const file = entry as Record<string, unknown>;
-      const originalName = typeof file.original_name === 'string' && file.original_name.trim() !== ''
-        ? file.original_name.trim()
-        : `document-${index + 1}.pdf`;
-      const mimeType = typeof file.mime_type === 'string' && file.mime_type.trim() !== ''
-        ? file.mime_type.trim()
-        : 'application/octet-stream';
-      const sizeBytes = Number(file.size_bytes || 0);
-      const normalizedStatus = typeof file.status === 'string' && file.status.trim().toUpperCase() === 'READY'
-        ? 'READY'
-        : 'QUEUED';
-
-      return {
-        id: typeof file.id === 'string' && file.id.trim() !== '' ? file.id.trim() : `restored_${index}_${Date.now()}`,
-        file: createPlaceholderFile(originalName, mimeType),
-        original_name: originalName,
-        mime: mimeType,
-        mime_type: mimeType,
-        size_bytes: Number.isFinite(sizeBytes) ? sizeBytes : 0,
-        kind: 'PROOF',
-        status: normalizedStatus,
-      } satisfies LocalUpload;
-    })
-    .filter((entry): entry is LocalUpload => Boolean(entry));
 }
 
 function resolveFlowFromUrl(): FlowType | null {
@@ -3690,6 +3620,83 @@ function PublicFormApp() {
   const [consentCgu, setConsentCgu] = useState(false);
   const [consentPrivacy, setConsentPrivacy] = useState(false);
 
+  const clinicalState = useMemo<ClinicalState>(() => ({
+    flow,
+    priority,
+    fullName,
+    birthdate,
+    medicalNotes,
+    items,
+    files,
+    draftEmail,
+    attestationNoProof,
+    consentTelemedicine,
+    consentTruth,
+    consentCgu,
+    consentPrivacy,
+  }), [
+    attestationNoProof,
+    birthdate,
+    consentCgu,
+    consentPrivacy,
+    consentTelemedicine,
+    consentTruth,
+    draftEmail,
+    files,
+    flow,
+    fullName,
+    items,
+    medicalNotes,
+    priority,
+  ]);
+
+  const uiState = useMemo<UIState>(() => ({
+    medEditor,
+    pricingLoading,
+    analysisInProgress,
+    analysisMessage,
+    rejectedFiles,
+    submitError,
+    submitLoading,
+    copiedUid,
+    draftEmailLocked,
+    draftSending,
+    draftSent,
+    draftSuccessMessage,
+  }), [
+    analysisInProgress,
+    analysisMessage,
+    copiedUid,
+    draftEmailLocked,
+    draftSending,
+    draftSent,
+    draftSuccessMessage,
+    medEditor,
+    pricingLoading,
+    rejectedFiles,
+    submitError,
+    submitLoading,
+  ]);
+
+  const workflowState = useMemo<WorkflowState>(() => ({
+    stage,
+    pricing,
+    paymentsConfig,
+    preparedSubmission,
+    submissionResult,
+    draftResumeLoading,
+    resumedDraftRef,
+    submissionRef: submissionRefStateRef.current.ref,
+  }), [
+    draftResumeLoading,
+    paymentsConfig,
+    preparedSubmission,
+    pricing,
+    resumedDraftRef,
+    stage,
+    submissionResult,
+  ]);
+
   useEffect(() => {
     if (!medEditor) {
       return;
@@ -3929,66 +3936,37 @@ function PublicFormApp() {
           return;
         }
 
-        const patient = payload.patient && typeof payload.patient === 'object' && !Array.isArray(payload.patient)
-          ? payload.patient as Record<string, unknown>
-          : {};
-        const joinedName = [
-          firstNonEmptyString(patient.firstName, patient.first_name),
-          firstNonEmptyString(patient.lastName, patient.last_name),
-        ].filter(Boolean).join(' ');
-        const nextFullName = safePatientNameValue(firstNonEmptyString(patient.fullname, patient.fullName, joinedName));
-        const nextBirthdate = firstNonEmptyString(patient.birthdate, patient.birthDate);
-        const nextNotes = firstNonEmptyString(
-          payload.private_notes,
-          patient.note,
-          patient.medical_notes,
-          patient.medicalNotes,
-        );
+        const hydratedDraft = hydrateStoredDraftPayload({
+          payload,
+          fallbackEmail: resolveKnownPatientEmail(config) || normalizeKnownEmailValue(String(config.currentUser?.email || '').trim()) || '',
+        });
 
-        const nextFlow = payload.flow === 'ro_proof' || payload.flow === 'depannage_no_proof'
-          ? payload.flow
-          : null;
-
-        if (nextFlow) {
-          setFlow(nextFlow);
+        if (hydratedDraft.flow) {
+          setFlow(hydratedDraft.flow);
         }
-        setPriority(payload.priority === 'express' ? 'express' : 'standard');
-        if (nextFullName) {
-          setFullName(nextFullName);
+        setPriority(hydratedDraft.priority);
+        if (hydratedDraft.fullName) {
+          setFullName(hydratedDraft.fullName);
         }
-        if (nextBirthdate) {
-          setBirthdate(nextBirthdate);
+        if (hydratedDraft.birthdate) {
+          setBirthdate(hydratedDraft.birthdate);
         }
-        setMedicalNotes(nextNotes);
-        setItems(normalizeStoredDraftItems(payload.items));
-        setFiles(normalizeStoredDraftFiles(payload.files));
+        setMedicalNotes(hydratedDraft.medicalNotes);
+        setItems(hydratedDraft.items);
+        setFiles(hydratedDraft.files);
         setRejectedFiles([]);
         setAnalysisMessage(null);
         setPreparedSubmission(null);
         setSubmissionResult(null);
-        const resumedEmail = normalizeKnownEmailValue(
-          typeof payload.email === 'string'
-            ? payload.email
-            : firstNonEmptyString(patient.email, patient.email_address),
-        ) || resolveKnownPatientEmail(config) || normalizeKnownEmailValue(String(config.currentUser?.email || '').trim()) || '';
-        setDraftEmail(resumedEmail);
-        setDraftEmailLocked(Boolean(resumedEmail));
+        setDraftEmail(hydratedDraft.draftEmail);
+        setDraftEmailLocked(hydratedDraft.draftEmailLocked);
         setDraftSent(false);
         setDraftSuccessMessage(null);
-        setAttestationNoProof(Boolean(payload.attestation_no_proof));
-        const storedConsent = payload.consent;
-        if (storedConsent && typeof storedConsent === 'object' && !Array.isArray(storedConsent)) {
-          const consent = storedConsent as Record<string, unknown>;
-          setConsentTelemedicine(Boolean(consent.telemedicine));
-          setConsentTruth(Boolean(consent.truth));
-          setConsentCgu(Boolean(consent.cgu));
-          setConsentPrivacy(Boolean(consent.privacy));
-        } else {
-          setConsentTelemedicine(false);
-          setConsentTruth(false);
-          setConsentCgu(false);
-          setConsentPrivacy(false);
-        }
+        setAttestationNoProof(hydratedDraft.attestationNoProof);
+        setConsentTelemedicine(hydratedDraft.consentTelemedicine);
+        setConsentTruth(hydratedDraft.consentTruth);
+        setConsentCgu(hydratedDraft.consentCgu);
+        setConsentPrivacy(hydratedDraft.consentPrivacy);
 
         submissionRefStateRef.current = { ref: draftRef };
         setResumedDraftRef(draftRef);
@@ -4102,7 +4080,7 @@ function PublicFormApp() {
       return currentRef;
     }
 
-    if (!flow) {
+    if (!clinicalState.flow) {
       throw new Error('Référence de soumission manquante.');
     }
 
@@ -4275,14 +4253,14 @@ function PublicFormApp() {
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
 
-    if (!submitBlockInfo.ok || !flow) {
+    if (!submitBlockInfo.ok || !clinicalState.flow) {
       setSubmitError(
         submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.',
       );
       return;
     }
 
-    const patientFullName = safePatientNameValue(fullName);
+    const patientFullName = safePatientNameValue(clinicalState.fullName);
     const patientName = splitPatientNameValue(patientFullName);
     if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
       setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
@@ -4290,14 +4268,14 @@ function PublicFormApp() {
     }
 
     setStage('priority_selection');
-  }, [flow, fullName, submitBlockInfo]);
+  }, [clinicalState.flow, clinicalState.fullName, submitBlockInfo]);
 
   const handleSendDraftLink = useCallback(async () => {
     setSubmitError(null);
     setDraftSuccessMessage(null);
     setDraftSent(false);
 
-    if (!flow) {
+    if (!clinicalState.flow) {
       setSubmitError('Merci de choisir un parcours avant de continuer.');
       return;
     }
@@ -4309,78 +4287,44 @@ function PublicFormApp() {
       return;
     }
 
-    const patientFullName = safePatientNameValue(fullName);
+    const patientFullName = safePatientNameValue(clinicalState.fullName);
     const patientName = splitPatientNameValue(patientFullName);
     if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
       setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
       return;
     }
 
-    const email = String(draftEmail || '').trim().toLowerCase();
+    const email = String(clinicalState.draftEmail || '').trim().toLowerCase();
     if (!isEmailLikeValue(email)) {
       setSubmitError('Merci de renseigner une adresse e-mail valide.');
       return;
     }
 
-    const fileManifest = files.map((file) => ({
-      id: file.id,
-      original_name: file.original_name,
-      mime_type: file.mime_type || file.mime || 'application/octet-stream',
-      size_bytes: Number.isFinite(Number(file.size_bytes || 0)) ? Number(file.size_bytes || 0) : 0,
-      kind: 'PROOF',
-      status: file.status === 'READY' ? 'READY' : 'QUEUED',
-    }));
+    const activeFlow = clinicalState.flow;
+    if (!activeFlow) {
+      setSubmitError('Merci de choisir un parcours avant de continuer.');
+      return;
+    }
+
+    const draftClinicalState: ClinicalState & { flow: TunnelFlowType } = {
+      ...clinicalState,
+      flow: activeFlow,
+      draftEmail: email,
+    };
+    const fileManifest = buildDraftFileManifest(draftClinicalState.files);
 
     setDraftSending(true);
 
     try {
-      const response = await saveSubmissionDraftApi({
-        email,
-        flow,
-        priority,
-        redirect_to: buildCurrentFormRedirectUrl(),
-        patient: {
-          email,
-          fullname: patientFullName,
-          firstName: patientName.firstName,
-          lastName: patientName.lastName,
-          birthdate: birthdate.trim(),
-          birthDate: birthdate.trim(),
-          note: medicalNotes.trim() || undefined,
-          medical_notes: medicalNotes.trim() || undefined,
-          medicalNotes: medicalNotes.trim() || undefined,
-        },
-        items: items.map((item) => {
-          const payload: Record<string, unknown> = {
-            label: (item.label || '').trim(),
-            schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : {},
-          };
-
-          if (item.cis) {
-            payload.cis = String(item.cis);
-          }
-          if (item.cip13) {
-            payload.cip13 = String(item.cip13);
-          }
-          if (item.quantite) {
-            payload.quantite = String(item.quantite);
-          }
-
-          return payload;
-        }),
-        privateNotes: medicalNotes.trim() || undefined,
-        files: fileManifest,
-        consent: consentRequired ? {
-          telemedicine: consentTelemedicine,
-          truth: consentTruth,
-          cgu: consentCgu,
-          privacy: consentPrivacy,
-          timestamp: new Date().toISOString(),
-          cgu_version: compliance?.cgu_version ? String(compliance.cgu_version) : '',
-          privacy_version: compliance?.privacy_version ? String(compliance.privacy_version) : '',
-        } : undefined,
-        attestation_no_proof: flow === 'depannage_no_proof' ? attestationNoProof : undefined,
-      });
+      const response = await saveSubmissionDraftApi(buildDraftPayload({
+        clinicalState: draftClinicalState,
+        redirectTo: buildCurrentFormRedirectUrl(),
+        consentRequired,
+        consentTimestamp: new Date().toISOString(),
+        cguVersion: compliance?.cgu_version,
+        privacyVersion: compliance?.privacy_version,
+        fileManifest,
+      }));
 
       const submissionRef = typeof response.submission_ref === 'string' ? response.submission_ref.trim() : '';
       if (!submissionRef) {
@@ -4389,7 +4333,7 @@ function PublicFormApp() {
 
       submissionRefStateRef.current = { ref: submissionRef };
 
-      const uploadableEntries = files.filter((entry) => entry.file instanceof File && Number(entry.file.size || 0) > 0);
+      const uploadableEntries = draftClinicalState.files.filter((entry) => entry.file instanceof File && Number(entry.file.size || 0) > 0);
       const failedUploads: string[] = [];
 
       for (const entry of uploadableEntries) {
@@ -4439,48 +4383,30 @@ function PublicFormApp() {
     } finally {
       setDraftSending(false);
     }
-  }, [
-    attestationNoProof,
-    birthdate,
-    compliance?.cgu_version,
-    compliance?.privacy_version,
-    consentCgu,
-    consentPrivacy,
-    consentRequired,
-    consentTelemedicine,
-    consentTruth,
-    draftEmail,
-    files,
-    flow,
-    fullName,
-    items,
-    medicalNotes,
-    priority,
-    submitBlockInfo,
-  ]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, submitBlockInfo]);
 
   const prepareSubmissionForPayment = useCallback(async (): Promise<SubmissionResult | null> => {
     setSubmitError(null);
 
-    if (preparedSubmission && Number(preparedSubmission.id) > 0) {
-      return preparedSubmission;
+    if (workflowState.preparedSubmission && Number(workflowState.preparedSubmission.id) > 0) {
+      return workflowState.preparedSubmission;
     }
 
     setSubmitError(null);
 
     frontendLog('submit_clicked', 'info', {
-      flow: flow || null,
-      stage,
+      flow: clinicalState.flow || null,
+      stage: workflowState.stage,
       logged_in: isLoggedIn,
-      meds_count: items.length,
-      files_count: files.length,
+      meds_count: clinicalState.items.length,
+      files_count: clinicalState.files.length,
     });
 
-    if (!submitBlockInfo.ok || !flow) {
+    if (!submitBlockInfo.ok || !clinicalState.flow) {
       const message = submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.';
       frontendLog('submit_blocked', 'warning', {
-        flow: flow || null,
-        stage,
+        flow: clinicalState.flow || null,
+        stage: workflowState.stage,
         reason_code: submitBlockInfo.code || 'unknown',
         reasons: submitBlockInfo.reasons.map((reason) => reason.code),
         message,
@@ -4489,7 +4415,7 @@ function PublicFormApp() {
       return null;
     }
 
-    const patientFullName = safePatientNameValue(fullName);
+    const patientFullName = safePatientNameValue(clinicalState.fullName);
     const patientName = splitPatientNameValue(patientFullName);
     if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
       setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
@@ -4501,65 +4427,36 @@ function PublicFormApp() {
     try {
       const submissionRef = await ensureSubmissionRef();
 
-      let finalItems = Array.isArray(items) ? items.slice() : [];
+      const activeFlow = clinicalState.flow;
+      if (!activeFlow) {
+        throw new Error('Merci de choisir un parcours avant de continuer.');
+      }
 
-      const finalizePayload = {
-        flow,
-        priority,
-        patient: {
-          fullname: patientFullName,
-          firstName: patientName.firstName,
-          lastName: patientName.lastName,
-          birthdate: birthdate.trim(),
-          birthDate: birthdate.trim(),
-          note: medicalNotes.trim() || undefined,
-          medical_notes: medicalNotes.trim() || undefined,
-          medicalNotes: medicalNotes.trim() || undefined,
-        },
-        items: finalItems.map((item) => {
-          const payload: Record<string, unknown> = {
-            label: (item.label || '').trim(),
-            schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : {},
-          };
-
-          if (item.cis) {
-            payload.cis = String(item.cis);
-          }
-          if (item.cip13) {
-            payload.cip13 = String(item.cip13);
-          }
-          if (item.quantite) {
-            payload.quantite = String(item.quantite);
-          }
-
-          return payload;
-        }),
-        privateNotes: medicalNotes.trim() || undefined,
-        consent: consentRequired ? {
-          telemedicine: consentTelemedicine,
-          truth: consentTruth,
-          cgu: consentCgu,
-          privacy: consentPrivacy,
-          timestamp: new Date().toISOString(),
-          cgu_version: compliance?.cgu_version ? String(compliance.cgu_version) : '',
-          privacy_version: compliance?.privacy_version ? String(compliance.privacy_version) : '',
-        } : undefined,
-        attestation_no_proof: flow === 'depannage_no_proof' ? attestationNoProof : undefined,
+      const finalizeClinicalState: ClinicalState & { flow: TunnelFlowType } = {
+        ...clinicalState,
+        flow: activeFlow,
       };
+      const finalizePayload = buildFinalizePayload({
+        clinicalState: finalizeClinicalState,
+        consentRequired,
+        consentTimestamp: new Date().toISOString(),
+        cguVersion: compliance?.cgu_version,
+        privacyVersion: compliance?.privacy_version,
+      });
 
-      const allowProofOnlyFinalize = flow === 'ro_proof' && files.length > 0 && Boolean(resumedDraftRef);
+      const allowProofOnlyFinalize = finalizeClinicalState.flow === 'ro_proof' && finalizeClinicalState.files.length > 0 && Boolean(workflowState.resumedDraftRef);
       if ((!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) && !allowProofOnlyFinalize) {
         throw new Error(
-          flow === 'ro_proof'
+          finalizeClinicalState.flow === 'ro_proof'
             ? 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.'
             : 'Merci d’ajouter au moins un médicament.',
         );
       }
 
       frontendLog('submission_finalize_start', 'info', {
-        flow,
+        flow: finalizeClinicalState.flow,
         items_count: finalizePayload.items.length,
-        files_count: files.length,
+        files_count: finalizeClinicalState.files.length,
       });
 
       const finalized = await finalizeSubmissionApi(submissionRef, finalizePayload);
@@ -4572,7 +4469,7 @@ function PublicFormApp() {
       };
 
       frontendLog('submission_finalize_ok', 'info', {
-        flow,
+        flow: finalizeClinicalState.flow,
         prescription_id: result.id || null,
         uid: result.uid || null,
         status: result.status || null,
@@ -4587,45 +4484,23 @@ function PublicFormApp() {
     } catch (error) {
       const message = toPatientSafeSubmissionErrorMessage(error);
       frontendLog('submission_error', 'error', {
-        flow: flow || null,
-        stage,
+        flow: clinicalState.flow || null,
+        stage: workflowState.stage,
         message,
-        meds_count: items.length,
-        files_count: files.length,
+        meds_count: clinicalState.items.length,
+        files_count: clinicalState.files.length,
       });
       setSubmitError(message);
       return null;
     } finally {
       setSubmitLoading(false);
     }
-  }, [
-    attestationNoProof,
-    birthdate,
-    compliance?.cgu_version,
-    compliance?.privacy_version,
-    consentCgu,
-    consentPrivacy,
-    consentRequired,
-    consentTelemedicine,
-    consentTruth,
-    files,
-    flow,
-    fullName,
-    isLoggedIn,
-    items,
-    medicalNotes,
-    preparedSubmission,
-    priority,
-    resumedDraftRef,
-    stage,
-    submitBlockInfo,
-    ensureSubmissionRef,
-  ]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, isLoggedIn, submitBlockInfo, workflowState]);
 
   const handleContinueToPaymentAuth = useCallback(async () => {
     setSubmitError(null);
 
-    if (pricingLoading) {
+    if (uiState.pricingLoading) {
       setSubmitError('Le montant de votre demande est en cours de préparation. Merci de patienter quelques instants.');
       return;
     }
@@ -4645,7 +4520,7 @@ function PublicFormApp() {
       return;
     }
 
-    if (preparedSubmission && Number(preparedSubmission.id) > 0) {
+    if (workflowState.preparedSubmission && Number(workflowState.preparedSubmission.id) > 0) {
       setStage('payment_auth');
       return;
     }
@@ -4654,7 +4529,7 @@ function PublicFormApp() {
     if (nextSubmission && Number(nextSubmission.id) > 0) {
       setStage('payment_auth');
     }
-  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, preparedSubmission, pricing, pricingLoading, selectedAmount]);
+  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, pricing, selectedAmount, uiState.pricingLoading, workflowState.preparedSubmission]);
 
   const handlePaymentAuthorized = useCallback(() => {
     if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
