@@ -22,13 +22,13 @@ final class V4ProxyController
     public static function register(): void
     {
         $authGuard = new V4AuthGuard();
-        $requireLoggedInNonce = static function (WP_REST_Request $request) use ($authGuard) {
-            return $authGuard->requireLoggedInNonce($request);
+        $requirePublicNonce = static function (WP_REST_Request $request) use ($authGuard) {
+            return $authGuard->requirePublicNonce($request);
         };
 
         register_rest_route(self::NAMESPACE_V4, '/medications/search', [
             'methods' => 'GET',
-            'permission_callback' => $requireLoggedInNonce,
+            'permission_callback' => $requirePublicNonce,
             'callback' => [self::class, 'medicationsSearchRoute'],
         ], true);
     }

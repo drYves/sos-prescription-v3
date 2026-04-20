@@ -23,8 +23,29 @@ final class V4AuthGuard
             );
         }
 
-        $nonce = (string) ($request->get_header('X-WP-Nonce') ?: $request->get_header('x-wp-nonce'));
+        $nonce = $this->extractRestNonce($request);
         if ($nonce === '' || !wp_verify_nonce($nonce, 'wp_rest')) {
+            return new WP_Error(
+                'sosprescription_bad_nonce',
+                'Nonce REST invalide.',
+                ['status' => 403]
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * @return true|WP_Error
+     */
+    public function requirePublicNonce(WP_REST_Request $request)
+    {
+        $nonce = $this->extractRestNonce($request);
+        if ($nonce === '') {
+            return true;
+        }
+
+        if (!wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_Error(
                 'sosprescription_bad_nonce',
                 'Nonce REST invalide.',
@@ -99,6 +120,25 @@ final class V4AuthGuard
             'Accès refusé.',
             ['status' => 403]
         );
+    }
+
+    private function extractRestNonce(WP_REST_Request $request): string
+    {
+        $headerNonce = $request->get_header('X-WP-Nonce');
+        if (!is_scalar($headerNonce) || trim((string) $headerNonce) === '') {
+            $headerNonce = $request->get_header('x-wp-nonce');
+        }
+
+        if (is_scalar($headerNonce) && trim((string) $headerNonce) !== '') {
+            return trim((string) $headerNonce);
+        }
+
+        $paramNonce = $request->get_param('_wpnonce');
+        if (is_scalar($paramNonce) && trim((string) $paramNonce) !== '') {
+            return trim((string) $paramNonce);
+        }
+
+        return '';
     }
 
     private function isDoctorLike(): bool
