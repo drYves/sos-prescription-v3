@@ -7,6 +7,7 @@ namespace SosPrescription\Rest;
 
 use SosPrescription\Services\DraftRepository;
 use SosPrescription\Services\PrescriptionProjectionStore;
+use SosPrescription\Services\V4AuthGuard;
 use SosPrescription\Services\V4InputNormalizer;
 use SosPrescription\Services\V4ProxyConfig;
 use SosPrescription\Services\V4WorkerTransport;
@@ -16,6 +17,27 @@ use WP_REST_Request;
 
 final class V4ProxyController
 {
+    private const NAMESPACE_V4 = 'sosprescription/v4';
+
+    public static function register(): void
+    {
+        $authGuard = new V4AuthGuard();
+        $requireLoggedInNonce = static function (WP_REST_Request $request) use ($authGuard) {
+            return $authGuard->requireLoggedInNonce($request);
+        };
+
+        register_rest_route(self::NAMESPACE_V4, '/medications/search', [
+            'methods' => 'GET',
+            'permission_callback' => $requireLoggedInNonce,
+            'callback' => [self::class, 'medicationsSearchRoute'],
+        ], true);
+    }
+
+    public static function medicationsSearchRoute(WP_REST_Request $request)
+    {
+        return self::performMedicationsSearch($request);
+    }
+
     public function __construct(
         private V4InputNormalizer $input,
         private V4WorkerTransport $transport,
@@ -40,10 +62,7 @@ final class V4ProxyController
 
     public function medicationsSearch(WP_REST_Request $request)
     {
-        $query = trim((string) $request->get_param('q'));
-        $limit = (int) ($request->get_param('limit') ?? 20);
-
-        return $this->transport->medicationsSearch($query, $limit);
+        return self::performMedicationsSearch($request);
     }
 
     public function messagesPolish(WP_REST_Request $request)
@@ -369,6 +388,16 @@ final class V4ProxyController
                 ]
             );
         }
+    }
+
+    private static function performMedicationsSearch(WP_REST_Request $request)
+    {
+        $input = new V4InputNormalizer();
+        $transport = new V4WorkerTransport($input);
+        $query = trim((string) $request->get_param('q'));
+        $limit = (int) ($request->get_param('limit') ?? 20);
+
+        return $transport->medicationsSearch($query, $limit);
     }
 
     /**

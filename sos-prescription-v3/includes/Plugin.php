@@ -1,4 +1,4 @@
-<?php // includes/Plugin.php · V9.0.0
+<?php // includes/Plugin.php · V9.0.3
 declare(strict_types=1);
 
 namespace SosPrescription;
@@ -28,6 +28,7 @@ use SosPrescription\Rest\PatientV4Controller;
 use SosPrescription\Rest\DoctorV4Controller;
 use SosPrescription\Rest\AuthV4Controller;
 use SosPrescription\Rest\AccountV4Controller;
+use SosPrescription\Rest\V4ProxyController;
 use SosPrescription\Rest\MessagesController;
 use SosPrescription\Rest\MessagesV4Controller;
 use SosPrescription\Rest\ErrorResponder;
@@ -57,6 +58,8 @@ use SosPrescription\Services\LegalPages;
 
 final class Plugin
 {
+    private const VERSION = '9.0.3';
+
     private static bool $deferred_services_booted = false;
 
     public static function init(): void
@@ -98,6 +101,7 @@ final class Plugin
         add_action('rest_api_init', [AccountV4Controller::class, 'register']);
         add_action('rest_api_init', [MessagesController::class, 'register']);
         add_action('rest_api_init', [MessagesV4Controller::class, 'register']);
+        add_action('rest_api_init', [V4ProxyController::class, 'register']);
         ErrorResponder::register_hooks();
 
         // Routes worker v3 (signed claim + render + callback) + BFF v4.
@@ -170,7 +174,7 @@ final class Plugin
 
     private static function maybe_upgrade(): void
     {
-        $currentVersion = defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '';
+        $currentVersion = defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : self::VERSION;
         if ($currentVersion === '') {
             return;
         }
@@ -285,7 +289,7 @@ final class Plugin
             'sosprescription-legal-documents',
             SOSPRESCRIPTION_URL . 'assets/legal-documents.css',
             [],
-            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '9.0.0'
+            defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : self::VERSION
         );
     }
 
@@ -300,7 +304,7 @@ final class Plugin
         }
 
         $payload = [
-            'version' => defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : '',
+            'version' => defined('SOSPRESCRIPTION_VERSION') ? (string) SOSPRESCRIPTION_VERSION : self::VERSION,
             'status' => 'ok',
             'php_version' => PHP_VERSION,
             'logs_dir' => Logger::dir(),
