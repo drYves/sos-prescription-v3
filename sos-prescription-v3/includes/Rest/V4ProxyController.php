@@ -26,11 +26,6 @@ final class V4ProxyController
             'callback' => [self::class, 'medicationsSearchRoute'],
         ], true);
 
-        register_rest_route(self::NAMESPACE_V4, '/messages/polish', [
-            'methods' => 'POST',
-            'permission_callback' => [self::class, 'messagesPolishPermission'],
-            'callback' => [self::class, 'messagesPolishRoute'],
-        ], true);
     }
 
     public static function medicationsSearchRoute(WP_REST_Request $request)

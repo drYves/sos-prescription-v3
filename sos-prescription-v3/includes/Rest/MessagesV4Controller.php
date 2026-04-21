@@ -56,11 +56,6 @@ final class MessagesV4Controller extends \WP_REST_Controller
             'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
         ]);
 
-        register_rest_route(self::NAMESPACE_V4, '/messages/polish', [
-            'methods' => 'POST',
-            'callback' => [$controller, 'polish'],
-            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
-        ], true);
     }
 
     public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error

@@ -185,6 +185,12 @@ final class Routes
         ]);
 
 
+        register_rest_route('sosprescription/v4', '/messages/polish', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => [V4ProxyController::class, 'messagesPolishRoute'],
+            'permission_callback' => [V4ProxyController::class, 'messagesPolishPermission'],
+        ], true);
+
         register_rest_route('sosprescription/v1', '/patient/profile', [
             'methods' => 'POST',
             'callback' => [$patient, 'update_profile'],
