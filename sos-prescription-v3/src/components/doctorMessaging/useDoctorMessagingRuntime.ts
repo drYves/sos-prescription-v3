@@ -107,6 +107,20 @@ function readStatusCode(error: unknown): number {
     if (Number.isFinite(responseStatus) && responseStatus > 0) {
       return Math.trunc(responseStatus);
     }
+
+    const data = (response as { data?: unknown }).data;
+    if (isRecord(data)) {
+      const dataStatus = Number((data as { status?: unknown }).status);
+      if (Number.isFinite(dataStatus) && dataStatus > 0) {
+        return Math.trunc(dataStatus);
+      }
+    }
+  }
+
+  const message = resolveUnknownErrorMessage(error, '');
+  const messageMatch = message.match(/\b409\b/);
+  if (messageMatch) {
+    return 409;
   }
 
   return 0;
@@ -178,20 +192,23 @@ function isBenignAssignConflict(error: unknown): boolean {
   const code = readErrorCode(error).toLowerCase();
   const message = resolveUnknownErrorMessage(error, '').toLowerCase();
 
-  if (status !== 409) {
-    return false;
-  }
-
-  if (code === '') {
+  if (status === 409) {
     return true;
   }
 
   return (
-    code.includes('already')
-    || code.includes('assigned')
-    || code.includes('claim')
-    || message.includes('already')
-    || message.includes('assign')
+    code.includes('already_assigned')
+    || code.includes('already-assigned')
+    || code.includes('conversation_already_assigned')
+    || code.includes('assignment_conflict')
+    || code.includes('assign_conflict')
+    || code.includes('claim_conflict')
+    || message.includes('erreur api (409)')
+    || message.includes('409 conflict')
+    || (message.includes('409') && message.includes('assign'))
+    || message.includes('already assigned')
+    || message.includes('déjà assign')
+    || message.includes('deja assign')
   );
 }
 
@@ -314,10 +331,12 @@ export default function useDoctorMessagingRuntime({
 
   const runtimeVersionRef = useRef(0);
   const prescriptionIdRef = useRef(0);
+  const assigningIdRef = useRef(0);
   const assignInFlightRef = useRef<Map<number, Promise<boolean>>>(new Map());
 
   const invalidateConversationContext = useCallback((): void => {
     runtimeVersionRef.current += 1;
+    assigningIdRef.current = 0;
     setAssignBusy(false);
     setAssignReady(false);
     setMessagesLoading(false);
@@ -339,12 +358,56 @@ export default function useDoctorMessagingRuntime({
         return false;
       }
 
+      const isCurrentContext = (): boolean => runtimeVersionRef.current === contextVersion && prescriptionIdRef.current === nextPrescriptionId;
+
+      const awaitAssignPromise = async (assignPromise: Promise<boolean>): Promise<boolean> => {
+        if (isCurrentContext()) {
+          setAssignBusy(true);
+        }
+
+        try {
+          const ready = await assignPromise;
+          if (!isCurrentContext()) {
+            return false;
+          }
+          setAssignReady(ready);
+          setThreadSurfaceError(null);
+          return ready;
+        } catch (error) {
+          if (isBenignAssignConflict(error)) {
+            if (!isCurrentContext()) {
+              return false;
+            }
+            setAssignReady(true);
+            setThreadSurfaceError(null);
+            return true;
+          }
+
+          if (!isCurrentContext()) {
+            return false;
+          }
+
+          setAssignReady(false);
+          setThreadSurfaceError(resolveUnknownErrorMessage(error, DEFAULT_THREAD_ERROR));
+          throw error;
+        } finally {
+          if (isCurrentContext()) {
+            setAssignBusy(false);
+          }
+        }
+      };
+
       const existingPromise = assignInFlightRef.current.get(nextPrescriptionId);
-      if (existingPromise) {
-        return existingPromise;
+      if (assigningIdRef.current === nextPrescriptionId && existingPromise) {
+        return awaitAssignPromise(existingPromise);
       }
 
-      setAssignBusy(true);
+      if (existingPromise) {
+        assigningIdRef.current = nextPrescriptionId;
+        return awaitAssignPromise(existingPromise);
+      }
+
+      assigningIdRef.current = nextPrescriptionId;
 
       const assignPromise = (async (): Promise<boolean> => {
         try {
@@ -357,29 +420,14 @@ export default function useDoctorMessagingRuntime({
           throw error;
         } finally {
           assignInFlightRef.current.delete(nextPrescriptionId);
+          if (assigningIdRef.current === nextPrescriptionId) {
+            assigningIdRef.current = 0;
+          }
         }
       })();
 
       assignInFlightRef.current.set(nextPrescriptionId, assignPromise);
-
-      try {
-        const ready = await assignPromise;
-        if (runtimeVersionRef.current === contextVersion && prescriptionIdRef.current === nextPrescriptionId) {
-          setAssignReady(ready);
-          setThreadSurfaceError(null);
-        }
-        return ready;
-      } catch (error) {
-        if (runtimeVersionRef.current === contextVersion && prescriptionIdRef.current === nextPrescriptionId) {
-          setAssignReady(false);
-          setThreadSurfaceError(resolveUnknownErrorMessage(error, DEFAULT_THREAD_ERROR));
-        }
-        throw error;
-      } finally {
-        if (runtimeVersionRef.current === contextVersion && prescriptionIdRef.current === nextPrescriptionId) {
-          setAssignBusy(false);
-        }
-      }
+      return awaitAssignPromise(assignPromise);
     },
     [assignConversation],
   );
@@ -453,7 +501,10 @@ export default function useDoctorMessagingRuntime({
       }
 
       const contextVersion = runtimeVersionRef.current;
-      await ensureAssigned(nextPrescriptionId, contextVersion);
+      const ready = await ensureAssigned(nextPrescriptionId, contextVersion);
+      if (!ready) {
+        throw new Error(DEFAULT_THREAD_ERROR);
+      }
 
       if (runtimeVersionRef.current !== contextVersion || prescriptionIdRef.current !== nextPrescriptionId) {
         throw new Error(DEFAULT_THREAD_ERROR);
@@ -490,7 +541,10 @@ export default function useDoctorMessagingRuntime({
       setAssistantSurfaceError(null);
 
       try {
-        await ensureAssigned(nextPrescriptionId, contextVersion);
+        const ready = await ensureAssigned(nextPrescriptionId, contextVersion);
+        if (!ready) {
+          throw new Error(DEFAULT_ASSISTANT_ERROR);
+        }
 
         if (runtimeVersionRef.current !== contextVersion || prescriptionIdRef.current !== nextPrescriptionId) {
           throw new Error(DEFAULT_ASSISTANT_ERROR);
