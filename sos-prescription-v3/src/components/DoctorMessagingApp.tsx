@@ -1,6 +1,6 @@
 // DoctorMessagingApp.tsx · V9.8.0-alpha1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import useDoctorMessagingRuntime, { type DoctorMessagingThreadPayload } from './doctorMessaging/useDoctorMessagingRuntime';
+import useDoctorMessagingRuntime, { type DoctorMessagingThreadLoadRequest } from './doctorMessaging/useDoctorMessagingRuntime';
 import MessageThread from './messaging/MessageThread';
 
 type AppConfig = {
@@ -695,23 +695,22 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     return apiJson(`/prescriptions/${targetPrescriptionId}/assign`, { method: 'POST' }, 'admin');
   }, []);
 
-  const loadThread = useCallback(async (targetPrescriptionId: number): Promise<DoctorMessagingThreadPayload> => {
-    const currentMessages = messagesRef.current;
+  const loadThread = useCallback(async (targetPrescriptionId: number, request?: DoctorMessagingThreadLoadRequest) => {
     const currentThreadState = threadStateRef.current;
-    const currentLastKnownSeq = getLastKnownMessageSeq(currentMessages, currentThreadState);
-    const payload = await getDoctorMessages(targetPrescriptionId, currentLastKnownSeq, loadThreadOptionsRef.current);
+    const afterSeq = request?.mode === 'delta'
+      ? Math.max(0, Number(request.afterSeq || 0))
+      : 0;
+    const payload = await getDoctorMessages(targetPrescriptionId, afterSeq, loadThreadOptionsRef.current);
 
-    const deltaMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
     const nextThreadState = payload && payload.thread_state ? payload.thread_state : currentThreadState;
-    const nextMessages = currentLastKnownSeq > 0
-      ? dedupeMessages(currentMessages.concat(deltaMessages))
-      : deltaMessages;
-    const nextLastKnownSeq = getLastKnownMessageSeq(nextMessages, nextThreadState);
-    const messagesChanged = nextMessages.length !== currentMessages.length || nextLastKnownSeq !== currentLastKnownSeq;
-    const unchanged = Boolean(payload?.unchanged) || (!messagesChanged && deltaMessages.length < 1);
-
     threadStateRef.current = nextThreadState;
-    threadUnchangedCountRef.current = unchanged ? threadUnchangedCountRef.current + 1 : 0;
+
+    const returnedMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+    const explicitUnchanged = Boolean(payload?.unchanged);
+    const inferredUnchanged = request?.mode === 'delta' && returnedMessages.length < 1;
+    const nextUnchanged = explicitUnchanged || inferredUnchanged;
+
+    threadUnchangedCountRef.current = nextUnchanged ? threadUnchangedCountRef.current + 1 : 0;
 
     if (mountedRef.current) {
       setThreadState(nextThreadState);
@@ -729,7 +728,10 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
 
     return {
-      messages: nextMessages,
+      kind: nextUnchanged ? 'unchanged' : request?.mode === 'delta' ? 'delta' : 'snapshot',
+      messages: returnedMessages,
+      thread_state: nextThreadState,
+      unchanged: nextUnchanged,
       canCompose: normalizeMode(nextThreadState.mode) !== 'READ_ONLY',
       readOnlyNotice: 'La messagerie est en lecture seule pour ce dossier.',
       emptyText: 'Aucun message pour le moment.',

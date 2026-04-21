@@ -42,10 +42,59 @@ export type DoctorMessagingThreadPayload = {
   assistantEnabled?: boolean;
 };
 
+export type DoctorMessagingThreadHydrationKind = 'snapshot' | 'delta' | 'unchanged';
+
+export type DoctorMessagingThreadLoadMode = 'snapshot' | 'delta';
+
+export type DoctorMessagingThreadLoadRequest = {
+  mode: DoctorMessagingThreadLoadMode;
+  afterSeq: number;
+  hasCommittedSnapshot: boolean;
+};
+
+export type DoctorMessagingThreadHydrationResult = {
+  kind: DoctorMessagingThreadHydrationKind;
+  messages?: MessageItem[];
+  threadState?: {
+    lastMessageSeq?: number;
+  };
+  canCompose?: boolean;
+  readOnlyNotice?: string;
+  emptyText?: string;
+  subtitle?: string;
+  smartReplies?: SmartReplyOption[];
+  assistantEnabled?: boolean;
+};
+
+type DoctorMessagingThreadTransportResult = DoctorMessagingThreadPayload | DoctorMessagingThreadHydrationResult | MessageItem[];
+
+type ThreadSurfacePatch = Partial<Pick<DoctorMessagingThreadPayload, 'canCompose' | 'readOnlyNotice' | 'emptyText' | 'subtitle' | 'smartReplies' | 'assistantEnabled'>>;
+
+type NormalizedThreadHydration = {
+  kind: DoctorMessagingThreadHydrationKind;
+  messages: MessageItem[];
+  threadStateLastMessageSeq?: number;
+  surfacePatch: ThreadSurfacePatch;
+};
+
+type ThreadTransportContext = {
+  request: DoctorMessagingThreadLoadRequest;
+  hasCommittedSnapshot: boolean;
+};
+
+type ThreadSurfaceState = {
+  canCompose: boolean;
+  readOnlyNotice: string;
+  emptyText: string;
+  subtitle: string;
+  smartReplies: SmartReplyOption[];
+  assistantEnabled: boolean;
+};
+
 export type UseDoctorMessagingRuntimeArgs = {
   prescriptionId: number | null;
   assignConversation: (prescriptionId: number) => Promise<unknown>;
-  loadThread: (prescriptionId: number) => Promise<DoctorMessagingThreadPayload>;
+  loadThread: (prescriptionId: number, request?: DoctorMessagingThreadLoadRequest) => Promise<DoctorMessagingThreadTransportResult>;
   postMessageTransport: (prescriptionId: number, body: string, attachments?: number[]) => Promise<MessageItem>;
   polishDraftTransport?: (prescriptionId: number, draft: string) => Promise<PolishResult>;
 };
@@ -77,6 +126,19 @@ const DEFAULT_EMPTY_TEXT = 'Aucun message pour le moment.';
 const DEFAULT_SUBTITLE = '';
 const DEFAULT_THREAD_ERROR = 'Service de messagerie temporairement indisponible.';
 const DEFAULT_ASSISTANT_ERROR = 'Aide à la rédaction momentanément indisponible.';
+const INITIAL_THREAD_SNAPSHOT_ERROR = 'Hydratation initiale du thread impossible : snapshot manquant.';
+const AMBIGUOUS_THREAD_PAYLOAD_ERROR = 'Le thread médecin a renvoyé un payload ambigu.';
+
+function createDefaultThreadSurfaceState(): ThreadSurfaceState {
+  return {
+    canCompose: false,
+    readOnlyNotice: DEFAULT_READ_ONLY_NOTICE,
+    emptyText: DEFAULT_EMPTY_TEXT,
+    subtitle: DEFAULT_SUBTITLE,
+    smartReplies: [],
+    assistantEnabled: false,
+  };
+}
 
 function normalizePrescriptionId(value: number | null | undefined): number {
   const numeric = Number(value || 0);
@@ -85,6 +147,10 @@ function normalizePrescriptionId(value: number | null | undefined): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function normalizeText(value: unknown, fallback = ''): string {
@@ -254,27 +320,259 @@ function normalizeSmartReplies(input: unknown): SmartReplyOption[] {
     .filter((entry) => entry.body.trim() !== '');
 }
 
-function normalizeThreadPayload(input: DoctorMessagingThreadPayload | unknown): Required<DoctorMessagingThreadPayload> {
-  if (!isRecord(input)) {
+function normalizeThreadSurfacePatch(input: Record<string, unknown>): ThreadSurfacePatch {
+  const patch: ThreadSurfacePatch = {};
+
+  if (hasOwn(input, 'canCompose')) {
+    patch.canCompose = Boolean((input as { canCompose?: unknown }).canCompose);
+  }
+
+  if (hasOwn(input, 'readOnlyNotice')) {
+    patch.readOnlyNotice = normalizeText((input as { readOnlyNotice?: unknown }).readOnlyNotice, DEFAULT_READ_ONLY_NOTICE);
+  }
+
+  if (hasOwn(input, 'emptyText')) {
+    patch.emptyText = normalizeText((input as { emptyText?: unknown }).emptyText, DEFAULT_EMPTY_TEXT);
+  }
+
+  if (hasOwn(input, 'subtitle')) {
+    patch.subtitle = normalizeText((input as { subtitle?: unknown }).subtitle, DEFAULT_SUBTITLE);
+  }
+
+  if (hasOwn(input, 'smartReplies')) {
+    patch.smartReplies = normalizeSmartReplies((input as { smartReplies?: unknown }).smartReplies);
+  }
+
+  if (hasOwn(input, 'assistantEnabled')) {
+    patch.assistantEnabled = Boolean((input as { assistantEnabled?: unknown }).assistantEnabled);
+  }
+
+  return patch;
+}
+
+function normalizeThreadStateLastMessageSeq(input: Record<string, unknown>): number | undefined {
+  const threadState = hasOwn(input, 'threadState')
+    ? (input as { threadState?: unknown }).threadState
+    : (hasOwn(input, 'thread_state') ? (input as { thread_state?: unknown }).thread_state : undefined);
+
+  if (!isRecord(threadState)) {
+    return undefined;
+  }
+
+  const raw = hasOwn(threadState, 'lastMessageSeq')
+    ? Number((threadState as { lastMessageSeq?: unknown }).lastMessageSeq)
+    : Number((threadState as { last_message_seq?: unknown }).last_message_seq);
+
+  if (!Number.isFinite(raw) || raw < 0) {
+    return undefined;
+  }
+
+  return Math.trunc(raw);
+}
+
+function deriveLastMessageSeq(messages: MessageItem[]): number {
+  return messages.reduce((maxValue, message) => {
+    const nextSeq = Number(message.seq || 0);
+    if (!Number.isFinite(nextSeq) || nextSeq < 1) {
+      return maxValue;
+    }
+
+    return Math.max(maxValue, Math.trunc(nextSeq));
+  }, 0);
+}
+
+function resolveThreadLastMessageSeq(messages: MessageItem[], threadStateLastMessageSeq?: number): number {
+  const derived = deriveLastMessageSeq(messages);
+  const fromState = Number.isFinite(Number(threadStateLastMessageSeq)) && Number(threadStateLastMessageSeq) > 0
+    ? Math.trunc(Number(threadStateLastMessageSeq))
+    : 0;
+
+  return Math.max(derived, fromState);
+}
+
+function createThreadContractError(message: string): Error {
+  return new Error(message);
+}
+
+function normalizeExplicitHydrationKind(input: Record<string, unknown>): DoctorMessagingThreadHydrationKind | '' {
+  const candidates = [
+    normalizeText((input as { kind?: unknown }).kind).trim().toLowerCase(),
+    normalizeText((input as { hydrationKind?: unknown }).hydrationKind).trim().toLowerCase(),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === 'snapshot' || candidate === 'delta' || candidate === 'unchanged') {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
+function normalizeLegacyArrayPayload(messages: MessageItem[], context: ThreadTransportContext): NormalizedThreadHydration {
+  if (!context.hasCommittedSnapshot || context.request.mode === 'snapshot' || context.request.afterSeq < 1) {
     return {
-      messages: [],
-      canCompose: false,
-      readOnlyNotice: DEFAULT_READ_ONLY_NOTICE,
-      emptyText: DEFAULT_EMPTY_TEXT,
-      subtitle: DEFAULT_SUBTITLE,
-      smartReplies: [],
-      assistantEnabled: false,
+      kind: 'snapshot',
+      messages,
+      surfacePatch: {},
+    };
+  }
+
+  if (messages.length > 0) {
+    return {
+      kind: 'delta',
+      messages,
+      surfacePatch: {},
     };
   }
 
   return {
-    messages: normalizeMessages((input as { messages?: unknown }).messages),
-    canCompose: Boolean((input as { canCompose?: unknown }).canCompose),
-    readOnlyNotice: normalizeText((input as { readOnlyNotice?: unknown }).readOnlyNotice, DEFAULT_READ_ONLY_NOTICE),
-    emptyText: normalizeText((input as { emptyText?: unknown }).emptyText, DEFAULT_EMPTY_TEXT),
-    subtitle: normalizeText((input as { subtitle?: unknown }).subtitle, DEFAULT_SUBTITLE),
-    smartReplies: normalizeSmartReplies((input as { smartReplies?: unknown }).smartReplies),
-    assistantEnabled: Boolean((input as { assistantEnabled?: unknown }).assistantEnabled),
+    kind: 'unchanged',
+    messages: [],
+    surfacePatch: {},
+  };
+}
+
+function normalizeThreadTransportResult(input: DoctorMessagingThreadTransportResult | unknown, context: ThreadTransportContext): NormalizedThreadHydration {
+  if (Array.isArray(input)) {
+    return normalizeLegacyArrayPayload(normalizeMessages(input), context);
+  }
+
+  if (!isRecord(input)) {
+    throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+  }
+
+  const explicitKind = normalizeExplicitHydrationKind(input);
+  const surfacePatch = normalizeThreadSurfacePatch(input);
+  const threadStateLastMessageSeq = normalizeThreadStateLastMessageSeq(input);
+  const hasMessagesProperty = hasOwn(input, 'messages');
+  const normalizedMessages = hasMessagesProperty
+    ? normalizeMessages((input as { messages?: unknown }).messages)
+    : [];
+  const hasSingleMessageProperty = hasOwn(input, 'message');
+  const normalizedSingleMessage = hasSingleMessageProperty
+    ? normalizeMessages([(input as { message?: unknown }).message])
+    : [];
+  const candidateMessages = hasMessagesProperty ? normalizedMessages : normalizedSingleMessage;
+  const hasCandidateMessages = hasMessagesProperty || (hasSingleMessageProperty && normalizedSingleMessage.length > 0);
+  const explicitUnchanged = hasOwn(input, 'unchanged') && Boolean((input as { unchanged?: unknown }).unchanged);
+
+  if (explicitKind === 'snapshot') {
+    if (!hasMessagesProperty && normalizedSingleMessage.length < 1) {
+      throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    return {
+      kind: 'snapshot',
+      messages: candidateMessages,
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (explicitKind === 'delta') {
+    if (!context.hasCommittedSnapshot) {
+      throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    if (candidateMessages.length > 0) {
+      return {
+        kind: 'delta',
+        messages: candidateMessages,
+        threadStateLastMessageSeq,
+        surfacePatch,
+      };
+    }
+
+    if (typeof threadStateLastMessageSeq === 'number' && threadStateLastMessageSeq > context.request.afterSeq) {
+      throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (explicitKind === 'unchanged' || explicitUnchanged) {
+    if (!context.hasCommittedSnapshot) {
+      throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    if (candidateMessages.length > 0) {
+      throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    if (typeof threadStateLastMessageSeq === 'number' && threadStateLastMessageSeq > context.request.afterSeq) {
+      throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (!hasCandidateMessages) {
+    if (typeof threadStateLastMessageSeq !== 'number') {
+      throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    if (!context.hasCommittedSnapshot) {
+      throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    if (threadStateLastMessageSeq > context.request.afterSeq) {
+      throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (context.request.mode === 'snapshot') {
+    if (!hasMessagesProperty && normalizedSingleMessage.length < 1) {
+      throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    return {
+      kind: 'snapshot',
+      messages: candidateMessages,
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (!context.hasCommittedSnapshot) {
+    throw createThreadContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+  }
+
+  if (candidateMessages.length > 0) {
+    return {
+      kind: 'delta',
+      messages: candidateMessages,
+      threadStateLastMessageSeq,
+      surfacePatch,
+    };
+  }
+
+  if (typeof threadStateLastMessageSeq === 'number' && threadStateLastMessageSeq > context.request.afterSeq) {
+    throw createThreadContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+  }
+
+  return {
+    kind: 'unchanged',
+    messages: [],
+    threadStateLastMessageSeq,
+    surfacePatch,
   };
 }
 
@@ -308,6 +606,22 @@ function mergeMessageItem(previous: MessageItem[], nextMessage: MessageItem): Me
   });
 }
 
+function mergeMessageItems(previous: MessageItem[], nextMessages: MessageItem[]): MessageItem[] {
+  return nextMessages.reduce((current, message) => mergeMessageItem(current, message), previous);
+}
+
+function buildThreadLoadRequest(hasCommittedSnapshot: boolean, afterSeq: number): DoctorMessagingThreadLoadRequest {
+  const normalizedAfterSeq = Number.isFinite(Number(afterSeq)) && Number(afterSeq) > 0
+    ? Math.trunc(Number(afterSeq))
+    : 0;
+
+  return {
+    mode: hasCommittedSnapshot && normalizedAfterSeq > 0 ? 'delta' : 'snapshot',
+    afterSeq: hasCommittedSnapshot && normalizedAfterSeq > 0 ? normalizedAfterSeq : 0,
+    hasCommittedSnapshot,
+  };
+}
+
 export default function useDoctorMessagingRuntime({
   prescriptionId,
   assignConversation,
@@ -333,10 +647,20 @@ export default function useDoctorMessagingRuntime({
   const prescriptionIdRef = useRef(0);
   const assigningIdRef = useRef(0);
   const assignInFlightRef = useRef<Map<number, Promise<boolean>>>(new Map());
+  const threadRequestIdRef = useRef(0);
+  const committedMessagesRef = useRef<MessageItem[]>([]);
+  const committedSnapshotSeqRef = useRef(0);
+  const hasCommittedSnapshotRef = useRef(false);
+  const surfaceStateRef = useRef<ThreadSurfaceState>(createDefaultThreadSurfaceState());
 
   const invalidateConversationContext = useCallback((): void => {
     runtimeVersionRef.current += 1;
+    threadRequestIdRef.current += 1;
     assigningIdRef.current = 0;
+    committedMessagesRef.current = [];
+    committedSnapshotSeqRef.current = 0;
+    hasCommittedSnapshotRef.current = false;
+    surfaceStateRef.current = createDefaultThreadSurfaceState();
     setAssignBusy(false);
     setAssignReady(false);
     setMessagesLoading(false);
@@ -351,6 +675,76 @@ export default function useDoctorMessagingRuntime({
     setEmptyText(DEFAULT_EMPTY_TEXT);
     setSubtitle(DEFAULT_SUBTITLE);
   }, []);
+
+  const applyThreadHydration = useCallback((hydration: NormalizedThreadHydration, ready: boolean): void => {
+    let nextMessages = committedMessagesRef.current;
+
+    if (hydration.kind === 'snapshot') {
+      nextMessages = hydration.messages;
+      committedMessagesRef.current = nextMessages;
+      hasCommittedSnapshotRef.current = true;
+      committedSnapshotSeqRef.current = resolveThreadLastMessageSeq(nextMessages, hydration.threadStateLastMessageSeq);
+      setMessages(nextMessages);
+    } else if (hydration.kind === 'delta') {
+      nextMessages = mergeMessageItems(committedMessagesRef.current, hydration.messages);
+      committedMessagesRef.current = nextMessages;
+      hasCommittedSnapshotRef.current = true;
+      committedSnapshotSeqRef.current = resolveThreadLastMessageSeq(nextMessages, hydration.threadStateLastMessageSeq);
+      setMessages(nextMessages);
+    } else if (typeof hydration.threadStateLastMessageSeq === 'number' && hydration.threadStateLastMessageSeq > committedSnapshotSeqRef.current) {
+      committedSnapshotSeqRef.current = hydration.threadStateLastMessageSeq;
+    }
+
+    const currentSurface = surfaceStateRef.current;
+    const hasCanCompose = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'canCompose');
+    const hasReadOnlyNotice = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'readOnlyNotice');
+    const hasEmptyText = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'emptyText');
+    const hasSubtitle = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'subtitle');
+    const hasSmartReplies = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'smartReplies');
+    const hasAssistantAdvertised = Object.prototype.hasOwnProperty.call(hydration.surfacePatch, 'assistantEnabled');
+
+    const nextCanCompose = hasCanCompose
+      ? Boolean(hydration.surfacePatch.canCompose)
+      : currentSurface.canCompose;
+    const nextReadOnlyNotice = hasReadOnlyNotice
+      ? normalizeText(hydration.surfacePatch.readOnlyNotice, DEFAULT_READ_ONLY_NOTICE)
+      : currentSurface.readOnlyNotice;
+    const nextEmptyText = hasEmptyText
+      ? normalizeText(hydration.surfacePatch.emptyText, DEFAULT_EMPTY_TEXT)
+      : currentSurface.emptyText;
+    const nextSubtitle = hasSubtitle
+      ? normalizeText(hydration.surfacePatch.subtitle, DEFAULT_SUBTITLE)
+      : currentSurface.subtitle;
+
+    let nextSmartReplies = hasSmartReplies
+      ? normalizeSmartReplies(hydration.surfacePatch.smartReplies)
+      : currentSurface.smartReplies;
+    const nextAssistantAdvertised = hasAssistantAdvertised
+      ? Boolean(hydration.surfacePatch.assistantEnabled)
+      : currentSurface.assistantEnabled;
+
+    if (hasAssistantAdvertised && !nextAssistantAdvertised && !hasSmartReplies) {
+      nextSmartReplies = [];
+    }
+
+    const effectiveAssistantEnabled = Boolean(nextAssistantAdvertised && ready && polishDraftTransport);
+
+    surfaceStateRef.current = {
+      canCompose: nextCanCompose,
+      readOnlyNotice: nextReadOnlyNotice,
+      emptyText: nextEmptyText,
+      subtitle: nextSubtitle,
+      smartReplies: nextSmartReplies,
+      assistantEnabled: nextAssistantAdvertised,
+    };
+
+    setCanCompose(nextCanCompose);
+    setReadOnlyNotice(nextReadOnlyNotice);
+    setEmptyText(nextEmptyText);
+    setSubtitle(nextSubtitle);
+    setAssistantEnabled(effectiveAssistantEnabled);
+    setSmartReplies(effectiveAssistantEnabled ? nextSmartReplies : []);
+  }, [polishDraftTransport]);
 
   const ensureAssigned = useCallback(
     async (nextPrescriptionId: number, contextVersion: number): Promise<boolean> => {
@@ -439,49 +833,51 @@ export default function useDoctorMessagingRuntime({
       }
 
       const contextVersion = runtimeVersionRef.current;
+      const requestId = threadRequestIdRef.current + 1;
+      threadRequestIdRef.current = requestId;
+
+      const isCurrentRequest = (): boolean => (
+        runtimeVersionRef.current === contextVersion
+        && prescriptionIdRef.current === nextPrescriptionId
+        && threadRequestIdRef.current === requestId
+      );
+
       setMessagesLoading(true);
 
       try {
         const ready = await ensureAssigned(nextPrescriptionId, contextVersion);
-        if (!ready) {
+        if (!ready || !isCurrentRequest()) {
           return;
         }
 
-        if (runtimeVersionRef.current !== contextVersion || prescriptionIdRef.current !== nextPrescriptionId) {
+        const loadRequest = buildThreadLoadRequest(hasCommittedSnapshotRef.current, committedSnapshotSeqRef.current);
+        const payload = normalizeThreadTransportResult(
+          await loadThread(nextPrescriptionId, loadRequest),
+          {
+            request: loadRequest,
+            hasCommittedSnapshot: loadRequest.hasCommittedSnapshot,
+          },
+        );
+
+        if (!isCurrentRequest()) {
           return;
         }
 
-        const payload = normalizeThreadPayload(await loadThread(nextPrescriptionId));
-        if (runtimeVersionRef.current !== contextVersion || prescriptionIdRef.current !== nextPrescriptionId) {
-          return;
-        }
-
-        const effectiveAssistantEnabled = Boolean(payload.assistantEnabled && ready && polishDraftTransport);
-
-        setMessages(payload.messages);
-        setCanCompose(Boolean(payload.canCompose));
-        setReadOnlyNotice(payload.readOnlyNotice || DEFAULT_READ_ONLY_NOTICE);
-        setEmptyText(payload.emptyText || DEFAULT_EMPTY_TEXT);
-        setSubtitle(payload.subtitle || DEFAULT_SUBTITLE);
-        setSmartReplies(effectiveAssistantEnabled ? payload.smartReplies : []);
-        setAssistantEnabled(effectiveAssistantEnabled);
-        setAssistantSurfaceError(null);
+        applyThreadHydration(payload, ready);
         setThreadSurfaceError(null);
       } catch (error) {
-        if (runtimeVersionRef.current !== contextVersion || prescriptionIdRef.current !== nextPrescriptionId) {
+        if (!isCurrentRequest()) {
           return;
         }
 
-        setAssistantEnabled(false);
-        setSmartReplies([]);
         setThreadSurfaceError(resolveUnknownErrorMessage(error, DEFAULT_THREAD_ERROR));
       } finally {
-        if (runtimeVersionRef.current === contextVersion && prescriptionIdRef.current === nextPrescriptionId) {
+        if (isCurrentRequest()) {
           setMessagesLoading(false);
         }
       }
     },
-    [ensureAssigned, loadThread, polishDraftTransport],
+    [applyThreadHydration, ensureAssigned, loadThread],
   );
 
   const syncThread = useCallback(async (): Promise<void> => {
@@ -517,7 +913,11 @@ export default function useDoctorMessagingRuntime({
 
   const onMessageCreated = useCallback(
     async (message: MessageItem): Promise<void> => {
-      setMessages((previous) => mergeMessageItem(previous, message));
+      const nextMessages = mergeMessageItems(committedMessagesRef.current, [message]);
+      committedMessagesRef.current = nextMessages;
+      hasCommittedSnapshotRef.current = true;
+      committedSnapshotSeqRef.current = resolveThreadLastMessageSeq(nextMessages);
+      setMessages(nextMessages);
       setThreadSurfaceError(null);
       await syncThread();
     },
@@ -619,3 +1019,4 @@ export default function useDoctorMessagingRuntime({
     invalidateConversationContext,
   };
 }
+
