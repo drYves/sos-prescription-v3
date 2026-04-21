@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageThread from './messaging/MessageThread';
 import StripePaymentModule, { type StripePaymentIntentPayload, toMedicalGradePaymentErrorMessage } from './payment/StripePaymentModule';
+import RequestListPanel, { type RequestListPanelRow } from './patientConsole/RequestListPanel';
 
 type Scope = 'patient' | 'form' | 'admin';
 
@@ -2856,6 +2857,19 @@ export default function PatientConsole() {
     return index;
   }, [detail?.files]);
 
+  const requestListRows: RequestListPanelRow[] = prescriptions.map((row) => {
+    const info = statusInfo(row.status);
+
+    return {
+      id: Number(row.id),
+      selected: Number(row.id) === Number(selectedId),
+      statusLabel: info.label,
+      statusTone: statusTone(row.status),
+      title: buildPrescriptionTitle(row.primary_reason, row.created_at),
+      createdAtLabel: formatHumanDate(row.created_at),
+    };
+  });
+
   const refreshList = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<void> => {
     const requestSeq = ++listRequestSeqRef.current;
 
@@ -3496,41 +3510,12 @@ export default function PatientConsole() {
           role="tabpanel"
           aria-labelledby="sp-workspace-tab-requests"
         >
-          <aside className="sp-console-grid__sidebar sp-patient-console__sidebar">
-            <div className="sp-panel sp-patient-console__sidebar-panel">
-              <div className="sp-panel__header">
-                <div className="sp-panel__title">Mes demandes</div>
-              </div>
-              <div className="sp-panel__body">
-                {prescriptions.length === 0 ? (
-                  <div className="sp-panel__empty">{listLoading ? 'Chargement…' : 'Aucune demande.'}</div>
-                ) : (
-                  <div className="sp-list sp-patient-console__request-list">
-                    {prescriptions.map((row) => {
-                      const info = statusInfo(row.status);
-                      const selected = Number(row.id) === Number(selectedId);
-
-                      return (
-                        <button
-                          key={row.id}
-                          type="button"
-                          className={cx('sp-list-item', 'sp-list-item--button', 'sp-list-item--request', selected && 'is-selected')}
-                          onClick={() => setSelectedId(Number(row.id))}
-                        >
-                          <div className="sp-list-item__status-row">
-                            <span className={cx('sp-status-dot', `is-${statusTone(row.status)}`)} aria-hidden="true" />
-                            <div className="sp-list-item__meta">{info.label}</div>
-                          </div>
-                          <div className="sp-list-item__title">{buildPrescriptionTitle(row.primary_reason, row.created_at)}</div>
-                          <div className="sp-list-item__submeta">{formatHumanDate(row.created_at)}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
+          <RequestListPanel
+            rows={requestListRows}
+            listLoading={listLoading}
+            hasRows={prescriptions.length > 0}
+            onSelectRequest={setSelectedId}
+          />
 
           <section className="sp-console-grid__content sp-patient-console__detail">
             {!selectedId ? (
