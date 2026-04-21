@@ -52,6 +52,7 @@ type Props = {
   postMessage: (prescriptionId: number, body: string, attachments?: number[]) => Promise<MessageItem>;
   onMessageCreated: (message: MessageItem) => void | Promise<void>;
   onSurfaceError?: (message: string | null) => void;
+  assistantEnabled?: boolean;
   enablePolish?: boolean;
   onPolishDraft?: (draft: string) => Promise<PolishResult>;
   smartReplies?: SmartReplyOption[];
@@ -156,7 +157,8 @@ export default function MessageThread({
   postMessage,
   onMessageCreated,
   onSurfaceError,
-  enablePolish = false,
+  assistantEnabled = false,
+  enablePolish: _enablePolish = false,
   onPolishDraft,
   smartReplies = [],
 }: Props) {
@@ -195,7 +197,7 @@ export default function MessageThread({
     [messages],
   );
 
-  const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && (enablePolish || viewerRole === 'DOCTOR'));
+  const showWritingAssistant = Boolean(!isReadOnly && onPolishDraft && isDoctorCurrentUser && assistantEnabled === true);
   const shouldRenderComposer = !(isReadOnly && hideComposerWhenReadOnly);
   const shouldStackComposerActions = Boolean(!isReadOnly && isDoctorCurrentUser);
   const readOnlyNoticeId = useMemo(
@@ -267,7 +269,6 @@ export default function MessageThread({
     polishRequestRef.current = requestId;
 
     setLocalError(null);
-    onSurfaceError?.(null);
     setPolishing(true);
 
     try {
@@ -285,7 +286,6 @@ export default function MessageThread({
       if (normalizedRewritten === sourceDraft && riskFlags.includes('ASSISTANT_UNAVAILABLE')) {
         const nextError = 'Aide à la rédaction momentanément indisponible.';
         setLocalError(nextError);
-        onSurfaceError?.(nextError);
         return;
       }
 
@@ -300,7 +300,6 @@ export default function MessageThread({
         ? error.message
         : 'Aide à la rédaction momentanément indisponible.';
       setLocalError(nextError);
-      onSurfaceError?.(nextError);
     } finally {
       if (polishRequestRef.current === requestId) {
         setPolishing(false);

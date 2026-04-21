@@ -1,5 +1,6 @@
-// DoctorMessagingApp.tsx · V9.0.1
+// DoctorMessagingApp.tsx · V9.8.0-alpha1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useDoctorMessagingRuntime, { type DoctorMessagingThreadPayload } from './doctorMessaging/useDoctorMessagingRuntime';
 import MessageThread from './messaging/MessageThread';
 
 type AppConfig = {
@@ -31,6 +32,7 @@ type MessageItem = {
   seq?: number;
   author_role: string;
   author_wp_user_id?: number;
+  author_name?: string;
   body: string;
   created_at: string;
   attachments?: number[];
@@ -614,22 +616,17 @@ function threadModeNotice(mode: 'DOCTOR_ONLY' | 'PATIENT_REPLY' | 'READ_ONLY' | 
 
 export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId: number }) {
   const cfg = getAppConfig();
-  const [messages, setMessages] = useState<MessageItem[]>([]);
   const [threadState, setThreadState] = useState<ThreadState>({});
   const [files] = useState<Record<number, UploadedFile>>({});
-  const [smartReplies, setSmartReplies] = useState<SmartReplyOption[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [surfaceError, setSurfaceError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [hidden, setHidden] = useState<boolean>(typeof document !== 'undefined' ? document.hidden : false);
   const [selectedStatus, setSelectedStatus] = useState<string>(() => normalizeDoctorSelectedStatus(findDoctorMessagingHost(prescriptionId)?.dataset.prescriptionStatus || ''));
 
-  const requestRef = useRef(0);
-  const smartRepliesRequestRef = useRef(0);
   const mountedRef = useRef(true);
   const markReadSeqRef = useRef(0);
   const interactionRefreshAtRef = useRef(0);
-  const loadThreadPromiseRef = useRef<Promise<void> | null>(null);
+  const syncThreadPromiseRef = useRef<Promise<void> | null>(null);
   const pendingThreadRefreshRef = useRef<ThreadRefreshRequest | null>(null);
   const scheduledThreadRefreshRef = useRef<ThreadRefreshRequest | null>(null);
   const explicitRefreshTimerRef = useRef<number | null>(null);
@@ -637,6 +634,7 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   const threadStateRef = useRef<ThreadState>({});
   const threadPollTimerRef = useRef<number | null>(null);
   const threadUnchangedCountRef = useRef(0);
+  const loadThreadOptionsRef = useRef<ApiRequestOptions | undefined>(undefined);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
   const viewerRole: ViewerRole = 'DOCTOR';
@@ -666,10 +664,6 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, []);
 
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => {
     threadStateRef.current = threadState;
   }, [threadState]);
 
@@ -697,92 +691,111 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
   }, [prescriptionId]);
 
-  const loadSmartReplies = useCallback(async (): Promise<void> => {
-    const requestId = smartRepliesRequestRef.current + 1;
-    smartRepliesRequestRef.current = requestId;
+  const assignConversation = useCallback(async (targetPrescriptionId: number): Promise<unknown> => {
+    return apiJson(`/prescriptions/${targetPrescriptionId}/assign`, { method: 'POST' }, 'admin');
+  }, []);
 
-    try {
-      const payload = await getDoctorSmartReplies(prescriptionId);
-      if (!mountedRef.current || smartRepliesRequestRef.current !== requestId) {
-        return;
-      }
-      setSmartReplies(normalizeSmartReplies(payload));
-    } catch {
-      if (!mountedRef.current || smartRepliesRequestRef.current !== requestId) {
-        return;
-      }
-      setSmartReplies([]);
-    }
-  }, [prescriptionId]);
+  const loadThread = useCallback(async (targetPrescriptionId: number): Promise<DoctorMessagingThreadPayload> => {
+    const currentMessages = messagesRef.current;
+    const currentThreadState = threadStateRef.current;
+    const currentLastKnownSeq = getLastKnownMessageSeq(currentMessages, currentThreadState);
+    const payload = await getDoctorMessages(targetPrescriptionId, currentLastKnownSeq, loadThreadOptionsRef.current);
 
-  const loadThreadNow = useCallback(async (silent = false, options?: ApiRequestOptions): Promise<void> => {
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
+    const deltaMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+    const nextThreadState = payload && payload.thread_state ? payload.thread_state : currentThreadState;
+    const nextMessages = currentLastKnownSeq > 0
+      ? dedupeMessages(currentMessages.concat(deltaMessages))
+      : deltaMessages;
+    const nextLastKnownSeq = getLastKnownMessageSeq(nextMessages, nextThreadState);
+    const messagesChanged = nextMessages.length !== currentMessages.length || nextLastKnownSeq !== currentLastKnownSeq;
+    const unchanged = Boolean(payload?.unchanged) || (!messagesChanged && deltaMessages.length < 1);
 
-    if (!silent) {
-      setLoading(true);
-    }
+    threadStateRef.current = nextThreadState;
+    threadUnchangedCountRef.current = unchanged ? threadUnchangedCountRef.current + 1 : 0;
 
-    try {
-      const currentMessages = messagesRef.current;
-      const currentThreadState = threadStateRef.current;
-      const currentLastKnownSeq = getLastKnownMessageSeq(currentMessages, currentThreadState);
-      const payload = await getDoctorMessages(prescriptionId, currentLastKnownSeq, options);
-      if (!mountedRef.current || requestRef.current !== requestId) {
-        return;
-      }
-
-      const deltaMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
-      const nextThreadState = payload && payload.thread_state ? payload.thread_state : currentThreadState;
-      const nextMessages = currentLastKnownSeq > 0
-        ? dedupeMessages(currentMessages.concat(deltaMessages))
-        : deltaMessages;
-      const nextLastKnownSeq = getLastKnownMessageSeq(nextMessages, nextThreadState);
-      const messagesChanged = nextMessages.length !== currentMessages.length || nextLastKnownSeq !== currentLastKnownSeq;
-      const unchanged = Boolean(payload?.unchanged) || (!messagesChanged && deltaMessages.length < 1);
-
-      messagesRef.current = nextMessages;
-      threadStateRef.current = nextThreadState;
-      threadUnchangedCountRef.current = unchanged ? threadUnchangedCountRef.current + 1 : 0;
-
-      setMessages(nextMessages);
+    if (mountedRef.current) {
       setThreadState(nextThreadState);
-      setError(null);
-
-      if (smartRepliesRequestRef.current === 0 || messagesChanged) {
-        void loadSmartReplies();
-      }
-
-      if (Number(nextThreadState.unread_count_doctor || 0) > 0) {
-        void markReadIfNeeded(nextThreadState);
-      }
-    } catch (err) {
-      if (!mountedRef.current || requestRef.current !== requestId) {
-        return;
-      }
-      setError(err instanceof Error ? err.message : 'Impossible de charger la messagerie.');
-    } finally {
-      if (!silent && mountedRef.current && requestRef.current === requestId) {
-        setLoading(false);
-      }
     }
-  }, [loadSmartReplies, markReadIfNeeded, prescriptionId]);
+
+    if (Number(nextThreadState.unread_count_doctor || 0) > 0) {
+      void markReadIfNeeded(nextThreadState);
+    }
+
+    let nextSmartReplies: SmartReplyOption[] = [];
+    try {
+      nextSmartReplies = normalizeSmartReplies(await getDoctorSmartReplies(targetPrescriptionId));
+    } catch {
+      nextSmartReplies = [];
+    }
+
+    return {
+      messages: nextMessages,
+      canCompose: normalizeMode(nextThreadState.mode) !== 'READ_ONLY',
+      readOnlyNotice: 'La messagerie est en lecture seule pour ce dossier.',
+      emptyText: 'Aucun message pour le moment.',
+      subtitle: 'Initiez ici l’échange sécurisé avec le patient si une précision médicale ou documentaire est nécessaire.',
+      smartReplies: nextSmartReplies,
+      assistantEnabled: true,
+    };
+  }, [markReadIfNeeded]);
+
+  const postMessageTransport = useCallback(async (targetPrescriptionId: number, body: string, attachments?: number[]): Promise<MessageItem> => {
+    return postDoctorMessage(targetPrescriptionId, body, attachments);
+  }, []);
+
+  const polishDraftTransport = useCallback(async (_targetPrescriptionId: number, draft: string): Promise<PolishPayload> => {
+    return polishDoctorMessage(draft);
+  }, []);
+
+  const {
+    messages,
+    messagesLoading,
+    threadSurfaceError,
+    assistantSurfaceError,
+    assignBusy,
+    assignReady,
+    assistantEnabled,
+    smartReplies,
+    canCompose,
+    readOnlyNotice,
+    emptyText,
+    subtitle,
+    syncThread,
+    postMessage,
+    onMessageCreated,
+    onPolishDraft,
+    onSurfaceError,
+  } = useDoctorMessagingRuntime({
+    prescriptionId,
+    assignConversation,
+    loadThread,
+    postMessageTransport,
+    polishDraftTransport,
+  });
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const runThreadRefresh = useCallback(async function runThreadRefreshImpl(next: ThreadRefreshRequest): Promise<void> {
-    if (loadThreadPromiseRef.current) {
+    if (syncThreadPromiseRef.current) {
       pendingThreadRefreshRef.current = mergeThreadRefreshRequest(pendingThreadRefreshRef.current, next);
-      await loadThreadPromiseRef.current;
+      await syncThreadPromiseRef.current;
       return;
     }
 
-    const refreshPromise = loadThreadNow(next.silent, {
+    loadThreadOptionsRef.current = {
       bypassInFlightDedup: next.bypassInFlightDedup,
-    }).finally(() => {
-      if (loadThreadPromiseRef.current !== refreshPromise) {
+    };
+
+    const refreshPromise = syncThread().finally(() => {
+      loadThreadOptionsRef.current = undefined;
+
+      if (syncThreadPromiseRef.current !== refreshPromise) {
         return;
       }
 
-      loadThreadPromiseRef.current = null;
+      syncThreadPromiseRef.current = null;
 
       const pending = pendingThreadRefreshRef.current;
       pendingThreadRefreshRef.current = null;
@@ -794,9 +807,9 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       void runThreadRefreshImpl(pending);
     });
 
-    loadThreadPromiseRef.current = refreshPromise;
+    syncThreadPromiseRef.current = refreshPromise;
     await refreshPromise;
-  }, [loadThreadNow]);
+  }, [syncThread]);
 
   const flushScheduledThreadRefresh = useCallback((): void => {
     explicitRefreshTimerRef.current = null;
@@ -861,34 +874,25 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
 
   useEffect(() => {
     mountedRef.current = true;
-    requestRef.current = 0;
-    smartRepliesRequestRef.current = 0;
     markReadSeqRef.current = 0;
     interactionRefreshAtRef.current = 0;
-    loadThreadPromiseRef.current = null;
+    syncThreadPromiseRef.current = null;
     pendingThreadRefreshRef.current = null;
-    messagesRef.current = [];
     threadStateRef.current = {};
     threadUnchangedCountRef.current = 0;
+    loadThreadOptionsRef.current = undefined;
     clearExplicitRefreshTimer();
     clearThreadPollTimer();
-    setMessages([]);
     setThreadState({});
-    setSmartReplies([]);
-    setError(null);
+    setSurfaceError(null);
     setFlash(null);
-    setLoading(false);
-
-    requestThreadRefresh({
-      silent: false,
-      reason: 'bootstrap',
-    });
 
     return () => {
       mountedRef.current = false;
       clearExplicitRefreshTimer();
+      clearThreadPollTimer();
     };
-  }, [clearExplicitRefreshTimer, clearThreadPollTimer, prescriptionId, requestThreadRefresh]);
+  }, [clearExplicitRefreshTimer, clearThreadPollTimer, prescriptionId]);
 
   useEffect(() => {
     const triggerNow = (reason: 'visibility' | 'focus'): void => {
@@ -1032,14 +1036,9 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
   }, [flash]);
 
   const handleMessageCreated = useCallback(async (message: MessageItem): Promise<void> => {
-    setMessages((current) => dedupeMessages(current.concat([normalizeMessage(message)])));
     setFlash('Message envoyé.');
-    await runThreadRefresh({
-      silent: true,
-      reason: 'message-created',
-      bypassInFlightDedup: true,
-    });
-  }, [runThreadRefresh]);
+    await onMessageCreated(message);
+  }, [onMessageCreated]);
 
   const handleAttachmentDownload = useCallback(async (attachmentId: number): Promise<void> => {
     try {
@@ -1059,14 +1058,16 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
       anchor.click();
       anchor.remove();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible de télécharger le document.');
+      setSurfaceError(err instanceof Error ? err.message : 'Impossible de télécharger le document.');
     }
   }, [fileIndex, prescriptionId]);
 
   return (
     <div ref={surfaceRef} className="sp-card dc-message-react-panel">
       {flash ? <Notice variant="success">{flash}</Notice> : null}
-      {error ? <Notice variant="error">{error}</Notice> : null}
+      {surfaceError ? <Notice variant="error">{surfaceError}</Notice> : null}
+      {threadSurfaceError ? <Notice variant="error">{threadSurfaceError}</Notice> : null}
+      {assistantSurfaceError ? <Notice variant="warning">{assistantSurfaceError}</Notice> : null}
       {modeNotice ? <Notice variant="info">{modeNotice}</Notice> : null}
 
 
@@ -1076,19 +1077,19 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
           viewerRole={viewerRole}
           currentUserRoles={currentUserRoles}
           title="Échanges avec le patient"
-          subtitle="Initiez ici l’échange sécurisé avec le patient si une précision médicale ou documentaire est nécessaire."
-          loading={loading}
-          emptyText="Aucun message pour le moment."
+          subtitle={subtitle}
+          loading={messagesLoading || assignBusy}
+          emptyText={emptyText}
           messages={messages}
           fileIndex={fileIndex}
           onDownloadFile={handleAttachmentDownload}
-          canCompose={mode !== 'READ_ONLY'}
-          readOnlyNotice="La messagerie est en lecture seule pour ce dossier."
-          postMessage={postDoctorMessage}
+          canCompose={canCompose && assignReady}
+          readOnlyNotice={readOnlyNotice}
+          postMessage={postMessage}
           onMessageCreated={handleMessageCreated}
-          onSurfaceError={setError}
-          enablePolish
-          onPolishDraft={polishDoctorMessage}
+          onSurfaceError={onSurfaceError}
+          assistantEnabled={assistantEnabled}
+          onPolishDraft={onPolishDraft}
           smartReplies={smartReplies}
         />
       </div>
