@@ -25,6 +25,12 @@ final class V4ProxyController
             'permission_callback' => '__return_true',
             'callback' => [self::class, 'medicationsSearchRoute'],
         ], true);
+
+        register_rest_route(self::NAMESPACE_V4, '/messages/polish', [
+            'methods' => 'POST',
+            'permission_callback' => [self::class, 'messagesPolishPermission'],
+            'callback' => [self::class, 'messagesPolishRoute'],
+        ], true);
     }
 
     public static function medicationsSearchRoute(WP_REST_Request $request)
@@ -61,33 +67,19 @@ final class V4ProxyController
 
     public function messagesPolish(WP_REST_Request $request)
     {
-        $reqId = $this->transport->buildReqId();
-        $params = $this->input->requestData($request);
-        $draft = isset($params['draft']) && is_scalar($params['draft']) ? trim((string) $params['draft']) : '';
+        return self::messagesPolishRoute($request);
+    }
 
-        if ($draft === '') {
-            return new WP_Error(
-                'sosprescription_bad_body',
-                'Message vide.',
-                ['status' => 400]
-            );
-        }
+    public static function messagesPolishPermission(WP_REST_Request $request)
+    {
+        $controller = new MessagesV4Controller();
+        return $controller->permissions_check_logged_in_nonce($request);
+    }
 
-        $constraints = isset($params['constraints']) && is_array($params['constraints']) ? $params['constraints'] : [];
-
-        try {
-            $payload = $this->transport->polishMessage($draft, $constraints, $reqId);
-            return $this->transport->toResponse($payload, 200, $reqId);
-        } catch (Throwable $e) {
-            return new WP_Error(
-                'sosprescription_messages_polish_failed',
-                'Aide à la rédaction momentanément indisponible.',
-                [
-                    'status' => 502,
-                    'req_id' => $reqId,
-                ]
-            );
-        }
+    public static function messagesPolishRoute(WP_REST_Request $request)
+    {
+        $controller = new MessagesV4Controller();
+        return $controller->polish($request);
     }
 
     public function createSubmissionDraft(WP_REST_Request $request)

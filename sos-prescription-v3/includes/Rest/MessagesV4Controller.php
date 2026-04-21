@@ -55,6 +55,12 @@ final class MessagesV4Controller extends \WP_REST_Controller
             'callback' => [$controller, 'mark_as_read'],
             'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
         ]);
+
+        register_rest_route(self::NAMESPACE_V4, '/messages/polish', [
+            'methods' => 'POST',
+            'callback' => [$controller, 'polish'],
+            'permission_callback' => [$controller, 'permissions_check_logged_in_nonce'],
+        ], true);
     }
 
     public function permissions_check_logged_in_nonce(WP_REST_Request $request): bool|WP_Error
@@ -221,6 +227,57 @@ final class MessagesV4Controller extends \WP_REST_Controller
         }
     }
 
+    public function polish(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $reqId = $this->build_req_id();
+        $actor = $this->build_actor_payload();
+        if ($actor['role'] !== 'DOCTOR') {
+            return new WP_Error(
+                'sosprescription_doctor_actor_required',
+                'Accès refusé.',
+                ['status' => 403, 'req_id' => $reqId]
+            );
+        }
+
+        $params = $this->request_data($request);
+        $draft = isset($params['draft']) && is_scalar($params['draft']) ? trim((string) $params['draft']) : '';
+        if ($draft === '') {
+            return new WP_Error(
+                'sosprescription_bad_body',
+                'Message vide.',
+                ['status' => 400, 'req_id' => $reqId]
+            );
+        }
+
+        $constraints = $this->normalize_payload($params['constraints'] ?? []);
+        $context = $this->resolve_polish_context($params, $constraints, $actor, $reqId);
+        if (is_wp_error($context)) {
+            return $context;
+        }
+
+        try {
+            $workerRequest = $this->build_polish_worker_payload($draft, $constraints, $actor, $context);
+            $workerPayload = $this->dispatch_polish_worker_request($workerRequest, $context, $reqId);
+            return $this->to_rest_response($workerPayload, 200, $reqId);
+        } catch (\Throwable $e) {
+            return ErrorResponder::worker_bridge_error(
+                $e,
+                'sosprescription_messages_v4_polish_failed',
+                'Aide à la rédaction momentanément indisponible.',
+                502,
+                $reqId,
+                [
+                    'controller' => __CLASS__,
+                    'action' => 'polish',
+                    'local_prescription_id' => $context['local_prescription_id'] > 0 ? $context['local_prescription_id'] : null,
+                    'prescription_uid' => $context['prescription_uid'] !== '' ? $context['prescription_uid'] : null,
+                    'worker_prescription_id' => $context['worker_prescription_id'] !== '' ? $context['worker_prescription_id'] : null,
+                ],
+                'messages_v4.polish.failed'
+            );
+        }
+    }
+
     /**
      * @return array{role:string,wp_user_id:int}
      */
@@ -352,6 +409,287 @@ final class MessagesV4Controller extends \WP_REST_Controller
     private function is_valid_worker_prescription_id(string $value): bool
     {
         return $value !== '' && (bool) preg_match('/^[A-Fa-f0-9-]{16,64}$/', $value);
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @param array<string, mixed> $constraints
+     * @param array{role:string,wp_user_id:int} $actor
+     * @return array{local_prescription_id:int,prescription_uid:string,worker_prescription_id:string}|WP_Error
+     */
+    private function resolve_polish_context(array $params, array $constraints, array $actor, string $reqId): array|WP_Error
+    {
+        $paramContext = $this->normalize_payload($params['context'] ?? []);
+        $constraintContext = $this->normalize_payload($constraints['context'] ?? []);
+
+        $rawPrescriptionIdCandidates = [
+            $params['prescription_id'] ?? null,
+            $params['prescriptionId'] ?? null,
+            $params['local_prescription_id'] ?? null,
+            $paramContext['prescription_id'] ?? null,
+            $paramContext['prescriptionId'] ?? null,
+            $paramContext['local_prescription_id'] ?? null,
+            $constraintContext['prescription_id'] ?? null,
+            $constraintContext['prescriptionId'] ?? null,
+            $constraintContext['local_prescription_id'] ?? null,
+            $constraints['prescription_id'] ?? null,
+            $constraints['prescriptionId'] ?? null,
+            $constraints['local_prescription_id'] ?? null,
+        ];
+
+        foreach ($rawPrescriptionIdCandidates as $candidate) {
+            $localPrescriptionId = $this->normalize_positive_int($candidate);
+            if ($localPrescriptionId < 1) {
+                continue;
+            }
+
+            $row = $this->get_local_prescription_stub($localPrescriptionId);
+            if (!is_array($row)) {
+                return new WP_Error(
+                    'sosprescription_not_found',
+                    'Ordonnance introuvable.',
+                    ['status' => 404, 'req_id' => $reqId]
+                );
+            }
+
+            if (!AccessPolicy::can_current_user_access_prescription_row($row)) {
+                return new WP_Error(
+                    'sosprescription_forbidden',
+                    'Accès refusé.',
+                    ['status' => 403, 'req_id' => $reqId]
+                );
+            }
+
+            $prescriptionUid = isset($row['uid']) && is_scalar($row['uid']) ? $this->normalize_uid((string) $row['uid']) : '';
+            $workerPrescriptionId = $this->extract_worker_prescription_id_from_payload_json($row['payload_json'] ?? null);
+            if (!$this->is_valid_worker_prescription_id($workerPrescriptionId) && $prescriptionUid !== '') {
+                $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($prescriptionUid, $actor, $reqId);
+            }
+
+            if (!$this->is_valid_worker_prescription_id($workerPrescriptionId)) {
+                return new WP_Error(
+                    'sosprescription_worker_reference_missing',
+                    'Référence Worker introuvable.',
+                    ['status' => 409, 'req_id' => $reqId]
+                );
+            }
+
+            return [
+                'local_prescription_id' => $localPrescriptionId,
+                'prescription_uid' => $prescriptionUid,
+                'worker_prescription_id' => $workerPrescriptionId,
+            ];
+        }
+
+        $uidCandidates = [
+            $params['prescription_uid'] ?? null,
+            $params['uid'] ?? null,
+            $paramContext['prescription_uid'] ?? null,
+            $paramContext['uid'] ?? null,
+            $constraintContext['prescription_uid'] ?? null,
+            $constraintContext['uid'] ?? null,
+            $constraints['prescription_uid'] ?? null,
+            $constraints['uid'] ?? null,
+        ];
+        foreach ($rawPrescriptionIdCandidates as $candidate) {
+            if (!is_scalar($candidate)) {
+                continue;
+            }
+            $uidCandidates[] = $candidate;
+        }
+
+        foreach ($uidCandidates as $candidate) {
+            if (!is_scalar($candidate)) {
+                continue;
+            }
+
+            $prescriptionUid = $this->normalize_uid((string) $candidate);
+            if ($prescriptionUid === '') {
+                continue;
+            }
+
+            $workerPrescriptionId = $this->resolve_worker_prescription_id_from_uid($prescriptionUid, $actor, $reqId);
+            if ($this->is_valid_worker_prescription_id($workerPrescriptionId)) {
+                return [
+                    'local_prescription_id' => 0,
+                    'prescription_uid' => $prescriptionUid,
+                    'worker_prescription_id' => $workerPrescriptionId,
+                ];
+            }
+        }
+
+        $workerCandidates = [
+            $params['worker_prescription_id'] ?? null,
+            $paramContext['worker_prescription_id'] ?? null,
+            $constraintContext['worker_prescription_id'] ?? null,
+            $constraints['worker_prescription_id'] ?? null,
+        ];
+        foreach ($rawPrescriptionIdCandidates as $candidate) {
+            if (!is_scalar($candidate)) {
+                continue;
+            }
+            $workerCandidates[] = $candidate;
+        }
+
+        foreach ($workerCandidates as $candidate) {
+            if (!is_scalar($candidate)) {
+                continue;
+            }
+
+            $workerPrescriptionId = trim((string) $candidate);
+            if ($this->is_valid_worker_prescription_id($workerPrescriptionId)) {
+                return [
+                    'local_prescription_id' => 0,
+                    'prescription_uid' => '',
+                    'worker_prescription_id' => $workerPrescriptionId,
+                ];
+            }
+        }
+
+        return new WP_Error(
+            'sosprescription_polish_prescription_required',
+            'Contexte dossier manquant pour la reformulation.',
+            ['status' => 400, 'req_id' => $reqId]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $constraints
+     * @param array{role:string,wp_user_id:int} $actor
+     * @param array{local_prescription_id:int,prescription_uid:string,worker_prescription_id:string} $context
+     * @return array<string, mixed>
+     */
+    private function normalize_polish_constraints(array $constraints, array $actor, array $context): array
+    {
+        $normalized = $constraints;
+        $nestedContext = $this->normalize_payload($normalized['context'] ?? []);
+
+        $normalized['actor'] = $actor;
+        $normalized['actor_role'] = $actor['role'];
+        $normalized['actor_wp_user_id'] = $actor['wp_user_id'];
+        $normalized['doctor_actor_required'] = true;
+
+        $nestedContext['surface'] = 'doctor_messaging';
+        $nestedContext['channel'] = 'doctor_admin';
+        $nestedContext['actor_role'] = $actor['role'];
+        $nestedContext['actor_wp_user_id'] = $actor['wp_user_id'];
+        $nestedContext['doctor_actor_required'] = true;
+
+        if ($context['local_prescription_id'] > 0) {
+            $normalized['local_prescription_id'] = $context['local_prescription_id'];
+            $nestedContext['local_prescription_id'] = $context['local_prescription_id'];
+        }
+
+        if ($context['prescription_uid'] !== '') {
+            $normalized['prescription_uid'] = $context['prescription_uid'];
+            $nestedContext['prescription_uid'] = $context['prescription_uid'];
+        }
+
+        if ($context['worker_prescription_id'] !== '') {
+            $normalized['prescription_id'] = $context['worker_prescription_id'];
+            $normalized['worker_prescription_id'] = $context['worker_prescription_id'];
+            $nestedContext['prescription_id'] = $context['worker_prescription_id'];
+            $nestedContext['worker_prescription_id'] = $context['worker_prescription_id'];
+        }
+
+        $normalized['context'] = $nestedContext;
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $constraints
+     * @param array{role:string,wp_user_id:int} $actor
+     * @param array{local_prescription_id:int,prescription_uid:string,worker_prescription_id:string} $context
+     * @return array<string, mixed>
+     */
+    private function build_polish_worker_payload(string $draft, array $constraints, array $actor, array $context): array
+    {
+        $normalizedConstraints = $this->normalize_polish_constraints($constraints, $actor, $context);
+        $payload = [
+            'draft' => $draft,
+            'actor' => $actor,
+            'actor_role' => $actor['role'],
+            'actor_wp_user_id' => $actor['wp_user_id'],
+            'constraints' => $normalizedConstraints,
+            'context' => $normalizedConstraints['context'] ?? [],
+        ];
+
+        if ($context['local_prescription_id'] > 0) {
+            $payload['local_prescription_id'] = $context['local_prescription_id'];
+        }
+
+        if ($context['prescription_uid'] !== '') {
+            $payload['prescription_uid'] = $context['prescription_uid'];
+        }
+
+        if ($context['worker_prescription_id'] !== '') {
+            $payload['prescription_id'] = $context['worker_prescription_id'];
+            $payload['worker_prescription_id'] = $context['worker_prescription_id'];
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $workerRequest
+     * @param array{local_prescription_id:int,prescription_uid:string,worker_prescription_id:string} $context
+     * @return array<string, mixed>
+     */
+    private function dispatch_polish_worker_request(array $workerRequest, array $context, string $reqId): array
+    {
+        $paths = ['/api/v1/messages/polish'];
+        if ($context['worker_prescription_id'] !== '') {
+            $paths[] = '/api/v1/prescriptions/' . rawurlencode($context['worker_prescription_id']) . '/messages/polish';
+        }
+        $paths[] = '/api/v1/copilot/messages/polish';
+
+        $lastError = null;
+        foreach (array_values(array_unique($paths)) as $path) {
+            try {
+                $payload = $this->get_worker_api_client()->postSignedJson(
+                    $path,
+                    $workerRequest,
+                    $reqId,
+                    'messages_v4_polish'
+                );
+                return $this->normalize_payload($payload);
+            } catch (\Throwable $e) {
+                $lastError = $e;
+            }
+        }
+
+        if ($lastError instanceof \Throwable) {
+            throw $lastError;
+        }
+
+        throw new \RuntimeException('Worker polish bridge failed.');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function get_local_prescription_stub(int $prescriptionId): ?array
+    {
+        $table = $this->wpdb->prefix . 'sosprescription_prescriptions';
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id, uid, patient_user_id, doctor_user_id, payload_json FROM `{$table}` WHERE id = %d LIMIT 1",
+                $prescriptionId
+            ),
+            ARRAY_A
+        );
+
+        return is_array($row) ? $row : null;
+    }
+
+    private function normalize_positive_int(mixed $value): int
+    {
+        if (is_int($value) || is_float($value) || is_string($value)) {
+            $normalized = (int) $value;
+            return $normalized > 0 ? $normalized : 0;
+        }
+
+        return 0;
     }
 
     private function normalize_uid(string $uid): string

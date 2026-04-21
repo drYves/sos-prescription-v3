@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V9.8.3-alpha1
+// DoctorMessagingApp.tsx · V9.8.4-alpha1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useDoctorMessagingRuntime, { type DoctorMessagingThreadLoadRequest } from './doctorMessaging/useDoctorMessagingRuntime';
 import MessageThread from './messaging/MessageThread';
@@ -961,11 +961,23 @@ async function requestArtifactAccess(artifactId: number, prescriptionId: number)
   );
 }
 
-async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
+async function polishDoctorMessage(prescriptionId: number, draft: string): Promise<PolishPayload> {
+  const normalizedPrescriptionId = Math.max(0, Number(prescriptionId || 0));
   const sourceDraft = String(draft || '').trim();
+
+  if (normalizedPrescriptionId < 1) {
+    throw new Error('Contexte dossier manquant pour l’assistance IA.');
+  }
+
   if (sourceDraft === '') {
     throw new Error('Message vide.');
   }
+
+  const actorWpUserId = getCurrentWpUserId();
+  const transportContext = {
+    local_prescription_id: normalizedPrescriptionId,
+    surface: 'doctor_messaging',
+  };
 
   try {
     const payload = await v4ApiJson<unknown>(
@@ -974,6 +986,12 @@ async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          prescription_id: normalizedPrescriptionId,
+          prescriptionId: normalizedPrescriptionId,
+          local_prescription_id: normalizedPrescriptionId,
+          context: transportContext,
+          actor_role: 'DOCTOR',
+          actor_wp_user_id: actorWpUserId,
           draft: sourceDraft,
           constraints: {
             audience: 'patient',
@@ -981,6 +999,7 @@ async function polishDoctorMessage(draft: string): Promise<PolishPayload> {
             language: 'fr',
             preserveDecision: true,
             forceClarificationIfAmbiguous: true,
+            context: transportContext,
           },
         }),
       },
@@ -1155,8 +1174,8 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     return postDoctorMessage(targetPrescriptionId, body, attachments);
   }, []);
 
-  const polishDraftTransport = useCallback(async (_targetPrescriptionId: number, draft: string): Promise<PolishPayload> => {
-    return polishDoctorMessage(draft);
+  const polishDraftTransport = useCallback(async (targetPrescriptionId: number, draft: string): Promise<PolishPayload> => {
+    return polishDoctorMessage(targetPrescriptionId, draft);
   }, []);
 
   const {
@@ -1508,4 +1527,3 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     </div>
   );
 }
-
