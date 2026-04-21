@@ -36,6 +36,9 @@ import { useSubmissionNetwork } from './formTunnel/useSubmissionNetwork';
 import { MedicationRequestSection } from './formMedication/MedicationRequestSection';
 import { buildMedicationItemFromSearchResult } from './formMedication/buildMedicationItemFromSearchResult';
 import { clampInt, fillArray, normalizeSchedule } from './formMedication/schedule';
+import { IntakeSection } from './formIntake/IntakeSection';
+import { isResyncableLocalUpload } from './formIntake/helpers';
+import { useIntake } from './formIntake/useIntake';
 
 type AppConfig = {
   restBase: string;
@@ -1284,52 +1287,6 @@ function toPatientSafeSubmissionErrorMessage(error: unknown): string {
   return 'Nous n’avons pas pu préparer votre demande pour le moment. Merci de réessayer.';
 }
 
-function toPatientSafeArtifactErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error || '');
-  const message = raw.trim().toLowerCase();
-
-  if (!message) {
-    return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
-  }
-
-  if (
-    message.includes('upload')
-    || message.includes('ticket')
-    || message.includes('artefact')
-    || message.includes('cors')
-  ) {
-    return 'Le document n’a pas pu être envoyé. Merci de réessayer.';
-  }
-
-  if (
-    message.includes('lecture')
-    || message.includes('analyse')
-    || message.includes('document')
-    || message.includes('prescription')
-    || message.includes('expir')
-  ) {
-    return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
-  }
-
-  return 'Lecture du document impossible. Merci de réessayer avec un document plus lisible.';
-}
-
-function mergeRejectedFiles(current: File[], incoming: File[]): File[] {
-  const next = Array.isArray(current) ? current.slice() : [];
-  const seen = new Set(next.map((file) => `${file.name}::${file.size}::${file.lastModified}`));
-
-  for (const file of Array.isArray(incoming) ? incoming : []) {
-    const key = `${file.name}::${file.size}::${file.lastModified}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    next.push(file);
-  }
-
-  return next;
-}
-
 function buildSubmitBlockInfo(input: {
   loggedIn: boolean;
   flow: FlowType | null;
@@ -1445,20 +1402,6 @@ function buildSubmitBlockInfo(input: {
     message: reasons.length > 0 ? reasons[0].message : null,
   };
 }
-
-function createLocalUpload(file: File): LocalUpload {
-  return {
-    id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-    file,
-    original_name: file?.name ? String(file.name) : 'upload.bin',
-    mime: file?.type ? String(file.type) : 'application/octet-stream',
-    mime_type: file?.type ? String(file.type) : 'application/octet-stream',
-    size_bytes: typeof file?.size === 'number' ? file.size : 0,
-    kind: 'PROOF',
-    status: 'QUEUED',
-  };
-}
-
 
 function getFlowLabel(flow: FlowType): string {
   return flow === 'ro_proof'
@@ -1730,105 +1673,17 @@ function StepClinicalData({
       </section>
 
       {flow === 'ro_proof' ? (
-        <section className="sp-app-card">
-          <div className="sp-app-section__header">
-            <div>
-              <h2 className="sp-app-section__title">Justificatifs médicaux</h2>
-              <p className="sp-app-section__hint">
-                Importez votre ordonnance ou une photo de la boîte. Cela nous aide à vérifier le traitement et à pré-remplir la demande.
-              </p>
-            </div>
-          </div>
-
-          <div className="sp-app-upload">
-            <input
-              id="sp-evidence-input"
-              type="file"
-              className="sp-app-hidden"
-              accept="image/jpeg,image/png,application/pdf"
-              multiple
-              disabled={analysisInProgress}
-              onChange={(event) => {
-                onFilesSelected(event.target.files);
-                event.currentTarget.value = '';
-              }}
-            />
-
-            <div className="sp-app-upload__actions">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={analysisInProgress}
-                onClick={() => {
-                  document.getElementById('sp-evidence-input')?.click();
-                }}
-              >
-                Ajouter un document
-              </Button>
-
-              {analysisInProgress ? (
-                <div className="sp-app-inline-status">
-                  <Spinner />
-                  <span>Lecture du document en cours...</span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="sp-app-field__hint">JPG, PNG ou PDF (Max 5 Mo)</div>
-            {!isLoggedIn ? (
-              <div className="sp-app-field__hint sp-app-field__hint--warning">
-                Vous pourrez valider votre adresse à la fin du parcours. Les documents seront liés à votre dossier avant le paiement.
-              </div>
-            ) : null}
-          </div>
-
-          {files.length > 0 ? (
-            <div className="sp-app-upload-list">
-              {files.map((file) => (
-                <div key={file.id} className="sp-app-upload-item">
-                  <div className="sp-app-upload-item__content">
-                    <div className="sp-app-upload-item__title">{file.original_name}</div>
-                    <div className="sp-app-upload-item__meta">
-                      {Math.round((file.size_bytes || 0) / 1024)} Ko • {file.mime || 'application/octet-stream'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="sp-app-button sp-app-button--secondary sp-app-button--compact sp-app-button--copy"
-                    onClick={() => onRemoveFile(file.id)}
-                    aria-label={`Retirer ${file.original_name}`}
-                    title="Retirer"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {analysisMessage ? (
-            <div className="sp-app-block">
-              <Notice variant="success">{analysisMessage}</Notice>
-            </div>
-          ) : null}
-
-          {rejectedFiles.length > 0 ? (
-            <div className="sp-app-block">
-              <Notice variant="warning">
-                <div className="sp-app-notice__title">Documents à vérifier</div>
-                <div className="sp-app-notice__text">
-                  Certains documents n’ont pas pu être lus.
-                </div>
-                <div className="sp-app-tag-list">
-                  {rejectedFiles.map((file, index) => (
-                    <span key={`${file.name}-${index}`} className="sp-app-tag">{file.name}</span>
-                  ))}
-                </div>
-              </Notice>
-            </div>
-          ) : null}
-        </section>
+        <IntakeSection
+          isLoggedIn={isLoggedIn}
+          files={files}
+          rejectedFiles={rejectedFiles}
+          analysisInProgress={analysisInProgress}
+          analysisMessage={analysisMessage}
+          onFilesSelected={onFilesSelected}
+          onRemoveFile={onRemoveFile}
+        />
       ) : null}
+
 
       <MedicationRequestSection
         flow={flow}
@@ -2506,7 +2361,6 @@ function PublicFormApp() {
   const fullNameEditedRef = useRef(false);
   const birthdateEditedRef = useRef(false);
   const medicalNotesEditedRef = useRef(false);
-  const intakeAsyncStateRef = useRef<{ version: number; pending: number }>({ version: 0, pending: 0 });
   const artifactResyncFileIdsRef = useRef<string[]>([]);
   const preparedSubmissionFingerprintRef = useRef<string | null>(null);
 
@@ -2627,18 +2481,6 @@ function PublicFormApp() {
     preparedSubmissionFingerprintRef.current = null;
     setPreparedSubmission((current) => (current ? null : current));
   }, []);
-
-  const invalidateIntakeAsyncContext = useCallback(() => {
-    intakeAsyncStateRef.current = {
-      version: intakeAsyncStateRef.current.version + 1,
-      pending: 0,
-    };
-    setAnalysisInProgress(false);
-  }, []);
-
-  const isResyncableLocalUpload = useCallback((entry: LocalUpload) => (
-    entry.file instanceof File && Number(entry.file.size || 0) > 0
-  ), []);
 
   useEffect(() => {
     if (!preparedSubmission) {
@@ -3055,124 +2897,31 @@ function PublicFormApp() {
     return nextRef;
   }, [createSubmission, flow, priority]);
 
-  const handleFilesSelected = useCallback(async (list: FileList | null) => {
-    if (!list || list.length === 0 || flow !== 'ro_proof') {
-      return;
-    }
-
-    const nextUploads = Array.from(list).map(createLocalUpload);
-    if (nextUploads.length === 0) {
-      return;
-    }
-
-    invalidatePreparedSubmission();
-    setSubmitError(null);
-    setRejectedFiles([]);
-    setAnalysisMessage(null);
-    setFiles((current) => [...current, ...nextUploads]);
-
-    if (!isLoggedIn) {
-      setAnalysisInProgress(false);
-      setAnalysisMessage('Les documents seront joints à votre dossier après validation de votre adresse.');
-      return;
-    }
-
-    const intakeContextVersion = intakeAsyncStateRef.current.version;
-    intakeAsyncStateRef.current = {
-      version: intakeContextVersion,
-      pending: intakeAsyncStateRef.current.pending + 1,
-    };
-    setAnalysisInProgress(true);
-
-    const rejected: File[] = [];
-    let firstError: string | null = null;
-    let mergedInfo = false;
-
-    try {
-      const submissionRef = await ensureSubmissionRef();
-
-      // Repli sécurisé : les mutations UI par fichier restent locales pour préserver le timing READY / erreur.
-      await uploadIntakeFiles(nextUploads, submissionRef, (result) => {
-        if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
-          return;
-        }
-
-        if (result.error) {
-          rejected.push(result.entry.file);
-          if (!firstError) {
-            firstError = toPatientSafeArtifactErrorMessage(result.error);
-          }
-          return;
-        }
-
-        const analysis = result.analysis;
-        const aiItems = aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []);
-
-        if (Boolean(analysis && analysis.ok === false) || aiItems.length < 1) {
-          rejected.push(result.entry.file);
-          if (!firstError) {
-            firstError = toPatientSafeArtifactErrorMessage(
-              typeof analysis?.message === 'string' && analysis.message.trim() !== ''
-                ? new Error(analysis.message.trim())
-                : new Error('Lecture du document impossible.'),
-            );
-          }
-          return;
-        }
-
-        mergedInfo = true;
-        setItems((current) => mergeMedicationItems(current, aiItems));
-        setFiles((current) => current.map((file) => (
-          file.id === result.entry.id
-            ? {
-              ...file,
-              status: 'READY',
-            }
-            : file
-        )));
-      });
-
-      if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
-        return;
-      }
-
-      setRejectedFiles((current) => mergeRejectedFiles(current, rejected));
-      if (mergedInfo) {
-        setAnalysisMessage('Traitement détecté et pré-rempli.');
-      } else {
-        setAnalysisMessage(null);
-      }
-
-      if (firstError) {
-        setSubmitError(firstError);
-      }
-    } catch (error) {
-      if (intakeAsyncStateRef.current.version !== intakeContextVersion) {
-        return;
-      }
-
-      setRejectedFiles((current) => mergeRejectedFiles(current, nextUploads.map((entry) => entry.file)));
-      setAnalysisMessage(null);
-      const message = toPatientSafeSubmissionErrorMessage(error);
-      setSubmitError(
-        message.includes('connecter')
-          ? message
-          : 'Nous n’avons pas pu enregistrer votre document pour le moment. Merci de réessayer.',
-      );
-    } finally {
-      if (intakeAsyncStateRef.current.version === intakeContextVersion) {
-        const nextPending = Math.max(0, intakeAsyncStateRef.current.pending - 1);
-        intakeAsyncStateRef.current = {
-          version: intakeContextVersion,
-          pending: nextPending,
-        };
-        if (nextPending === 0) {
-          setAnalysisInProgress(false);
-        }
-      }
-    }
-  }, [ensureSubmissionRef, flow, invalidatePreparedSubmission, isLoggedIn, uploadIntakeFiles]);
-
+  const {
+    handleFilesSelected,
+    handleRemoveFile,
+    invalidateAsyncContext: invalidateIntakeAsyncContext,
+  } = useIntake({
+    flow,
+    isLoggedIn,
+    files,
+    resumedDraftRef,
+    submissionRefStateRef,
+    artifactResyncFileIdsRef,
+    setFiles,
+    setItems,
+    setRejectedFiles,
+    setAnalysisInProgress,
+    setAnalysisMessage,
+    setSubmitError,
+    setResumedDraftRef,
+    invalidatePreparedSubmission,
+    ensureSubmissionRef,
+    uploadIntakeFiles,
+    toPatientSafeSubmissionErrorMessage,
+    resolveAnalyzedItems: (analysis) => aiMedicationsToItems(Array.isArray(analysis?.medications) ? analysis.medications : []),
+    mergeMedicationItems,
+  });
   const resetToChoose = useCallback(() => {
     const profileSnapshot = resolveLatestPatientProfileSnapshot(config);
     fullNameEditedRef.current = false;
@@ -3255,30 +3004,6 @@ function PublicFormApp() {
     invalidatePreparedSubmission();
     setPriority(nextPriority);
   }, [invalidatePreparedSubmission]);
-
-  const handleRemoveFile = useCallback((fileId: string) => {
-    invalidatePreparedSubmission();
-    invalidateIntakeAsyncContext();
-    setSubmitError(null);
-
-    const remainingFiles = files.filter((entry) => entry.id !== fileId);
-    const shouldInvalidateSubmissionCache = Boolean(String(submissionRefStateRef.current.ref || '').trim())
-      || artifactResyncFileIdsRef.current.length > 0
-      || Boolean(resumedDraftRef);
-
-    if (!shouldInvalidateSubmissionCache) {
-      setFiles(remainingFiles);
-      return;
-    }
-
-    const uploadableRemainingFiles = remainingFiles.filter((entry) => isResyncableLocalUpload(entry));
-    artifactResyncFileIdsRef.current = uploadableRemainingFiles.map((entry) => entry.id);
-    submissionRefStateRef.current = { ref: null };
-    setResumedDraftRef(null);
-    setAnalysisMessage(null);
-    setRejectedFiles([]);
-    setFiles(uploadableRemainingFiles);
-  }, [files, invalidateIntakeAsyncContext, invalidatePreparedSubmission, isResyncableLocalUpload, resumedDraftRef]);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -3567,7 +3292,7 @@ function PublicFormApp() {
     } finally {
       setSubmitLoading(false);
     }
-  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, isResyncableLocalUpload, preparedSubmissionFingerprint, submitBlockInfo, uploadDraftArtifacts, workflowState]);
+  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, preparedSubmissionFingerprint, submitBlockInfo, uploadDraftArtifacts, workflowState]);
 
   const handleContinueToPaymentAuth = useCallback(async () => {
     setSubmitError(null);
