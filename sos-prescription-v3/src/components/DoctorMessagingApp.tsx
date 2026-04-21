@@ -1,4 +1,4 @@
-// DoctorMessagingApp.tsx · V9.8.0-alpha1
+// DoctorMessagingApp.tsx · V9.8.3-alpha1
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useDoctorMessagingRuntime, { type DoctorMessagingThreadLoadRequest } from './doctorMessaging/useDoctorMessagingRuntime';
 import MessageThread from './messaging/MessageThread';
@@ -49,6 +49,26 @@ type ThreadPayload = {
   message?: MessageItem;
   thread_state?: ThreadState;
   unchanged?: boolean;
+};
+
+type CanonicalThreadKind = 'snapshot' | 'delta' | 'unchanged';
+
+type CanonicalThreadPayload = {
+  kind: CanonicalThreadKind;
+  messages: MessageItem[];
+  threadState: ThreadState;
+  unchanged: boolean;
+};
+
+type ThreadMessageCarrier = {
+  messages: MessageItem[];
+  hasCarrier: boolean;
+  invalidCarrier: boolean;
+};
+
+type ThreadStateSelection = {
+  threadState: ThreadState;
+  hasState: boolean;
 };
 
 type ArtifactAccessPayload = {
@@ -398,6 +418,403 @@ function dedupeMessages(items: MessageItem[]): MessageItem[] {
   });
 }
 
+const INITIAL_THREAD_SNAPSHOT_ERROR = 'Hydratation initiale du thread impossible : snapshot manquant.';
+const AMBIGUOUS_THREAD_PAYLOAD_ERROR = 'Le thread médecin a renvoyé un payload ambigu.';
+const THREAD_TRANSPORT_WRAPPER_KEYS = ['data', 'result', 'payload', 'thread', 'conversation', 'response'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isMessageLike(value: unknown): value is Partial<MessageItem> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return typeof value.body === 'string'
+    || typeof value.created_at === 'string'
+    || Number.isFinite(Number(value.id))
+    || Number.isFinite(Number(value.seq))
+    || Array.isArray(value.attachments)
+    || Array.isArray((value as { attachment_artifact_ids?: unknown }).attachment_artifact_ids);
+}
+
+function normalizeMessagesCollection(value: unknown): MessageItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return dedupeMessages(value.filter((entry): entry is Partial<MessageItem> => isMessageLike(entry)).map((entry) => normalizeMessage(entry)));
+}
+
+function normalizeSingleMessageCandidate(value: unknown): MessageItem[] {
+  return isMessageLike(value) ? [normalizeMessage(value)] : [];
+}
+
+function normalizeThreadStatePatch(value: unknown): ThreadState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const source = hasOwn(value, 'thread_state')
+    ? value.thread_state
+    : (hasOwn(value, 'threadState') ? value.threadState : value);
+
+  if (!isRecord(source)) {
+    return null;
+  }
+
+  const patch: ThreadState = {};
+
+  if (typeof source.mode === 'string' && source.mode.trim() !== '') {
+    patch.mode = source.mode;
+  }
+
+  const unreadCountDoctor = hasOwn(source, 'unread_count_doctor')
+    ? Number(source.unread_count_doctor)
+    : Number(source.unreadCountDoctor);
+  if (Number.isFinite(unreadCountDoctor) && unreadCountDoctor >= 0) {
+    patch.unread_count_doctor = Math.trunc(unreadCountDoctor);
+  }
+
+  const lastMessageSeq = hasOwn(source, 'last_message_seq')
+    ? Number(source.last_message_seq)
+    : Number(source.lastMessageSeq);
+  if (Number.isFinite(lastMessageSeq) && lastMessageSeq >= 0) {
+    patch.last_message_seq = Math.trunc(lastMessageSeq);
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function mergeThreadState(currentThreadState: ThreadState, patch: ThreadState | null): ThreadState {
+  if (!patch) {
+    return currentThreadState;
+  }
+
+  return {
+    ...currentThreadState,
+    ...patch,
+  };
+}
+
+function normalizeCanonicalThreadKind(value: unknown): CanonicalThreadKind | '' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'snapshot' || normalized === 'delta' || normalized === 'unchanged') {
+    return normalized;
+  }
+  return '';
+}
+
+function collectThreadTransportCandidates(value: unknown): unknown[] {
+  const candidates: unknown[] = [];
+  const queue: unknown[] = [value];
+  const seen = new Set<object>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    candidates.push(current);
+
+    if (Array.isArray(current)) {
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      continue;
+    }
+
+    if (seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    THREAD_TRANSPORT_WRAPPER_KEYS.forEach((key) => {
+      if (hasOwn(current, key)) {
+        queue.push(current[key]);
+      }
+    });
+  }
+
+  return candidates;
+}
+
+function extractThreadMessagesFromCandidate(candidate: unknown): ThreadMessageCarrier {
+  if (Array.isArray(candidate)) {
+    const messages = normalizeMessagesCollection(candidate);
+    return {
+      messages,
+      hasCarrier: true,
+      invalidCarrier: candidate.length > 0 && messages.length < 1,
+    };
+  }
+
+  if (!isRecord(candidate)) {
+    return {
+      messages: [],
+      hasCarrier: false,
+      invalidCarrier: false,
+    };
+  }
+
+  if (hasOwn(candidate, 'messages')) {
+    if (!Array.isArray(candidate.messages)) {
+      return {
+        messages: [],
+        hasCarrier: true,
+        invalidCarrier: true,
+      };
+    }
+
+    const messages = normalizeMessagesCollection(candidate.messages);
+    return {
+      messages,
+      hasCarrier: true,
+      invalidCarrier: candidate.messages.length > 0 && messages.length < 1,
+    };
+  }
+
+  if (hasOwn(candidate, 'message')) {
+    const messages = normalizeSingleMessageCandidate(candidate.message);
+    return {
+      messages,
+      hasCarrier: true,
+      invalidCarrier: messages.length < 1,
+    };
+  }
+
+  return {
+    messages: [],
+    hasCarrier: false,
+    invalidCarrier: false,
+  };
+}
+
+function selectThreadMessages(candidates: unknown[]): ThreadMessageCarrier {
+  const messageCandidates = candidates.map((candidate) => extractThreadMessagesFromCandidate(candidate));
+  const validCarriers = messageCandidates.filter((candidate) => candidate.hasCarrier && !candidate.invalidCarrier);
+  const selectedValidCarrier = validCarriers.find((candidate) => candidate.messages.length > 0) || validCarriers[0];
+
+  if (selectedValidCarrier) {
+    return selectedValidCarrier;
+  }
+
+  const invalidCarrier = messageCandidates.find((candidate) => candidate.invalidCarrier);
+  if (invalidCarrier) {
+    return invalidCarrier;
+  }
+
+  return {
+    messages: [],
+    hasCarrier: false,
+    invalidCarrier: false,
+  };
+}
+
+function selectThreadState(candidates: unknown[], currentThreadState: ThreadState): ThreadStateSelection {
+  for (const candidate of candidates) {
+    const patch = normalizeThreadStatePatch(candidate);
+    if (patch) {
+      return {
+        threadState: mergeThreadState(currentThreadState, patch),
+        hasState: true,
+      };
+    }
+  }
+
+  return {
+    threadState: currentThreadState,
+    hasState: false,
+  };
+}
+
+function selectExplicitThreadKind(candidates: unknown[]): CanonicalThreadKind | '' {
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) {
+      continue;
+    }
+
+    const explicitKind = normalizeCanonicalThreadKind(
+      hasOwn(candidate, 'kind')
+        ? candidate.kind
+        : (hasOwn(candidate, 'hydrationKind') ? candidate.hydrationKind : undefined),
+    );
+
+    if (explicitKind !== '') {
+      return explicitKind;
+    }
+  }
+
+  return '';
+}
+
+function hasExplicitThreadUnchanged(candidates: unknown[]): boolean {
+  return candidates.some((candidate) => isRecord(candidate) && hasOwn(candidate, 'unchanged') && Boolean(candidate.unchanged));
+}
+
+function getThreadStateLastMessageSeq(threadState: ThreadState): number {
+  const value = Number(threadState.last_message_seq || 0);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+}
+
+function normalizeThreadLoadRequest(request?: DoctorMessagingThreadLoadRequest): DoctorMessagingThreadLoadRequest {
+  const hasCommittedSnapshot = Boolean(request?.hasCommittedSnapshot);
+  const afterSeq = Number.isFinite(Number(request?.afterSeq)) && Number(request?.afterSeq) > 0
+    ? Math.trunc(Number(request?.afterSeq))
+    : 0;
+  const useDeltaTransport = request?.mode === 'delta' && hasCommittedSnapshot && afterSeq > 0;
+
+  return {
+    mode: useDeltaTransport ? 'delta' : 'snapshot',
+    afterSeq: useDeltaTransport ? afterSeq : 0,
+    hasCommittedSnapshot,
+  };
+}
+
+function createThreadTransportContractError(message: string): Error {
+  return new Error(message);
+}
+
+function normalizeThreadTransportPayload(
+  payload: unknown,
+  request: DoctorMessagingThreadLoadRequest | undefined,
+  currentThreadState: ThreadState,
+): CanonicalThreadPayload {
+  const normalizedRequest = normalizeThreadLoadRequest(request);
+  const isIncrementalRead = normalizedRequest.mode === 'delta' && normalizedRequest.afterSeq > 0;
+  const candidates = collectThreadTransportCandidates(payload);
+  const explicitKind = selectExplicitThreadKind(candidates);
+  const explicitUnchanged = hasExplicitThreadUnchanged(candidates);
+  const messageCarrier = selectThreadMessages(candidates);
+  const threadStateSelection = selectThreadState(candidates, currentThreadState);
+  const nextThreadState = threadStateSelection.threadState;
+  const threadStateLastMessageSeq = getThreadStateLastMessageSeq(nextThreadState);
+  const hasExplicitMessages = messageCarrier.hasCarrier && !messageCarrier.invalidCarrier;
+  const fetchedMessages = messageCarrier.messages;
+
+  if (messageCarrier.invalidCarrier && !hasExplicitMessages) {
+    throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+  }
+
+  if (explicitKind === 'snapshot') {
+    if (!hasExplicitMessages) {
+      throw createThreadTransportContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    return {
+      kind: 'snapshot',
+      messages: fetchedMessages,
+      threadState: nextThreadState,
+      unchanged: false,
+    };
+  }
+
+  if (!isIncrementalRead) {
+    if (explicitKind === 'delta' || explicitKind === 'unchanged' || explicitUnchanged || !hasExplicitMessages) {
+      throw createThreadTransportContractError(INITIAL_THREAD_SNAPSHOT_ERROR);
+    }
+
+    return {
+      kind: 'snapshot',
+      messages: fetchedMessages,
+      threadState: nextThreadState,
+      unchanged: false,
+    };
+  }
+
+  if (explicitKind === 'delta') {
+    if (hasExplicitMessages && fetchedMessages.length > 0) {
+      return {
+        kind: 'delta',
+        messages: fetchedMessages,
+        threadState: nextThreadState,
+        unchanged: false,
+      };
+    }
+
+    if (threadStateSelection.hasState) {
+      if (threadStateLastMessageSeq > normalizedRequest.afterSeq) {
+        throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+      }
+
+      return {
+        kind: 'unchanged',
+        messages: [],
+        threadState: nextThreadState,
+        unchanged: true,
+      };
+    }
+
+    if (hasExplicitMessages && fetchedMessages.length < 1) {
+      return {
+        kind: 'unchanged',
+        messages: [],
+        threadState: nextThreadState,
+        unchanged: true,
+      };
+    }
+
+    throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+  }
+
+  if (explicitKind === 'unchanged' || explicitUnchanged) {
+    if (hasExplicitMessages && fetchedMessages.length > 0) {
+      throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    if (threadStateSelection.hasState && threadStateLastMessageSeq > normalizedRequest.afterSeq) {
+      throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadState: nextThreadState,
+      unchanged: true,
+    };
+  }
+
+  if (hasExplicitMessages && fetchedMessages.length > 0) {
+    return {
+      kind: 'delta',
+      messages: fetchedMessages,
+      threadState: nextThreadState,
+      unchanged: false,
+    };
+  }
+
+  if (hasExplicitMessages && fetchedMessages.length < 1) {
+    if (threadStateSelection.hasState && threadStateLastMessageSeq > normalizedRequest.afterSeq) {
+      throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadState: nextThreadState,
+      unchanged: true,
+    };
+  }
+
+  if (threadStateSelection.hasState) {
+    if (threadStateLastMessageSeq > normalizedRequest.afterSeq) {
+      throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+    }
+
+    return {
+      kind: 'unchanged',
+      messages: [],
+      threadState: nextThreadState,
+      unchanged: true,
+    };
+  }
+
+  throw createThreadTransportContractError(AMBIGUOUS_THREAD_PAYLOAD_ERROR);
+}
+
 function normalizeSmartReplies(payload: unknown): SmartReplyOption[] {
   const root = payload && typeof payload === 'object' ? (payload as SmartRepliesPayload) : null;
   const directReplies = Array.isArray(root?.replies) ? root?.replies : [];
@@ -487,10 +904,10 @@ async function getDoctorMessages(
   prescriptionId: number,
   afterSeq = 0,
   options?: ApiRequestOptions,
-): Promise<ThreadPayload> {
+): Promise<unknown> {
   const normalizedAfterSeq = Math.max(0, Number(afterSeq || 0));
   const query = normalizedAfterSeq > 0 ? `?after_seq=${encodeURIComponent(String(normalizedAfterSeq))}` : '';
-  return apiJson<ThreadPayload>(`/prescriptions/${prescriptionId}/messages${query}`, { method: 'GET' }, 'admin', options);
+  return apiJson<unknown>(`/prescriptions/${prescriptionId}/messages${query}`, { method: 'GET' }, 'admin', options);
 }
 
 async function postDoctorMessage(prescriptionId: number, body: string, attachments?: number[]): Promise<MessageItem> {
@@ -697,20 +1114,13 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
 
   const loadThread = useCallback(async (targetPrescriptionId: number, request?: DoctorMessagingThreadLoadRequest) => {
     const currentThreadState = threadStateRef.current;
-    const afterSeq = request?.mode === 'delta'
-      ? Math.max(0, Number(request.afterSeq || 0))
-      : 0;
-    const payload = await getDoctorMessages(targetPrescriptionId, afterSeq, loadThreadOptionsRef.current);
+    const normalizedRequest = normalizeThreadLoadRequest(request);
+    const payload = await getDoctorMessages(targetPrescriptionId, normalizedRequest.afterSeq, loadThreadOptionsRef.current);
+    const normalizedPayload = normalizeThreadTransportPayload(payload, normalizedRequest, currentThreadState);
+    const nextThreadState = normalizedPayload.threadState;
 
-    const nextThreadState = payload && payload.thread_state ? payload.thread_state : currentThreadState;
     threadStateRef.current = nextThreadState;
-
-    const returnedMessages = dedupeMessages(Array.isArray(payload?.messages) ? payload.messages : []);
-    const explicitUnchanged = Boolean(payload?.unchanged);
-    const inferredUnchanged = request?.mode === 'delta' && returnedMessages.length < 1;
-    const nextUnchanged = explicitUnchanged || inferredUnchanged;
-
-    threadUnchangedCountRef.current = nextUnchanged ? threadUnchangedCountRef.current + 1 : 0;
+    threadUnchangedCountRef.current = normalizedPayload.kind === 'unchanged' ? threadUnchangedCountRef.current + 1 : 0;
 
     if (mountedRef.current) {
       setThreadState(nextThreadState);
@@ -728,10 +1138,10 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     }
 
     return {
-      kind: nextUnchanged ? 'unchanged' : request?.mode === 'delta' ? 'delta' : 'snapshot',
-      messages: returnedMessages,
+      kind: normalizedPayload.kind,
+      messages: normalizedPayload.messages,
       thread_state: nextThreadState,
-      unchanged: nextUnchanged,
+      unchanged: normalizedPayload.unchanged,
       canCompose: normalizeMode(nextThreadState.mode) !== 'READ_ONLY',
       readOnlyNotice: 'La messagerie est en lecture seule pour ce dossier.',
       emptyText: 'Aucun message pour le moment.',
@@ -1098,3 +1508,4 @@ export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId:
     </div>
   );
 }
+
