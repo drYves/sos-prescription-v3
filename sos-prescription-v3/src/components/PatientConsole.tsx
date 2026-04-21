@@ -115,6 +115,8 @@ type PrescriptionDetail = {
   priority?: string;
   decision_reason?: string;
   primary_reason?: string;
+  reference?: string;
+  delivery_code?: string;
   request_details?: RequestDetailField[];
   files?: PrescriptionFile[];
   items: PrescriptionItem[];
@@ -767,6 +769,8 @@ function normalizePrescriptionDetail(payload: unknown): PrescriptionDetail | nul
     priority: toOptionalString(payload.priority),
     decision_reason: toOptionalString(payload.decision_reason),
     primary_reason: extractPrimaryReasonFromPayload(payload),
+    reference: toOptionalString(payload.reference) || toOptionalString(payload.request_reference),
+    delivery_code: toOptionalString(payload.delivery_code) || toOptionalString(payload.deliveryCode),
     request_details: extractRequestDetailsFromPayload(payload),
     files: normalizePrescriptionFileArray(payload.files),
     items: normalizePrescriptionItemArray(payload.items),
@@ -2696,6 +2700,7 @@ export default function PatientConsole() {
     patientProfile: cfg.patientProfile,
     currentUser: cfg.currentUser,
   }));
+  const [profileCompletenessResolved, setProfileCompletenessResolved] = useState<boolean>(() => isPatientProfileComplete(cfg.patientProfile, cfg.currentUser));
 
   const prescriptionsRef = useRef<PrescriptionSummary[]>([]);
   const selectedIdRef = useRef<number | null>(null);
@@ -2769,6 +2774,7 @@ export default function PatientConsole() {
       patientProfile: { ...(nextConfig.patientProfile || {}), ...(profile || {}) },
       currentUser: nextConfig.currentUser,
     });
+    setProfileCompletenessResolved(true);
   }, []);
 
   const selectedSummary = useMemo(
@@ -2780,6 +2786,10 @@ export default function PatientConsole() {
     () => isPatientProfileComplete(profileSnapshot.patientProfile, profileSnapshot.currentUser),
     [profileSnapshot.currentUser, profileSnapshot.patientProfile]
   );
+  const profileBadgeLabel = profileCompletenessResolved
+    ? (profileComplete ? 'Complet' : 'À compléter')
+    : '';
+  const profileBadgeState = profileComplete ? 'success' : 'warning';
 
   const paymentProfileSeed = useMemo(
     () => buildPatientProfileSeed(profileSnapshot.patientProfile, profileSnapshot.currentUser),
@@ -3474,12 +3484,14 @@ export default function PatientConsole() {
           onClick={() => setWorkspace('profile')}
         >
           Profil patient
-          <span
-            className="sp-patient-console__workspace-badge"
-            data-state={profileComplete ? 'success' : 'warning'}
-          >
-            {profileComplete ? 'Complet' : 'À compléter'}
-          </span>
+          {profileBadgeLabel ? (
+            <span
+              className="sp-patient-console__workspace-badge"
+              data-state={profileBadgeState}
+            >
+              {profileBadgeLabel}
+            </span>
+          ) : null}
         </button>
       </div>
 
@@ -3543,6 +3555,8 @@ export default function PatientConsole() {
             ButtonComponent={Button}
             SpinnerComponent={Spinner}
             requestTitle={requestTitle}
+            requestReference={detail?.reference || detail?.uid || selectedSummary?.uid || null}
+            deliveryCode={detail?.delivery_code || null}
             selectedStatus={selectedStatus}
             requestCreatedAt={detail?.created_at || selectedSummary?.created_at || ''}
             selectedPdf={selectedPdf}

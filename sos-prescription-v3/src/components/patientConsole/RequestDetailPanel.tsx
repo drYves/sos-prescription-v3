@@ -123,6 +123,8 @@ type RequestDetailPanelProps = {
   ButtonComponent: React.ComponentType<ButtonLikeProps>;
   SpinnerComponent: React.ComponentType<SpinnerLikeProps>;
   requestTitle: string;
+  requestReference?: string | null;
+  deliveryCode?: string | null;
   selectedStatus: string;
   requestCreatedAt: string;
   selectedPdf: PdfState | null;
@@ -175,6 +177,8 @@ export default function RequestDetailPanel({
   ButtonComponent,
   SpinnerComponent,
   requestTitle,
+  requestReference,
+  deliveryCode,
   selectedStatus,
   requestCreatedAt,
   selectedPdf,
@@ -214,6 +218,9 @@ export default function RequestDetailPanel({
   onMessageCreated,
   onThreadSurfaceError,
 }: RequestDetailPanelProps) {
+  const requestReferenceText = typeof requestReference === 'string' ? requestReference.trim() : '';
+  const deliveryCodeText = typeof deliveryCode === 'string' ? deliveryCode.trim() : '';
+
   return (
     <section className="sp-console-grid__content sp-patient-console__detail">
       {!selectedId ? (
@@ -239,6 +246,17 @@ export default function RequestDetailPanel({
               pdf={selectedPdf}
               decisionReason={decisionReason}
             />
+
+            {requestReferenceText !== '' || deliveryCodeText !== '' ? (
+              <div className="sp-inline-actions">
+                {requestReferenceText !== '' ? (
+                  <span className="dc-pill dc-pill-soft">Demande : {requestReferenceText}</span>
+                ) : null}
+                {deliveryCodeText !== '' ? (
+                  <span className="dc-pill dc-pill-soft">Code délivrance : {deliveryCodeText}</span>
+                ) : null}
+              </div>
+            ) : null}
 
             <PdfCardComponent
               status={selectedStatus}
