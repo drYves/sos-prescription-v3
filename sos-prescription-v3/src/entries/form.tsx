@@ -4,8 +4,7 @@ import '../styles/medical-grade-aura.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import PatientConsole from '../components/PatientConsole';
-import StripePaymentModule, { type StripePaymentResolutionMeta, toMedicalGradePaymentErrorMessage } from '../components/payment/StripePaymentModule';
-import { buildDraftFileManifest, buildDraftPayload, buildFinalizePayload } from './formTunnel/builders';
+import { buildDraftFileManifest, buildDraftPayload } from './formTunnel/builders';
 import { hydrateStoredDraftPayload } from './formTunnel/hydrators';
 import type {
   AnalyzeMedication,
@@ -33,11 +32,13 @@ import type {
 } from './formTunnel/types';
 import { useDraftNetwork } from './formTunnel/useDraftNetwork';
 import { useSubmissionNetwork } from './formTunnel/useSubmissionNetwork';
+import { CheckoutSection } from './formCheckout/CheckoutSection';
+import { formatMoney } from './formCheckout/helpers';
+import { useCheckout } from './formCheckout/useCheckout';
 import { MedicationRequestSection } from './formMedication/MedicationRequestSection';
 import { buildMedicationItemFromSearchResult } from './formMedication/buildMedicationItemFromSearchResult';
 import { clampInt, fillArray, normalizeSchedule } from './formMedication/schedule';
 import { IntakeSection } from './formIntake/IntakeSection';
-import { isResyncableLocalUpload } from './formIntake/helpers';
 import { useIntake } from './formIntake/useIntake';
 
 type AppConfig = {
@@ -1213,61 +1214,6 @@ function mergeMedicationItems(current: MedicationItem[], incoming: MedicationIte
   return next;
 }
 
-function formatMoney(amountCents: number | null | undefined, currency: string | undefined): string {
-  const cents = typeof amountCents === 'number' ? amountCents : 0;
-  const safeCurrency = String(currency || 'EUR').toUpperCase();
-
-  try {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: safeCurrency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(cents / 100);
-  } catch {
-    const amount = (cents / 100).toLocaleString('fr-FR', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    return `${amount} ${safeCurrency}`;
-  }
-}
-
-function formatEtaMinutes(minutes: number | null | undefined): string | null {
-  const value = typeof minutes === 'number' ? Math.trunc(minutes) : 0;
-  if (!Number.isFinite(value) || value < 1) {
-    return null;
-  }
-  if (value < 60) {
-    return `${value} minute${value > 1 ? 's' : ''}`;
-  }
-  const hours = Math.floor(value / 60);
-  const rest = value % 60;
-  if (rest < 1) {
-    return `${hours} heure${hours > 1 ? 's' : ''}`;
-  }
-  return `${hours} heure${hours > 1 ? 's' : ''} ${rest} minute${rest > 1 ? 's' : ''}`;
-}
-
-function describePriorityTurnaround(
-  priority: 'standard' | 'express',
-  pricing: PricingConfig | null,
-): string {
-  const eta = priority === 'express'
-    ? formatEtaMinutes(pricing?.express_eta_minutes ?? null)
-    : formatEtaMinutes(pricing?.standard_eta_minutes ?? null);
-
-  if (eta) {
-    return priority === 'express'
-      ? `Traitement prioritaire estimé sous ${eta}`
-      : `Traitement estimé sous ${eta}`;
-  }
-
-  return priority === 'express'
-    ? 'Traitement prioritaire selon la disponibilité médicale.'
-    : 'Traitement selon l’ordre d’arrivée des dossiers.';
-}
-
 function toPatientSafeSubmissionErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error || '');
   const message = raw.trim().toLowerCase();
@@ -1823,137 +1769,6 @@ function StepClinicalData({
   );
 }
 
-type StepPrioritySelectionProps = {
-  flow: FlowType;
-  itemsCount: number;
-  filesCount: number;
-  pricingLoading: boolean;
-  pricing: PricingConfig | null;
-  priority: 'standard' | 'express';
-  paymentsConfig: PaymentsConfig | null;
-  selectedAmount: number | null;
-  selectedPriorityEta: string;
-  onPriorityChange: (priority: 'standard' | 'express') => void;
-  onBack: () => void;
-  onContinue: () => void;
-  continueDisabled: boolean;
-};
-
-function StepPrioritySelection({
-  flow,
-  itemsCount,
-  filesCount,
-  pricingLoading,
-  pricing,
-  priority,
-  paymentsConfig,
-  selectedAmount,
-  selectedPriorityEta,
-  onPriorityChange,
-  onBack,
-  onContinue,
-  continueDisabled,
-}: StepPrioritySelectionProps) {
-  return (
-    <div className="sp-app-stack">
-      <section className="sp-app-card sp-app-card--priority">
-        <div className="sp-app-section__header">
-          <div>
-            <h2 className="sp-app-section__title">Choisissez le délai de traitement</h2>
-            <p className="sp-app-section__hint">
-              Sélectionnez l’option qui vous convient avant le règlement sécurisé.
-            </p>
-          </div>
-        </div>
-
-        <div className="sp-app-summary-grid">
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Situation</div>
-            <div className="sp-app-summary-card__value">{getFlowLabel(flow)}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Médicaments</div>
-            <div className="sp-app-summary-card__value">{itemsCount}</div>
-          </div>
-          <div className="sp-app-summary-card">
-            <div className="sp-app-summary-card__label">Justificatifs</div>
-            <div className="sp-app-summary-card__value">{filesCount}</div>
-          </div>
-        </div>
-
-        {pricingLoading ? (
-          <div className="sp-app-inline-status">
-            <Spinner />
-            <span>Chargement du montant de la demande…</span>
-          </div>
-        ) : pricing ? (
-          <div className="sp-app-choice-grid" role="radiogroup" aria-label="Choisir le délai de traitement">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={priority === 'standard'}
-              data-selected={priority === 'standard' ? 'true' : 'false'}
-              className={cx('sp-app-choice-card', priority === 'standard' && 'is-selected')}
-              onClick={() => onPriorityChange('standard')}
-            >
-              <div className="sp-app-choice-card__header">
-                <span className="sp-app-choice-card__icon" aria-hidden="true">
-                  <Clock2Icon />
-                </span>
-                <div className="sp-app-choice-card__title">Standard</div>
-              </div>
-              <div className="sp-app-choice-card__text">{describePriorityTurnaround('standard', pricing)}</div>
-              <div className="sp-app-choice-card__meta">
-                {formatMoney(pricing.standard_cents, pricing.currency)}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              role="radio"
-              aria-checked={priority === 'express'}
-              data-selected={priority === 'express' ? 'true' : 'false'}
-              className={cx('sp-app-choice-card', priority === 'express' && 'is-selected')}
-              onClick={() => onPriorityChange('express')}
-            >
-              <div className="sp-app-choice-card__header">
-                <span className="sp-app-choice-card__icon" aria-hidden="true">
-                  <TimerIcon />
-                </span>
-                <div className="sp-app-choice-card__title">Express</div>
-              </div>
-              <div className="sp-app-choice-card__text">{describePriorityTurnaround('express', pricing)}</div>
-              <div className="sp-app-choice-card__meta">
-                {formatMoney(pricing.express_cents, pricing.currency)}
-              </div>
-            </button>
-          </div>
-        ) : (
-          <Notice variant="error">
-            Nous n’avons pas pu charger le montant de la demande. Merci de réessayer avant de poursuivre.
-          </Notice>
-        )}
-
-        {selectedAmount != null && pricing ? (
-          <div className="sp-app-inline-note">
-            Sélection actuelle : <strong>{priority === 'express' ? 'Express' : 'Standard'}</strong> · {selectedPriorityEta} · {formatMoney(selectedAmount, pricing.currency)}
-          </div>
-        ) : null}
-      </section>
-
-      <div className="sp-app-actions">
-        <Button type="button" variant="secondary" onClick={onBack}>
-          Modifier mes informations
-        </Button>
-
-        <Button type="button" onClick={onContinue} disabled={continueDisabled}>
-          Continuer
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 type StepDraftValidationProps = {
   flow: FlowType;
   fullName: string;
@@ -2098,142 +1913,6 @@ function StepDraftValidation({
   );
 }
 
-type StepPaymentAuthProps = {
-  flow: FlowType;
-  fullName: string;
-  birthdate: string;
-  itemsCount: number;
-  filesCount: number;
-  priority: 'standard' | 'express';
-  pricingLoading: boolean;
-  pricing: PricingConfig | null;
-  selectedAmount: number | null;
-  selectedPriorityEta: string;
-  paymentsConfig: PaymentsConfig | null;
-  preparedSubmission: SubmissionResult | null;
-  onBack: () => void;
-  onAuthorized: () => void;
-};
-
-function StepPaymentAuth({
-  fullName,
-  priority,
-  pricingLoading,
-  pricing,
-  selectedAmount,
-  selectedPriorityEta,
-  paymentsConfig,
-  preparedSubmission,
-  onBack,
-  onAuthorized,
-}: StepPaymentAuthProps) {
-  const billingName = useMemo(() => {
-    const config = getConfigOrThrow();
-    return safePatientNameValue(fullName) || resolveStrictPatientProfileFullName(config) || undefined;
-  }, [fullName]);
-
-  const billingEmail = useMemo(() => {
-    const config = getConfigOrThrow();
-    const value = typeof config.currentUser?.email === 'string' ? config.currentUser.email.trim() : '';
-    return value !== '' ? value : undefined;
-  }, []);
-
-  const prerequisiteError = useMemo(() => {
-    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      return 'Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.';
-    }
-
-    if (!paymentsConfig?.enabled) {
-      return 'La sécurisation bancaire est temporairement indisponible. Merci de réessayer un peu plus tard.';
-    }
-
-    return null;
-  }, [paymentsConfig?.enabled, preparedSubmission]);
-
-  const createIntent = useCallback(async () => {
-    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      throw new Error('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
-    }
-
-    return createPaymentIntentApi(Number(preparedSubmission.id), priority);
-  }, [preparedSubmission, priority]);
-
-  const confirmIntent = useCallback(async (paymentIntentId: string) => {
-    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      throw new Error('Votre dossier n’est pas encore prêt pour la sécurisation bancaire. Merci de revenir à l’étape précédente puis de réessayer.');
-    }
-
-    return confirmPaymentIntentApi(Number(preparedSubmission.id), paymentIntentId);
-  }, [preparedSubmission]);
-
-  const handleAuthorizedState = useCallback((event: 'resume' | 'authorized', meta: StripePaymentResolutionMeta) => {
-    if (!preparedSubmission) {
-      return;
-    }
-
-    if (event === 'resume') {
-      frontendLog('payment_authorization_resume_ok', 'info', {
-        prescription_id: preparedSubmission.id,
-        uid: preparedSubmission.uid,
-        payment_intent_id: meta.paymentIntentId,
-        priority,
-        status: meta.status,
-      });
-      return;
-    }
-
-    frontendLog('payment_authorization_ok', 'info', {
-      prescription_id: preparedSubmission.id,
-      uid: preparedSubmission.uid,
-      payment_intent_id: meta.paymentIntentId,
-      priority,
-      status: meta.status,
-    });
-  }, [preparedSubmission, priority]);
-
-  const handlePaymentError = useCallback(({ message }: { mode: 'tunnel' | 'patient_space'; error: unknown; message: string }) => {
-    if (!preparedSubmission) {
-      return;
-    }
-
-    frontendLog('payment_authorization_error', 'error', {
-      prescription_id: preparedSubmission.id,
-      uid: preparedSubmission.uid,
-      priority,
-      message,
-    });
-  }, [preparedSubmission, priority]);
-
-  return (
-    <StripePaymentModule
-      mode="tunnel"
-      title="Paiement sécurisé"
-      intro="Votre carte est uniquement autorisée avant la transmission au médecin. Aucun débit n’est réalisé avant validation médicale."
-      note="Carte bancaire sécurisée par Stripe • Autorisation uniquement • Aucun débit avant validation médicale"
-      amountCents={selectedAmount}
-      currency={pricing?.currency || 'EUR'}
-      etaValue={selectedPriorityEta || null}
-      summaryLoading={pricingLoading}
-      billingName={billingName}
-      billingEmail={billingEmail}
-      fallbackPublishableKey={String(paymentsConfig?.publishable_key || '').trim() || null}
-      prerequisiteError={prerequisiteError}
-      createIntent={createIntent}
-      confirmIntent={confirmIntent}
-      onAuthorized={onAuthorized}
-      onAuthorizedState={handleAuthorizedState}
-      onErrorState={handlePaymentError}
-      safeErrorMessage={toMedicalGradePaymentErrorMessage}
-      onBack={onBack}
-      backLabel="Modifier mon choix"
-      submitIdleLabel="Valider et envoyer ma demande"
-      submitBusyLabel="Validation sécurisée en cours…"
-      mountLoadingLabel="Chargement du formulaire bancaire sécurisé…"
-      submittingStatusLabel="Validation bancaire sécurisée en cours. Ne fermez pas la page et ne cliquez pas une seconde fois."
-    />
-  );
-}
-
 type StepSuccessProps = {
   submissionResult: SubmissionResult;
   copiedUid: boolean;
@@ -2362,7 +2041,6 @@ function PublicFormApp() {
   const birthdateEditedRef = useRef(false);
   const medicalNotesEditedRef = useRef(false);
   const artifactResyncFileIdsRef = useRef<string[]>([]);
-  const preparedSubmissionFingerprintRef = useRef<string | null>(null);
 
   const compliance = config.compliance || {};
   const consentRequired = Boolean(compliance.consent_required);
@@ -2448,56 +2126,6 @@ function PublicFormApp() {
     stage,
     submissionResult,
   ]);
-
-  const preparedSubmissionFingerprint = useMemo(() => JSON.stringify({
-    flow: clinicalState.flow,
-    priority: clinicalState.priority,
-    fullName: safePatientNameValue(clinicalState.fullName),
-    birthdate: String(clinicalState.birthdate || '').trim(),
-    medicalNotes: String(clinicalState.medicalNotes || '').trim(),
-    items: clinicalState.items.map((item) => ({
-      cis: item.cis || null,
-      cip13: item.cip13 || null,
-      label: String(item.label || '').trim(),
-      quantite: item.quantite || null,
-      schedule: item.schedule && typeof item.schedule === 'object' ? item.schedule : null,
-    })),
-    files: clinicalState.files.map((entry) => ({
-      id: entry.id,
-      original_name: entry.original_name,
-      mime_type: entry.mime_type || entry.mime || '',
-      size_bytes: Number(entry.size_bytes || 0),
-      kind: entry.kind,
-      status: entry.status,
-    })),
-    attestationNoProof: clinicalState.attestationNoProof,
-    consentTelemedicine: clinicalState.consentTelemedicine,
-    consentTruth: clinicalState.consentTruth,
-    consentCgu: clinicalState.consentCgu,
-    consentPrivacy: clinicalState.consentPrivacy,
-  }), [clinicalState]);
-
-  const invalidatePreparedSubmission = useCallback(() => {
-    preparedSubmissionFingerprintRef.current = null;
-    setPreparedSubmission((current) => (current ? null : current));
-  }, []);
-
-  useEffect(() => {
-    if (!preparedSubmission) {
-      preparedSubmissionFingerprintRef.current = null;
-      return;
-    }
-
-    if (!preparedSubmissionFingerprintRef.current) {
-      preparedSubmissionFingerprintRef.current = preparedSubmissionFingerprint;
-      return;
-    }
-
-    if (preparedSubmissionFingerprintRef.current !== preparedSubmissionFingerprint) {
-      preparedSubmissionFingerprintRef.current = null;
-      setPreparedSubmission(null);
-    }
-  }, [preparedSubmission, preparedSubmissionFingerprint]);
 
   const { loadSubmissionDraft, saveSubmissionDraft, uploadDraftArtifacts } = useDraftNetwork({
     loadSubmissionDraftApi,
@@ -2691,16 +2319,6 @@ function PublicFormApp() {
 
     clearAppBrowserStateStorage();
   }, [resumeDraftRefFromUrl]);
-  const selectedAmount = useMemo(() => {
-    if (!pricing) {
-      return null;
-    }
-    return priority === 'express' ? pricing.express_cents : pricing.standard_cents;
-  }, [pricing, priority]);
-  const selectedPriorityEta = useMemo(
-    () => describePriorityTurnaround(priority, pricing),
-    [priority, pricing],
-  );
   const ageLabel = useMemo(() => ageLabelFromBirthdate(birthdate), [birthdate]);
 
   useEffect(() => {
@@ -2898,6 +2516,44 @@ function PublicFormApp() {
   }, [createSubmission, flow, priority]);
 
   const {
+    selectedAmount,
+    selectedPriorityEta,
+    invalidatePreparedSubmission,
+    prioritySectionProps,
+    paymentSectionProps,
+  } = useCheckout({
+    config,
+    clinicalState,
+    workflowState,
+    pricingLoading,
+    submitLoading,
+    isLoggedIn,
+    isDraftMode,
+    submitBlockInfo,
+    consentRequired,
+    cguVersion: compliance?.cgu_version,
+    privacyVersion: compliance?.privacy_version,
+    submissionRefStateRef,
+    artifactResyncFileIdsRef,
+    setPriority,
+    setStage,
+    setSubmitError,
+    setSubmitLoading,
+    setPreparedSubmission,
+    setSubmissionResult,
+    setFiles,
+    ensureSubmissionRef,
+    uploadDraftArtifacts,
+    finalizeSubmission,
+    createPaymentIntent: createPaymentIntentApi,
+    confirmPaymentIntent: confirmPaymentIntentApi,
+    frontendLog,
+    toPatientSafeSubmissionErrorMessage,
+    safePatientNameValue,
+    splitPatientNameValue,
+  });
+
+  const {
     handleFilesSelected,
     handleRemoveFile,
     invalidateAsyncContext: invalidateIntakeAsyncContext,
@@ -2999,11 +2655,6 @@ function PublicFormApp() {
     submissionRefStateRef.current = { ref: null };
     setStage('form');
   }, [flow, invalidateIntakeAsyncContext, invalidatePreparedSubmission]);
-
-  const handlePriorityChange = useCallback((nextPriority: 'standard' | 'express') => {
-    invalidatePreparedSubmission();
-    setPriority(nextPriority);
-  }, [invalidatePreparedSubmission]);
 
   const handleContinueToPriority = useCallback(() => {
     setSubmitError(null);
@@ -3140,207 +2791,6 @@ function PublicFormApp() {
       setDraftSending(false);
     }
   }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, saveSubmissionDraft, submitBlockInfo, uploadDraftArtifacts]);
-
-  const prepareSubmissionForPayment = useCallback(async (): Promise<SubmissionResult | null> => {
-    setSubmitError(null);
-
-    if (workflowState.preparedSubmission && Number(workflowState.preparedSubmission.id) > 0) {
-      return workflowState.preparedSubmission;
-    }
-
-    setSubmitError(null);
-
-    frontendLog('submit_clicked', 'info', {
-      flow: clinicalState.flow || null,
-      stage: workflowState.stage,
-      logged_in: isLoggedIn,
-      meds_count: clinicalState.items.length,
-      files_count: clinicalState.files.length,
-    });
-
-    if (!submitBlockInfo.ok || !clinicalState.flow) {
-      const message = submitBlockInfo.message || 'Le formulaire est incomplet. Merci de vérifier les champs requis.';
-      frontendLog('submit_blocked', 'warning', {
-        flow: clinicalState.flow || null,
-        stage: workflowState.stage,
-        reason_code: submitBlockInfo.code || 'unknown',
-        reasons: submitBlockInfo.reasons.map((reason) => reason.code),
-        message,
-      });
-      setSubmitError(message);
-      return null;
-    }
-
-    const patientFullName = safePatientNameValue(clinicalState.fullName);
-    const patientName = splitPatientNameValue(patientFullName);
-    if (patientFullName.length < 3 || patientName.firstName === '' || patientName.lastName === '') {
-      setSubmitError('Merci de saisir le prénom et le nom du patient, et non une adresse e-mail.');
-      return null;
-    }
-
-    setSubmitLoading(true);
-
-    try {
-      const submissionRef = await ensureSubmissionRef();
-
-      const activeFlow = clinicalState.flow;
-      if (!activeFlow) {
-        throw new Error('Merci de choisir un parcours avant de continuer.');
-      }
-
-      if (artifactResyncFileIdsRef.current.length > 0) {
-        const resyncIds = new Set(artifactResyncFileIdsRef.current);
-        const resyncEntries = clinicalState.files.filter((entry) => (
-          resyncIds.has(entry.id) && isResyncableLocalUpload(entry)
-        ));
-
-        if (resyncEntries.length > 0) {
-          const resyncResults = await uploadDraftArtifacts(resyncEntries, submissionRef, (result) => {
-            if (result.error) {
-              setFiles((current) => current.map((file) => (
-                file.id === result.entry.id
-                  ? {
-                    ...file,
-                    status: 'QUEUED',
-                  }
-                  : file
-              )));
-              return;
-            }
-
-            setFiles((current) => current.map((file) => (
-              file.id === result.entry.id
-                ? {
-                  ...file,
-                  status: 'READY',
-                }
-                : file
-            )));
-          });
-
-          const failedResync = resyncResults.filter((result) => result.error);
-          if (failedResync.length > 0) {
-            artifactResyncFileIdsRef.current = failedResync.map((result) => result.entry.id);
-            throw failedResync[0].error;
-          }
-        }
-
-        artifactResyncFileIdsRef.current = [];
-      }
-
-      const finalizeClinicalState: ClinicalState & { flow: FlowType } = {
-        ...clinicalState,
-        flow: activeFlow,
-      };
-      const finalizePayload = buildFinalizePayload({
-        clinicalState: finalizeClinicalState,
-        consentRequired,
-        consentTimestamp: new Date().toISOString(),
-        cguVersion: compliance?.cgu_version,
-        privacyVersion: compliance?.privacy_version,
-      });
-
-      const allowProofOnlyFinalize = finalizeClinicalState.flow === 'ro_proof' && finalizeClinicalState.files.length > 0 && Boolean(workflowState.resumedDraftRef);
-      if ((!Array.isArray(finalizePayload.items) || finalizePayload.items.length < 1) && !allowProofOnlyFinalize) {
-        throw new Error(
-          finalizeClinicalState.flow === 'ro_proof'
-            ? 'Aucun traitement n’a pu être détecté. Merci d’ajouter un document plus lisible.'
-            : 'Merci d’ajouter au moins un médicament.',
-        );
-      }
-
-      frontendLog('submission_finalize_start', 'info', {
-        flow: finalizeClinicalState.flow,
-        items_count: finalizePayload.items.length,
-        files_count: finalizeClinicalState.files.length,
-      });
-
-      const finalized = await finalizeSubmission(submissionRef, finalizePayload);
-      const localPrescriptionId = Number((finalized as { local_prescription_id?: unknown }).local_prescription_id || finalized.id || 0);
-      const result: SubmissionResult = {
-        id: Number.isFinite(localPrescriptionId) ? localPrescriptionId : 0,
-        uid: String(finalized.uid || ''),
-        status: String((finalized as { local_status?: unknown }).local_status || finalized.status || 'payment_pending'),
-        created_at: typeof finalized.created_at === 'string' ? finalized.created_at : undefined,
-      };
-
-      frontendLog('submission_finalize_ok', 'info', {
-        flow: finalizeClinicalState.flow,
-        prescription_id: result.id || null,
-        uid: result.uid || null,
-        status: result.status || null,
-      });
-
-      if (result.id < 1) {
-        throw new Error('Prescription locale introuvable après préparation du paiement.');
-      }
-
-      preparedSubmissionFingerprintRef.current = preparedSubmissionFingerprint;
-      setPreparedSubmission(result);
-      return result;
-    } catch (error) {
-      const message = toPatientSafeSubmissionErrorMessage(error);
-      frontendLog('submission_error', 'error', {
-        flow: clinicalState.flow || null,
-        stage: workflowState.stage,
-        message,
-        meds_count: clinicalState.items.length,
-        files_count: clinicalState.files.length,
-      });
-      setSubmitError(message);
-      return null;
-    } finally {
-      setSubmitLoading(false);
-    }
-  }, [clinicalState, compliance?.cgu_version, compliance?.privacy_version, consentRequired, ensureSubmissionRef, finalizeSubmission, isLoggedIn, preparedSubmissionFingerprint, submitBlockInfo, uploadDraftArtifacts, workflowState]);
-
-  const handleContinueToPaymentAuth = useCallback(async () => {
-    setSubmitError(null);
-
-    if (uiState.pricingLoading) {
-      setSubmitError('Le montant de votre demande est en cours de préparation. Merci de patienter quelques instants.');
-      return;
-    }
-
-    if (!pricing || selectedAmount == null) {
-      setSubmitError('Le montant de votre demande n’est pas disponible pour le moment. Merci de réessayer.');
-      return;
-    }
-
-    if (isDraftMode) {
-      setStage('payment_auth');
-      return;
-    }
-
-    if (!paymentsConfig?.enabled) {
-      setSubmitError('La sécurisation bancaire est actuellement indisponible. Merci de réessayer un peu plus tard.');
-      return;
-    }
-
-    if (workflowState.preparedSubmission && Number(workflowState.preparedSubmission.id) > 0) {
-      setStage('payment_auth');
-      return;
-    }
-
-    const nextSubmission = await prepareSubmissionForPayment();
-    if (nextSubmission && Number(nextSubmission.id) > 0) {
-      setStage('payment_auth');
-    }
-  }, [isDraftMode, paymentsConfig?.enabled, prepareSubmissionForPayment, pricing, selectedAmount, uiState.pricingLoading, workflowState.preparedSubmission]);
-
-  const handlePaymentAuthorized = useCallback(() => {
-    if (!preparedSubmission || Number(preparedSubmission.id) < 1) {
-      setSubmitError('Impossible de finaliser la transmission : demande préparée introuvable.');
-      return;
-    }
-
-    setSubmitError(null);
-    setSubmissionResult({
-      ...preparedSubmission,
-      status: 'pending',
-    });
-    setStage('done');
-  }, [preparedSubmission]);
 
   const handleBackToClinicalForm = useCallback(() => {
     invalidatePreparedSubmission();
@@ -3506,20 +2956,13 @@ function PublicFormApp() {
         ) : null}
 
         {stage === 'priority_selection' && flow ? (
-          <StepPrioritySelection
-            flow={flow}
-            itemsCount={items.length}
-            filesCount={files.length}
-            pricingLoading={pricingLoading}
-            pricing={pricing}
-            priority={priority}
-            paymentsConfig={paymentsConfig}
-            selectedAmount={selectedAmount}
-            selectedPriorityEta={selectedPriorityEta}
-            onPriorityChange={handlePriorityChange}
-            onBack={handleBackToClinicalForm}
-            onContinue={handleContinueToPaymentAuth}
-            continueDisabled={submitLoading || pricingLoading || !pricing}
+          <CheckoutSection
+            mode="priority"
+            priorityProps={{
+              ...prioritySectionProps,
+              flow,
+              onBack: handleBackToClinicalForm,
+            }}
           />
         ) : null}
 
@@ -3547,21 +2990,12 @@ function PublicFormApp() {
               onSend={handleSendDraftLink}
             />
           ) : (
-            <StepPaymentAuth
-              flow={flow}
-              fullName={fullName}
-              birthdate={birthdate}
-              itemsCount={items.length}
-              filesCount={files.length}
-              priority={priority}
-              pricingLoading={pricingLoading}
-              pricing={pricing}
-              selectedAmount={selectedAmount}
-              selectedPriorityEta={selectedPriorityEta}
-              paymentsConfig={paymentsConfig}
-              preparedSubmission={preparedSubmission}
-              onBack={handleBackFromPayment}
-              onAuthorized={handlePaymentAuthorized}
+            <CheckoutSection
+              mode="payment"
+              paymentProps={{
+                ...paymentSectionProps,
+                onBack: handleBackFromPayment,
+              }}
             />
           )
         ) : null}
