@@ -17,6 +17,7 @@ defined('ABSPATH') || exit;
 final class MessagesV4Controller extends \WP_REST_Controller
 {
     private const NAMESPACE_V4 = 'sosprescription/v4';
+    public const POLISH_WORKER_PATH = '/api/v2/messages/polish';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -267,6 +268,9 @@ final class MessagesV4Controller extends \WP_REST_Controller
                     'local_prescription_id' => $context['local_prescription_id'] > 0 ? $context['local_prescription_id'] : null,
                     'prescription_uid' => $context['prescription_uid'] !== '' ? $context['prescription_uid'] : null,
                     'worker_prescription_id' => $context['worker_prescription_id'] !== '' ? $context['worker_prescription_id'] : null,
+                    'worker_polish_path' => self::POLISH_WORKER_PATH,
+                    'worker_polish_dispatch_point' => __CLASS__ . '::dispatch_polish_worker_request',
+                    'worker_polish_strategy' => 'single_path_no_fallback',
                 ],
                 'messages_v4.polish.failed'
             );
@@ -632,32 +636,16 @@ final class MessagesV4Controller extends \WP_REST_Controller
      */
     private function dispatch_polish_worker_request(array $workerRequest, array $context, string $reqId): array
     {
-        $paths = ['/api/v1/messages/polish'];
-        if ($context['worker_prescription_id'] !== '') {
-            $paths[] = '/api/v1/prescriptions/' . rawurlencode($context['worker_prescription_id']) . '/messages/polish';
-        }
-        $paths[] = '/api/v1/copilot/messages/polish';
+        unset($context);
 
-        $lastError = null;
-        foreach (array_values(array_unique($paths)) as $path) {
-            try {
-                $payload = $this->get_worker_api_client()->postSignedJson(
-                    $path,
-                    $workerRequest,
-                    $reqId,
-                    'messages_v4_polish'
-                );
-                return $this->normalize_payload($payload);
-            } catch (\Throwable $e) {
-                $lastError = $e;
-            }
-        }
+        $payload = $this->get_worker_api_client()->postSignedJson(
+            self::POLISH_WORKER_PATH,
+            $workerRequest,
+            $reqId,
+            'messages_v4_polish'
+        );
 
-        if ($lastError instanceof \Throwable) {
-            throw $lastError;
-        }
-
-        throw new \RuntimeException('Worker polish bridge failed.');
+        return $this->normalize_payload($payload);
     }
 
     /**

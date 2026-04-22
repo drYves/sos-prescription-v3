@@ -77,7 +77,7 @@ final class V4WorkerTransport
     public function polishMessage(string $draft, array $constraints, string $reqId): array
     {
         return $this->workerClient()->postSignedJson(
-            '/api/v2/messages/polish',
+            $this->polishWorkerPath(),
             [
                 'actor' => $this->buildActorPayload(),
                 'draft' => $draft,
@@ -86,6 +86,15 @@ final class V4WorkerTransport
             $reqId,
             'messages_v4_polish'
         );
+    }
+
+    private function polishWorkerPath(): string
+    {
+        if (class_exists(\SosPrescription\Rest\MessagesV4Controller::class)) {
+            return \SosPrescription\Rest\MessagesV4Controller::POLISH_WORKER_PATH;
+        }
+
+        return '/api/v2/messages/polish';
     }
 
     /**
