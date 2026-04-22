@@ -65,12 +65,6 @@ add_action('rest_api_init', static function (): void {
         'callback' => [$controller, 'medicationsSearch'],
     ]);
 
-    register_rest_route('sosprescription/v4', '/messages/polish', [
-        'methods' => 'POST',
-        'permission_callback' => $requireDoctorNonce,
-        'callback' => [$controller, 'messagesPolish'],
-    ]);
-
     register_rest_route('sosprescription/v4', '/submissions/draft', [
         'methods' => 'POST',
         'permission_callback' => $requirePublicDraftAccess,
