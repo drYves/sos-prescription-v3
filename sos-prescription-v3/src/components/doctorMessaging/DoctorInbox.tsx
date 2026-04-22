@@ -6,30 +6,12 @@ type InboxRow = DoctorInboxRow;
 type InboxUrgency = { tone: 'urgent' | 'standard'; label: string };
 type InboxStatus = { label: string; variant: 'success' | 'danger' | 'warn' | 'soft' };
 
-const FILTER_META: Record<DoctorInboxFilterKey, { title: string; empty: string; label: string }> = {
-  pending: {
-    title: 'Demandes en attente',
-    empty: 'Aucune demande en attente.',
-    label: 'En attente',
-  },
-  approved: {
-    title: 'Ordonnances validées',
-    empty: 'Aucune ordonnance validée.',
-    label: 'Validées',
-  },
-  rejected: {
-    title: 'Ordonnances refusées',
-    empty: 'Aucune ordonnance refusée.',
-    label: 'Refusées',
-  },
-  all: {
-    title: 'Toutes les demandes',
-    empty: 'Aucune demande trouvée.',
-    label: 'Toutes',
-  },
+const FILTER_EMPTY_TEXT: Record<DoctorInboxFilterKey, string> = {
+  pending: 'Aucune demande en attente.',
+  approved: 'Aucune ordonnance validée.',
+  rejected: 'Aucune ordonnance refusée.',
+  all: 'Aucune demande trouvée.',
 };
-
-const FILTER_ORDER: DoctorInboxFilterKey[] = ['pending', 'approved', 'rejected', 'all'];
 
 function asRecord(value: unknown): InboxRow {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as InboxRow : {};
@@ -111,8 +93,8 @@ function formatRelativeDate(value: unknown): string {
   return formatDateDisplay(parsed.toISOString());
 }
 
-function getFilterMeta(filterKey: DoctorInboxFilterKey): { title: string; empty: string; label: string } {
-  return FILTER_META[filterKey] || FILTER_META.pending;
+function getEmptyText(filterKey: DoctorInboxFilterKey): string {
+  return FILTER_EMPTY_TEXT[filterKey] || FILTER_EMPTY_TEXT.pending;
 }
 
 function extractPatientName(row: InboxRow): string {
@@ -243,10 +225,9 @@ export default function DoctorInbox() {
     inboxListFilter,
     inboxListLoading,
     refreshInbox,
-    setInboxFilter,
   } = useDoctorMessagingContext();
 
-  const filterMeta = getFilterMeta(inboxListFilter);
+  const emptyText = getEmptyText(inboxListFilter);
   const visibleCount = inboxList.length;
   const visualSelectedId = selectionPending && requestedPrescriptionId != null
     ? requestedPrescriptionId
@@ -260,53 +241,26 @@ export default function DoctorInbox() {
     void requestPrescriptionSelection(id);
   }, [requestPrescriptionSelection]);
 
-  const handleFilterChange = useCallback((filterKey: DoctorInboxFilterKey): void => {
-    void setInboxFilter(filterKey);
-  }, [setInboxFilter]);
-
   return (
     <div className="dc-inbox-react-panel">
       <div className="dc-toolbar-console">
-        <div className="dc-toolbar-console__context">
-          <div className="dc-toolbar-console__eyebrow">Inbox React</div>
-          <div className="dc-toolbar-console__title">{filterMeta.title}</div>
-          <div className="dc-toolbar-console__caption">
-            {visibleCount === 1 ? '1 dossier visible' : `${visibleCount} dossiers visibles`}
-          </div>
-        </div>
         <div className="dc-toolbar-console__filters">
-          <button type="button" className="sp-button sp-button--ghost" onClick={handleRefresh}>
+          <button
+            type="button"
+            className="sp-button sp-button--ghost"
+            onClick={handleRefresh}
+            aria-label="Actualiser la liste des dossiers"
+          >
             Actualiser
           </button>
         </div>
-      </div>
-
-      <div className="dc-filter-tabs" role="tablist" aria-label="Filtres de l’inbox médecin">
-        {FILTER_ORDER.map((filterKey) => {
-          const filter = getFilterMeta(filterKey);
-          const isActive = filterKey === inboxListFilter;
-          return (
-            <button
-              key={filterKey}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={[ 'dc-filter-tab', isActive ? 'is-active' : '' ].filter(Boolean).join(' ')}
-              onClick={(): void => {
-                handleFilterChange(filterKey);
-              }}
-            >
-              {filter.label}
-            </button>
-          );
-        })}
       </div>
 
       <div className="dc-inbox__list" aria-live="polite">
         {inboxListLoading && visibleCount < 1 ? (
           <div className="dc-empty">Chargement des demandes…</div>
         ) : visibleCount < 1 ? (
-          <div className="dc-empty">{filterMeta.empty}</div>
+          <div className="dc-empty">{emptyText}</div>
         ) : (
           inboxList.map((row) => {
             const id = normalizePrescriptionId(row.id);

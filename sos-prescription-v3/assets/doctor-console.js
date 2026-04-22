@@ -1054,7 +1054,7 @@
     return [
       '<label class="dc-toolbar-console__field">',
       '  <span class="dc-toolbar-console__label">Filtre de file</span>',
-      '  <select class="dc-toolbar-console__select" data-role="toolbar-filter-select" aria-label="Filtrer la file de demandes">',
+      '  <select id="dc-toolbar-filter-select" name="toolbar_filter" class="dc-toolbar-console__select" data-role="toolbar-filter-select" aria-label="Filtrer la file de demandes">',
       LIST_FILTERS.map(function (filter) {
         var selected = filter.key === state.listFilter ? ' selected' : '';
         return '<option value="' + escHtml(filter.key) + '"' + selected + '>' + escHtml(filter.label) + '</option>';
@@ -3718,8 +3718,8 @@
             var anchor = draft.autoTimesEnabled && (isFirst || isLast) ? '<small>(ancre)</small>' : '';
             return '<div class="dc-modal__schedule-row">'
               + '  <div class="dc-modal__schedule-row-label">' + escHtml(label) + anchor + '</div>'
-              + '  <label class="sp-field"><span class="sp-field__label">Heure</span><input type="time" step="300" class="sp-input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
-              + '  <label class="sp-field"><span class="sp-field__label">Dose</span><input type="text" class="sp-input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
+              + '  <label class="sp-field"><span class="sp-field__label">Heure</span><input id="dc-med-editor-time-' + String(index) + '" name="med_editor_time_' + String(index) + '" type="time" step="300" class="sp-input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
+              + '  <label class="sp-field"><span class="sp-field__label">Dose</span><input id="dc-med-editor-dose-' + String(index) + '" name="med_editor_dose_' + String(index) + '" type="text" class="sp-input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
               + '</div>';
           }).join('')
         + '</div>'
@@ -3736,14 +3736,14 @@
       '  <div class="sp-form dc-modal__fields">',
       '    <div class="dc-modal__panel">',
       '      <div class="dc-modal__grid">',
-      '        <label class="sp-field"><span class="sp-field__label">Nombre de prises</span><input type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="sp-input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
-      '        <label class="sp-field"><span class="sp-field__label">Fréquence</span><select class="sp-select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
-      '        <div class="sp-field"><span class="sp-field__label">Durée</span><div class="dc-modal__inline"><input type="number" min="1" class="sp-input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select class="sp-select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
+      '        <label class="sp-field"><span class="sp-field__label">Nombre de prises</span><input id="dc-med-editor-nb" name="med_editor_nb" type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="sp-input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
+      '        <label class="sp-field"><span class="sp-field__label">Fréquence</span><select id="dc-med-editor-freq" name="med_editor_freq" class="sp-select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
+      '        <div class="sp-field"><span class="sp-field__label">Durée</span><div class="dc-modal__inline"><input id="dc-med-editor-duration" name="med_editor_duration" type="number" min="1" class="sp-input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select id="dc-med-editor-duration-unit" name="med_editor_duration_unit" class="sp-select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
       '      </div>',
       '    </div>',
            rowsHtml,
       '    <div class="dc-modal__panel dc-modal__panel--note">',
-      '      <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '      <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea id="dc-med-editor-note" name="med_editor_note" class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
       '    </div>',
       '  </div>',
       '  <div class="dc-modal__actions">',
@@ -3896,7 +3896,7 @@
       '<div class="dc-refusal-panel">',
       '  <div class="sp-field">',
       '    <label class="sp-field__label" for="dc-refusal-reason">Motif du refus</label>',
-      '    <textarea id="dc-refusal-reason" class="sp-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
+      '    <textarea id="dc-refusal-reason" name="refusal_reason" class="sp-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
       '  </div>',
       '  <div class="dc-refusal-actions">',
       '    <button type="button" class="sp-button sp-button--danger' + (isRejecting ? ' is-loading' : '') + '" data-action="confirm-reject"' + (isRejecting ? ' disabled' : '') + '>' + (isRejecting ? 'Refus...' : 'Confirmer le refus') + '</button>',
