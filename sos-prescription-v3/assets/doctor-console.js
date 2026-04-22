@@ -618,7 +618,10 @@
   }
 
   var DOCTOR_INBOX_OWNER_EVENT = 'sosprescription:doctor-inbox-changed';
+  var DOCTOR_INBOX_SOURCE_READY_EVENT = 'sosprescription:doctor-inbox-source-ready';
   var doctorInboxOwnerSubscribers = [];
+  var reactDoctorInboxSourceUnsubscribe = null;
+  var reactDoctorInboxSourceBound = false;
 
   function buildLegacyDoctorInboxSnapshot(reason) {
     return {
@@ -669,6 +672,91 @@
     };
   }
 
+  function getReactDoctorInboxSource() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    var source = window.SosDoctorInboxSource;
+    return source && typeof source === 'object' ? source : null;
+  }
+
+  function applyReactDoctorInboxSnapshot(rawSnapshot, reason) {
+    var snapshot = asObject(rawSnapshot);
+    var nextRows = safeArray(snapshot.list).map(applyPendingOverlayToRecord);
+    var nextFilter = getFilterMeta(snapshot.listFilter).key;
+    var nextSelectedId = Number(snapshot.selectedId || 0);
+    var currentSelectedId = Number(state.selectedId || 0);
+    var hasLoaded = !!snapshot.hasLoaded;
+
+    if (!hasLoaded && nextRows.length < 1) {
+      state.listLoading = !!snapshot.listLoading || state.listLoading;
+      patchInboxList();
+      return;
+    }
+
+    state.list = nextRows;
+    state.listFilter = nextFilter;
+    state.listLoading = !!snapshot.listLoading;
+
+    if (nextSelectedId < 1 && currentSelectedId > 0) {
+      state.selectedId = 0;
+      state.refusalOpen = false;
+      state.refusalReason = '';
+      state.detailLoading = false;
+      renderDetail();
+    } else if (nextSelectedId > 0 && nextSelectedId !== currentSelectedId) {
+      state.selectedId = nextSelectedId;
+      state.refusalOpen = false;
+      state.refusalReason = '';
+      state.detailLoading = !hasObjectKeys(state.details[nextSelectedId]);
+      patchInboxList();
+      renderDetail();
+    }
+
+    dispatchLegacyDoctorInboxSnapshot(reason || snapshot.reason || 'react-source');
+    patchInboxList();
+    hydrateVisibleCases();
+  }
+
+  function bindReactDoctorInboxSource() {
+    var source = getReactDoctorInboxSource();
+    if (!source || typeof source.subscribe !== 'function' || typeof source.getSnapshot !== 'function') {
+      return false;
+    }
+
+    if (reactDoctorInboxSourceUnsubscribe) {
+      return true;
+    }
+
+    reactDoctorInboxSourceBound = true;
+    reactDoctorInboxSourceUnsubscribe = source.subscribe(function (snapshot) {
+      applyReactDoctorInboxSnapshot(snapshot, 'react-source');
+    });
+    applyReactDoctorInboxSnapshot(source.getSnapshot(), 'react-source-init');
+    return true;
+  }
+
+  function handleReactDoctorInboxSourceReady() {
+    if (bindReactDoctorInboxSource()) {
+      render();
+    }
+  }
+
+  function requestCaseSelection(id, opts) {
+    var numericId = Number(id || 0);
+    if (numericId < 1) {
+      return Promise.resolve(null);
+    }
+
+    var source = getReactDoctorInboxSource();
+    if (reactDoctorInboxSourceBound && source && typeof source.requestSelection === 'function') {
+      return Promise.resolve(source.requestSelection(numericId, opts || {}));
+    }
+
+    return selectCase(numericId, opts || {});
+  }
+
   function installLegacyDoctorInboxOwner() {
     if (typeof window === 'undefined') {
       return null;
@@ -682,19 +770,14 @@
     owner.getSelectedId = function () {
       return Number(state.selectedId || 0);
     };
-    owner.getListFilter = function () {
-      return normalizeText(state.listFilter);
-    };
-    owner.getSnapshot = function () {
-      return buildLegacyDoctorInboxSnapshot('snapshot');
-    };
-    owner.fetchList = function (opts) {
-      return fetchList(opts || {});
-    };
     owner.selectCase = function (id, opts) {
       return selectCase(id, opts || {});
     };
-    owner.subscribe = subscribeLegacyDoctorInbox;
+
+    delete owner.getListFilter;
+    delete owner.getSnapshot;
+    delete owner.fetchList;
+    delete owner.subscribe;
 
     window.SosDoctorInboxOwner = owner;
     return owner;
@@ -1074,9 +1157,24 @@
 
   function setListFilter(filterKey) {
     var meta = getFilterMeta(filterKey);
-    if (meta.key === state.listFilter) {
+    if (meta.key === state.listFilter && !reactDoctorInboxSourceBound) {
       return;
     }
+
+    if (reactDoctorInboxSourceBound) {
+      var source = getReactDoctorInboxSource();
+      state.listFilter = meta.key;
+      state.listLoading = true;
+      patchInboxList();
+      dispatchLegacyDoctorInboxSnapshot('filter-requested');
+      if (source && typeof source.setFilter === 'function') {
+        Promise.resolve(source.setFilter(meta.key)).catch(function () {
+          // no-op surfaced by the React inbox source snapshot
+        });
+      }
+      return;
+    }
+
     state.listFilter = meta.key;
     renderHeaderInto();
     dispatchLegacyDoctorInboxSnapshot('filter');
@@ -4429,12 +4527,24 @@
     opts = opts || {};
     var silent = !!opts.silent;
 
+    if (reactDoctorInboxSourceBound) {
+      var source = getReactDoctorInboxSource();
+      if (source && typeof source.refresh === 'function') {
+        return Promise.resolve(source.refresh(opts || {}));
+      }
+      return Promise.resolve(null);
+    }
+
     if (!silent && state.list.length < 1) {
       state.listLoading = true;
       patchInboxList();
     }
 
     return requestJson('GET', buildListPath(), undefined, { timeoutMs: REQUEST_TIMEOUT_GET_MS }).then(function (rows) {
+      if (reactDoctorInboxSourceBound) {
+        return null;
+      }
+
       var nextRows = sortListRowsByPriority(
         safeArray(rows)
           .map(applyPendingOverlayToRecord)
@@ -4469,12 +4579,16 @@
       }
 
       if (nextSelectedId > 0 && nextSelectedId !== previousSelectedId) {
-        return selectCase(nextSelectedId, { silent: true, preserveNotice: true });
+        return requestCaseSelection(nextSelectedId, { silent: true, preserveNotice: true });
       }
 
       dispatchLegacyDoctorInboxSnapshot('list');
       return null;
     }).catch(function (error) {
+      if (reactDoctorInboxSourceBound) {
+        return null;
+      }
+
       state.listLoading = false;
       renderHeaderInto();
       patchInboxList();
@@ -4812,7 +4926,7 @@
       showNotice('info', nextPendingId > 0 ? 'Validation en cours. Passage automatique au dossier suivant.' : 'Validation en cours.');
       patchInboxList();
       if (nextPendingId > 0) {
-        selectCase(nextPendingId, { preserveNotice: true, silent: true });
+        requestCaseSelection(nextPendingId, { preserveNotice: true, silent: true });
       } else {
         renderDetail();
       }
@@ -4938,7 +5052,10 @@
     try {
       chain = Promise.resolve()
         .then(function () {
-          return fetchList({ silent: true });
+          if (!reactDoctorInboxSourceBound) {
+            return fetchList({ silent: true });
+          }
+          return null;
         })
         .then(function () {
           if (state.selectedId) {
@@ -5019,7 +5136,7 @@
     }
 
     if (action === 'select') {
-      selectCase(Number(actionEl.getAttribute('data-id') || 0));
+      requestCaseSelection(Number(actionEl.getAttribute('data-id') || 0));
       return;
     }
 
@@ -5309,9 +5426,15 @@
 
   installLegacyDoctorInboxOwner();
   installLegacyDoctorActiveCaseOwner();
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener(DOCTOR_INBOX_SOURCE_READY_EVENT, handleReactDoctorInboxSourceReady);
+  }
+  var hasReactDoctorInboxSource = bindReactDoctorInboxSource();
   dispatchLegacyDoctorInboxSnapshot('init');
   dispatchLegacyDoctorActiveCaseSnapshot('init');
   render();
-  fetchList();
+  if (!hasReactDoctorInboxSource) {
+    fetchList();
+  }
   startPolling();
 })();

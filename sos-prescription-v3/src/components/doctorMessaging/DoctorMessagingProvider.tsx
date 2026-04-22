@@ -1,28 +1,28 @@
-import React, { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import {
-  type LegacyDoctorInboxSelectOptions,
-  getLegacyDoctorInboxSelectionSnapshotSerialized,
-  requestLegacyDoctorCaseSelection,
-  subscribeLegacyDoctorInboxSelectionState,
-} from './legacyInboxAdapter';
+  type DoctorInboxFilterKey,
+  type DoctorInboxRefreshOptions,
+  type DoctorInboxRow,
+  type DoctorInboxSelectOptions,
+  useDoctorInboxSource,
+} from './useDoctorInboxSource';
 
 type DoctorMessagingContextValue = {
   prescriptionId: number | null;
   requestedPrescriptionId: number | null;
   selectionPending: boolean;
-  requestPrescriptionSelection: (prescriptionId: number, opts?: LegacyDoctorInboxSelectOptions) => Promise<unknown>;
+  requestPrescriptionSelection: (prescriptionId: number, opts?: DoctorInboxSelectOptions) => Promise<unknown>;
+  inboxList: DoctorInboxRow[];
+  inboxListFilter: DoctorInboxFilterKey;
+  inboxListLoading: boolean;
+  inboxHasLoaded: boolean;
+  refreshInbox: (opts?: DoctorInboxRefreshOptions) => Promise<unknown>;
+  setInboxFilter: (filterKey: DoctorInboxFilterKey) => Promise<unknown>;
 };
 
 type DoctorMessagingProviderProps = {
   prescriptionId?: number | null;
   children: React.ReactNode;
-};
-
-type SerializedSelectionSnapshot = {
-  selectedId?: unknown;
-  requestedSelectedId?: unknown;
-  selectionPending?: unknown;
-  hasLegacyOwner?: unknown;
 };
 
 const DoctorMessagingContext = createContext<DoctorMessagingContextValue | null>(null);
@@ -32,71 +32,45 @@ function normalizeOptionalPrescriptionId(value: unknown): number {
   return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : 0;
 }
 
-function parseSelectionSnapshot(serializedSnapshot: string): {
-  selectedId: number;
-  requestedSelectedId: number;
-  selectionPending: boolean;
-  hasLegacyOwner: boolean;
-} {
-  try {
-    const raw = JSON.parse(serializedSnapshot) as SerializedSelectionSnapshot | null;
-    const selectedId = normalizeOptionalPrescriptionId(raw?.selectedId);
-    const requestedSelectedId = normalizeOptionalPrescriptionId(raw?.requestedSelectedId);
-
-    return {
-      selectedId,
-      requestedSelectedId,
-      selectionPending: Boolean(raw?.selectionPending) && requestedSelectedId > 0 && requestedSelectedId !== selectedId,
-      hasLegacyOwner: Boolean(raw?.hasLegacyOwner),
-    };
-  } catch {
-    return {
-      selectedId: 0,
-      requestedSelectedId: 0,
-      selectionPending: false,
-      hasLegacyOwner: false,
-    };
-  }
-}
-
 export function DoctorMessagingProvider({ prescriptionId, children }: DoctorMessagingProviderProps) {
   const initialPrescriptionId = normalizeOptionalPrescriptionId(prescriptionId);
-  const serializedSelectionSnapshot = useSyncExternalStore(
-    subscribeLegacyDoctorInboxSelectionState,
-    () => getLegacyDoctorInboxSelectionSnapshotSerialized(initialPrescriptionId),
-    () => getLegacyDoctorInboxSelectionSnapshotSerialized(initialPrescriptionId),
-  );
+  const inboxSource = useDoctorInboxSource(initialPrescriptionId);
 
-  const selectionSnapshot = useMemo(
-    () => parseSelectionSnapshot(serializedSelectionSnapshot),
-    [serializedSelectionSnapshot],
-  );
+  const activePrescriptionId = inboxSource.selectedId > 0
+    ? inboxSource.selectedId
+    : (inboxSource.hasLoaded ? null : (initialPrescriptionId > 0 ? initialPrescriptionId : null));
 
-  const activePrescriptionId = selectionSnapshot.selectedId > 0
-    ? selectionSnapshot.selectedId
-    : (selectionSnapshot.hasLegacyOwner ? null : (initialPrescriptionId > 0 ? initialPrescriptionId : null));
-
-  const requestedPrescriptionId = selectionSnapshot.requestedSelectedId > 0
-    ? selectionSnapshot.requestedSelectedId
+  const requestedPrescriptionId = inboxSource.requestedSelectedId > 0
+    ? inboxSource.requestedSelectedId
     : activePrescriptionId;
-
-  const requestPrescriptionSelection = useCallback(
-    (nextPrescriptionId: number, opts?: LegacyDoctorInboxSelectOptions): Promise<unknown> => (
-      requestLegacyDoctorCaseSelection(nextPrescriptionId, opts)
-    ),
-    [],
-  );
 
   const value = useMemo<DoctorMessagingContextValue>(() => ({
     prescriptionId: activePrescriptionId,
     requestedPrescriptionId,
     selectionPending: Boolean(
-      selectionSnapshot.selectionPending
+      inboxSource.selectionPending
       && requestedPrescriptionId != null
       && activePrescriptionId !== requestedPrescriptionId
     ),
-    requestPrescriptionSelection,
-  }), [activePrescriptionId, requestPrescriptionSelection, requestedPrescriptionId, selectionSnapshot.selectionPending]);
+    requestPrescriptionSelection: inboxSource.requestPrescriptionSelection,
+    inboxList: inboxSource.list,
+    inboxListFilter: inboxSource.listFilter,
+    inboxListLoading: inboxSource.listLoading,
+    inboxHasLoaded: inboxSource.hasLoaded,
+    refreshInbox: inboxSource.refreshInbox,
+    setInboxFilter: inboxSource.setInboxFilter,
+  }), [
+    activePrescriptionId,
+    inboxSource.hasLoaded,
+    inboxSource.list,
+    inboxSource.listFilter,
+    inboxSource.listLoading,
+    inboxSource.refreshInbox,
+    inboxSource.requestPrescriptionSelection,
+    inboxSource.selectionPending,
+    inboxSource.setInboxFilter,
+    requestedPrescriptionId,
+  ]);
 
   return (
     <DoctorMessagingContext.Provider value={value}>

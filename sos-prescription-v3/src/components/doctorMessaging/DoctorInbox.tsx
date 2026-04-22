@@ -1,44 +1,35 @@
-import React, { useCallback, useMemo, useSyncExternalStore } from 'react';
-import {
-  type LegacyDoctorInboxSnapshot,
-  getLegacyDoctorInboxSnapshot,
-  refreshLegacyDoctorInbox,
-  subscribeLegacyInboxSelection,
-} from './legacyInboxAdapter';
+import React, { useCallback } from 'react';
 import { useDoctorMessagingContext } from './DoctorMessagingProvider';
+import type { DoctorInboxFilterKey, DoctorInboxRow } from './useDoctorInboxSource';
 
-type InboxRow = Record<string, unknown>;
+type InboxRow = DoctorInboxRow;
+type InboxUrgency = { tone: 'urgent' | 'standard'; label: string };
+type InboxStatus = { label: string; variant: 'success' | 'danger' | 'warn' | 'soft' };
 
-type StatusVariant = 'success' | 'danger' | 'warn' | 'soft';
-
-type InboxStatus = {
-  label: string;
-  variant: StatusVariant;
-};
-
-type InboxUrgency = {
-  tone: 'urgent' | 'standard';
-  label: string;
-};
-
-const FILTER_META: Record<string, { title: string; empty: string }> = {
+const FILTER_META: Record<DoctorInboxFilterKey, { title: string; empty: string; label: string }> = {
   pending: {
     title: 'Demandes en attente',
     empty: 'Aucune demande en attente.',
+    label: 'En attente',
   },
   approved: {
     title: 'Ordonnances validées',
     empty: 'Aucune ordonnance validée.',
+    label: 'Validées',
   },
   rejected: {
     title: 'Ordonnances refusées',
     empty: 'Aucune ordonnance refusée.',
+    label: 'Refusées',
   },
   all: {
     title: 'Toutes les demandes',
     empty: 'Aucune demande trouvée.',
+    label: 'Toutes',
   },
 };
+
+const FILTER_ORDER: DoctorInboxFilterKey[] = ['pending', 'approved', 'rejected', 'all'];
 
 function asRecord(value: unknown): InboxRow {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as InboxRow : {};
@@ -120,7 +111,7 @@ function formatRelativeDate(value: unknown): string {
   return formatDateDisplay(parsed.toISOString());
 }
 
-function getFilterMeta(filterKey: string): { title: string; empty: string } {
+function getFilterMeta(filterKey: DoctorInboxFilterKey): { title: string; empty: string; label: string } {
   return FILTER_META[filterKey] || FILTER_META.pending;
 }
 
@@ -242,49 +233,36 @@ function extractMedicationPreview(row: InboxRow): string {
   return unique.length > 2 ? `${preview} …` : preview;
 }
 
-function getSnapshotSerialized(): string {
-  return JSON.stringify(getLegacyDoctorInboxSnapshot(0));
-}
-
-function parseSnapshot(serialized: string): LegacyDoctorInboxSnapshot {
-  try {
-    const raw = JSON.parse(serialized) as Partial<LegacyDoctorInboxSnapshot> | null;
-    const record = raw && typeof raw === 'object' ? raw : null;
-    return {
-      selectedId: normalizePrescriptionId(record?.selectedId),
-      listFilter: normalizeText(record?.listFilter) || 'pending',
-      list: asArray(record?.list).map((entry) => ({ ...entry })),
-      reason: normalizeText(record?.reason),
-    };
-  } catch {
-    return {
-      selectedId: 0,
-      listFilter: 'pending',
-      list: [],
-      reason: 'parse-error',
-    };
-  }
-}
-
 export default function DoctorInbox() {
-  const { requestPrescriptionSelection } = useDoctorMessagingContext();
-  const serializedSnapshot = useSyncExternalStore(
-    subscribeLegacyInboxSelection,
-    getSnapshotSerialized,
-    getSnapshotSerialized,
-  );
+  const {
+    prescriptionId,
+    requestedPrescriptionId,
+    selectionPending,
+    requestPrescriptionSelection,
+    inboxList,
+    inboxListFilter,
+    inboxListLoading,
+    refreshInbox,
+    setInboxFilter,
+  } = useDoctorMessagingContext();
 
-  const snapshot = useMemo(() => parseSnapshot(serializedSnapshot), [serializedSnapshot]);
-  const filterMeta = getFilterMeta(snapshot.listFilter);
-  const visibleCount = snapshot.list.length;
+  const filterMeta = getFilterMeta(inboxListFilter);
+  const visibleCount = inboxList.length;
+  const visualSelectedId = selectionPending && requestedPrescriptionId != null
+    ? requestedPrescriptionId
+    : prescriptionId;
 
   const handleRefresh = useCallback((): void => {
-    void refreshLegacyDoctorInbox({ silent: false });
-  }, []);
+    void refreshInbox({ silent: false });
+  }, [refreshInbox]);
 
   const handleSelect = useCallback((id: number): void => {
     void requestPrescriptionSelection(id);
   }, [requestPrescriptionSelection]);
+
+  const handleFilterChange = useCallback((filterKey: DoctorInboxFilterKey): void => {
+    void setInboxFilter(filterKey);
+  }, [setInboxFilter]);
 
   return (
     <div className="dc-inbox-react-panel">
@@ -303,17 +281,41 @@ export default function DoctorInbox() {
         </div>
       </div>
 
+      <div className="dc-filter-tabs" role="tablist" aria-label="Filtres de l’inbox médecin">
+        {FILTER_ORDER.map((filterKey) => {
+          const filter = getFilterMeta(filterKey);
+          const isActive = filterKey === inboxListFilter;
+          return (
+            <button
+              key={filterKey}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={[ 'dc-filter-tab', isActive ? 'is-active' : '' ].filter(Boolean).join(' ')}
+              onClick={(): void => {
+                handleFilterChange(filterKey);
+              }}
+            >
+              {filter.label}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="dc-inbox__list" aria-live="polite">
-        {visibleCount < 1 ? (
+        {inboxListLoading && visibleCount < 1 ? (
+          <div className="dc-empty">Chargement des demandes…</div>
+        ) : visibleCount < 1 ? (
           <div className="dc-empty">{filterMeta.empty}</div>
         ) : (
-          snapshot.list.map((row) => {
+          inboxList.map((row) => {
             const id = normalizePrescriptionId(row.id);
             if (id < 1) {
               return null;
             }
 
-            const selected = snapshot.selectedId === id;
+            const selected = visualSelectedId === id;
+            const pendingSelection = Boolean(selectionPending && requestedPrescriptionId === id && prescriptionId !== id);
             const status = extractStatus(row);
             const urgency = extractUrgency(row);
             const patientName = extractPatientName(row);
@@ -330,6 +332,7 @@ export default function DoctorInbox() {
                   selected ? 'is-selected' : '',
                 ].filter(Boolean).join(' ')}
                 aria-pressed={selected}
+                aria-busy={pendingSelection}
                 onClick={(): void => {
                   handleSelect(id);
                 }}
@@ -348,6 +351,7 @@ export default function DoctorInbox() {
                   <span className={[ 'dc-urgency-chip', `dc-urgency-chip--${urgency.tone}` ].join(' ')}>
                     <span>{urgency.label}</span>
                   </span>
+                  {pendingSelection ? <span className="dc-item__pending">Ouverture…</span> : null}
                 </div>
               </button>
             );
