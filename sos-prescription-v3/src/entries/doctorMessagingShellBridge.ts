@@ -53,7 +53,11 @@ function renderInbox(root: Root): void {
     React.createElement(
       React.StrictMode,
       null,
-      React.createElement(DoctorInbox),
+      React.createElement(
+        DoctorMessagingProvider,
+        { prescriptionId: null },
+        React.createElement(DoctorInbox),
+      ),
     ),
   );
 }

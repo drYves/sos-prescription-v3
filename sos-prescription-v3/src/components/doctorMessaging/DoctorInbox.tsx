@@ -3,9 +3,9 @@ import {
   type LegacyDoctorInboxSnapshot,
   getLegacyDoctorInboxSnapshot,
   refreshLegacyDoctorInbox,
-  selectLegacyDoctorCase,
   subscribeLegacyInboxSelection,
 } from './legacyInboxAdapter';
+import { useDoctorMessagingContext } from './DoctorMessagingProvider';
 
 type InboxRow = Record<string, unknown>;
 
@@ -267,6 +267,7 @@ function parseSnapshot(serialized: string): LegacyDoctorInboxSnapshot {
 }
 
 export default function DoctorInbox() {
+  const { requestPrescriptionSelection } = useDoctorMessagingContext();
   const serializedSnapshot = useSyncExternalStore(
     subscribeLegacyInboxSelection,
     getSnapshotSerialized,
@@ -282,8 +283,8 @@ export default function DoctorInbox() {
   }, []);
 
   const handleSelect = useCallback((id: number): void => {
-    void selectLegacyDoctorCase(id);
-  }, []);
+    void requestPrescriptionSelection(id);
+  }, [requestPrescriptionSelection]);
 
   return (
     <div className="dc-inbox-react-panel">

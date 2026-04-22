@@ -18,8 +18,7 @@ function Notice({
   return <div className={cx('sp-alert', `sp-alert--${variant}`)}>{children}</div>;
 }
 
-export default function DoctorMessagingApp() {
-  const { prescriptionId } = useDoctorMessagingContext();
+function DoctorMessagingAppContent({ prescriptionId }: { prescriptionId: number }) {
   const {
     surfaceRef,
     flash,
@@ -43,4 +42,18 @@ export default function DoctorMessagingApp() {
       </div>
     </div>
   );
+}
+
+export default function DoctorMessagingApp() {
+  const { prescriptionId } = useDoctorMessagingContext();
+
+  if (prescriptionId == null || prescriptionId < 1) {
+    return (
+      <div className="sp-card dc-message-react-panel">
+        <Notice variant="info">Aucun dossier médecin actif.</Notice>
+      </div>
+    );
+  }
+
+  return <DoctorMessagingAppContent prescriptionId={prescriptionId} />;
 }

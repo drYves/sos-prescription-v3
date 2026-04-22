@@ -1,38 +1,102 @@
-import React, { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
-import { getLegacySelectedId, subscribeLegacyInboxSelection } from './legacyInboxAdapter';
+import React, { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from 'react';
+import {
+  type LegacyDoctorInboxSelectOptions,
+  getLegacyDoctorInboxSelectionSnapshotSerialized,
+  requestLegacyDoctorCaseSelection,
+  subscribeLegacyDoctorInboxSelectionState,
+} from './legacyInboxAdapter';
 
 type DoctorMessagingContextValue = {
-  prescriptionId: number;
+  prescriptionId: number | null;
+  requestedPrescriptionId: number | null;
+  selectionPending: boolean;
+  requestPrescriptionSelection: (prescriptionId: number, opts?: LegacyDoctorInboxSelectOptions) => Promise<unknown>;
 };
 
 type DoctorMessagingProviderProps = {
-  prescriptionId: number;
+  prescriptionId?: number | null;
   children: React.ReactNode;
+};
+
+type SerializedSelectionSnapshot = {
+  selectedId?: unknown;
+  requestedSelectedId?: unknown;
+  selectionPending?: unknown;
+  hasLegacyOwner?: unknown;
 };
 
 const DoctorMessagingContext = createContext<DoctorMessagingContextValue | null>(null);
 
-function normalizePrescriptionId(value: number): number {
+function normalizeOptionalPrescriptionId(value: unknown): number {
   const numeric = Number(value || 0);
-  if (!Number.isFinite(numeric) || numeric < 1) {
-    throw new Error('PrescriptionId invalide pour le contexte actif médecin.');
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : 0;
+}
+
+function parseSelectionSnapshot(serializedSnapshot: string): {
+  selectedId: number;
+  requestedSelectedId: number;
+  selectionPending: boolean;
+  hasLegacyOwner: boolean;
+} {
+  try {
+    const raw = JSON.parse(serializedSnapshot) as SerializedSelectionSnapshot | null;
+    const selectedId = normalizeOptionalPrescriptionId(raw?.selectedId);
+    const requestedSelectedId = normalizeOptionalPrescriptionId(raw?.requestedSelectedId);
+
+    return {
+      selectedId,
+      requestedSelectedId,
+      selectionPending: Boolean(raw?.selectionPending) && requestedSelectedId > 0 && requestedSelectedId !== selectedId,
+      hasLegacyOwner: Boolean(raw?.hasLegacyOwner),
+    };
+  } catch {
+    return {
+      selectedId: 0,
+      requestedSelectedId: 0,
+      selectionPending: false,
+      hasLegacyOwner: false,
+    };
   }
-  return Math.trunc(numeric);
 }
 
 export function DoctorMessagingProvider({ prescriptionId, children }: DoctorMessagingProviderProps) {
-  const fallbackPrescriptionId = normalizePrescriptionId(prescriptionId);
-  const selectedId = useSyncExternalStore(
-    subscribeLegacyInboxSelection,
-    () => getLegacySelectedId(fallbackPrescriptionId),
-    () => getLegacySelectedId(fallbackPrescriptionId),
+  const initialPrescriptionId = normalizeOptionalPrescriptionId(prescriptionId);
+  const serializedSelectionSnapshot = useSyncExternalStore(
+    subscribeLegacyDoctorInboxSelectionState,
+    () => getLegacyDoctorInboxSelectionSnapshotSerialized(initialPrescriptionId),
+    () => getLegacyDoctorInboxSelectionSnapshotSerialized(initialPrescriptionId),
   );
 
-  const activePrescriptionId = normalizePrescriptionId(selectedId > 0 ? selectedId : fallbackPrescriptionId);
+  const selectionSnapshot = useMemo(
+    () => parseSelectionSnapshot(serializedSelectionSnapshot),
+    [serializedSelectionSnapshot],
+  );
+
+  const activePrescriptionId = selectionSnapshot.selectedId > 0
+    ? selectionSnapshot.selectedId
+    : (selectionSnapshot.hasLegacyOwner ? null : (initialPrescriptionId > 0 ? initialPrescriptionId : null));
+
+  const requestedPrescriptionId = selectionSnapshot.requestedSelectedId > 0
+    ? selectionSnapshot.requestedSelectedId
+    : activePrescriptionId;
+
+  const requestPrescriptionSelection = useCallback(
+    (nextPrescriptionId: number, opts?: LegacyDoctorInboxSelectOptions): Promise<unknown> => (
+      requestLegacyDoctorCaseSelection(nextPrescriptionId, opts)
+    ),
+    [],
+  );
 
   const value = useMemo<DoctorMessagingContextValue>(() => ({
     prescriptionId: activePrescriptionId,
-  }), [activePrescriptionId]);
+    requestedPrescriptionId,
+    selectionPending: Boolean(
+      selectionSnapshot.selectionPending
+      && requestedPrescriptionId != null
+      && activePrescriptionId !== requestedPrescriptionId
+    ),
+    requestPrescriptionSelection,
+  }), [activePrescriptionId, requestPrescriptionSelection, requestedPrescriptionId, selectionSnapshot.selectionPending]);
 
   return (
     <DoctorMessagingContext.Provider value={value}>
