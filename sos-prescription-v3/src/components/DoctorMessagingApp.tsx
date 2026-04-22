@@ -1,6 +1,7 @@
-// DoctorMessagingApp.tsx · V9.9.0-alpha1
+// DoctorMessagingApp.tsx · V9.9.2-alpha1
 import React from 'react';
 import useDoctorMessagingSurface from './doctorMessaging/useDoctorMessagingSurface';
+import { useDoctorMessagingContext } from './doctorMessaging/DoctorMessagingProvider';
 import MessageThread from './messaging/MessageThread';
 
 function cx(...classes: Array<string | false | null | undefined>): string {
@@ -17,7 +18,8 @@ function Notice({
   return <div className={cx('sp-alert', `sp-alert--${variant}`)}>{children}</div>;
 }
 
-export default function DoctorMessagingApp({ prescriptionId }: { prescriptionId: number }) {
+export default function DoctorMessagingApp() {
+  const { prescriptionId } = useDoctorMessagingContext();
   const {
     surfaceRef,
     flash,

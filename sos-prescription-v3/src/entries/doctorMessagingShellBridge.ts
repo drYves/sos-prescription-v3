@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import DoctorMessagingWorkspace from '../components/DoctorMessagingWorkspace';
+import { DoctorMessagingProvider } from '../components/doctorMessaging/DoctorMessagingProvider';
 
 export type DoctorMessagingApi = {
   mount: (containerEl: HTMLElement, prescriptionId: number) => void;
@@ -32,7 +33,11 @@ function renderWorkspace(root: Root, prescriptionId: number): void {
     React.createElement(
       React.StrictMode,
       null,
-      React.createElement(DoctorMessagingWorkspace, { prescriptionId }),
+      React.createElement(
+        DoctorMessagingProvider,
+        { prescriptionId },
+        React.createElement(DoctorMessagingWorkspace),
+      ),
     ),
   );
 }

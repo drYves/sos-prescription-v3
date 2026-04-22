@@ -1,10 +1,8 @@
 import React from 'react';
 import DoctorMessagingApp from './DoctorMessagingApp';
+import { useDoctorMessagingContext } from './doctorMessaging/DoctorMessagingProvider';
 
-type DoctorMessagingWorkspaceProps = {
-  prescriptionId: number;
-};
-
-export default function DoctorMessagingWorkspace({ prescriptionId }: DoctorMessagingWorkspaceProps) {
-  return <DoctorMessagingApp prescriptionId={prescriptionId} />;
+export default function DoctorMessagingWorkspace() {
+  useDoctorMessagingContext();
+  return <DoctorMessagingApp />;
 }
