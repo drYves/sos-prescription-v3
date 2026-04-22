@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
+import { getLegacySelectedId, subscribeLegacyInboxSelection } from './legacyInboxAdapter';
 
 type DoctorMessagingContextValue = {
   prescriptionId: number;
@@ -20,9 +21,18 @@ function normalizePrescriptionId(value: number): number {
 }
 
 export function DoctorMessagingProvider({ prescriptionId, children }: DoctorMessagingProviderProps) {
+  const fallbackPrescriptionId = normalizePrescriptionId(prescriptionId);
+  const selectedId = useSyncExternalStore(
+    subscribeLegacyInboxSelection,
+    () => getLegacySelectedId(fallbackPrescriptionId),
+    () => getLegacySelectedId(fallbackPrescriptionId),
+  );
+
+  const activePrescriptionId = normalizePrescriptionId(selectedId > 0 ? selectedId : fallbackPrescriptionId);
+
   const value = useMemo<DoctorMessagingContextValue>(() => ({
-    prescriptionId: normalizePrescriptionId(prescriptionId),
-  }), [prescriptionId]);
+    prescriptionId: activePrescriptionId,
+  }), [activePrescriptionId]);
 
   return (
     <DoctorMessagingContext.Provider value={value}>

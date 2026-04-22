@@ -422,6 +422,89 @@
     }
   }
 
+  var DOCTOR_INBOX_OWNER_EVENT = 'sosprescription:doctor-inbox-changed';
+  var doctorInboxOwnerSubscribers = [];
+
+  function buildLegacyDoctorInboxSnapshot(reason) {
+    return {
+      selectedId: Number(state.selectedId || 0),
+      listFilter: normalizeText(state.listFilter),
+      list: cloneValue(safeArray(state.list)),
+      reason: normalizeText(reason)
+    };
+  }
+
+  function dispatchLegacyDoctorInboxSnapshot(reason) {
+    var snapshot = buildLegacyDoctorInboxSnapshot(reason);
+
+    doctorInboxOwnerSubscribers.slice().forEach(function (listener) {
+      if (typeof listener !== 'function') {
+        return;
+      }
+      try {
+        listener(snapshot);
+      } catch (error) {
+        // no-op defensive observer isolation
+      }
+    });
+
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof window.CustomEvent === 'function') {
+      try {
+        window.dispatchEvent(new CustomEvent(DOCTOR_INBOX_OWNER_EVENT, { detail: snapshot }));
+      } catch (error) {
+        // no-op defensive event isolation
+      }
+    }
+
+    return snapshot;
+  }
+
+  function subscribeLegacyDoctorInbox(listener) {
+    if (typeof listener !== 'function') {
+      return function noop() {};
+    }
+
+    doctorInboxOwnerSubscribers.push(listener);
+
+    return function unsubscribeLegacyDoctorInbox() {
+      var index = doctorInboxOwnerSubscribers.indexOf(listener);
+      if (index >= 0) {
+        doctorInboxOwnerSubscribers.splice(index, 1);
+      }
+    };
+  }
+
+  function installLegacyDoctorInboxOwner() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    var owner = window.SosDoctorInboxOwner;
+    if (!owner || typeof owner !== 'object') {
+      owner = {};
+    }
+
+    owner.getSelectedId = function () {
+      return Number(state.selectedId || 0);
+    };
+    owner.getListFilter = function () {
+      return normalizeText(state.listFilter);
+    };
+    owner.getSnapshot = function () {
+      return buildLegacyDoctorInboxSnapshot('snapshot');
+    };
+    owner.fetchList = function (opts) {
+      return fetchList(opts || {});
+    };
+    owner.selectCase = function (id, opts) {
+      return selectCase(id, opts || {});
+    };
+    owner.subscribe = subscribeLegacyDoctorInbox;
+
+    window.SosDoctorInboxOwner = owner;
+    return owner;
+  }
+
   function safeArray(value) {
     return Array.isArray(value) ? value : [];
   }
@@ -719,6 +802,7 @@
     }
     state.listFilter = meta.key;
     renderHeaderInto();
+    dispatchLegacyDoctorInboxSnapshot('filter');
     fetchList({ silent: false });
   }
 
@@ -4077,6 +4161,7 @@
         state.refusalReason = '';
         state.detailLoading = false;
         renderDetail();
+        dispatchLegacyDoctorInboxSnapshot('list-empty');
         return null;
       }
 
@@ -4092,6 +4177,7 @@
         return selectCase(nextSelectedId, { silent: true, preserveNotice: true });
       }
 
+      dispatchLegacyDoctorInboxSnapshot('list');
       return null;
     }).catch(function (error) {
       state.listLoading = false;
@@ -4345,6 +4431,8 @@
     } else if (state.detailLoading) {
       renderDetail();
     }
+
+    dispatchLegacyDoctorInboxSnapshot(changed ? 'selection' : 'selection-refresh');
 
     return fetchDetail(numericId, { silent: !!opts.silent }).then(function (row) {
       if (!row) return null;
@@ -4924,6 +5012,8 @@
   }
 
 
+  installLegacyDoctorInboxOwner();
+  dispatchLegacyDoctorInboxSnapshot('init');
   render();
   fetchList();
   startPolling();
