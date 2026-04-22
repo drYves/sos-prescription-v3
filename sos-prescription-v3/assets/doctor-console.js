@@ -354,6 +354,137 @@
     });
   }
 
+  function findDoctorActiveCaseHosts(scope) {
+    if (!(scope instanceof Element)) {
+      return [];
+    }
+
+    return Array.prototype.slice.call(scope.querySelectorAll('[data-sp-doctor-active-case-root="1"]'));
+  }
+
+  function destroyDoctorActiveCaseHosts(scope, exceptHost) {
+    var bridge = getDoctorMessagingBridge();
+    var hosts = findDoctorActiveCaseHosts(scope);
+
+    hosts.forEach(function (host) {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (exceptHost && host === exceptHost) {
+        return;
+      }
+
+      if (bridge && typeof bridge.unmountActiveCase === 'function') {
+        try {
+          bridge.unmountActiveCase(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+      }
+
+      host.hidden = true;
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-mounted-prescription-id');
+      host.removeAttribute('data-sp-pending-token');
+    });
+  }
+
+  function syncDoctorActiveCaseMount(detailEl, detail) {
+    var bridge = getDoctorMessagingBridge();
+    var host = detailEl instanceof Element ? detailEl.querySelector('[data-sp-doctor-active-case-root="1"]') : null;
+    var legacySummary = detailEl instanceof Element ? detailEl.querySelector('[data-dc-active-case-legacy]') : null;
+    var pdfSlot = detailEl instanceof Element ? detailEl.querySelector('[data-dc-pdf-slot]') : null;
+    var detailId = Number(detail && detail.id || state.selectedId || 0);
+
+    if (!(host instanceof HTMLElement)) {
+      destroyDoctorActiveCaseHosts(detailEl, null);
+      if (legacySummary instanceof HTMLElement) {
+        legacySummary.hidden = false;
+      }
+      if (pdfSlot instanceof HTMLElement) {
+        pdfSlot.hidden = false;
+      }
+      return;
+    }
+
+    if (!bridge || typeof bridge.mountActiveCase !== 'function' || typeof bridge.unmountActiveCase !== 'function' || detailId < 1) {
+      destroyDoctorActiveCaseHosts(detailEl, null);
+      host.hidden = true;
+      if (legacySummary instanceof HTMLElement) {
+        legacySummary.hidden = false;
+      }
+      if (pdfSlot instanceof HTMLElement) {
+        pdfSlot.hidden = false;
+      }
+      return;
+    }
+
+    if (host.getAttribute('data-sp-mounted') === '1' && normalizeText(host.getAttribute('data-sp-mounted-prescription-id')) === String(detailId)) {
+      host.hidden = false;
+      if (legacySummary instanceof HTMLElement) {
+        legacySummary.hidden = true;
+      }
+      if (pdfSlot instanceof HTMLElement) {
+        pdfSlot.hidden = true;
+      }
+      return;
+    }
+
+    if (host.getAttribute('data-sp-pending-token')) {
+      return;
+    }
+
+    var mountToken = String(detailId) + ':' + String(Date.now());
+    host.setAttribute('data-sp-pending-token', mountToken);
+
+    Promise.resolve(bridge.mountActiveCase(host, detailId)).then(function () {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (!document.body.contains(host)) {
+        try {
+          bridge.unmountActiveCase(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+        return;
+      }
+
+      if (host.getAttribute('data-sp-pending-token') !== mountToken) {
+        try {
+          bridge.unmountActiveCase(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+        return;
+      }
+
+      host.hidden = false;
+      host.setAttribute('data-sp-mounted', '1');
+      host.setAttribute('data-sp-mounted-prescription-id', String(detailId));
+      host.removeAttribute('data-sp-pending-token');
+      if (legacySummary instanceof HTMLElement) {
+        legacySummary.hidden = true;
+      }
+      if (pdfSlot instanceof HTMLElement) {
+        pdfSlot.hidden = true;
+      }
+    }).catch(function () {
+      host.hidden = true;
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-mounted-prescription-id');
+      host.removeAttribute('data-sp-pending-token');
+      if (legacySummary instanceof HTMLElement) {
+        legacySummary.hidden = false;
+      }
+      if (pdfSlot instanceof HTMLElement) {
+        pdfSlot.hidden = false;
+      }
+    });
+  }
+
   function syncDoctorMessagingMount(detailEl, detail) {
     var bridge = getDoctorMessagingBridge();
     var messagesPanel = detailEl instanceof Element ? detailEl.querySelector('[data-dc-panel="messages"]') : null;
@@ -566,6 +697,88 @@
     owner.subscribe = subscribeLegacyDoctorInbox;
 
     window.SosDoctorInboxOwner = owner;
+    return owner;
+  }
+
+  var DOCTOR_ACTIVE_CASE_OWNER_EVENT = 'sosprescription:doctor-active-case-changed';
+  var doctorActiveCaseOwnerSubscribers = [];
+
+  function buildLegacyDoctorActiveCaseSnapshot(reason) {
+    var selectedId = Number(state.selectedId || 0);
+    var detail = selectedId > 0 && hasObjectKeys(state.details[selectedId]) ? cloneValue(asObject(state.details[selectedId])) : null;
+    var pdf = selectedId > 0 && hasObjectKeys(state.pdf[selectedId]) ? cloneValue(asObject(state.pdf[selectedId])) : null;
+    return {
+      selectedId: selectedId,
+      detail: detail,
+      pdf: pdf,
+      detailLoading: !!state.detailLoading,
+      detailTab: normalizeText(state.detailTab),
+      reason: normalizeText(reason)
+    };
+  }
+
+  function dispatchLegacyDoctorActiveCaseSnapshot(reason) {
+    var snapshot = buildLegacyDoctorActiveCaseSnapshot(reason);
+
+    doctorActiveCaseOwnerSubscribers.slice().forEach(function (listener) {
+      if (typeof listener !== 'function') {
+        return;
+      }
+      try {
+        listener(snapshot);
+      } catch (error) {
+        // no-op defensive observer isolation
+      }
+    });
+
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof window.CustomEvent === 'function') {
+      try {
+        window.dispatchEvent(new CustomEvent(DOCTOR_ACTIVE_CASE_OWNER_EVENT, { detail: snapshot }));
+      } catch (error) {
+        // no-op defensive event isolation
+      }
+    }
+
+    return snapshot;
+  }
+
+  function subscribeLegacyDoctorActiveCase(listener) {
+    if (typeof listener !== 'function') {
+      return function noop() {};
+    }
+
+    doctorActiveCaseOwnerSubscribers.push(listener);
+
+    return function unsubscribeLegacyDoctorActiveCase() {
+      var index = doctorActiveCaseOwnerSubscribers.indexOf(listener);
+      if (index >= 0) {
+        doctorActiveCaseOwnerSubscribers.splice(index, 1);
+      }
+    };
+  }
+
+  function installLegacyDoctorActiveCaseOwner() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    var owner = window.SosDoctorActiveCaseOwner;
+    if (!owner || typeof owner !== 'object') {
+      owner = {};
+    }
+
+    owner.getSnapshot = function () {
+      return buildLegacyDoctorActiveCaseSnapshot('snapshot');
+    };
+    owner.refreshDetail = function (id, opts) {
+      return fetchDetail(id, opts || {});
+    };
+    owner.refreshPdf = function (id, opts) {
+      return fetchPdfStatus(id, opts || {});
+    };
+    owner.subscribe = subscribeLegacyDoctorActiveCase;
+
+    window.SosDoctorActiveCaseOwner = owner;
     return owner;
   }
 
@@ -3867,14 +4080,19 @@
       '  <div class="dc-detail-panel" data-dc-panel="prescription">',
       '    <div class="dc-prescription-layout" data-dc-prescription-layout>',
       '      <div class="dc-prescription-main">',
-      '        <div class="dc-summary-card" data-dc-summary-card hidden>',
-      '          <div class="dc-card__title">Patient</div>',
-      '          <div class="dc-summary-grid">',
-      '            <div class="dc-summary-row" data-dc-summary-age-row><span>ÂGE</span><strong data-dc-summary-age>Non renseigné</strong></div>',
-      '            <div class="dc-summary-row" data-dc-summary-weight-row><span>POIDS</span><strong data-dc-summary-weight>Non renseigné</strong></div>',
-      '            <div class="dc-summary-row" data-dc-summary-height-row><span>TAILLE</span><strong data-dc-summary-height>Non renseignée</strong></div>',
-      '            <div class="dc-summary-row dc-summary-row--bmi" data-dc-summary-bmi-row hidden><span>IMC</span><strong data-dc-summary-bmi></strong><small data-dc-summary-bmi-label></small></div>',
-      '            <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row hidden><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '        <div class="dc-active-case-react-host" data-sp-doctor-active-case-root="1" hidden>',
+      '          <div class="dc-loading">Chargement du dossier…</div>',
+      '        </div>',
+      '        <div data-dc-active-case-legacy>',
+      '          <div class="dc-summary-card" data-dc-summary-card hidden>',
+      '            <div class="dc-card__title">Patient</div>',
+      '            <div class="dc-summary-grid">',
+      '              <div class="dc-summary-row" data-dc-summary-age-row><span>ÂGE</span><strong data-dc-summary-age>Non renseigné</strong></div>',
+      '              <div class="dc-summary-row" data-dc-summary-weight-row><span>POIDS</span><strong data-dc-summary-weight>Non renseigné</strong></div>',
+      '              <div class="dc-summary-row" data-dc-summary-height-row><span>TAILLE</span><strong data-dc-summary-height>Non renseignée</strong></div>',
+      '              <div class="dc-summary-row dc-summary-row--bmi" data-dc-summary-bmi-row hidden><span>IMC</span><strong data-dc-summary-bmi></strong><small data-dc-summary-bmi-label></small></div>',
+      '              <div class="dc-summary-row dc-summary-row--notes" data-dc-summary-notes-row hidden><span>PRÉCISIONS MÉDICALES</span><strong data-dc-summary-notes></strong></div>',
+      '            </div>',
       '          </div>',
       '        </div>',
       '        <div class="dc-meds-card">',
@@ -4014,6 +4232,7 @@
 
     var pdfSlot = detailEl.querySelector('[data-dc-pdf-slot]');
     renderPdfInto(pdfSlot, detail);
+    syncDoctorActiveCaseMount(detailEl, detail);
 
     var inlineProofSlot = detailEl.querySelector('[data-dc-inline-proof-slot]');
     var inlineProofHtml = renderInlineProofPanel(detail);
@@ -4055,15 +4274,20 @@
 
     if (!state.selectedId) {
       destroyDoctorMessagingHosts(detailEl, null);
+      destroyDoctorActiveCaseHosts(detailEl, null);
       detailEl.innerHTML = '<div class="dc-empty dc-empty-large">Sélectionnez une demande pour ouvrir le dossier.</div>';
+      dispatchLegacyDoctorActiveCaseSnapshot('no-selection');
       return;
     }
 
     var detail = asObject(state.details[state.selectedId]);
     if (!hasObjectKeys(detail)) {
+      destroyDoctorMessagingHosts(detailEl, null);
+      destroyDoctorActiveCaseHosts(detailEl, null);
       detailEl.innerHTML = state.detailLoading
         ? '<div class="dc-loading">Chargement du dossier…</div>'
         : '<div class="dc-empty dc-empty-large">Chargement du dossier…</div>';
+      dispatchLegacyDoctorActiveCaseSnapshot(state.detailLoading ? 'loading' : 'missing-detail');
       return;
     }
 
@@ -4072,10 +4296,12 @@
 
     if (!pane || renderedCaseId !== Number(state.selectedId)) {
       destroyDoctorMessagingHosts(detailEl, null);
+      destroyDoctorActiveCaseHosts(detailEl, null);
       detailEl.innerHTML = buildDetailSkeleton(state.selectedId);
     }
 
     patchDetailContent(detailEl, detail);
+    dispatchLegacyDoctorActiveCaseSnapshot('render-detail');
   }
 
   function renderShell() {
@@ -5082,7 +5308,9 @@
 
 
   installLegacyDoctorInboxOwner();
+  installLegacyDoctorActiveCaseOwner();
   dispatchLegacyDoctorInboxSnapshot('init');
+  dispatchLegacyDoctorActiveCaseSnapshot('init');
   render();
   fetchList();
   startPolling();

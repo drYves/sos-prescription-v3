@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import DoctorMessagingWorkspace from '../components/DoctorMessagingWorkspace';
 import DoctorInbox from '../components/doctorMessaging/DoctorInbox';
+import DoctorActiveCasePanel from '../components/doctorMessaging/DoctorActiveCasePanel';
 import { DoctorMessagingProvider } from '../components/doctorMessaging/DoctorMessagingProvider';
 
 export type DoctorMessagingApi = {
@@ -9,6 +10,8 @@ export type DoctorMessagingApi = {
   unmount: (containerEl: HTMLElement) => void;
   mountInbox?: (containerEl: HTMLElement) => void;
   unmountInbox?: (containerEl: HTMLElement) => void;
+  mountActiveCase?: (containerEl: HTMLElement, prescriptionId: number) => void;
+  unmountActiveCase?: (containerEl: HTMLElement) => void;
 };
 
 export type DoctorMessagingBridge = {
@@ -17,6 +20,8 @@ export type DoctorMessagingBridge = {
   unmount: (containerEl: HTMLElement) => Promise<void>;
   mountInbox?: (containerEl: HTMLElement) => Promise<void>;
   unmountInbox?: (containerEl: HTMLElement) => Promise<void>;
+  mountActiveCase?: (containerEl: HTMLElement, prescriptionId: number) => Promise<void>;
+  unmountActiveCase?: (containerEl: HTMLElement) => Promise<void>;
 };
 
 declare global {
@@ -28,6 +33,7 @@ declare global {
 
 const roots = new WeakMap<HTMLElement, Root>();
 const inboxRoots = new WeakMap<HTMLElement, Root>();
+const activeCaseRoots = new WeakMap<HTMLElement, Root>();
 
 function normalizePrescriptionId(value: number): number {
   const numeric = Number(value || 0);
@@ -57,6 +63,20 @@ function renderInbox(root: Root): void {
         DoctorMessagingProvider,
         { prescriptionId: null },
         React.createElement(DoctorInbox),
+      ),
+    ),
+  );
+}
+
+function renderActiveCase(root: Root, prescriptionId: number): void {
+  root.render(
+    React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(
+        DoctorMessagingProvider,
+        { prescriptionId },
+        React.createElement(DoctorActiveCasePanel),
       ),
     ),
   );
@@ -109,6 +129,39 @@ function unmountInbox(containerEl: HTMLElement): void {
   inboxRoots.delete(containerEl);
 }
 
+function mountActiveCase(containerEl: HTMLElement, prescriptionId: number): void {
+  if (!(containerEl instanceof HTMLElement)) {
+    return;
+  }
+
+  const normalizedId = normalizePrescriptionId(prescriptionId);
+  if (normalizedId < 1) {
+    throw new Error('PrescriptionId invalide pour le panneau React du dossier actif.');
+  }
+
+  let root = activeCaseRoots.get(containerEl);
+  if (!root) {
+    root = createRoot(containerEl);
+    activeCaseRoots.set(containerEl, root);
+  }
+
+  renderActiveCase(root, normalizedId);
+}
+
+function unmountActiveCase(containerEl: HTMLElement): void {
+  if (!(containerEl instanceof HTMLElement)) {
+    return;
+  }
+
+  const root = activeCaseRoots.get(containerEl);
+  if (!root) {
+    return;
+  }
+
+  root.unmount();
+  activeCaseRoots.delete(containerEl);
+}
+
 function unmountWorkspace(containerEl: HTMLElement): void {
   if (!(containerEl instanceof HTMLElement)) {
     return;
@@ -129,6 +182,8 @@ function createDoctorMessagingApi(): DoctorMessagingApi {
     unmount: unmountWorkspace,
     mountInbox,
     unmountInbox,
+    mountActiveCase,
+    unmountActiveCase,
   };
 }
 
@@ -146,6 +201,12 @@ function createDoctorMessagingBridge(api: DoctorMessagingApi): DoctorMessagingBr
     },
     unmountInbox: async (containerEl: HTMLElement): Promise<void> => {
       api.unmountInbox?.(containerEl);
+    },
+    mountActiveCase: async (containerEl: HTMLElement, prescriptionId: number): Promise<void> => {
+      api.mountActiveCase?.(containerEl, prescriptionId);
+    },
+    unmountActiveCase: async (containerEl: HTMLElement): Promise<void> => {
+      api.unmountActiveCase?.(containerEl);
     },
   };
 }

@@ -1,4 +1,4 @@
-<?php // includes/Plugin.php · V9.9.5-alpha1
+<?php // includes/Plugin.php · V9.9.6-alpha1
 declare(strict_types=1);
 
 namespace SosPrescription;
@@ -58,7 +58,7 @@ use SosPrescription\Services\LegalPages;
 
 final class Plugin
 {
-    private const VERSION = '9.9.5-alpha1';
+    private const VERSION = '9.9.6-alpha1';
 
     private static bool $deferred_services_booted = false;
 
