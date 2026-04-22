@@ -290,6 +290,70 @@
     });
   }
 
+  function syncDoctorInboxReactMount() {
+    var ui = ensureShell();
+    var bridge = getDoctorMessagingBridge();
+    var host = ui && ui.inboxReactHost;
+    var legacyList = ui && ui.inboxList;
+
+    if (!(host instanceof HTMLElement)) {
+      return;
+    }
+
+    if (!bridge || typeof bridge.mountInbox !== 'function' || typeof bridge.unmountInbox !== 'function') {
+      host.hidden = true;
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-pending');
+      if (legacyList instanceof HTMLElement) {
+        legacyList.hidden = false;
+      }
+      return;
+    }
+
+    if (host.getAttribute('data-sp-mounted') === '1') {
+      host.hidden = false;
+      if (legacyList instanceof HTMLElement) {
+        legacyList.hidden = true;
+      }
+      return;
+    }
+
+    if (host.getAttribute('data-sp-pending') === '1') {
+      return;
+    }
+
+    host.setAttribute('data-sp-pending', '1');
+
+    Promise.resolve(bridge.mountInbox(host)).then(function () {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (!document.body.contains(host)) {
+        try {
+          bridge.unmountInbox(host);
+        } catch (error) {
+          // no-op defensive cleanup
+        }
+        return;
+      }
+
+      host.setAttribute('data-sp-mounted', '1');
+      host.removeAttribute('data-sp-pending');
+      host.hidden = false;
+      if (legacyList instanceof HTMLElement) {
+        legacyList.hidden = true;
+      }
+    }).catch(function () {
+      host.hidden = true;
+      host.removeAttribute('data-sp-mounted');
+      host.removeAttribute('data-sp-pending');
+      if (legacyList instanceof HTMLElement) {
+        legacyList.hidden = false;
+      }
+    });
+  }
+
   function syncDoctorMessagingMount(detailEl, detail) {
     var bridge = getDoctorMessagingBridge();
     var messagesPanel = detailEl instanceof Element ? detailEl.querySelector('[data-dc-panel="messages"]') : null;
@@ -4022,6 +4086,9 @@
       '  <div data-dc-notice></div>',
       '  <div class="dc-shell">',
       '    <aside class="dc-inbox">',
+      '      <div class="dc-inbox__react-host" data-sp-doctor-inbox-root="1" hidden>',
+      '        <div class="dc-empty">Chargement de l’inbox…</div>',
+      '      </div>',
       '      <div class="dc-inbox__list" data-dc-inbox-list></div>',
       '    </aside>',
       '    <section class="dc-detail" data-dc-detail></section>',
@@ -4035,6 +4102,7 @@
     state.ui = {
       notice: root.querySelector('[data-dc-notice]'),
       inboxList: root.querySelector('[data-dc-inbox-list]'),
+      inboxReactHost: root.querySelector('[data-sp-doctor-inbox-root="1"]'),
       detail: root.querySelector('[data-dc-detail]'),
       medDialog: root.querySelector('[data-dc-med-dialog]'),
       medDialogBody: root.querySelector('[data-dc-med-dialog-body]')
@@ -4072,6 +4140,7 @@
     cleanupHostToolbarMeta();
     renderHeaderInto();
     renderNoticeInto();
+    syncDoctorInboxReactMount();
     patchInboxList();
     renderDetail();
   }

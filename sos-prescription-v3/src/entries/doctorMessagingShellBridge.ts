@@ -1,17 +1,22 @@
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import DoctorMessagingWorkspace from '../components/DoctorMessagingWorkspace';
+import DoctorInbox from '../components/doctorMessaging/DoctorInbox';
 import { DoctorMessagingProvider } from '../components/doctorMessaging/DoctorMessagingProvider';
 
 export type DoctorMessagingApi = {
   mount: (containerEl: HTMLElement, prescriptionId: number) => void;
   unmount: (containerEl: HTMLElement) => void;
+  mountInbox?: (containerEl: HTMLElement) => void;
+  unmountInbox?: (containerEl: HTMLElement) => void;
 };
 
 export type DoctorMessagingBridge = {
   ensureReady: () => Promise<DoctorMessagingApi>;
   mount: (containerEl: HTMLElement, prescriptionId: number) => Promise<void>;
   unmount: (containerEl: HTMLElement) => Promise<void>;
+  mountInbox?: (containerEl: HTMLElement) => Promise<void>;
+  unmountInbox?: (containerEl: HTMLElement) => Promise<void>;
 };
 
 declare global {
@@ -22,6 +27,7 @@ declare global {
 }
 
 const roots = new WeakMap<HTMLElement, Root>();
+const inboxRoots = new WeakMap<HTMLElement, Root>();
 
 function normalizePrescriptionId(value: number): number {
   const numeric = Number(value || 0);
@@ -38,6 +44,16 @@ function renderWorkspace(root: Root, prescriptionId: number): void {
         { prescriptionId },
         React.createElement(DoctorMessagingWorkspace),
       ),
+    ),
+  );
+}
+
+function renderInbox(root: Root): void {
+  root.render(
+    React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(DoctorInbox),
     ),
   );
 }
@@ -61,6 +77,34 @@ function mountWorkspace(containerEl: HTMLElement, prescriptionId: number): void 
   renderWorkspace(root, normalizedId);
 }
 
+function mountInbox(containerEl: HTMLElement): void {
+  if (!(containerEl instanceof HTMLElement)) {
+    return;
+  }
+
+  let root = inboxRoots.get(containerEl);
+  if (!root) {
+    root = createRoot(containerEl);
+    inboxRoots.set(containerEl, root);
+  }
+
+  renderInbox(root);
+}
+
+function unmountInbox(containerEl: HTMLElement): void {
+  if (!(containerEl instanceof HTMLElement)) {
+    return;
+  }
+
+  const root = inboxRoots.get(containerEl);
+  if (!root) {
+    return;
+  }
+
+  root.unmount();
+  inboxRoots.delete(containerEl);
+}
+
 function unmountWorkspace(containerEl: HTMLElement): void {
   if (!(containerEl instanceof HTMLElement)) {
     return;
@@ -79,6 +123,8 @@ function createDoctorMessagingApi(): DoctorMessagingApi {
   return {
     mount: mountWorkspace,
     unmount: unmountWorkspace,
+    mountInbox,
+    unmountInbox,
   };
 }
 
@@ -90,6 +136,12 @@ function createDoctorMessagingBridge(api: DoctorMessagingApi): DoctorMessagingBr
     },
     unmount: async (containerEl: HTMLElement): Promise<void> => {
       api.unmount(containerEl);
+    },
+    mountInbox: async (containerEl: HTMLElement): Promise<void> => {
+      api.mountInbox?.(containerEl);
+    },
+    unmountInbox: async (containerEl: HTMLElement): Promise<void> => {
+      api.unmountInbox?.(containerEl);
     },
   };
 }
