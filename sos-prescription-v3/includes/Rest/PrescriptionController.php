@@ -2202,6 +2202,8 @@ class PrescriptionController extends \WP_REST_Controller
             'shadow' => [
                 'mode' => 'worker-postgres',
                 'zero_pii' => true,
+                'medication_items_authority' => 'worker',
+                'local_items_mode' => 'shadow_non_normative',
             ],
             'worker' => [
                 'prescription_id' => trim($workerPrescriptionId),
@@ -2209,7 +2211,7 @@ class PrescriptionController extends \WP_REST_Controller
         ];
 
         $json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        return is_string($json) && $json !== '' ? $json : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+        return is_string($json) && $json !== '' ? $json : '{"shadow":{"mode":"worker-postgres","zero_pii":true,"medication_items_authority":"worker","local_items_mode":"shadow_non_normative"},"worker":{"prescription_id":""}}';
     }
 
     protected function normalize_local_stub_status($value): string

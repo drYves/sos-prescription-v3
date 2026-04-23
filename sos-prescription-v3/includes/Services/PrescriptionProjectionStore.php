@@ -387,6 +387,8 @@ final class PrescriptionProjectionStore
             'shadow' => [
                 'mode' => 'worker-postgres',
                 'zero_pii' => true,
+                'medication_items_authority' => 'worker',
+                'local_items_mode' => 'shadow_non_normative',
             ],
             'worker' => [
                 'prescription_id' => trim($workerPrescriptionId),
@@ -396,7 +398,7 @@ final class PrescriptionProjectionStore
         $json = wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         return is_string($json) && $json !== ''
             ? $json
-            : '{"shadow":{"mode":"worker-postgres","zero_pii":true},"worker":{"prescription_id":""}}';
+            : '{"shadow":{"mode":"worker-postgres","zero_pii":true,"medication_items_authority":"worker","local_items_mode":"shadow_non_normative"},"worker":{"prescription_id":""}}';
     }
 
     public function normalizeLocalStubStatus(mixed $value): string
@@ -517,6 +519,8 @@ final class PrescriptionProjectionStore
         $payload['shadow'] = array_merge($existingShadow, [
             'zero_pii' => true,
             'mode' => 'worker-postgres',
+            'medication_items_authority' => 'worker',
+            'local_items_mode' => 'shadow_non_normative',
         ]);
 
         if (!isset($payload['shadow']['worker_thread']) || !is_array($payload['shadow']['worker_thread'])) {

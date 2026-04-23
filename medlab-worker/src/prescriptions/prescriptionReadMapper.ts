@@ -403,13 +403,16 @@ function mapPrescriptionItems(value: Prisma.JsonValue): LegacyPrescriptionItem[]
       continue;
     }
 
+    const lineNo = normalizeLineNo(raw.line_no ?? raw.lineNo, index + 1);
+    const denomination = pickFirstText([raw.denomination, raw.label, raw.name]) ?? "Médicament";
+
     out.push({
-      line_no: index + 1,
+      line_no: lineNo,
       cis: normalizeNullableString(raw.cis),
       cip13: normalizeNullableString(raw.cip13),
-      denomination: pickFirstText([raw.label, raw.denomination, raw.name]) ?? "Médicament",
+      denomination,
       posologie: buildPosologie(raw),
-      quantite: normalizeNullableString(raw.quantite),
+      quantite: pickFirstText([raw.quantite, raw.quantity]),
       raw,
     });
   }
@@ -498,7 +501,7 @@ function buildPatientAgeLabel(value: string): string {
 }
 
 function buildPosologie(raw: Record<string, unknown>): string | null {
-  const direct = pickFirstText([raw.posologie]);
+  const direct = pickFirstText([raw.posologie, raw.scheduleText, raw.instructions]);
   if (direct) {
     return direct;
   }
@@ -535,6 +538,15 @@ function toRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return value as Record<string, unknown>;
+}
+
+function normalizeLineNo(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.trunc(parsed);
 }
 
 function normalizeNullableString(value: unknown): string | null {

@@ -3,6 +3,7 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
+import { canonicalizeMedicationItems } from "../prescriptions/canonicalMedicationItems";
 import { base64UrlEncode, buildMls1Token } from "../security/mls1";
 import {
   JobsRepoActionError,
@@ -11,6 +12,7 @@ import {
   type ClaimJobOptions,
   type IngestDoctorInput,
   type IngestPatientInput,
+  type IngestPrescriptionPayload,
   type IngestPrescriptionRequest,
   type IngestPrescriptionResult,
   type JobRow,
@@ -380,7 +382,10 @@ export class PrismaJobsRepo implements JobsRepo {
   async ingestPrescription(input: IngestPrescriptionRequest): Promise<IngestPrescriptionResult> {
     assertIngestRequest(input, this.siteId);
     const doctorInput = normalizeOptionalDoctorInput(input.doctor);
-    const canonicalItems = canonicalizePrescriptionItems(input.prescription.items);
+    const canonicalItems = canonicalizePrescriptionItems(input.prescription.items, {
+      flowKey: extractPrescriptionFlowKey(input.prescription),
+      sourceStage: "worker_ingest",
+    });
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       try {
@@ -510,14 +515,11 @@ export class PrismaJobsRepo implements JobsRepo {
     const doctor = input.doctor;
     const requestedItemsCount = Array.isArray(input.items) ? input.items.length : 0;
     let safePrescriptionId = typeof prescriptionId === "string" ? prescriptionId.trim() : String(prescriptionId ?? "");
-    let canonicalItems: ReturnType<typeof canonicalizePrescriptionItems> | null = null;
+    let canonicalItemsCount: number | null = null;
     let payment: NormalizedPaymentActionPayload | null = null;
 
     try {
       safePrescriptionId = normalizeRequiredString(prescriptionId, "prescriptionId");
-      canonicalItems = Array.isArray(input.items) && input.items.length > 0
-        ? canonicalizePrescriptionItems(input.items)
-        : null;
       payment = normalizePaymentActionPayload(input.payment);
       if (payment) {
         await this.ensurePaymentActionQueueSchema();
@@ -529,6 +531,7 @@ export class PrismaJobsRepo implements JobsRepo {
           select: {
             ...ingestSelect(),
             doctorId: true,
+            flowKey: true,
           },
         });
 
@@ -537,6 +540,13 @@ export class PrismaJobsRepo implements JobsRepo {
         }
 
         let finalDoctorId = existing.doctorId;
+        const canonicalItems = Array.isArray(input.items) && input.items.length > 0
+          ? canonicalizePrescriptionItems(input.items, {
+              flowKey: existing.flowKey ?? null,
+              sourceStage: "approval_override",
+            })
+          : null;
+        canonicalItemsCount = canonicalItems ? canonicalItems.length : null;
 
         if (doctor && doctor.wpUserId != null && normalizeRequiredInt(doctor.wpUserId, "doctor.wpUserId") > 0) {
           const upsertedDoctor = await tx.doctor.upsert({
@@ -597,7 +607,7 @@ export class PrismaJobsRepo implements JobsRepo {
           processing_status: result.processing_status,
           source_req_id: result.source_req_id,
           doctor_wp_user_id: doctor?.wpUserId ?? null,
-          items_count: canonicalItems ? canonicalItems.length : null,
+          items_count: canonicalItemsCount,
         },
         reqId ?? updated.sourceReqId ?? undefined,
       );
@@ -611,7 +621,7 @@ export class PrismaJobsRepo implements JobsRepo {
           prescription_id: safePrescriptionId !== "" ? safePrescriptionId : null,
           source_req_id: reqId ?? null,
           doctor_wp_user_id: doctor?.wpUserId ?? null,
-          items_count: canonicalItems ? canonicalItems.length : requestedItemsCount,
+          items_count: canonicalItemsCount ?? requestedItemsCount,
           payment_present: payment !== null || input.payment != null,
           failure_stage: failure.stage,
           failure_code: failure.code,
@@ -1389,6 +1399,23 @@ function mapRejectResult(row: IngestSelectRow, reqId: string): RejectPrescriptio
   };
 }
 
+function extractPrescriptionFlowKey(input: IngestPrescriptionPayload): string | null {
+  const row = input && typeof input === "object" ? (input as unknown as Record<string, unknown>) : null;
+  if (!row) {
+    return null;
+  }
+
+  const candidates = [row.flow_key, row.flowKey, row.flow];
+  for (const candidate of candidates) {
+    const normalized = normalizeNullableString(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 function buildDoctorCreate(input: IngestDoctorInput) {
   return {
     wpUserId: normalizeRequiredInt(input.wpUserId, "doctor.wpUserId"),
@@ -1438,8 +1465,11 @@ function buildPatientCreate(input: IngestPatientInput) {
 
 
 
-function canonicalizePrescriptionItems(items: unknown[]): Array<Record<string, unknown>> {
-  return items.map((item, index) => canonicalizePrescriptionItem(item, index));
+function canonicalizePrescriptionItems(
+  items: unknown[],
+  options: { flowKey?: string | null; sourceStage?: string | null } = {},
+): Array<Record<string, unknown>> {
+  return canonicalizeMedicationItems(items, options);
 }
 
 function canonicalizePrescriptionItem(item: unknown, index: number): Record<string, unknown> {

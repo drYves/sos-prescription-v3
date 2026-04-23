@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import { ActorRole, ArtifactKind, ArtifactStatus, Prisma, PrismaClient, SubmissionStatus } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
+import { canonicalizeMedicationItems } from "../prescriptions/canonicalMedicationItems";
 
 const DEFAULT_SUBMISSION_TTL_MS = 2 * 60 * 60 * 1000;
 const RANDOM_PUBLIC_REF_PREFIX = "sub_";
@@ -398,13 +399,18 @@ export class SubmissionRepo {
             patient: effectivePatient,
           });
 
+          const canonicalItems = canonicalizeMedicationItems(normalized.items, {
+            flowKey: submission.flowKey,
+            sourceStage: "submission_finalize",
+          });
+
           const createdPrescription = await tx.prescription.create({
             data: {
               uid: generatePublicUid(),
               doctorId: null,
               patientId: patient.id,
               status: "PENDING",
-              items: toInputJsonValue(normalized.items),
+              items: toInputJsonValue(canonicalItems),
               privateNotes: normalized.privateNotes,
               s3PdfKey: null,
               verifyCode: generateVerifyCode(),

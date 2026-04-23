@@ -61,6 +61,7 @@ final class PrescriptionRepository
             $payload_json = '{}';
         }
 
+        $worker_shadow_mode = $this->isWorkerPostgresShadowPayload($payload);
         $table_columns = $this->tableColumns($table);
         $insert_data = [];
 
@@ -140,54 +141,56 @@ final class PrescriptionRepository
             }
         }
 
-        $line_no = 1;
-        foreach ($items as $it) {
-            if (!is_array($it)) {
-                continue;
-            }
+        if (!$worker_shadow_mode) {
+            $line_no = 1;
+            foreach ($items as $it) {
+                if (!is_array($it)) {
+                    continue;
+                }
 
-            $cis = isset($it['cis']) && is_numeric($it['cis']) ? (int) $it['cis'] : null;
-            $cip13 = isset($it['cip13']) ? trim((string) $it['cip13']) : null;
-            if ($cip13 === '') { $cip13 = null; }
+                $cis = isset($it['cis']) && is_numeric($it['cis']) ? (int) $it['cis'] : null;
+                $cip13 = isset($it['cip13']) ? trim((string) $it['cip13']) : null;
+                if ($cip13 === '') { $cip13 = null; }
 
-            $label = isset($it['label']) ? trim((string) $it['label']) : '';
-            if ($label === '') { $label = 'Médicament'; }
+                $label = isset($it['label']) ? trim((string) $it['label']) : '';
+                if ($label === '') { $label = 'Médicament'; }
 
-            $quantite = isset($it['quantite']) ? trim((string) $it['quantite']) : '';
-            $quantite = $quantite !== '' ? $quantite : null;
+                $quantite = isset($it['quantite']) ? trim((string) $it['quantite']) : '';
+                $quantite = $quantite !== '' ? $quantite : null;
 
-            $schedule = isset($it['schedule']) && is_array($it['schedule']) ? $it['schedule'] : [];
+                $schedule = isset($it['schedule']) && is_array($it['schedule']) ? $it['schedule'] : [];
 
-            // Ne calcule une posologie textuelle que si la structure est "complète".
-            // Cela évite de générer des sorties absurdes (ex: "1 fois par jour pendant 1 jour")
-            // lorsque le patient ne renseigne qu'une remarque.
-            $has_core_schedule = isset($schedule['nb'], $schedule['freqUnit'], $schedule['durationVal'], $schedule['durationUnit']);
-            $posologie = $has_core_schedule ? Posology::schedule_to_text($schedule) : null;
+                // Ne calcule une posologie textuelle que si la structure est "complète".
+                // Cela évite de générer des sorties absurdes (ex: "1 fois par jour pendant 1 jour")
+                // lorsque le patient ne renseigne qu'une remarque.
+                $has_core_schedule = isset($schedule['nb'], $schedule['freqUnit'], $schedule['durationVal'], $schedule['durationUnit']);
+                $posologie = $has_core_schedule ? Posology::schedule_to_text($schedule) : null;
 
-            $item_json = wp_json_encode($it, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if (!is_string($item_json)) {
-                $item_json = '{}';
-            }
+                $item_json = wp_json_encode($it, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                if (!is_string($item_json)) {
+                    $item_json = '{}';
+                }
 
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-            $ok_item = $wpdb->insert($items_table, [
-                'prescription_id' => $prescription_id,
-                'line_no' => $line_no,
-                'cis' => $cis,
-                'cip13' => $cip13,
-                'denomination' => $label,
-                'posologie' => $posologie,
-                'quantite' => $quantite,
-                'item_json' => $item_json,
-            ]);
-
-            if (!$ok_item) {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-                $wpdb->query('ROLLBACK');
-                return ['error' => 'shadow_insert_item', 'message' => (string) $wpdb->last_error];
-            }
+                $ok_item = $wpdb->insert($items_table, [
+                    'prescription_id' => $prescription_id,
+                    'line_no' => $line_no,
+                    'cis' => $cis,
+                    'cip13' => $cip13,
+                    'denomination' => $label,
+                    'posologie' => $posologie,
+                    'quantite' => $quantite,
+                    'item_json' => $item_json,
+                ]);
 
-            $line_no++;
+                if (!$ok_item) {
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+                    $wpdb->query('ROLLBACK');
+                    return ['error' => 'shadow_insert_item', 'message' => (string) $wpdb->last_error];
+                }
+
+                $line_no++;
+            }
         }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
@@ -199,6 +202,19 @@ final class PrescriptionRepository
             'status' => $initial_status,
             'created_at' => $now,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function isWorkerPostgresShadowPayload(array $payload): bool
+    {
+        if (!isset($payload['shadow']) || !is_array($payload['shadow'])) {
+            return false;
+        }
+
+        $mode = isset($payload['shadow']['mode']) ? strtolower(trim((string) $payload['shadow']['mode'])) : '';
+        return $mode === 'worker-postgres';
     }
 
     /**
@@ -723,27 +739,42 @@ final class PrescriptionRepository
             return null;
         }
 
-        // On enrichit avec la dénomination BDPM (CIS) pour garantir
-        // l'affichage du NOM de la spécialité (même si l'item sauvegardé
-        // contenait un libellé de présentation).
-        $cis_table = Db::table('cis');
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-        $items = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT it.*, c.denomination AS cis_denomination
-                 FROM {$items_table} it
-                 LEFT JOIN {$cis_table} c ON c.cis = it.cis
-                 WHERE it.prescription_id = %d
-                 ORDER BY it.line_no ASC",
-                $id
-            ),
-            ARRAY_A
-        ) ?: [];
-
         $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
         if (!is_array($payload)) {
             $payload = [];
+        }
+
+        $worker_shadow_mode = $this->isWorkerPostgresShadowPayload($payload);
+        if ($worker_shadow_mode) {
+            // En mode shadow Worker, la table locale ne doit plus corriger la vérité canonique
+            // via la BDPM MySQL. On relit une projection locale simple, sans enrichissement normatif.
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $items = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT it.*
+                     FROM {$items_table} it
+                     WHERE it.prescription_id = %d
+                     ORDER BY it.line_no ASC",
+                    $id
+                ),
+                ARRAY_A
+            ) ?: [];
+        } else {
+            // Héritage local : on conserve l'ancien enrichissement CIS tant que cette branche existe.
+            $cis_table = Db::table('cis');
+
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $items = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT it.*, c.denomination AS cis_denomination
+                     FROM {$items_table} it
+                     LEFT JOIN {$cis_table} c ON c.cis = it.cis
+                     WHERE it.prescription_id = %d
+                     ORDER BY it.line_no ASC",
+                    $id
+                ),
+                ARRAY_A
+            ) ?: [];
         }
 
         // Patient (dérivés pour l’UI médecin / PDF)
@@ -790,7 +821,10 @@ final class PrescriptionRepository
 
             $cis_denom = isset($it['cis_denomination']) ? (string) $it['cis_denomination'] : '';
             $saved_denom = (string) ($it['denomination'] ?? '');
-            $final_denom = $cis_denom !== '' ? $cis_denom : $saved_denom;
+            $raw_denom = isset($raw['denomination']) ? trim((string) $raw['denomination']) : '';
+            $final_denom = $worker_shadow_mode
+                ? ($raw_denom !== '' ? $raw_denom : $saved_denom)
+                : ($cis_denom !== '' ? $cis_denom : ($saved_denom !== '' ? $saved_denom : $raw_denom));
 
             $out_items[] = [
                 'line_no' => (int) ($it['line_no'] ?? 0),
