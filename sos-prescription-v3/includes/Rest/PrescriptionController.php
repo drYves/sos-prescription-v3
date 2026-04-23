@@ -20,6 +20,7 @@ use SosPrescription\Rest\ErrorResponder;
 use SosPrescription\Services\PrescriptionProjectionReader;
 use SosPrescription\Services\PrescriptionProjectionStore;
 use SosPrescription\Services\PrescriptionProjectionSynchronizer;
+use SOSPrescription\Services\MedicationValidationBridge;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -29,6 +30,7 @@ defined('ABSPATH') || exit;
 require_once dirname(__DIR__) . '/Services/PrescriptionProjectionStore.php';
 require_once dirname(__DIR__) . '/Services/PrescriptionProjectionReader.php';
 require_once dirname(__DIR__) . '/Services/PrescriptionProjectionSynchronizer.php';
+require_once dirname(__DIR__) . '/Services/MedicationValidationBridge.php';
 
 class PrescriptionController extends \WP_REST_Controller
 {
@@ -46,6 +48,9 @@ class PrescriptionController extends \WP_REST_Controller
 
     /** @var WorkerApiClient|null */
     protected $worker_api_client = null;
+
+    /** @var MedicationValidationBridge|null */
+    protected $medication_validation_bridge = null;
 
     /** @var string */
     protected $namespace = 'sosprescription/v1';
@@ -386,6 +391,20 @@ class PrescriptionController extends \WP_REST_Controller
         $row = $this->prescriptions->get($id);
         if (!is_array($row)) {
             return new WP_Error('sosprescription_not_found', 'Ordonnance introuvable.', ['status' => 404]);
+        }
+
+        if ($decision === 'approved' && is_array($items) && $items !== []) {
+            $flowKey = isset($row['flow_key']) && is_scalar($row['flow_key']) ? trim((string) $row['flow_key']) : 'ro_proof';
+            if ($flowKey === '') {
+                $flowKey = 'ro_proof';
+            }
+
+            $validatedItems = $this->get_medication_validation_bridge()->validateItems($items, $flowKey, 'approval');
+            if (is_wp_error($validatedItems)) {
+                return $validatedItems;
+            }
+
+            $items = $validatedItems;
         }
 
         $currentStatus = strtolower(trim((string) ($row['status'] ?? '')));
@@ -1383,6 +1402,12 @@ class PrescriptionController extends \WP_REST_Controller
         if ($flow === '') {
             $flow = 'ro_proof';
         }
+
+        $validatedItems = $this->get_medication_validation_bridge()->validateItems($items, $flow, 'submission');
+        if (is_wp_error($validatedItems)) {
+            return $validatedItems;
+        }
+        $items = $validatedItems;
 
         $priority = strtolower(trim((string) ($params['priority'] ?? 'standard')));
         if ($priority !== 'express') {
@@ -2669,6 +2694,16 @@ class PrescriptionController extends \WP_REST_Controller
         }
 
         return false;
+    }
+
+    protected function get_medication_validation_bridge(): MedicationValidationBridge
+    {
+        if ($this->medication_validation_bridge instanceof MedicationValidationBridge) {
+            return $this->medication_validation_bridge;
+        }
+
+        $this->medication_validation_bridge = new MedicationValidationBridge();
+        return $this->medication_validation_bridge;
     }
 
     protected function get_worker_api_client(): WorkerApiClient

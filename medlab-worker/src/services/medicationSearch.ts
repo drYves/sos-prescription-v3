@@ -1,10 +1,11 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
+import { buildMedicationValidationDecision, type MedicationValidationCode } from "./medicationValidation";
 
 let prismaSingleton: PrismaClient | null = null;
 
 const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 250;
+const MAX_LIMIT = 50;
 const MIN_TEXT_QUERY_LENGTH = 2;
 const MIN_NUMERIC_QUERY_LENGTH = 3;
 const STUPEFIANT_REGEX = "(^|[[:space:]])stupefiant(s)?($|[[:space:]])";
@@ -22,21 +23,18 @@ export interface MedicationSearchInput {
 export interface MedicationSearchResult {
   cis: string;
   cip13: string;
-  cip7: string;
   label: string;
   sublabel: string | null;
-  denomination: string;
-  libellePresentation: string | null;
-  reimbursementRate: string | null;
-  priceTtc: number | null;
   isSelectable: boolean;
+  validationCode: MedicationValidationCode;
+  validationReason: string | null;
+  matchCode: string;
 }
 
 export interface MedicationSearchResponse {
   query: string;
   normalizedQuery: string;
   limit: number;
-  total: number;
   items: MedicationSearchResult[];
 }
 
@@ -52,13 +50,10 @@ interface SearchQueryShape {
 interface MedicationSearchRow {
   cis: string;
   cip13: string;
-  cip7: string;
   label: string;
   sublabel: string | null;
-  reimbursementRate: string | null;
-  priceEuro: Prisma.Decimal | number | string | null;
-  totalCount: bigint | number | string;
   isSelectable: boolean;
+  matchCode: string;
 }
 
 export class MedicationSearchError extends Error {
@@ -94,7 +89,6 @@ export class MedicationSearchService {
         query: normalized.query,
         normalizedQuery: normalized.normalizedQuery,
         limit: normalized.limit,
-        total: rows.length > 0 ? normalizeTotalCount(rows[0].totalCount) : 0,
         items: rows.map(mapMedicationSearchRow),
       };
     } catch (err: unknown) {
@@ -132,12 +126,8 @@ export class MedicationSearchService {
       SELECT
         m."cis" AS "cis",
         p."cip13" AS "cip13",
-        p."cip7" AS "cip7",
         m."denomination" AS "label",
         NULLIF(BTRIM(p."label"), '') AS "sublabel",
-        NULLIF(BTRIM(p."reimbursementRate"), '') AS "reimbursementRate",
-        p."priceEuro" AS "priceEuro",
-        COUNT(*) OVER() AS "totalCount",
         CASE
           WHEN p."cip13" = ${input.digitsOnly} THEN 0
           WHEN p."cip7" = ${input.digitsOnly} THEN 1
@@ -147,6 +137,15 @@ export class MedicationSearchService {
           WHEN m."cis" LIKE ${prefixValue} THEN 5
           ELSE 9
         END AS "matchRank",
+        CASE
+          WHEN p."cip13" = ${input.digitsOnly} THEN 'cip13_exact'
+          WHEN p."cip7" = ${input.digitsOnly} THEN 'cip7_exact'
+          WHEN m."cis" = ${input.digitsOnly} THEN 'cis_exact'
+          WHEN p."cip13" LIKE ${prefixValue} THEN 'cip13_prefix'
+          WHEN p."cip7" LIKE ${prefixValue} THEN 'cip7_prefix'
+          WHEN m."cis" LIKE ${prefixValue} THEN 'cis_prefix'
+          ELSE 'other'
+        END AS "matchCode",
         CASE
           WHEN BTRIM(m."commercializationState") = 'Commercialisée'
             AND BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 0
@@ -200,12 +199,8 @@ export class MedicationSearchService {
       SELECT
         m."cis" AS "cis",
         p."cip13" AS "cip13",
-        p."cip7" AS "cip7",
         m."denomination" AS "label",
         NULLIF(BTRIM(p."label"), '') AS "sublabel",
-        NULLIF(BTRIM(p."reimbursementRate"), '') AS "reimbursementRate",
-        p."priceEuro" AS "priceEuro",
-        COUNT(*) OVER() AS "totalCount",
         CASE
           WHEN m."normalizedDenomination" = ${input.normalizedQuery} THEN 0
           WHEN m."normalizedDenomination" LIKE ${fullPrefix} THEN 1
@@ -215,6 +210,15 @@ export class MedicationSearchService {
           WHEN p."normalizedLabel" LIKE ${fullContains} THEN 5
           ELSE 9
         END AS "matchRank",
+        CASE
+          WHEN m."normalizedDenomination" = ${input.normalizedQuery} THEN 'denomination_exact'
+          WHEN m."normalizedDenomination" LIKE ${fullPrefix} THEN 'denomination_prefix'
+          WHEN m."normalizedDenomination" LIKE ${fullContains} THEN 'denomination_contains'
+          WHEN p."normalizedLabel" = ${input.normalizedQuery} THEN 'presentation_exact'
+          WHEN p."normalizedLabel" LIKE ${fullPrefix} THEN 'presentation_prefix'
+          WHEN p."normalizedLabel" LIKE ${fullContains} THEN 'presentation_contains'
+          ELSE 'other'
+        END AS "matchCode",
         CASE
           WHEN BTRIM(m."commercializationState") = 'Commercialisée'
             AND BTRIM(p."presentationCommercializationState") = 'Déclaration de commercialisation' THEN 0
@@ -340,86 +344,18 @@ function buildTokenClauses(tokens: string[]): Prisma.Sql {
 }
 
 function mapMedicationSearchRow(row: MedicationSearchRow): MedicationSearchResult {
-  const label = normalizeOptionalText(row.label) ?? "Médicament";
-  const sublabel = normalizeOptionalText(row.sublabel);
+  const decision = buildMedicationValidationDecision(row.isSelectable);
 
   return {
-    cis: normalizeRequiredText(row.cis),
-    cip13: normalizeRequiredText(row.cip13),
-    cip7: normalizeRequiredText(row.cip7),
-    label,
-    sublabel,
-    denomination: label,
-    libellePresentation: sublabel,
-    reimbursementRate: normalizeOptionalText(row.reimbursementRate),
-    priceTtc: normalizeNullableNumber(row.priceEuro),
-    isSelectable: row.isSelectable,
+    cis: row.cis,
+    cip13: row.cip13,
+    label: row.label,
+    sublabel: row.sublabel,
+    isSelectable: decision.isSelectable,
+    validationCode: decision.code,
+    validationReason: decision.reason,
+    matchCode: row.matchCode,
   };
-}
-
-function normalizeRequiredText(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (value == null) {
-    return "";
-  }
-
-  return String(value).trim();
-}
-
-function normalizeOptionalText(value: unknown): string | null {
-  const normalized = normalizeRequiredText(value);
-  return normalized === "" ? null : normalized;
-}
-
-function normalizeNullableNumber(value: unknown): number | null {
-  if (value == null || value === "") {
-    return null;
-  }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  if (typeof value === "object" && value !== null && "toString" in value) {
-    const parsed = Number(String(value));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function normalizeTotalCount(value: unknown): number {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
-  }
-
-  if (typeof value === "bigint") {
-    return value > 0n ? Number(value) : 0;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
-  }
-
-  if (typeof value === "object" && value !== null && "toString" in value) {
-    const parsed = Number(String(value));
-    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
-  }
-
-  return 0;
 }
 
 export function normalizeSearchText(value: string): string {

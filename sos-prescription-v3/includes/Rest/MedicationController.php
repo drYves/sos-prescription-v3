@@ -8,7 +8,6 @@ use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\RestGuard;
 use SOSPrescription\Services\V4InputNormalizer;
 use SOSPrescription\Services\V4WorkerTransport;
-use SOSPrescription\Services\Whitelist;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
@@ -16,8 +15,6 @@ use WP_REST_Response;
 
 final class MedicationController
 {
-    private const WORKER_TABLE_WINDOW_LIMIT = 250;
-
     private MedicationRepository $repo;
 
     public function __construct()
@@ -103,79 +100,19 @@ final class MedicationController
 
                 $backend = 'legacy_mysql_fallback';
                 $search = $this->repo->searchWithMeta($q, $limit);
-                $items = $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : []);
+                $items = $this->mark_legacy_search_items_non_selectable(
+                    $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : [])
+                );
                 $mode = isset($search['mode']) ? (string) $search['mode'] : 'exact';
                 $rawCount = isset($search['raw_count']) ? (int) $search['raw_count'] : count($items);
                 $candidateCount = isset($search['candidate_count']) ? (int) $search['candidate_count'] : count($items);
             }
 
-            if ($this->is_form_scope($scope)) {
-                $flow_key = $this->resolve_flow_key($request);
-                $wl = Whitelist::get();
-                $modeWhitelist = isset($wl['mode']) && is_string($wl['mode']) ? (string) $wl['mode'] : 'off';
-
-                if ($modeWhitelist === 'off') {
-                    foreach ($items as &$item) {
-                        if (!is_array($item)) {
-                            continue;
-                        }
-                        $item['is_selectable'] = true;
-                    }
-                    unset($item);
-                } else {
-                    $enforce = $modeWhitelist === 'enforce';
-
-                    $cis_list = [];
-                    foreach ($items as $item) {
-                        if (!is_array($item)) {
-                            continue;
-                        }
-
-                        $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
-                        if ($cis > 0) {
-                            $cis_list[] = $cis;
-                        }
-                    }
-                    $cis_list = array_values(array_unique($cis_list));
-
-                    $mitm_ready = Whitelist::is_mitm_ready();
-                    $atc_map = [];
-                    if ($cis_list !== [] && $mitm_ready) {
-                        $atc_map = Whitelist::map_atc_codes_for_cis($cis_list);
-                    }
-
-                    $selectable = 0;
-                    foreach ($items as &$item) {
-                        if (!is_array($item)) {
-                            continue;
-                        }
-
-                        $cis = isset($item['cis']) ? (int) $item['cis'] : 0;
-                        $evaluation = Whitelist::evaluate_for_flow(
-                            $cis,
-                            $cis > 0 ? ($atc_map[$cis] ?? null) : null,
-                            $flow_key
-                        );
-
-                        $allowed = (bool) ($evaluation['allowed'] ?? true);
-                        $item['is_selectable'] = $enforce ? $allowed : true;
-
-                        if (!empty($item['is_selectable'])) {
-                            $selectable++;
-                        }
-                    }
-                    unset($item);
-
-                    if (count($items) > 0 && $selectable === 0 && $enforce) {
-                        $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_all_out_of_scope', [
-                            'q' => self::str_sub($q, 0, 80),
-                            'raw_count' => count($items),
-                            'mode' => $modeWhitelist,
-                            'flow' => $flow_key,
-                            'mitm_ready' => $mitm_ready ? '1' : '0',
-                        ]);
-                    }
-                }
+            if ($backend === 'legacy_mysql_fallback') {
+                $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_legacy_results_non_selectable', [
+                    'q' => self::str_sub($q, 0, 80),
+                    'count' => count($items),
+                ]);
             }
         } catch (Throwable $e) {
             $this->safe_runtime_log('error', 'api_medication_search_failed', [
@@ -253,7 +190,6 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
-        $backend = 'worker';
         $this->safe_shortcode_log($scope, 'debug', 'api_medication_table', [
             'q' => self::str_sub($q, 0, 80),
             'page' => $page,
@@ -261,37 +197,13 @@ final class MedicationController
         ]);
 
         try {
-            try {
-                $res = $this->table_worker_result($q, $page, $per_page, $scope);
-            } catch (Throwable $workerError) {
-                if (!$this->should_allow_legacy_table_fallback() || !$this->is_local_bdpm_search_ready()) {
-                    $this->safe_runtime_log('error', 'api_medication_table_worker_failed_without_legacy_fallback', [
-                        'scope' => $scope,
-                        'q' => self::str_sub($q, 0, 80),
-                        'page' => $page,
-                        'perPage' => $per_page,
-                        'backend' => $backend,
-                        'exception' => get_class($workerError),
-                        'message' => $workerError->getMessage(),
-                    ]);
-
-                    return new WP_Error(
-                        'sosprescription_medication_table_failed',
-                        'Lecture du référentiel médicaments momentanément indisponible.',
-                        ['status' => 502]
-                    );
-                }
-
-                $backend = 'legacy_mysql_fallback';
-                $res = $this->repo->table($q, $page, $per_page);
-            }
+            $res = $this->repo->table($q, $page, $per_page);
         } catch (Throwable $e) {
             $this->safe_runtime_log('error', 'api_medication_table_failed', [
                 'scope' => $scope,
                 'q' => self::str_sub($q, 0, 80),
                 'page' => $page,
                 'perPage' => $per_page,
-                'backend' => $backend,
                 'exception' => get_class($e),
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -312,7 +224,6 @@ final class MedicationController
             'q' => self::str_sub($q, 0, 80),
             'count' => $count,
             'total' => $total,
-            'backend' => $backend,
             'ms' => (int) round((microtime(true) - $t0) * 1000),
         ]);
 
@@ -360,51 +271,6 @@ final class MedicationController
      */
     private function search_worker_items(string $query, int $limit, string $scope): array
     {
-        $payload = $this->fetch_worker_search_payload($query, $limit, $scope);
-        return $this->canonicalize_search_items($payload['items']);
-    }
-
-    /**
-     * @return array{items:array<int, array<string, mixed>>, total:int, page:int, perPage:int}
-     */
-    private function table_worker_result(string $query, int $page, int $perPage, string $scope): array
-    {
-        $requestedWindow = max($perPage, $page * $perPage);
-        if ($requestedWindow > self::WORKER_TABLE_WINDOW_LIMIT) {
-            throw new \RuntimeException('Requested table page exceeds worker search window.');
-        }
-
-        $payload = $this->fetch_worker_search_payload($query, $requestedWindow, $scope);
-        $items = $this->canonicalize_table_items($payload['items']);
-        $total = isset($payload['total']) ? max(0, (int) $payload['total']) : count($items);
-
-        if ($total > 0) {
-            $maxPage = (int) ceil($total / $perPage);
-            if ($page > $maxPage) {
-                $page = $maxPage;
-            }
-        } else {
-            $page = 1;
-        }
-
-        $offset = max(0, ($page - 1) * $perPage);
-        if ($offset > 0 && count($items) <= $offset && $total > count($items)) {
-            throw new \RuntimeException('Worker search window is insufficient for requested table page.');
-        }
-
-        return [
-            'items' => array_slice($items, $offset, $perPage),
-            'total' => $total,
-            'page' => $page,
-            'perPage' => $perPage,
-        ];
-    }
-
-    /**
-     * @return array{items:array<int, array<string, mixed>>, total:int}
-     */
-    private function fetch_worker_search_payload(string $query, int $limit, string $scope): array
-    {
         $transport = new V4WorkerTransport(new V4InputNormalizer());
         $response = $transport->medicationsSearch($query, $limit);
 
@@ -433,32 +299,18 @@ final class MedicationController
             $items = $data;
         }
 
-        $total = count($items);
-        if (isset($data['total']) && is_scalar($data['total'])) {
-            $total = max(0, (int) $data['total']);
-        }
-
         $this->safe_shortcode_log($scope, 'debug', 'api_medication_search_worker_done', [
             'q' => self::str_sub($query, 0, 80),
             'count' => count($items),
             'limit' => $limit,
-            'total' => $total,
         ]);
 
-        return [
-            'items' => $items,
-            'total' => $total,
-        ];
+        return $this->canonicalize_search_items($items);
     }
 
     private function should_allow_legacy_search_fallback(): bool
     {
-        return self::read_config_bool('SOSPRESCRIPTION_MEDICATION_WORKER_LEGACY_FALLBACK', true);
-    }
-
-    private function should_allow_legacy_table_fallback(): bool
-    {
-        return self::read_config_bool('SOSPRESCRIPTION_MEDICATION_TABLE_WORKER_LEGACY_FALLBACK', true);
+        return self::read_config_bool('SOSPRESCRIPTION_MEDICATION_WORKER_LEGACY_FALLBACK', false);
     }
 
     private function is_local_bdpm_search_ready(): bool
@@ -566,22 +418,18 @@ final class MedicationController
             $isSelectable = true;
         }
 
-        $denomination = isset($item['denomination']) ? trim((string) $item['denomination']) : $label;
-        if ($denomination === '') {
-            $denomination = $label;
-        }
+        $validationCode = isset($item['validation_code']) && is_scalar($item['validation_code'])
+            ? trim((string) $item['validation_code'])
+            : '';
+        $validationReason = isset($item['validation_reason']) && is_scalar($item['validation_reason'])
+            ? trim((string) $item['validation_reason'])
+            : '';
+        $matchCode = isset($item['match_code']) && is_scalar($item['match_code'])
+            ? trim((string) $item['match_code'])
+            : '';
 
-        $libellePresentation = isset($item['libelle_presentation']) ? trim((string) $item['libelle_presentation']) : $sublabel;
-        if ($libellePresentation === '' && $sublabel !== '') {
-            $libellePresentation = $sublabel;
-        }
-
-        if ($tauxRemb === '' && isset($item['taux_remboursement'])) {
-            $tauxRemb = trim((string) $item['taux_remboursement']);
-        }
-
-        if ($prixTTC === null && array_key_exists('prix_ttc', $item) && $item['prix_ttc'] !== null && $item['prix_ttc'] !== '') {
-            $prixTTC = (float) $item['prix_ttc'];
+        if ($validationCode === '' && !$isSelectable) {
+            $validationCode = 'worker_rejected';
         }
 
         return [
@@ -592,13 +440,12 @@ final class MedicationController
             'label' => $label,
             'specialite' => $specialite,
             'sublabel' => $sublabel,
-            'denomination' => $denomination,
-            'libelle_presentation' => $libellePresentation,
-            'taux_remboursement' => $tauxRemb,
-            'prix_ttc' => $prixTTC,
             'tauxRemb' => $tauxRemb,
             'prixTTC' => $prixTTC,
             'is_selectable' => $isSelectable,
+            'validation_code' => $validationCode,
+            'validation_reason' => $validationReason,
+            'match_code' => $matchCode,
         ];
     }
 
@@ -606,59 +453,24 @@ final class MedicationController
      * @param array<int, array<string, mixed>> $items
      * @return array<int, array<string, mixed>>
      */
-    private function canonicalize_table_items(array $items): array
+    private function mark_legacy_search_items_non_selectable(array $items): array
     {
-        $out = [];
-        foreach ($items as $item) {
+        foreach ($items as &$item) {
             if (!is_array($item)) {
                 continue;
             }
-            $out[] = $this->canonicalize_table_item($item);
+
+            $item['is_selectable'] = false;
+            if (!isset($item['validation_code']) || trim((string) $item['validation_code']) === '') {
+                $item['validation_code'] = 'legacy_unvalidated';
+            }
+            if (!isset($item['validation_reason']) || trim((string) $item['validation_reason']) === '') {
+                $item['validation_reason'] = 'Validation canonique Worker indisponible.';
+            }
         }
+        unset($item);
 
-        return $out;
-    }
-
-    /**
-     * @param array<string, mixed> $item
-     * @return array<string, mixed>
-     */
-    private function canonicalize_table_item(array $item): array
-    {
-        $denomination = isset($item['denomination']) ? trim((string) $item['denomination']) : '';
-        if ($denomination === '' && isset($item['label'])) {
-            $denomination = trim((string) $item['label']);
-        }
-
-        $presentation = isset($item['libelle_presentation']) ? trim((string) $item['libelle_presentation']) : '';
-        if ($presentation === '' && isset($item['sublabel'])) {
-            $presentation = trim((string) $item['sublabel']);
-        }
-
-        $cip13 = isset($item['cip13']) ? trim((string) $item['cip13']) : '';
-        $cip7 = isset($item['cip7']) ? trim((string) $item['cip7']) : '';
-        $cis = isset($item['cis']) ? trim((string) $item['cis']) : '';
-        $tauxRemb = isset($item['taux_remboursement']) ? trim((string) $item['taux_remboursement']) : '';
-        if ($tauxRemb === '' && isset($item['tauxRemb'])) {
-            $tauxRemb = trim((string) $item['tauxRemb']);
-        }
-
-        $prixTTC = null;
-        if (array_key_exists('prix_ttc', $item) && $item['prix_ttc'] !== null && $item['prix_ttc'] !== '') {
-            $prixTTC = (float) $item['prix_ttc'];
-        } elseif (array_key_exists('prixTTC', $item) && $item['prixTTC'] !== null && $item['prixTTC'] !== '') {
-            $prixTTC = (float) $item['prixTTC'];
-        }
-
-        return [
-            'cis' => $cis,
-            'denomination' => $denomination,
-            'libelle_presentation' => $presentation,
-            'cip13' => $cip13,
-            'cip7' => $cip7,
-            'taux_remboursement' => $tauxRemb,
-            'prix_ttc' => $prixTTC,
-        ];
+        return $items;
     }
 
     /**

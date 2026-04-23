@@ -11,6 +11,7 @@ require_once __DIR__ . '/Services/DraftRepository.php';
 require_once __DIR__ . '/Services/V4InputNormalizer.php';
 require_once __DIR__ . '/Services/V4ProxyConfig.php';
 require_once __DIR__ . '/Services/V4WorkerTransport.php';
+require_once __DIR__ . '/Services/MedicationValidationBridge.php';
 require_once __DIR__ . '/Rest/V4ProxyController.php';
 
 add_action('rest_api_init', static function (): void {
@@ -32,6 +33,26 @@ add_action('rest_api_init', static function (): void {
         $config,
         $projectionStore
     );
+
+    $medicationValidation = new \SOSPrescription\Services\MedicationValidationBridge();
+
+    $validatedDraftCallback = static function (WP_REST_Request $request) use ($controller, $medicationValidation) {
+        $validated = $medicationValidation->validateRequestItems($request, 'submission');
+        if (is_wp_error($validated)) {
+            return $validated;
+        }
+
+        return $controller->createSubmissionDraft($request);
+    };
+
+    $validatedDraftResendCallback = static function (WP_REST_Request $request) use ($controller, $medicationValidation) {
+        $validated = $medicationValidation->validateRequestItems($request, 'submission_resend');
+        if (is_wp_error($validated)) {
+            return $validated;
+        }
+
+        return $controller->resendSubmissionDraft($request);
+    };
 
     $requireLoggedInNonce = static function (WP_REST_Request $request) use ($authGuard) {
         return $authGuard->requireLoggedInNonce($request);
@@ -68,13 +89,13 @@ add_action('rest_api_init', static function (): void {
     register_rest_route('sosprescription/v4', '/submissions/draft', [
         'methods' => 'POST',
         'permission_callback' => $requirePublicDraftAccess,
-        'callback' => [$controller, 'createSubmissionDraft'],
+        'callback' => $validatedDraftCallback,
     ]);
 
     register_rest_route('sosprescription/v4', '/submissions/draft/resend', [
         'methods' => 'POST',
         'permission_callback' => $requirePublicDraftAccess,
-        'callback' => [$controller, 'resendSubmissionDraft'],
+        'callback' => $validatedDraftResendCallback,
     ]);
 
     register_rest_route('sosprescription/v4', '/submissions/draft/(?P<ref>[A-Za-z0-9_-]{8,128})', [
