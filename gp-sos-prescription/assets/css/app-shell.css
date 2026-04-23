@@ -1796,3 +1796,216 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
     border-radius: 0;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.5-beta1 — Itération 4 UX transverse
+   Surfaces d’entrée / authentification : hiérarchie, réassurance et couture shell.
+   -------------------------------------------------------------------------- */
+.sp-shell--entry-auth {
+  --sp-entry-shell-gap: clamp(1rem, 0.92rem + 0.3vw, 1.32rem);
+  --sp-entry-shell-width: min(100%, 72rem);
+  --sp-entry-reading-width: min(100%, 66rem);
+}
+
+.sp-shell--entry-auth .sp-container--app,
+.sp-shell--entry-auth .sp-container--app-compact,
+.sp-shell--entry-auth .sp-container--console,
+.sp-shell--entry-auth .sp-container--console-compact {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    var(--sp-entry-shell-width)
+  ) !important;
+  max-width: var(--sp-entry-shell-width) !important;
+}
+
+.sp-shell--entry-auth .sp-app-frame,
+.sp-shell--entry-auth .sp-console-frame {
+  display: block;
+  max-width: var(--sp-entry-reading-width);
+  margin-inline: auto;
+}
+
+.sp-shell--entry-auth .sp-app-frame--entry-auth,
+.sp-shell--entry-auth .sp-console-frame--entry-auth {
+  width: 100%;
+}
+
+.sp-shell--entry-auth .sp-app-main,
+.sp-shell--entry-auth .sp-console-frame,
+.sp-shell--entry-auth .sp-shell-bridge--entry-auth {
+  display: grid;
+  gap: var(--sp-entry-shell-gap);
+}
+
+.sp-shell--entry-auth .sp-app-main > * + *,
+.sp-shell--entry-auth .sp-console-frame > * + * {
+  margin-top: 0;
+}
+
+.sp-shell--entry-auth .sp-app-sidebar,
+.sp-shell--entry-auth .sp-app-legal-footer,
+.sp-shell--entry-auth .sp-rolebar,
+.sp-shell--entry-auth .sp-console-bar {
+  display: none !important;
+}
+
+.sp-shell--entry-auth :is(.sp-auth-entry, .sp-magic-redirect) {
+  width: min(100%, 100%);
+  margin-inline: auto;
+}
+
+.sp-shell--entry-auth .sp-auth-entry {
+  gap: clamp(1rem, 0.94rem + 0.24vw, 1.22rem);
+}
+
+.sp-shell--entry-auth .sp-auth-entry__header {
+  width: min(100%, 52rem);
+  gap: 0.55rem;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__header :is(.sp-app-header__title, h1) {
+  margin: 0;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(18rem, 0.82fr);
+  gap: clamp(1rem, 0.9rem + 0.42vw, 1.45rem);
+  align-items: start;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__panel {
+  min-width: 0;
+  border-radius: var(--sp-widget-radius, calc(var(--sp-shell-radius-xl, 22px) - 2px));
+  box-shadow: var(--sp-widget-shadow, 0 14px 34px rgba(15, 23, 42, 0.05));
+}
+
+.sp-shell--entry-auth .sp-auth-entry__panel-body {
+  display: grid;
+  gap: clamp(0.85rem, 0.8rem + 0.24vw, 1.1rem);
+}
+
+.sp-shell--entry-auth .sp-auth-entry__panel--existing {
+  background: var(--sp-widget-surface, linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
+  ));
+}
+
+.sp-shell--entry-auth .sp-auth-entry__panel--new {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f8fafc) 58%, #ffffff 42%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 92%, var(--sp-shell-color-surface-alt, #f8fafc) 8%)
+  );
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+}
+
+.sp-shell--entry-auth .sp-auth-entry__panel-note {
+  padding: 0.82rem 0.95rem;
+  border-radius: calc(var(--sp-shell-radius-md, 14px) - 2px);
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f8fafc) 74%, white 26%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__fact {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.42rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 14%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eef6ff) 72%, white 28%);
+  color: var(--sp-shell-color-text-2, #334155);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__text {
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+.sp-shell--entry-auth .sp-auth-entry__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__status,
+.sp-shell--entry-auth .sp-auth-entry__fallback {
+  margin: 0;
+}
+
+.sp-shell--entry-auth .sp-auth-entry__form .sp-field__help,
+.sp-shell--entry-auth .sp-auth-entry__form .sp-app-field__hint {
+  margin: 0.35rem 0 0;
+  color: var(--sp-shell-color-text-3, #64748b);
+}
+
+.sp-shell--entry-auth .sp-auth-entry--guarded,
+.sp-shell--entry-auth .sp-auth-entry--verify,
+.sp-shell--entry-auth .sp-auth-entry--console,
+.sp-shell--entry-auth .sp-auth-entry--doctor-account {
+  width: min(100%, 41rem);
+}
+
+.sp-shell--entry-auth .sp-magic-redirect {
+  min-height: 0;
+  padding-block: clamp(0.25rem, 0.22rem + 0.16vw, 0.45rem);
+}
+
+.sp-shell--entry-auth .sp-magic-redirect__wrap {
+  max-width: 42rem;
+}
+
+@media (max-width: 980px) {
+  .sp-shell--entry-auth .sp-auth-entry__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sp-shell--entry-auth .sp-auth-entry--guarded,
+  .sp-shell--entry-auth .sp-auth-entry--verify,
+  .sp-shell--entry-auth .sp-auth-entry--console,
+  .sp-shell--entry-auth .sp-auth-entry--doctor-account {
+    width: min(100%, 100%);
+  }
+}
+
+@media (max-width: 768px) {
+  .sp-shell--entry-auth .sp-container--app,
+  .sp-shell--entry-auth .sp-container--app-compact,
+  .sp-shell--entry-auth .sp-container--console,
+  .sp-shell--entry-auth .sp-container--console-compact {
+    width: min(
+      calc(100% - (var(--sp-workspace-gutter, 16px) * 2)),
+      var(--sp-entry-shell-width)
+    ) !important;
+  }
+
+  .sp-shell--entry-auth .sp-auth-entry__panel-body {
+    gap: 0.85rem;
+  }
+
+  .sp-shell--entry-auth .sp-auth-entry__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sp-shell--entry-auth .sp-auth-entry__actions :is(a, button) {
+    width: 100%;
+    justify-content: center;
+  }
+}

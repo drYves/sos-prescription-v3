@@ -50,42 +50,42 @@ final class AuthMagicLinkUi
                 'default' => esc_url_raw(home_url('/')),
             ],
             'strings' => [
-                'requestIdleTitle' => 'Recevez un lien de connexion sécurisé par e-mail.',
-                'requestSendingTitle' => 'Envoi en cours…',
-                'requestSendingBody' => 'Nous préparons votre lien de connexion sécurisé.',
-                'requestSuccessTitle' => 'Lien de connexion envoyé',
-                'requestSuccessBody' => 'Un lien de connexion vous a été envoyé par e-mail.',
-                'requestErrorTitle' => 'Envoi impossible',
-                'requestErrorBody' => 'Le lien de connexion n’a pas pu être envoyé pour le moment.',
-                'requestNotFoundTitle' => 'E-mail non reconnu ?',
-                'requestNotFoundBody' => 'Si vous n\'avez pas encore passé de commande, commencez par ici.',
-                'requestNotFoundAction' => 'Commencer une demande',
+                'requestIdleTitle' => 'Lien d’accès sécurisé',
+                'requestSendingTitle' => 'Préparation du lien sécurisé',
+                'requestSendingBody' => 'Nous préparons votre lien d’accès sécurisé.',
+                'requestSuccessTitle' => 'Lien d’accès envoyé',
+                'requestSuccessBody' => 'Vérifiez votre e-mail pour ouvrir votre dossier.',
+                'requestErrorTitle' => 'Envoi temporairement indisponible',
+                'requestErrorBody' => 'Le lien d’accès n’a pas pu être envoyé pour le moment.',
+                'requestNotFoundTitle' => 'Aucun dossier trouvé avec cet e-mail',
+                'requestNotFoundBody' => 'Si vous n\'avez pas encore de dossier, démarrez une nouvelle demande.',
+                'requestNotFoundAction' => 'Démarrer une demande',
                 'verifyLoadingTitle' => 'Vérification du lien',
-                'verifyLoadingBody' => 'Connexion sécurisée en cours…',
-                'verifySuccessTitle' => 'Connexion établie',
+                'verifyLoadingBody' => 'Nous confirmons votre accès sécurisé…',
+                'verifySuccessTitle' => 'Session prête',
                 'verifySuccessBody' => 'Votre session sécurisée est prête. Redirection en cours…',
-                'verifyInvalidTitle' => 'Lien invalide ou expiré',
-                'verifyInvalidBody' => 'Le lien de connexion est invalide, expiré ou déjà utilisé.',
+                'verifyInvalidTitle' => 'Lien expiré ou déjà utilisé',
+                'verifyInvalidBody' => 'Demandez un nouveau lien pour rouvrir votre dossier.',
                 'verifyErrorTitle' => 'Vérification impossible',
-                'verifyErrorBody' => 'La connexion sécurisée est temporairement indisponible.',
+                'verifyErrorBody' => 'La vérification du lien est temporairement indisponible.',
                 'missingTokenTitle' => 'Lien incomplet',
-                'missingTokenBody' => 'Le token de connexion est manquant dans l’URL.',
+                'missingTokenBody' => 'Le lien sécurisé est incomplet.',
                 'submitLabelBusy' => 'Envoi…',
-                'magicSlowHint' => 'Merci de patienter, la connexion sécurisée prend un peu plus de temps que prévu.',
-                'magicInvalidTitle' => 'Lien invalide',
-                'magicInvalidBody' => 'Ce lien n’est plus valide ou a expiré. Vous pouvez demander un nouveau lien pour reprendre votre dossier.',
-                'magicInvalidHint' => 'Le nouveau lien sera envoyé à la même adresse e-mail lorsqu’elle est disponible.',
+                'magicSlowHint' => 'Merci de laisser cette page ouverte, la vérification prend un peu plus de temps que prévu.',
+                'magicInvalidTitle' => 'Lien expiré ou invalide',
+                'magicInvalidBody' => 'Ce lien n’est plus utilisable. Vous pouvez demander un nouveau lien pour reprendre votre dossier.',
+                'magicInvalidHint' => 'Le nouveau lien sera envoyé à la même adresse e-mail.',
                 'magicResendButton' => 'Demander un nouveau lien',
                 'magicResendSending' => 'Nouvel envoi en cours…',
-                'magicResendSuccessTitle' => 'Lien de connexion envoyé',
-                'magicResendSuccessBody' => 'Un nouveau lien vient de vous être envoyé. Vérifiez votre e-mail pour reprendre votre dossier.',
+                'magicResendSuccessTitle' => 'Lien d’accès envoyé',
+                'magicResendSuccessBody' => 'Un nouveau lien vient d’être envoyé. Vérifiez votre e-mail pour reprendre votre dossier.',
                 'magicResendErrorTitle' => 'Envoi impossible',
                 'magicResendErrorBody' => 'Le nouveau lien n’a pas pu être envoyé pour le moment.',
                 'magicTechnicalTitle' => 'Connexion temporairement indisponible',
                 'magicTechnicalBody' => 'Merci de réessayer dans quelques instants.',
                 'magicReturnHomeLabel' => 'Retour à l’accueil',
-                'magicMissingEmailTitle' => 'Adresse e-mail nécessaire',
-                'magicMissingEmailBody' => 'Merci de saisir votre adresse e-mail pour recevoir un nouveau lien.',
+                'magicMissingEmailTitle' => 'Confirmez votre adresse e-mail',
+                'magicMissingEmailBody' => 'Saisissez l’adresse e-mail du dossier pour recevoir un nouveau lien.',
                 'magicEmailLabel' => 'Adresse e-mail',
                 'magicEmailPlaceholder' => 'vous@exemple.fr',
                 'magicEmailSubmit' => 'Recevoir un nouveau lien',
@@ -108,36 +108,42 @@ final class AuthMagicLinkUi
         $content .= '<div class="sp-auth-entry sp-auth-entry--patient sp-auth-surface sp-app-stack sp-stack">';
         $content .= '<header class="sp-auth-entry__header sp-app-header sp-app-header--compact">';
         $content .= '<p class="sp-app-header__eyebrow">Espace patient sécurisé</p>';
-        $content .= '<h1 class="sp-app-header__title">Choisissez votre parcours</h1>';
-        $content .= '<p class="sp-app-header__subtitle">Accédez à un dossier existant ou démarrez une nouvelle demande d’ordonnance.</p>';
+        $content .= '<h1 class="sp-app-header__title">Accédez à votre dossier ou démarrez une demande</h1>';
+        $content .= '<p class="sp-app-header__subtitle">Le lien d’accès est réservé aux patients qui ont déjà un dossier. Pour une première demande, commencez simplement le parcours public.</p>';
         $content .= '</header>';
         $content .= '<div class="sp-auth-entry__grid sp-app-grid sp-app-grid--two">';
 
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--existing sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-surface="1">';
-        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Déjà patient ?</p>';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">J’ai déjà un dossier</p>';
         $content .= '<div class="sp-app-stack sp-stack sp-app-stack--compact">';
-        $content .= '<h2 class="sp-panel__title">Accédez à votre espace</h2>';
-        $content .= '<p class="sp-auth-entry__text">Si vous avez déjà passé une commande sur notre plateforme, saisissez votre e-mail pour recevoir un lien de connexion sécurisé.</p>';
+        $content .= '<h2 class="sp-panel__title">Recevoir un lien d’accès</h2>';
+        $content .= '<p class="sp-auth-entry__text">Saisissez l’adresse e-mail utilisée pour votre dernière demande afin d’ouvrir votre espace patient.</p>';
         $content .= '</div>';
         $content .= '<form class="sp-auth-entry__form sp-app-stack sp-stack" method="post" novalidate data-sp-auth-request-form="1" data-sp-auth-screen="patient" data-sp-auth-variant="patient-entry">';
         $content .= '<div class="sp-app-field sp-field">';
         $content .= '<label class="sp-app-field__label sp-field__label" for="sp-auth-email-patient">Adresse e-mail</label>';
         $content .= '<input class="sp-app-input sp-input" id="sp-auth-email-patient" name="email" type="email" autocomplete="email" inputmode="email" required />';
+        $content .= '<p class="sp-field__help sp-app-field__hint">Utilisez la même adresse e-mail que celle de votre dossier.</p>';
         $content .= '</div>';
         $content .= '<div class="sp-auth-entry__actions">';
         $content .= '<button type="submit" class="sp-app-button sp-app-button--primary sp-button sp-button--primary" data-sp-auth-submit="1">Recevoir mon lien</button>';
         $content .= '</div>';
         $content .= '</form>';
+        $content .= self::render_facts([
+            'Même e-mail que votre dossier',
+            'Sans mot de passe',
+            'Lien valable 15 minutes',
+        ]);
         $content .= '<div class="sp-auth-entry__status sp-app-notice sp-alert sp-app-notice--info sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="idle">';
-        $content .= '<p class="sp-app-notice__title sp-alert__title">Connexion sans mot de passe</p>';
-        $content .= '<p class="sp-alert__body">Recevez un lien de connexion sécurisé valable 15 minutes.</p>';
+        $content .= '<p class="sp-app-notice__title sp-alert__title">Lien d’accès sécurisé</p>';
+        $content .= '<p class="sp-alert__body">Aucun mot de passe à mémoriser. Le lien reste valable 15 minutes.</p>';
         $content .= '</div>';
         $content .= '<div class="sp-auth-entry__fallback sp-app-notice sp-app-notice--warning" hidden data-sp-auth-unknown-email="1">';
-        $content .= '<p class="sp-app-notice__title">E-mail non reconnu ?</p>';
-        $content .= '<p>Si vous n\'avez pas encore passé de commande, commencez par ici.</p>';
+        $content .= '<p class="sp-app-notice__title">Aucun dossier trouvé avec cet e-mail</p>';
+        $content .= '<p>Si vous n\'avez pas encore de dossier, démarrez une nouvelle demande.</p>';
         $content .= '<div class="sp-auth-entry__actions">';
-        $content .= '<a class="sp-app-button sp-app-button--secondary sp-button sp-button--secondary" href="' . $startUrl . '">Commencer une demande</a>';
+        $content .= '<a class="sp-app-button sp-app-button--secondary sp-button sp-button--secondary" href="' . $startUrl . '">Démarrer une demande</a>';
         $content .= '</div>';
         $content .= '</div>';
         $content .= '</div>';
@@ -145,13 +151,14 @@ final class AuthMagicLinkUi
 
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--new sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack">';
-        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Nouveau sur la plateforme ?</p>';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Première demande</p>';
         $content .= '<div class="sp-app-stack sp-stack sp-app-stack--compact">';
-        $content .= '<h2 class="sp-panel__title">Nouvelle demande d’ordonnance</h2>';
-        $content .= '<p class="sp-auth-entry__text">C’est votre première fois ? L’accès à votre espace patient sera généré automatiquement à la fin de votre demande.</p>';
+        $content .= '<h2 class="sp-panel__title">Démarrer un nouveau parcours</h2>';
+        $content .= '<p class="sp-auth-entry__text">Commencez votre demande d’ordonnance. Votre espace patient sera créé automatiquement à la fin du parcours.</p>';
         $content .= '</div>';
+        $content .= '<div class="sp-auth-entry__panel-note">Vous retrouverez ensuite vos documents, votre suivi et votre messagerie dans ce même espace patient.</div>';
         $content .= '<div class="sp-auth-entry__actions">';
-        $content .= '<a class="sp-app-button sp-app-button--secondary sp-button sp-button--secondary" href="' . $startUrl . '">Commencer une demande</a>';
+        $content .= '<a class="sp-app-button sp-app-button--secondary sp-button sp-button--secondary" href="' . $startUrl . '">Démarrer une demande</a>';
         $content .= '</div>';
         $content .= '</div>';
         $content .= '</article>';
@@ -168,29 +175,32 @@ final class AuthMagicLinkUi
         string $message,
         string $submitLabel = 'Recevoir un lien de connexion'
     ): string {
+        $context = self::get_request_screen_context($screen);
+
         $content = '';
         $content .= '<div class="sp-auth-entry sp-auth-entry--' . esc_attr(sanitize_html_class($screen)) . ' sp-auth-entry--guarded sp-auth-surface sp-auth-surface--' . esc_attr(sanitize_html_class($screen)) . ' sp-auth-surface--guarded sp-app-stack sp-stack">';
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-surface="1">';
         $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';
-        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Accès médecin sécurisé</p>';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">' . esc_html($context['eyebrow']) . '</p>';
         $content .= '<h1>' . esc_html($title) . '</h1>';
         $content .= '<p class="sp-auth-entry__text">' . esc_html($message) . '</p>';
         $content .= '</header>';
-        $content .= '<div class="sp-auth-entry__status sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="idle">';
-        $content .= '<p class="sp-alert__title">Connexion sans mot de passe</p>';
-        $content .= '<p class="sp-alert__body">Recevez un lien de connexion sécurisé valable 15 minutes.</p>';
-        $content .= '</div>';
         $content .= '<form class="sp-auth-entry__form sp-form sp-app-stack sp-stack" method="post" novalidate data-sp-auth-request-form="1" data-sp-auth-screen="' . esc_attr($screen) . '">';
         $content .= '<div class="sp-field sp-app-field">';
         $content .= '<label class="sp-field__label sp-app-field__label" for="sp-auth-email-' . esc_attr($screen) . '">Adresse e-mail</label>';
         $content .= '<input class="sp-input sp-app-input" id="sp-auth-email-' . esc_attr($screen) . '" name="email" type="email" autocomplete="email" inputmode="email" required />';
-        $content .= '<p class="sp-field__help sp-app-field__hint">Utilisez l’adresse e-mail associée à votre compte SOS Prescription.</p>';
+        $content .= '<p class="sp-field__help sp-app-field__hint">' . esc_html($context['hint']) . '</p>';
         $content .= '</div>';
         $content .= '<div class="sp-auth-entry__actions">';
         $content .= '<button type="submit" class="sp-button sp-button--primary sp-app-button sp-app-button--primary" data-sp-auth-submit="1">' . esc_html($submitLabel) . '</button>';
         $content .= '</div>';
         $content .= '</form>';
+        $content .= '<div class="sp-auth-entry__status sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="idle">';
+        $content .= '<p class="sp-alert__title">Lien d’accès sécurisé</p>';
+        $content .= '<p class="sp-alert__body">Aucun mot de passe à mémoriser. Le lien reste valable 15 minutes.</p>';
+        $content .= '</div>';
+        $content .= self::render_facts($context['facts']);
         $content .= '</div>';
         $content .= '</article>';
         $content .= '</div>';
@@ -205,14 +215,19 @@ final class AuthMagicLinkUi
         $content .= '<article class="sp-auth-entry__panel sp-auth-entry__panel--secure sp-app-card sp-card">';
         $content .= '<div class="sp-auth-entry__panel-body sp-app-stack sp-stack" data-sp-auth-verify="1">';
         $content .= '<header class="sp-auth-entry__header sp-app-stack sp-stack sp-app-stack--compact">';
-        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Compte professionnel sécurisé</p>';
-        $content .= '<h1>Connexion sécurisée</h1>';
-        $content .= '<p class="sp-auth-entry__text">Nous vérifions votre lien de connexion et ouvrons votre session sécurisée.</p>';
+        $content .= '<p class="sp-auth-entry__eyebrow sp-app-header__eyebrow">Session sécurisée</p>';
+        $content .= '<h1>Vérification de votre lien</h1>';
+        $content .= '<p class="sp-auth-entry__text">Nous confirmons votre accès avant d’ouvrir votre session sécurisée.</p>';
         $content .= '</header>';
         $content .= '<div class="sp-auth-entry__status sp-alert sp-alert--info" role="status" aria-live="polite" data-sp-auth-feedback="verify">';
-        $content .= '<p class="sp-alert__title">Vérification du lien</p>';
-        $content .= '<p class="sp-alert__body">Connexion sécurisée en cours…</p>';
+        $content .= '<p class="sp-alert__title">Connexion en cours</p>';
+        $content .= '<p class="sp-alert__body">Cette étape prend généralement quelques secondes.</p>';
         $content .= '</div>';
+        $content .= self::render_facts([
+            'Lien temporaire',
+            'Session sécurisée',
+            'Redirection automatique',
+        ]);
         $content .= '<div class="sp-auth-entry__actions">';
         $content .= '<a class="sp-button sp-button--secondary sp-app-button sp-app-button--secondary" href="' . esc_url(home_url('/')) . '">Retour à l’accueil</a>';
         $content .= '</div>';
@@ -251,5 +266,61 @@ final class AuthMagicLinkUi
             ['sosprescription-ui-kit'],
             (string) filemtime($buildPath)
         );
+    }
+
+    /**
+     * @param list<string> $facts
+     */
+    private static function render_facts(array $facts): string
+    {
+        if ($facts === []) {
+            return '';
+        }
+
+        $content = '<div class="sp-auth-entry__facts" aria-label="Repères de connexion">';
+
+        foreach ($facts as $fact) {
+            $content .= '<span class="sp-auth-entry__fact">' . esc_html($fact) . '</span>';
+        }
+
+        $content .= '</div>';
+
+        return $content;
+    }
+
+    /**
+     * @return array{eyebrow:string,hint:string,facts:list<string>}
+     */
+    private static function get_request_screen_context(string $screen): array
+    {
+        return match ($screen) {
+            'console' => [
+                'eyebrow' => 'Console médecin sécurisée',
+                'hint' => 'Utilisez l’adresse e-mail associée à votre accès console SOS Prescription.',
+                'facts' => [
+                    'Sans mot de passe',
+                    'Lien valable 15 minutes',
+                    'Accès réservé au compte professionnel',
+                ],
+            ],
+            'doctor-account' => [
+                'eyebrow' => 'Compte médecin sécurisé',
+                'hint' => 'Utilisez l’adresse e-mail associée à votre compte SOS Prescription.',
+                'facts' => [
+                    'Sans mot de passe',
+                    'Lien valable 15 minutes',
+                    'Données professionnelles sécurisées',
+                ],
+            ],
+            default => [
+                'eyebrow' => 'Accès médecin sécurisé',
+                'hint' => 'Utilisez l’adresse e-mail associée à votre compte SOS Prescription.',
+                'facts' => [
+                    'Sans mot de passe',
+                    'Lien valable 15 minutes',
+                    'Connexion sécurisée',
+                ],
+            ],
+        };
     }
 }
