@@ -221,3 +221,200 @@
   font-size: 12px;
   color: #9ca3af;
 }
+
+
+/* -------------------------------------------------------
+   Itération 1 UX transverse — primitives visibles
+   Périmètre : tunnel public, paiement, espace patient
+------------------------------------------------------- */
+#sosprescription-root-form[data-app="form"],
+#sosprescription-root-form[data-app="patient"],
+.sp-patient-console,
+.sp-profile-card {
+  --sp-ux-primitive-radius: 999px;
+  --sp-ux-primitive-radius-soft: 16px;
+  --sp-ux-primitive-border: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  --sp-ux-primitive-border-strong: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 20%, transparent);
+  --sp-ux-primitive-surface-soft: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, #ffffff 28%);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button, .sp-app-button, .sp-btn),
+#sosprescription-root-form[data-app="patient"] :is(.sp-button, .sp-app-button, .sp-btn),
+.sp-patient-console :is(.sp-button, .sp-app-button, .sp-btn),
+.sp-profile-card :is(.sp-button, .sp-app-button, .sp-btn) {
+  border-radius: var(--sp-ux-primitive-radius);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button--primary, .sp-app-button--primary, .sp-btn-primary, .sp-btn--primary),
+#sosprescription-root-form[data-app="patient"] :is(.sp-button--primary, .sp-app-button--primary, .sp-btn-primary, .sp-btn--primary),
+.sp-patient-console :is(.sp-button--primary, .sp-app-button--primary, .sp-btn-primary, .sp-btn--primary),
+.sp-profile-card :is(.sp-button--primary, .sp-app-button--primary, .sp-btn-primary, .sp-btn--primary) {
+  box-shadow: var(--sp-app-button-shadow, 0 12px 24px rgba(15, 23, 42, 0.14));
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary),
+#sosprescription-root-form[data-app="patient"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary),
+.sp-patient-console :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary),
+.sp-profile-card :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary) {
+  border-color: var(--sp-ux-primitive-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 76%, #ffffff 24%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f6f8fb) 6%)
+  );
+  color: var(--sp-shell-color-text-1, #111827);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 20px rgba(15, 23, 42, 0.05);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):hover,
+#sosprescription-root-form[data-app="form"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):focus-visible,
+#sosprescription-root-form[data-app="patient"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):hover,
+#sosprescription-root-form[data-app="patient"] :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):focus-visible,
+.sp-patient-console :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):hover,
+.sp-patient-console :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):focus-visible,
+.sp-profile-card :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):hover,
+.sp-profile-card :is(.sp-button--secondary, .sp-app-button--secondary, .sp-btn-secondary, .sp-btn--secondary):focus-visible {
+  border-color: var(--sp-ux-primitive-border-strong);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-accent-soft, #eff6ff) 12%)
+  );
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  text-decoration: none;
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button--ghost, .sp-app-button--ghost),
+#sosprescription-root-form[data-app="patient"] :is(.sp-button--ghost, .sp-app-button--ghost),
+.sp-patient-console :is(.sp-button--ghost, .sp-app-button--ghost),
+.sp-profile-card :is(.sp-button--ghost, .sp-app-button--ghost) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-button, .sp-app-button, .sp-btn):focus-visible,
+#sosprescription-root-form[data-app="patient"] :is(.sp-button, .sp-app-button, .sp-btn):focus-visible,
+.sp-patient-console :is(.sp-button, .sp-app-button, .sp-btn):focus-visible,
+.sp-profile-card :is(.sp-button, .sp-app-button, .sp-btn):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 72%, transparent),
+    0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-alert, .sp-app-notice, .sp-flash),
+#sosprescription-root-form[data-app="patient"] :is(.sp-alert, .sp-app-notice, .sp-flash),
+.sp-patient-console :is(.sp-alert, .sp-app-notice, .sp-flash),
+.sp-profile-card :is(.sp-alert, .sp-app-notice, .sp-flash) {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.95rem 1rem;
+  border-radius: var(--sp-ux-primitive-radius-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-alert__title, .sp-app-notice__title),
+#sosprescription-root-form[data-app="patient"] :is(.sp-alert__title, .sp-app-notice__title),
+.sp-patient-console :is(.sp-alert__title, .sp-app-notice__title),
+.sp-profile-card :is(.sp-alert__title, .sp-app-notice__title) {
+  margin: 0;
+  line-height: 1.3;
+}
+
+#sosprescription-root-form[data-app="form"] .sp-alert__body,
+#sosprescription-root-form[data-app="patient"] .sp-alert__body,
+.sp-patient-console .sp-alert__body,
+.sp-profile-card .sp-alert__body {
+  margin: 0;
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-app-inline-note--payment, .sp-payment-card__notice),
+#sosprescription-root-form[data-app="patient"] :is(.sp-app-inline-note--payment, .sp-payment-card__notice),
+.sp-patient-console :is(.sp-app-inline-note--payment, .sp-payment-card__notice) {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--sp-ux-primitive-border);
+  border-radius: var(--sp-ux-primitive-radius-soft);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 72%, #ffffff 28%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, var(--sp-shell-color-surface-alt, #f6f8fb) 5%)
+  );
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-app-inline-status, .sp-app-inline-status--payment),
+#sosprescription-root-form[data-app="patient"] :is(.sp-app-inline-status, .sp-app-inline-status--payment),
+.sp-patient-console :is(.sp-app-inline-status, .sp-app-inline-status--payment) {
+  min-height: 3rem;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--sp-ux-primitive-border);
+  border-radius: var(--sp-ux-primitive-radius-soft);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 42%, #ffffff 58%);
+  color: var(--sp-shell-color-text-2, #334155);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+#sosprescription-root-form[data-app="form"] :is(.sp-status-pill, .sp-app-search__badge),
+#sosprescription-root-form[data-app="patient"] :is(.sp-status-pill, .sp-app-search__badge, .dc-pill),
+.sp-patient-console :is(.sp-status-pill, .sp-patient-console__workspace-badge, .sp-app-search__badge, .dc-pill) {
+  min-height: 2rem;
+  padding-inline: 0.78rem;
+  border-radius: var(--sp-ux-primitive-radius);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+#sosprescription-root-form[data-app="patient"] .dc-pill,
+.sp-patient-console .dc-pill {
+  border: 1px solid var(--sp-ux-primitive-border);
+  background: var(--sp-ux-primitive-surface-soft);
+  color: var(--sp-shell-color-text-2, #334155);
+}
+
+#sosprescription-root-form[data-app="patient"] .dc-pill-soft,
+.sp-patient-console .dc-pill-soft {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 14%, transparent);
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 56%, #ffffff 44%);
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+}
+
+#sosprescription-root-form[data-app="form"] .sp-app-header,
+#sosprescription-root-form[data-app="patient"] .sp-app-header {
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+#sosprescription-root-form[data-app="form"] .sp-app-stagebar {
+  margin-bottom: 1rem;
+}
+
+#sosprescription-root-form[data-app="form"] .sp-app-block {
+  margin-bottom: 0.9rem;
+}
+
+#sosprescription-root-form[data-app="patient"] :is(.sp-inline-actions, .sp-app-upload__actions, .sp-app-inline-status),
+.sp-patient-console :is(.sp-inline-actions, .sp-app-upload__actions, .sp-app-inline-status) {
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+#sosprescription-root-form[data-app="patient"] .sp-inline-actions,
+.sp-patient-console .sp-inline-actions {
+  flex-direction: row;
+  align-items: center;
+}
+
+#sosprescription-root-form[data-app="patient"] :is(#sp-error-surface-patient, #sp-error-surface-form):empty,
+#sosprescription-root-form[data-app="patient"] :is(#sp-error-surface-patient, #sp-error-surface-form)[hidden],
+#sosprescription-root-form[data-app="form"] :is(#sp-error-surface-patient, #sp-error-surface-form):empty,
+#sosprescription-root-form[data-app="form"] :is(#sp-error-surface-patient, #sp-error-surface-form)[hidden] {
+  display: none !important;
+}

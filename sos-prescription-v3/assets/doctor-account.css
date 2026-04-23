@@ -713,3 +713,73 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+
+/* V10.0.2-beta1 — Itération 1 UX transverse : primitives visibles */
+.sp-plugin-root--doctor-account {
+  --sp-doctor-primitive-radius: 999px;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-button, .dc-toolbar-meta__logout-button) {
+  border-radius: var(--sp-doctor-primitive-radius);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-button--primary, #sp_doc_profile_save) {
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button) {
+  border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 76%, #ffffff 24%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 94%, var(--sp-shell-color-surface-alt, #f6f8fb) 6%)
+  );
+  color: var(--sp-shell-color-text-1, #111827);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 20px rgba(15, 23, 42, 0.05);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button):hover,
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button):focus-visible {
+  border-color: var(--sp-doctor-border-strong);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 88%, var(--sp-shell-color-accent-soft, #eff6ff) 12%)
+  );
+  color: var(--sp-shell-color-accent-ink, #0a4d87);
+  text-decoration: none;
+}
+
+.sp-plugin-root--doctor-account :is(.sp-plugin-status-surface--doctor-account .sp-alert, .sp-doctor-account__context-alert, #sp_doc_rpps_verify_feedback, #sp_doc_profile_feedback, #sp_signature_feedback, #sp-delete-account-feedback) {
+  margin: 0;
+  padding: 0.95rem 1rem;
+  border-radius: var(--sp-doctor-radius-inner);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 12px 26px rgba(15, 23, 42, 0.04);
+}
+
+.sp-plugin-root--doctor-account :is(.sp-plugin-status-surface--doctor-account .sp-alert__title, .sp-doctor-account__context-alert .sp-alert__title) {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.sp-plugin-root--doctor-account :is(#sp_doc_rpps_verify_feedback, #sp_doc_profile_feedback, #sp_signature_feedback, #sp-delete-account-feedback):not([hidden]) {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sp-plugin-root--doctor-account .sp-plugin-status-surface--doctor-account,
+.sp-plugin-root--doctor-account .sp-doctor-account__masthead {
+  gap: clamp(0.75rem, 0.7rem + 0.2vw, 1rem);
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__header-main {
+  gap: 0.75rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__context-alert {
+  margin-top: 0;
+}

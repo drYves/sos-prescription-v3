@@ -64,6 +64,12 @@ final class FormShortcode
         // IMPORTANT : le shortcode doit aussi enqueue les assets.
         // Sinon le conteneur <div id="sosprescription-root-form"> reste vide.
         Assets::enqueue_frontend('form');
+        wp_enqueue_style(
+            'sosprescription-form-overrides',
+            SOSPRESCRIPTION_URL . 'assets/form-overrides.css',
+            [],
+            SOSPRESCRIPTION_VERSION
+        );
 
         // Debug : vérifier que WP a bien enqueue les scripts (sinon React ne montera pas).
         $manifest_path = SOSPRESCRIPTION_PATH . 'build/manifest.json';
@@ -85,7 +91,7 @@ final class FormShortcode
         // On ajoute une surface d'erreur unifiée (API / loader) au-dessus du root React.
         // Cette surface peut afficher un ReqID si disponible.
         $content  = ScreenFrame::statusSurface('request',
-            '<div id="sp-error-surface-form" class="sp-alert sp-alert-error" style="display:none" role="alert" aria-live="polite"></div>'
+            '<div id="sp-error-surface-form" class="sp-alert sp-alert--error" style="display:none" role="alert" aria-live="polite"></div>'
         );
         $content .= ScreenFrame::mount(
             'request',

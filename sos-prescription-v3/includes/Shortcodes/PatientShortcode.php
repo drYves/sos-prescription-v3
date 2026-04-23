@@ -32,6 +32,12 @@ final class PatientShortcode
         }
 
         Assets::enqueue_form_app();
+        wp_enqueue_style(
+            'sosprescription-form-overrides',
+            SOSPRESCRIPTION_URL . 'assets/form-overrides.css',
+            [],
+            SOSPRESCRIPTION_VERSION
+        );
 
         wp_dequeue_script('sosprescription-patient-chat-enhancements');
         wp_dequeue_script('sosprescription-patient-profile-enhancements');
