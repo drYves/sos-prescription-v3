@@ -1706,3 +1706,93 @@ body.no-sidebar .sp-shell--console .sp-app-sidebar {
     ) !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.4-beta1 — Itération 3 UX transverse
+   Convergence shell ↔ application : rôlebar, coutures et rythme commun.
+   -------------------------------------------------------------------------- */
+.sp-shell--app,
+.sp-shell--console {
+  --sp-shell-bridge-gap: clamp(0.95rem, 0.88rem + 0.24vw, 1.2rem);
+  --sp-shell-bridge-pad-inline: clamp(0.95rem, 0.82rem + 0.4vw, 1.25rem);
+  --sp-shell-bridge-pad-block: clamp(0.95rem, 0.88rem + 0.2vw, 1.1rem);
+}
+
+.sp-shell--app .sp-rolebar,
+.sp-shell--console .sp-console-bar {
+  margin-bottom: var(--sp-shell-bridge-gap);
+  border: 1px solid var(--sp-widget-border, color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent));
+  border-radius: var(--sp-widget-radius, calc(var(--sp-shell-radius-xl, 22px) - 2px));
+  background: var(--sp-widget-surface, linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 97%, #ffffff 3%),
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 18%, var(--sp-shell-color-surface, #ffffff) 82%)
+  ));
+  box-shadow: var(--sp-widget-shadow, 0 14px 34px rgba(15, 23, 42, 0.05));
+}
+
+.sp-shell--app .sp-rolebar > .sp-container,
+.sp-shell--console .sp-console-bar > .sp-container,
+.sp-shell--app .sp-rolebar__inner,
+.sp-shell--console .sp-console-bar__inner {
+  padding: var(--sp-shell-bridge-pad-block) var(--sp-shell-bridge-pad-inline) !important;
+  gap: var(--sp-shell-bridge-gap);
+}
+
+.sp-shell--app .sp-rolebar__meta,
+.sp-shell--console .sp-console-bar__meta {
+  align-items: center;
+  gap: clamp(0.85rem, 0.8rem + 0.18vw, 1.05rem);
+}
+
+.sp-shell--app :is(.sp-rolebar__copy, .sp-rolebar__custom-slot),
+.sp-shell--console :is(.sp-console-bar__copy, .sp-console-bar__custom-slot) {
+  gap: 0.3rem;
+}
+
+.sp-shell--app .sp-rolebar__nav-wrap,
+.sp-shell--console .sp-console-bar__nav-wrap {
+  align-self: center;
+}
+
+.sp-shell--app .sp-app-frame,
+.sp-shell--console .sp-console-frame {
+  row-gap: var(--sp-shell-bridge-gap);
+}
+
+.sp-shell--app .sp-app-main,
+.sp-shell--console .sp-console-frame {
+  display: grid;
+  gap: var(--sp-shell-bridge-gap);
+}
+
+.sp-shell--app .sp-app-main > * + *,
+.sp-shell--console .sp-console-frame > * + * {
+  margin-top: 0;
+}
+
+.sp-shell--app .sp-app-sidebar {
+  top: calc(var(--sp-space-5) + 0.25rem);
+}
+
+body.admin-bar .sp-shell--app .sp-app-sidebar {
+  top: calc(var(--sp-space-6) + 1.75rem);
+}
+
+@media (max-width: 1080px) {
+  .sp-shell--app .sp-rolebar > .sp-container,
+  .sp-shell--console .sp-console-bar > .sp-container,
+  .sp-shell--app .sp-rolebar__inner,
+  .sp-shell--console .sp-console-bar__inner {
+    padding-inline: clamp(0.95rem, 0.9rem + 0.18vw, 1.1rem) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .sp-shell--app .sp-rolebar,
+  .sp-shell--console .sp-console-bar {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+}

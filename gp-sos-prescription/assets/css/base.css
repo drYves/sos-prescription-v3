@@ -390,3 +390,21 @@ pre {
   border: none !important;
   box-shadow: none !important;
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.4-beta1 — Shell/application convergence (GeneratePress wrappers)
+   Neutralise les contraintes résiduelles du canevas GP sur les shells app.
+   -------------------------------------------------------------------------- */
+body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify)
+  :is(.content-area, #primary, .inside-article, .entry-content) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify)
+  .entry-content > .sp-shell {
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+}

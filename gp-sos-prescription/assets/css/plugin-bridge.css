@@ -81,3 +81,80 @@
     width: 100%;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.4-beta1 — Shell/application convergence bridge
+   Neutralise le wrapper thème, aligne l’axe utile et réduit l’effet plugin.
+   -------------------------------------------------------------------------- */
+.sp-shell-content,
+.sp-shell-bridge,
+.sp-shell-bridge > .sp-plugin-root,
+.sp-shell-bridge > .sp-plugin-root > .sp-plugin-shell,
+.sp-screen-root {
+  min-width: 0;
+}
+
+.sp-shell-bridge.sp-plugin-shell {
+  display: block;
+  width: 100%;
+  gap: 0;
+}
+
+.sp-shell--app .sp-app-main > .sp-shell-bridge,
+.sp-shell--console .sp-console-frame > .sp-shell-bridge {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+}
+
+.sp-shell--app .sp-shell-bridge > .sp-plugin-root,
+.sp-shell--console .sp-shell-bridge > .sp-plugin-root {
+  width: 100%;
+}
+
+.sp-shell--app .sp-shell-bridge > .sp-plugin-root > .sp-plugin-shell,
+.sp-shell--console .sp-shell-bridge > .sp-plugin-root > .sp-plugin-shell {
+  gap: var(--sp-shell-bridge-gap, clamp(0.95rem, 0.88rem + 0.24vw, 1.2rem));
+}
+
+.sp-shell--app .sp-shell-bridge > .sp-plugin-root :is(.sp-plugin-toolbar-meta, .sp-plugin-status-surface, .sp-plugin-profile-slot, .sp-plugin-mount),
+.sp-shell--console .sp-shell-bridge > .sp-plugin-root :is(.sp-plugin-toolbar-meta, .sp-plugin-status-surface, .sp-plugin-profile-slot, .sp-plugin-mount) {
+  width: min(100%, var(--sp-layout-axis-width, var(--sp-workspace-max, 75rem)));
+  margin-inline: auto;
+}
+
+.sp-shell--app .sp-shell-bridge--request > .sp-plugin-root :is(.sp-plugin-toolbar-meta--request, .sp-plugin-status-surface--request, .sp-plugin-mount--request) {
+  width: min(100%, var(--sp-workspace-max, 72rem));
+}
+
+.sp-shell--app .sp-shell-bridge--patient > .sp-plugin-root :is(.sp-plugin-toolbar-meta--patient, .sp-plugin-status-surface--patient, .sp-plugin-profile-slot--patient, .sp-plugin-mount--patient) {
+  width: min(100%, var(--sp-workspace-max, 76rem));
+}
+
+.sp-shell--app .sp-shell-bridge--doctor-account > .sp-plugin-root :is(.sp-plugin-toolbar-meta--doctor-account, .sp-plugin-status-surface--doctor-account, .sp-plugin-mount--doctor-account) {
+  width: min(100%, var(--sp-workspace-max, 72rem));
+}
+
+.sp-shell--console .sp-shell-bridge--console > .sp-plugin-root :is(.sp-plugin-toolbar-meta--console, .sp-plugin-status-surface--console, .sp-plugin-mount--console) {
+  width: min(100%, var(--sp-workspace-max, 82rem));
+}
+
+.sp-shell--app .sp-shell-bridge--request > .sp-plugin-root :is(.sp-app-root, .sp-page-shell),
+.sp-shell--app .sp-shell-bridge--patient > .sp-plugin-root :is(.sp-app-root, .sp-page-shell) {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+}
+
+.sp-shell--app .sp-shell-bridge--request > .sp-plugin-root .sp-app-container,
+.sp-shell--app .sp-shell-bridge--patient > .sp-plugin-root .sp-app-container {
+  padding-inline: clamp(0.35rem, 0.26rem + 0.24vw, 0.65rem);
+  padding-block: clamp(0.2rem, 0.16rem + 0.14vw, 0.35rem) 0;
+}
+
+@media (max-width: 768px) {
+  .sp-shell--app .sp-shell-bridge--request > .sp-plugin-root .sp-app-container,
+  .sp-shell--app .sp-shell-bridge--patient > .sp-plugin-root .sp-app-container {
+    padding-inline: 0;
+  }
+}

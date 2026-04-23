@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS App Layout V2
- * Version: 8.8.1
+ * Version: 10.0.4-beta1
  *
  * Recovery structurel GP / SOS :
  * - restauration d'un scaffolding applicatif pragmatique
@@ -77,8 +77,8 @@ if ($sp_is_guard_surface) {
 
     <div class="<?php echo esc_attr($sp_container_class); ?>" data-sp-zone="frame">
         <div class="<?php echo esc_attr(implode(' ', $sp_frame_classes)); ?>" data-sp-zone="content-grid">
-            <main class="sp-app-main" id="primary" aria-label="<?php echo esc_attr($sp_is_guard_surface ? 'Surface sécurisée' : 'Contenu principal applicatif'); ?>" data-sp-zone="content">
-                <div class="<?php echo esc_attr($sp_plugin_shell_class . ($sp_is_guard_surface ? ' sp-plugin-shell--guarded' : '')); ?>">
+            <main class="sp-app-main sp-shell-content" id="primary" aria-label="<?php echo esc_attr($sp_is_guard_surface ? 'Surface sécurisée' : 'Contenu principal applicatif'); ?>" data-sp-zone="content">
+                <div class="<?php echo esc_attr($sp_plugin_shell_class . ' sp-shell-bridge sp-shell-bridge--app sp-shell-bridge--' . sanitize_html_class($sp_variant) . ($sp_is_guard_surface ? ' sp-plugin-shell--guarded' : '')); ?>">
                     <?php echo $sp_content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
                     <?php
                     wp_link_pages(

@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS Console Layout V2
- * Version: 8.8.1
+ * Version: 10.0.4-beta1
  *
  * Recovery structurel GP / SOS pour la console médecin :
  * - restauration d'un cadre console stable
@@ -66,8 +66,8 @@ if ($sp_is_guard_surface) {
     <?php endif; ?>
 
     <div class="<?php echo esc_attr($sp_container_class); ?>" data-sp-zone="frame">
-        <div class="<?php echo esc_attr(implode(' ', $sp_console_frame_classes)); ?>" id="primary" aria-label="<?php echo esc_attr($sp_is_guard_surface ? 'Surface sécurisée console' : 'Surface de travail console'); ?>" data-sp-zone="content">
-            <div class="<?php echo esc_attr($sp_plugin_shell_class . ($sp_is_guard_surface ? ' sp-plugin-shell--guarded' : '')); ?>">
+        <div class="<?php echo esc_attr(implode(' ', $sp_console_frame_classes)); ?> sp-shell-content" id="primary" aria-label="<?php echo esc_attr($sp_is_guard_surface ? 'Surface sécurisée console' : 'Surface de travail console'); ?>" data-sp-zone="content">
+            <div class="<?php echo esc_attr($sp_plugin_shell_class . ' sp-shell-bridge sp-shell-bridge--console' . ($sp_is_guard_surface ? ' sp-plugin-shell--guarded' : '')); ?>">
                 <?php echo $sp_content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
                 <?php
                 wp_link_pages(
