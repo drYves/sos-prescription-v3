@@ -17,13 +17,23 @@ final class NoIndex
      * Shortcodes considérés comme "sensibles".
      * @var string[]
      */
-    private static array $shortcodes = [
+    private static array $shortcodesNoIndexNoFollow = [
         'sosprescription_form',
         'sosprescription_patient',
         'sosprescription_admin',
         'sosprescription_doctor_account',
         'sosprescription_magic_redirect',
         'sosprescription_logout',
+    ];
+
+    /**
+     * Shortcodes POC devant rester explorables en liens, mais jamais indexés.
+     * Le catalogue BDPM sert ici uniquement de surface POC de recette multilingue.
+     * Il ne devient ni une surface SEO publique, ni un entrypoint multilingue produit.
+     * @var string[]
+     */
+    private static array $shortcodesNoIndexFollow = [
+        'sosprescription_bdpm_table',
     ];
 
     public static function register_hooks(): void
@@ -34,47 +44,55 @@ final class NoIndex
 
     public static function maybe_output_meta(): void
     {
-        if (!self::should_noindex()) {
+        $robots = self::robots_directive();
+        if ($robots === null) {
             return;
         }
 
-        echo "\n" . '<meta name="robots" content="noindex,nofollow" />' . "\n";
+        echo "\n" . '<meta name="robots" content="' . esc_attr($robots) . '" />' . "\n";
     }
 
     public static function maybe_send_headers(): void
     {
-        if (!self::should_noindex()) {
+        $robots = self::robots_directive();
+        if ($robots === null) {
             return;
         }
 
         // Important: header envoyé seulement si pas déjà envoyé.
         if (!headers_sent()) {
-            header('X-Robots-Tag: noindex, nofollow', true);
+            header('X-Robots-Tag: ' . $robots, true);
         }
     }
 
-    private static function should_noindex(): bool
+    private static function robots_directive(): ?string
     {
         if (!is_singular()) {
-            return false;
+            return null;
         }
 
         global $post;
         if (!isset($post) || !$post) {
-            return false;
+            return null;
         }
 
         $content = isset($post->post_content) ? (string) $post->post_content : '';
         if ($content === '') {
-            return false;
+            return null;
         }
 
-        foreach (self::$shortcodes as $sc) {
+        foreach (self::$shortcodesNoIndexNoFollow as $sc) {
             if (has_shortcode($content, $sc)) {
-                return true;
+                return 'noindex, nofollow';
             }
         }
 
-        return false;
+        foreach (self::$shortcodesNoIndexFollow as $sc) {
+            if (has_shortcode($content, $sc)) {
+                return 'noindex, follow';
+            }
+        }
+
+        return null;
     }
 }
