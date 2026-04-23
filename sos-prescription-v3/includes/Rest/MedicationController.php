@@ -6,10 +6,13 @@ namespace SOSPrescription\Rest;
 use SOSPrescription\Repositories\MedicationRepository;
 use SOSPrescription\Services\Logger;
 use SOSPrescription\Services\RestGuard;
+use SOSPrescription\Services\V4InputNormalizer;
+use SOSPrescription\Services\V4WorkerTransport;
 use SOSPrescription\Services\Whitelist;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
+use WP_REST_Response;
 
 final class MedicationController
 {
@@ -61,31 +64,48 @@ final class MedicationController
         }
 
         $t0 = microtime(true);
+        $backend = 'worker';
         $this->safe_shortcode_log($scope, 'debug', 'api_medication_search', [
             'q' => self::str_sub($q, 0, 80),
             'q_len' => self::str_len($q),
             'limit' => $limit,
         ]);
 
-        $meta = get_option('sosprescription_bdpm_meta');
-        if (!is_array($meta) || empty($meta['imported_at'])) {
-            $this->safe_shortcode_log($scope, 'warning', 'api_medication_search_bdpm_not_ready', [
-                'q' => self::str_sub($q, 0, 80),
-            ]);
-
-            return new WP_Error(
-                'sosprescription_bdpm_not_ready',
-                'Référentiel médicaments indisponible (BDPM non importée).',
-                ['status' => 503]
-            );
-        }
-
         try {
-            $search = $this->repo->searchWithMeta($q, $limit);
-            $items = $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : []);
-            $mode = isset($search['mode']) ? (string) $search['mode'] : 'exact';
-            $rawCount = isset($search['raw_count']) ? (int) $search['raw_count'] : count($items);
-            $candidateCount = isset($search['candidate_count']) ? (int) $search['candidate_count'] : count($items);
+            try {
+                $items = $this->search_worker_items($q, $limit, $scope);
+                $mode = 'worker';
+                $rawCount = count($items);
+                $candidateCount = count($items);
+            } catch (Throwable $workerError) {
+                if (!$this->should_allow_legacy_search_fallback()) {
+                    throw $workerError;
+                }
+
+                if (!$this->is_local_bdpm_search_ready()) {
+                    $this->safe_runtime_log('error', 'api_medication_search_worker_failed_without_legacy_fallback', [
+                        'scope' => $scope,
+                        'q' => self::str_sub($q, 0, 80),
+                        'limit' => $limit,
+                        'backend' => $backend,
+                        'exception' => get_class($workerError),
+                        'message' => $workerError->getMessage(),
+                    ]);
+
+                    return new WP_Error(
+                        'sosprescription_medication_search_failed',
+                        'Recherche médicaments momentanément indisponible.',
+                        ['status' => 502]
+                    );
+                }
+
+                $backend = 'legacy_mysql_fallback';
+                $search = $this->repo->searchWithMeta($q, $limit);
+                $items = $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : []);
+                $mode = isset($search['mode']) ? (string) $search['mode'] : 'exact';
+                $rawCount = isset($search['raw_count']) ? (int) $search['raw_count'] : count($items);
+                $candidateCount = isset($search['candidate_count']) ? (int) $search['candidate_count'] : count($items);
+            }
 
             if ($this->is_form_scope($scope)) {
                 $flow_key = $this->resolve_flow_key($request);
@@ -160,6 +180,7 @@ final class MedicationController
                 'scope' => $scope,
                 'q' => self::str_sub($q, 0, 80),
                 'limit' => $limit,
+                'backend' => $backend,
                 'exception' => get_class($e),
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -177,6 +198,7 @@ final class MedicationController
             'q' => self::str_sub($q, 0, 80),
             'count' => count($items),
             'search_mode' => $mode,
+            'backend' => $backend,
             'raw_count' => $rawCount,
             'candidate_count' => $candidateCount,
             'ms' => (int) round((microtime(true) - $t0) * 1000),
@@ -306,6 +328,95 @@ final class MedicationController
     }
 
     /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function search_worker_items(string $query, int $limit, string $scope): array
+    {
+        $transport = new V4WorkerTransport(new V4InputNormalizer());
+        $response = $transport->medicationsSearch($query, $limit);
+
+        if (is_wp_error($response)) {
+            throw new \RuntimeException(trim((string) $response->get_error_message()) ?: 'Worker medication search failed.');
+        }
+
+        if (!$response instanceof WP_REST_Response) {
+            throw new \RuntimeException('Worker medication search returned an invalid response type.');
+        }
+
+        $status = (int) $response->get_status();
+        if ($status < 200 || $status >= 300) {
+            throw new \RuntimeException('Worker medication search returned HTTP ' . $status . '.');
+        }
+
+        $data = $response->get_data();
+        if (!is_array($data)) {
+            throw new \RuntimeException('Worker medication search returned an invalid payload.');
+        }
+
+        $items = [];
+        if (isset($data['items']) && is_array($data['items'])) {
+            $items = $data['items'];
+        } elseif (array_keys($data) === range(0, count($data) - 1)) {
+            $items = $data;
+        }
+
+        $this->safe_shortcode_log($scope, 'debug', 'api_medication_search_worker_done', [
+            'q' => self::str_sub($query, 0, 80),
+            'count' => count($items),
+            'limit' => $limit,
+        ]);
+
+        return $this->canonicalize_search_items($items);
+    }
+
+    private function should_allow_legacy_search_fallback(): bool
+    {
+        return self::read_config_bool('SOSPRESCRIPTION_MEDICATION_WORKER_LEGACY_FALLBACK', true);
+    }
+
+    private function is_local_bdpm_search_ready(): bool
+    {
+        $meta = get_option('sosprescription_bdpm_meta');
+        return is_array($meta) && !empty($meta['imported_at']);
+    }
+
+    private static function read_config_string(string $name, string $default = ''): string
+    {
+        if (defined($name)) {
+            $value = constant($name);
+            if (is_string($value)) {
+                $trimmed = trim($value);
+                if ($trimmed !== '') {
+                    return $trimmed;
+                }
+            } elseif (is_scalar($value)) {
+                $trimmed = trim((string) $value);
+                if ($trimmed !== '') {
+                    return $trimmed;
+                }
+            }
+        }
+
+        $value = getenv($name);
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed !== '') {
+                return $trimmed;
+            }
+        }
+
+        return $default;
+    }
+
+    private static function read_config_bool(string $name, bool $default = false): bool
+    {
+        $value = self::read_config_string($name, $default ? '1' : '0');
+        $normalized = strtolower(trim($value));
+
+        return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $items
      * @return array<int, array<string, mixed>>
      */
@@ -336,6 +447,14 @@ final class MedicationController
 
         $label = isset($item['label']) ? trim((string) $item['label']) : '';
         $specialite = isset($item['specialite']) ? trim((string) $item['specialite']) : '';
+        $sublabel = isset($item['sublabel']) ? trim((string) $item['sublabel']) : '';
+
+        if ($specialite === '' && $sublabel !== '') {
+            $specialite = $sublabel;
+        }
+        if ($sublabel === '' && $specialite !== '') {
+            $sublabel = $specialite;
+        }
 
         if ($label === '' && $specialite !== '') {
             $label = $specialite;
@@ -367,6 +486,7 @@ final class MedicationController
             'cip7' => $cip7,
             'label' => $label,
             'specialite' => $specialite,
+            'sublabel' => $sublabel,
             'tauxRemb' => $tauxRemb,
             'prixTTC' => $prixTTC,
             'is_selectable' => $isSelectable,
