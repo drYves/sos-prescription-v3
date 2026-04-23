@@ -33,6 +33,46 @@ enum SubmissionStatus {
   CANCELLED
 }
 
+enum DocumentType {
+  RCP
+  NOTICE
+  UNKNOWN
+}
+
+enum DocumentIngestionRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+enum DocumentFetchStatus {
+  PENDING
+  SUCCESS
+  NOT_FOUND
+  NOT_MODIFIED
+  HTTP_ERROR
+  PARSE_ERROR
+  FAILED
+}
+
+enum OfficialDocumentStatus {
+  AVAILABLE
+  MISSING
+  STALE
+  BLOCKED
+}
+
+enum DocumentPublicationStatus {
+  INTERNAL_ONLY
+  PREVIEW_READY
+  PUBLISHABLE
+  BLOCKED
+  NEEDS_REVIEW
+}
+
 model Doctor {
   id                String                @id @default(uuid())
   wpUserId          Int?                  @unique // Pont avec le login Hostinger
@@ -87,7 +127,7 @@ model Prescription {
   doctor               Doctor?               @relation(fields: [doctorId], references: [id])
   patient              Patient               @relation(fields: [patientId], references: [id])
   status               String                @default("PENDING") // PENDING, APPROVED, REJECTED
-  items                Json                  // Tableau JSONB natif contenant la posologie
+  items                Json                  // Lignes médicament transactionnelles canoniques ; jamais source documentaire officielle.
   privateNotes         String?
   s3PdfKey             String?               // Lien vers l'artefact généré
   verifyCode           String?
@@ -252,6 +292,7 @@ model AuthToken {
 }
 
 
+/// Pivot documentaire canonique du domaine médicament : toute vérité documentaire officielle doit se rattacher au CIS BDPM.
 model BdpmMedication {
   cis                         String                    @id
   denomination                String
@@ -275,6 +316,10 @@ model BdpmMedication {
   availabilityStatuses        BdpmAvailabilityStatus[]
   therapeuticInterests        BdpmTherapeuticInterest[]
   importantInfos              BdpmImportantInfo[]
+  documentFetchAttempts       DocumentFetchAttempt[]
+  officialDocumentsCurrent    OfficialDocumentCurrent[]
+  officialDocumentVersions    OfficialDocumentVersion[]
+  documentPublicationAssessments DocumentPublicationAssessment[]
 
   @@index([normalizedDenomination])
   @@index([denomination])
@@ -410,3 +455,139 @@ model BdpmImportantInfo {
   @@index([startDate])
   @@index([endDate])
 }
+
+/// Append-friendly audit trail for documentary ingestion runs.
+model DocumentIngestionRun {
+  id            String                     @id @default(uuid())
+  source        String
+  scope         String
+  status        DocumentIngestionRunStatus @default(PENDING)
+  startedAt     DateTime                   @default(now())
+  finishedAt    DateTime?
+  statsJson     Json?
+  errorCode     String?
+  errorMessage  String?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  fetchAttempts DocumentFetchAttempt[]
+
+  @@index([status, startedAt])
+  @@index([source, scope, createdAt])
+}
+
+/// Technical trace of a documentary fetch against a canonical BDPM medication pivot.
+model DocumentFetchAttempt {
+  id           String               @id @default(uuid())
+  runId        String
+  run          DocumentIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  cis          String
+  medication   BdpmMedication       @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  documentType DocumentType
+  sourceUrl    String
+  status       DocumentFetchStatus  @default(PENDING)
+  httpStatus   Int?
+  fetchedAt    DateTime?
+  durationMs   Int?
+  contentHash  String?
+  errorCode    String?
+  errorMessage String?
+  createdAt    DateTime             @default(now())
+  versions     OfficialDocumentVersion[]
+
+  @@index([runId])
+  @@index([cis])
+  @@index([cis, documentType, fetchedAt])
+  @@index([status, createdAt])
+  @@index([contentHash])
+}
+
+/// Current documentary state for a medication/document-type pair.
+model OfficialDocumentCurrent {
+  id                String                   @id @default(uuid())
+  cis               String
+  medication        BdpmMedication           @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  documentType      DocumentType
+  currentVersionId  String?                  @unique
+  currentVersion    OfficialDocumentVersion? @relation("CurrentOfficialDocumentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  sourceUrl         String
+  contentHash       String?
+  officialUpdatedAt DateTime?
+  firstSeenAt       DateTime                 @default(now())
+  lastSeenAt        DateTime                 @default(now())
+  status            OfficialDocumentStatus   @default(MISSING)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([cis, documentType])
+  @@index([cis])
+  @@index([documentType, status])
+  @@index([contentHash])
+}
+
+/// Append-only documentary history. The mutable current pointer is separated from the immutable versions.
+model OfficialDocumentVersion {
+  id                String                    @id @default(uuid())
+  cis               String
+  medication        BdpmMedication            @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  documentType      DocumentType
+  fetchAttemptId    String?
+  fetchAttempt      DocumentFetchAttempt?     @relation(fields: [fetchAttemptId], references: [id], onDelete: SetNull)
+  sourceUrl         String
+  contentHash       String
+  rawHash           String?
+  cleanHash         String?
+  rawContent        String?                   @db.Text
+  cleanContent      String?                   @db.Text
+  officialUpdatedAt DateTime?
+  fetchedAt         DateTime
+  createdAt         DateTime                  @default(now())
+  metadataJson      Json?
+  sections          OfficialDocumentSection[]
+  currentFor        OfficialDocumentCurrent[] @relation("CurrentOfficialDocumentVersion")
+
+  @@unique([cis, documentType, contentHash])
+  @@index([cis])
+  @@index([cis, documentType, fetchedAt])
+  @@index([fetchAttemptId])
+  @@index([contentHash])
+  @@index([officialUpdatedAt])
+}
+
+/// Normalized sections extracted from a specific documentary version.
+model OfficialDocumentSection {
+  id           String                  @id @default(uuid())
+  versionId    String
+  version      OfficialDocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  sectionKey   String
+  title        String?
+  position     Int
+  content      String?                   @db.Text
+  contentHash  String
+  metadataJson Json?
+  createdAt    DateTime                @default(now())
+
+  @@unique([versionId, sectionKey, position])
+  @@index([versionId, position])
+  @@index([sectionKey])
+  @@index([contentHash])
+}
+
+/// Non-public qualification state for future consumers (preview, review, canary publication, blocklist).
+model DocumentPublicationAssessment {
+  id            String                    @id @default(uuid())
+  cis           String
+  medication    BdpmMedication            @relation(fields: [cis], references: [cis], onDelete: Cascade)
+  documentType  DocumentType
+  status        DocumentPublicationStatus @default(INTERNAL_ONLY)
+  reasonCode    String?
+  reasonMessage String?
+  assessedAt    DateTime                  @default(now())
+  metadataJson  Json?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  @@unique([cis, documentType])
+  @@index([status, assessedAt])
+  @@index([cis])
+}
+
