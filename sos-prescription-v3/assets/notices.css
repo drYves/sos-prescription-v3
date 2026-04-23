@@ -1,18 +1,32 @@
 .sosprescription-notice {
+  display: grid;
+  gap: 0.55rem;
   max-width: 900px;
-  margin: 12px auto;
-  padding: 12px 14px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  border-radius: 12px;
+  margin: 10px auto;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 64%, #ffffff 36%),
+    color-mix(in srgb, var(--sp-shell-color-surface, #ffffff) 95%, var(--sp-shell-color-surface-alt, #f6f8fb) 5%)
+  );
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 12px 24px rgba(15, 23, 42, 0.04);
 }
 
 .sosprescription-notice .sp-notice-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.sosprescription-notice .sp-notice-header strong {
+  display: block;
+  color: #111827;
+  font-size: 0.92rem;
+  line-height: 1.35;
 }
 
 .sosprescription-notice .sp-notice-close {
@@ -20,26 +34,34 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e5e7eb !important;
-  background: #f9fafb !important;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--sp-shell-color-surface-alt, #f6f8fb) 68%, #ffffff 32%) !important;
   color: #111827 !important;
-  border-radius: 10px;
-  width: 32px;
-  height: 32px;
-  font-size: 18px;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
-.sosprescription-notice .sp-notice-close:hover {
-  background: #f3f4f6 !important;
+.sosprescription-notice .sp-notice-close:hover,
+.sosprescription-notice .sp-notice-close:focus-visible {
+  border-color: color-mix(in srgb, var(--sp-shell-color-accent, #0f6cbd) 22%, transparent) !important;
+  background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 62%, #ffffff 38%) !important;
+  color: var(--sp-shell-color-accent-ink, #0a4d87) !important;
 }
 
 .sosprescription-notice .sp-notice-list {
+  display: grid;
+  gap: 0.35rem;
   margin: 0;
-  padding-left: 18px;
+  padding-left: 1.05rem;
+  color: #334155;
 }
 
 .sosprescription-notice .sp-notice-list li {
-  margin: 6px 0;
+  margin: 0;
+  line-height: 1.5;
 }

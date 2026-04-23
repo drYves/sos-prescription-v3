@@ -224,7 +224,7 @@
   padding-right: clamp(0.15rem, 0.08rem + 0.2vw, 0.4rem);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-eyebrow, .dc-toolbar-console__eyebrow) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-eyebrow {
   color: var(--sp-shell-color-text-3, #64748b);
   font-size: 0.72rem;
   font-weight: 800;
@@ -232,7 +232,7 @@
   text-transform: uppercase;
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-title, .dc-toolbar-console__title) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-title {
   margin: 0;
   color: var(--sp-shell-color-text-1, #111827);
   font-size: 1.08rem;
@@ -241,7 +241,7 @@
   letter-spacing: -0.01em;
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-note, .dc-toolbar-console__caption) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-note {
   color: var(--sp-shell-color-text-3, #64748b);
   font-size: 0.83rem;
   font-weight: 600;
@@ -259,7 +259,7 @@
   border-left: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-pill, .dc-session-pill) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill {
   display: grid;
   align-content: center;
   width: 100%;
@@ -277,7 +277,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-pill-eyebrow, .dc-session-pill__eyebrow) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill-eyebrow {
   margin: 0;
   color: var(--sp-shell-color-accent-ink, #0a4d87);
   font-size: 0.72rem;
@@ -311,7 +311,7 @@
   border-left: 1px solid color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 8%, transparent);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-action-label, .dc-toolbar-console__label, .dc-toolbar-console__label--logout) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-action-label {
   margin: 0;
   color: var(--sp-shell-color-text-3, #64748b);
   font-size: 0.7rem;
@@ -320,13 +320,13 @@
   text-transform: uppercase;
 }
 
-.sp-plugin-root--doctor-account :is(.sp-doctor-account__session-actions .sp-logout-form, .dc-toolbar-meta__logout-form) {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-form {
   display: block;
   width: 100%;
   margin: 0;
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button {
   width: 100%;
   min-height: 3rem;
   min-width: 10rem;
@@ -350,8 +350,8 @@
     transform var(--sp-motion-fast, 0.14s) var(--sp-ease-press, cubic-bezier(0.2, 0, 0, 1));
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:hover,
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:focus-visible {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button:hover,
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button:focus-visible {
   color: var(--sp-shell-color-danger-ink, #9f2f2f);
   border-color: var(--sp-shell-color-danger-border, rgba(192, 58, 58, 0.22));
   background: linear-gradient(
@@ -366,7 +366,7 @@
   text-decoration: none;
 }
 
-.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button:active {
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button:active {
   transform: translateY(0);
 }
 
@@ -704,7 +704,7 @@
     justify-content: flex-start;
   }
 
-  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button {
+  .sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button {
     width: 100%;
     min-width: 0;
   }
@@ -720,7 +720,7 @@
   --sp-doctor-primitive-radius: 999px;
 }
 
-.sp-plugin-root--doctor-account :is(.sp-button, .dc-toolbar-meta__logout-button) {
+.sp-plugin-root--doctor-account :is(.sp-button, .sp-doctor-account__logout-button) {
   border-radius: var(--sp-doctor-primitive-radius);
   font-weight: 700;
   line-height: 1.15;
@@ -731,7 +731,7 @@
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button) {
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .sp-doctor-account__logout-button) {
   border-color: color-mix(in srgb, var(--sp-shell-color-text-1, #111827) 12%, transparent);
   background: linear-gradient(
     180deg,
@@ -742,8 +742,8 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 20px rgba(15, 23, 42, 0.05);
 }
 
-.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button):hover,
-.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .dc-toolbar-meta__logout-button):focus-visible {
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .sp-doctor-account__logout-button):hover,
+.sp-plugin-root--doctor-account :is(.sp-button--secondary, .sp-doctor-account__session-actions .sp-doctor-account__logout-button):focus-visible {
   border-color: var(--sp-doctor-border-strong);
   background: linear-gradient(
     180deg,
@@ -782,4 +782,91 @@
 
 .sp-plugin-root--doctor-account .sp-doctor-account__context-alert {
   margin-top: 0;
+}
+
+
+/* V10.0.3-beta1 — Itération 2 UX transverse : fuites visuelles et doublons rapides */
+.sp-plugin-root--doctor-account .sp-doctor-account__intro {
+  max-width: 58ch;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__group-copy {
+  max-width: 60ch;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__summary-meta {
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__header-meta {
+  gap: 0.5rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__profile-pill {
+  padding: 0.5rem 0.78rem;
+  font-size: 0.82rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__summary-grid {
+  gap: 0.75rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__summary-card {
+  gap: 0.34rem;
+  padding: 0.92rem 1rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-shell {
+  grid-template-columns: minmax(0, 1.24fr) minmax(14rem, 15rem) auto;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-context {
+  gap: 0.24rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-title {
+  font-size: 1.02rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-note {
+  max-width: 48ch;
+  font-size: 0.8rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill {
+  padding: 0.92rem 1rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill-value {
+  margin: 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-pill-meta {
+  margin: 0.22rem 0 0;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions {
+  justify-items: stretch;
+  max-inline-size: 11.5rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-form {
+  width: 100%;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__session-actions .sp-doctor-account__logout-button {
+  min-height: 2.85rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__group-head,
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-head {
+  gap: 0.35rem;
+}
+
+.sp-plugin-root--doctor-account .sp-doctor-account__signature-preview-card {
+  padding: 0.95rem 1rem;
+  gap: 0.78rem;
 }

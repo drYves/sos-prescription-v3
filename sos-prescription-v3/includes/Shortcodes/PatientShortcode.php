@@ -48,7 +48,7 @@ final class PatientShortcode
         $toolbar = '<div class="sp-patient-session-bar">'
             . '<div class="sp-patient-session-bar__copy">'
             . '<span class="sp-patient-session-bar__eyebrow"><span class="sp-patient-session-bar__icon" aria-hidden="true">' . $lock_icon . '</span>Session sécurisée</span>'
-            . '<span class="sp-patient-session-bar__identity">Connecté · ' . esc_html($display_name) . '</span>'
+            . '<span class="sp-patient-session-bar__identity">' . esc_html($display_name) . '</span>'
             . '</div>'
             . '<div class="sp-patient-session-bar__actions">'
             . self::render_logout_form()

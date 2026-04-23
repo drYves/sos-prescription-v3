@@ -321,20 +321,18 @@ final class DoctorAccountShortcode
         $html = '';
         $html .= '<section class="sp-doctor-account__session-card">';
         $html .= '<div class="sp-doctor-account__session-shell">';
-        $html .= '<div class="sp-doctor-account__session-context dc-toolbar-console__context">';
-        $html .= '<p class="sp-doctor-account__session-eyebrow dc-toolbar-console__eyebrow">Session active</p>';
-        $html .= '<p class="sp-doctor-account__session-title dc-toolbar-console__title">Compte médecin sécurisé</p>';
-        $html .= '<p class="sp-field__help sp-doctor-account__session-note dc-toolbar-console__caption">Votre identité professionnelle, votre RPPS et votre signature restent réservés aux ordonnances et aux documents médicaux sécurisés générés par la plateforme.</p>';
+        $html .= '<div class="sp-doctor-account__session-context">';
+        $html .= '<p class="sp-doctor-account__session-eyebrow">Session sécurisée</p>';
+        $html .= '<p class="sp-doctor-account__session-title">Compte médecin</p>';
+        $html .= '<p class="sp-field__help sp-doctor-account__session-note">Vos informations professionnelles restent réservées aux documents médicaux sécurisés.</p>';
         $html .= '</div>';
-        $html .= '<div class="sp-doctor-account__session-panel dc-toolbar-console__session">';
-        $html .= '<article class="sp-doctor-account__session-pill dc-session-pill">';
-        $html .= '<p class="sp-doctor-account__session-pill-eyebrow dc-session-pill__eyebrow">Session</p>';
+        $html .= '<div class="sp-doctor-account__session-panel">';
+        $html .= '<article class="sp-doctor-account__session-pill">';
         $html .= '<p class="sp-doctor-account__session-pill-value">' . esc_html($current_label) . '</p>';
         $html .= '<p class="sp-doctor-account__session-pill-meta">' . esc_html($session_meta) . '</p>';
         $html .= '</article>';
         $html .= '</div>';
-        $html .= '<div class="sp-doctor-account__session-actions dc-toolbar-console__logout">';
-        $html .= '<p class="sp-doctor-account__session-action-label dc-toolbar-console__label dc-toolbar-console__label--logout">Fermeture de session</p>';
+        $html .= '<div class="sp-doctor-account__session-actions">';
         $html .= self::render_logout_form();
         $html .= '</div>';
         $html .= '</div>';
@@ -349,8 +347,8 @@ final class DoctorAccountShortcode
             'mode' => 'entry',
             'context' => 'doctor-account',
             'return_to' => LogoutShortcode::current_page_url(),
-            'class' => 'sp-button sp-button--secondary dc-toolbar-meta__logout-button',
-            'form_class' => 'sp-form sp-doctor-account__form sp-logout-form dc-toolbar-meta__logout-form',
+            'class' => 'sp-button sp-button--secondary sp-doctor-account__logout-button',
+            'form_class' => 'sp-form sp-logout-form sp-doctor-account__logout-form',
         ]);
     }
 
@@ -430,11 +428,11 @@ final class DoctorAccountShortcode
             : 'Ajoutez votre identifiant RPPS pour certifier votre profil professionnel.';
         $signature_value = $signature_ready ? 'Signature prête' : 'Signature à ajouter';
         $signature_meta = $signature_ready
-            ? 'Une signature privée est déjà enregistrée pour vos documents sécurisés.'
-            : 'Ajoutez une signature PNG ou JPG pour finaliser vos ordonnances et comptes-rendus.';
+            ? 'Une signature privée est déjà enregistrée.'
+            : 'Ajoutez une signature PNG ou JPG pour finaliser vos documents.';
         $connection_meta = $is_self
-            ? 'Connexion sécurisée par Magic Link et notifications métier vers cette adresse.'
-            : 'Adresse utilisée pour la connexion professionnelle sécurisée du praticien.';
+            ? 'Magic Link et notifications métier vers cette adresse.'
+            : 'Adresse utilisée pour la connexion professionnelle et les notifications métier.';
         $profile_label = self::resolve_doctor_label($user, (int) $user->ID);
 
         $html = '';
@@ -448,12 +446,9 @@ final class DoctorAccountShortcode
         $html .= '<div class="sp-doctor-account__header-main">';
         $html .= '<p class="sp-doctor-account__eyebrow">Compte professionnel sécurisé</p>';
         $html .= '<h1>' . esc_html($screen_title) . '</h1>';
-        $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles, certifiez votre profil RPPS et préparez votre signature privée. Ces données structurent vos ordonnances et comptes-rendus sécurisés.</p>';
+        $html .= '<p class="sp-field__help sp-doctor-account__intro">Complétez vos informations professionnelles, vérifiez votre RPPS et gérez votre signature privée pour vos documents sécurisés.</p>';
         $html .= '<div class="sp-doctor-account__header-meta">';
         $html .= '<span class="sp-doctor-account__profile-pill">' . esc_html($profile_label) . '</span>';
-        if ($is_self) {
-            $html .= '<span class="sp-doctor-account__profile-pill sp-doctor-account__profile-pill--subtle">Compte personnel sécurisé</span>';
-        }
         $html .= '</div>';
 
         if ($is_admin_view && !$is_self) {
@@ -492,7 +487,7 @@ final class DoctorAccountShortcode
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--identity sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Identité professionnelle</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Ces informations pilotent votre présence dans l’espace sécurisé et sur les documents générés.</p>';
+        $html .= '<p class="sp-doctor-account__group-copy">Ces informations structurent votre identité professionnelle dans l’espace sécurisé.</p>';
         $html .= '</div>';
         $html .= '<div class="sp-doctor-account__group-fields">';
 
@@ -522,7 +517,7 @@ final class DoctorAccountShortcode
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--professional sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Conformité RPPS</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Votre identifiant RPPS certifie votre profil et sécurise la conformité des prescriptions.</p>';
+        $html .= '<p class="sp-doctor-account__group-copy">Votre RPPS certifie votre profil professionnel et la conformité des prescriptions.</p>';
         $html .= '</div>';
         $html .= '<div class="sp-doctor-account__group-fields">';
 
@@ -533,7 +528,7 @@ final class DoctorAccountShortcode
         $html .= '<div class="sp-stack" data-sp-rpps-actions="1"></div>';
         $html .= '</div>';
         $html .= '<div id="sp_doc_rpps_verify_feedback" class="sp-alert sp-alert--success" hidden role="status" aria-live="polite"></div>';
-        $html .= '<p id="sp_doc_rpps_verify_footer" class="sp-field__help">Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité légale de vos prescriptions.</p>';
+        $html .= '<p id="sp_doc_rpps_verify_footer" class="sp-field__help">Saisissez votre identifiant RPPS pour certifier votre profil. Cette étape est indispensable pour la conformité de vos prescriptions.</p>';
         $html .= '</div>';
 
         $html .= '<div class="sp-field">';
@@ -548,7 +543,7 @@ final class DoctorAccountShortcode
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--document sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Mentions de document</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Structurez les informations qui seront reprises sur l’ordonnance et les comptes-rendus sécurisés.</p>';
+        $html .= '<p class="sp-doctor-account__group-copy">Ces mentions sont reprises sur vos documents sécurisés.</p>';
         $html .= '</div>';
         $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--document">';
 
@@ -582,7 +577,7 @@ final class DoctorAccountShortcode
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--contact sp-doctor-account__group--wide">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Informations de contact</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Renseignez les coordonnées professionnelles utiles au cabinet ou à la structure, sans exposer de données personnelles sur les ordonnances.</p>';
+        $html .= '<p class="sp-doctor-account__group-copy">Renseignez uniquement les coordonnées professionnelles utiles au cabinet ou à la structure.</p>';
         $html .= '</div>';
         $html .= '<div class="sp-doctor-account__group-fields sp-doctor-account__group-fields--contact sp-doctor-account__group-fields--stacked">';
 
@@ -604,7 +599,7 @@ final class DoctorAccountShortcode
         $html .= '<section class="sp-doctor-account__group sp-doctor-account__group--signature sp-doctor-account__group--full">';
         $html .= '<div class="sp-doctor-account__group-head">';
         $html .= '<h2 class="sp-doctor-account__group-title">Signature privée</h2>';
-        $html .= '<p class="sp-doctor-account__group-copy">Votre signature reste stockée en privé et sera réutilisée dans les documents sécurisés générés après validation médicale.</p>';
+        $html .= '<p class="sp-doctor-account__group-copy">Votre signature privée est réutilisée sur les documents sécurisés après validation médicale.</p>';
         $html .= '</div>';
         $html .= self::render_signature_field($sig_file_id);
         $html .= '</section>';
@@ -644,7 +639,7 @@ final class DoctorAccountShortcode
             $html .= '<div class="sp-doctor-account__signature-preview sp-doctor-account__signature-preview--stored">';
             $html .= '<div class="sp-doctor-account__signature-preview-head">';
             $html .= '<p class="sp-field__label sp-doctor-account__signature-preview-label">Signature actuelle</p>';
-            $html .= '<p class="sp-field__help sp-doctor-account__signature-preview-copy">Cette image privée continue d’être utilisée sur vos ordonnances et documents médicaux sécurisés tant qu’aucune nouvelle signature n’est enregistrée.</p>';
+            $html .= '<p class="sp-field__help sp-doctor-account__signature-preview-copy">Cette image privée reste utilisée tant qu’aucune nouvelle signature n’est enregistrée.</p>';
             $html .= '</div>';
             $html .= '<img id="sp_signature_current_img" src="' . esc_url($download_url) . '" alt="Signature actuelle enregistrée" loading="lazy" decoding="async" />';
             $html .= '<div class="sp-doctor-account__signature-actions">';
@@ -657,7 +652,7 @@ final class DoctorAccountShortcode
         } else {
             $html .= '<div class="sp-alert sp-alert--info" role="status" aria-live="polite">';
             $html .= '<p class="sp-alert__title">Aucune signature enregistrée</p>';
-            $html .= '<p class="sp-alert__body">Ajoutez une signature PNG ou JPG pour préparer vos futurs documents médicaux sécurisés.</p>';
+            $html .= '<p class="sp-alert__body">Ajoutez une signature PNG ou JPG pour préparer vos documents sécurisés.</p>';
             $html .= '</div>';
         }
 
@@ -665,7 +660,7 @@ final class DoctorAccountShortcode
         $html .= '<span class="sp-field__label">Fichier de signature</span>';
         $html .= '<input class="sp-input" type="file" id="signature_file" name="signature_file" accept="image/png,image/jpeg" />';
         $html .= '</label>';
-        $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, largeur 600 à 1000 px, hauteur 120 à 250 px, idéalement moins de 200 ko.</p>';
+        $html .= '<p class="sp-field__help">Le fichier reste stocké en privé. Recommandé : PNG ou JPG, 600 à 1000 px de large, 120 à 250 px de haut, idéalement moins de 200 ko.</p>';
         $html .= '<div id="sp_signature_feedback" class="sp-alert sp-alert--info" hidden role="status" aria-live="polite"></div>';
         $html .= '<p id="sp_signature_meta" class="sp-field__help" hidden></p>';
         $html .= '<div id="sp_signature_preview" class="sp-doctor-account__signature-preview-card sp-doctor-account__signature-preview-card--pending" hidden>';
