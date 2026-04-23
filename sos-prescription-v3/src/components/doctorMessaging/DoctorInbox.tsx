@@ -124,7 +124,7 @@ function extractBirthDate(row: InboxRow): string {
     row.patient_dob,
   ]);
 
-  return formatDateDisplay(raw) || 'Date non renseignée';
+  return formatDateDisplay(raw);
 }
 
 function extractCreatedLabel(row: InboxRow): string {
@@ -215,6 +215,29 @@ function extractMedicationPreview(row: InboxRow): string {
   return unique.length > 2 ? `${preview} …` : preview;
 }
 
+
+function buildRowAriaLabel({
+  patientName,
+  statusLabel,
+  metaLine,
+  urgencyLabel,
+  medicationPreview,
+}: {
+  patientName: string;
+  statusLabel: string;
+  metaLine: string;
+  urgencyLabel: string;
+  medicationPreview: string;
+}): string {
+  return [
+    patientName,
+    statusLabel,
+    metaLine,
+    medicationPreview,
+    urgencyLabel,
+  ].filter(Boolean).join(' — ');
+}
+
 export default function DoctorInbox() {
   const {
     prescriptionId,
@@ -275,6 +298,13 @@ export default function DoctorInbox() {
             const patientName = extractPatientName(row);
             const medicationPreview = extractMedicationPreview(row);
             const metaLine = [extractBirthDate(row), extractCreatedLabel(row)].filter(Boolean).join(' • ');
+            const rowAriaLabel = buildRowAriaLabel({
+              patientName,
+              statusLabel: status.label,
+              metaLine,
+              urgencyLabel: urgency.label,
+              medicationPreview,
+            });
 
             return (
               <button
@@ -287,6 +317,8 @@ export default function DoctorInbox() {
                 ].filter(Boolean).join(' ')}
                 aria-pressed={selected}
                 aria-busy={pendingSelection}
+                aria-label={rowAriaLabel}
+                title={patientName}
                 onClick={(): void => {
                   handleSelect(id);
                 }}

@@ -23,13 +23,13 @@ export default function DoctorActiveCasePanel() {
   const activeCase = useDoctorActiveCaseSurface();
 
   if (prescriptionId == null || prescriptionId < 1) {
-    return <div className="dc-empty dc-empty-compact">Aucun dossier médecin actif.</div>;
+    return <div className="dc-empty dc-empty-compact">Aucun dossier actif.</div>;
   }
 
   return (
     <div className="spu-thread-stack">
       {activeCase.selectionPending ? (
-        <Notice variant="info">Changement de dossier en cours…</Notice>
+        <Notice variant="info">Ouverture du dossier…</Notice>
       ) : null}
       <DoctorPatientDetails detail={activeCase.detail} loading={activeCase.detailLoading} />
       <DoctorPdfPanel detail={activeCase.detail} pdf={activeCase.pdf} loading={activeCase.pdfLoading} />

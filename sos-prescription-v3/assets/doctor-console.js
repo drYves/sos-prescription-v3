@@ -1,4 +1,4 @@
-// assets/doctor-console.js · V8.2.1
+// assets/doctor-console.js · V10.0.6-beta1
 (function () {
   'use strict';
 
@@ -82,6 +82,17 @@
     '.sosprescription-doctor .dc-item--urgent{background:linear-gradient(180deg, rgba(217,119,6,.08), rgba(255,255,255,1));}',
     '.sosprescription-doctor .dc-item--urgent:hover{background:linear-gradient(180deg, rgba(217,119,6,.14), rgba(255,255,255,1));}',
     '.sosprescription-doctor .dc-item--urgent.is-selected{border-left-color:var(--sp-color-warning,#d97706);}',
+    '.sosprescription-doctor .dc-toolbar-console{align-items:flex-end;gap:14px;}',
+    '.sosprescription-doctor .dc-toolbar-console__context > * + *{margin-top:2px;}',
+    '.sosprescription-doctor .dc-toolbar-console__caption{margin-top:2px;color:#64748b;}',
+    '.sosprescription-doctor .dc-toolbar-console__label{display:block;margin-bottom:6px;}',
+    '.sosprescription-doctor .dc-item__meds{margin-top:4px;line-height:1.35;}',
+    '.sosprescription-doctor .dc-item__meta{margin-top:6px;color:#64748b;}',
+    '.sosprescription-doctor .dc-item__foot{margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;}',
+    '.sosprescription-doctor .dc-summary-row small{display:block;margin-top:4px;}',
+    '.sosprescription-doctor .dc-pdf-actions{margin-top:10px;}',
+    '.sosprescription-doctor .dc-pdf-placeholder{padding-top:4px;}',
+    '.sosprescription-doctor .dc-refusal-panel .sp-field__label{display:block;margin-bottom:6px;}',
     '.sosprescription-doctor .dc-urgency-chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid transparent;white-space:nowrap;}',
     '.sosprescription-doctor .dc-urgency-chip__icon{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;}',
     '.sosprescription-doctor .dc-urgency-chip__icon svg{width:14px;height:14px;}',
@@ -1053,8 +1064,8 @@
   function renderToolbarFilterSelect() {
     return [
       '<label class="dc-toolbar-console__field">',
-      '  <span class="dc-toolbar-console__label">Filtre de file</span>',
-      '  <select id="dc-toolbar-filter-select" name="toolbar_filter" class="dc-toolbar-console__select" data-role="toolbar-filter-select" aria-label="Filtrer la file de demandes">',
+      '  <span class="dc-toolbar-console__label">Afficher</span>',
+      '  <select id="dc-toolbar-filter-select" name="toolbar_filter" class="dc-toolbar-console__select" data-role="toolbar-filter-select" aria-label="Afficher les dossiers">',
       LIST_FILTERS.map(function (filter) {
         var selected = filter.key === state.listFilter ? ' selected' : '';
         return '<option value="' + escHtml(filter.key) + '"' + selected + '>' + escHtml(filter.label) + '</option>';
@@ -1068,8 +1079,8 @@
     var meta = getActiveFilterMeta();
     var visibleCount = safeArray(state.list).length;
     var countLabel = state.listLoading && visibleCount < 1
-      ? 'Chargement de la file active…'
-      : (visibleCount === 1 ? '1 dossier visible' : String(visibleCount) + ' dossiers visibles');
+      ? 'Chargement…'
+      : (visibleCount === 1 ? '1 dossier' : String(visibleCount) + ' dossiers');
 
     return [
       '<div class="dc-toolbar-console">',
@@ -3261,6 +3272,7 @@
     var statusInfo = computeCaseStatus(source);
     var medicationsPreview = buildMedicationPreview(source);
     var urgencyBadge = renderInboxUrgencyBadge(source);
+    var metaLine = joinDisplayParts([patient.birthDate, patient.createdAgo]);
 
     return [
       '<div class="dc-item__row">',
@@ -3268,11 +3280,25 @@
       '  <div class="dc-item__status">' + statusBadge(statusInfo.label, statusInfo.variant) + '</div>',
       '</div>',
       medicationsPreview ? '  <div class="dc-item__meds" title="' + escHtml(medicationsPreview) + '">' + escHtml(medicationsPreview) + '</div>' : '',
-      '  <div class="dc-item__meta">' + escHtml(patient.birthDate) + ' • ' + escHtml(patient.createdAgo) + '</div>',
+      '  <div class="dc-item__meta">' + escHtml(metaLine) + '</div>',
       '  <div class="dc-item__foot">',
       '    ' + urgencyBadge,
       '  </div>'
     ].join('');
+  }
+
+  function buildInboxItemAriaLabel(source, patient, statusInfo) {
+    var medicationsPreview = buildMedicationPreview(source);
+    var urgency = computeInboxUrgency(source);
+    return [
+      patient.fullname,
+      statusInfo.label,
+      joinDisplayParts([patient.birthDate, patient.createdAgo]),
+      medicationsPreview,
+      urgency.label
+    ].filter(function (value) {
+      return normalizeText(value) !== '';
+    }).join(' — ');
   }
 
   function patchInboxItemNode(node, row) {
@@ -3283,6 +3309,8 @@
     var detail = asObject(state.details[id]);
     var source = hasObjectKeys(detail) ? detail : row;
     var urgency = computeInboxUrgency(source);
+    var patient = extractPatientData(source);
+    var statusInfo = computeCaseStatus(source);
 
     node.type = 'button';
     node.className = 'dc-item dc-item--' + urgency.tone + (isSelected ? ' is-selected' : '');
@@ -3291,6 +3319,9 @@
     node.setAttribute('data-role', 'inbox-item');
     node.setAttribute('data-case-id', String(id));
     node.setAttribute('data-urgency-tone', urgency.tone);
+    node.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+    node.setAttribute('aria-label', buildInboxItemAriaLabel(source, patient, statusInfo));
+    node.setAttribute('title', patient.fullname || ('Dossier #' + id));
     setHtmlIfChanged(node, renderInboxItemMarkup(row));
   }
 
@@ -3719,7 +3750,7 @@
             return '<div class="dc-modal__schedule-row">'
               + '  <div class="dc-modal__schedule-row-label">' + escHtml(label) + anchor + '</div>'
               + '  <label class="sp-field"><span class="sp-field__label">Heure</span><input id="dc-med-editor-time-' + String(index) + '" name="med_editor_time_' + String(index) + '" type="time" step="300" class="sp-input" data-role="med-editor-time" data-index="' + String(index) + '" value="' + escHtml(draft.times[index] || '') + '" /></label>'
-              + '  <label class="sp-field"><span class="sp-field__label">Dose</span><input id="dc-med-editor-dose-' + String(index) + '" name="med_editor_dose_' + String(index) + '" type="text" class="sp-input" data-role="med-editor-dose" data-index="' + String(index) + '" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
+              + '  <label class="sp-field"><span class="sp-field__label">Dose</span><input id="dc-med-editor-dose-' + String(index) + '" name="med_editor_dose_' + String(index) + '" type="text" class="sp-input" data-role="med-editor-dose" data-index="' + String(index) + '" autocomplete="off" value="' + escHtml(draft.doses[index] || '1') + '" placeholder="1" /></label>'
               + '</div>';
           }).join('')
         + '</div>'
@@ -3736,14 +3767,14 @@
       '  <div class="sp-form dc-modal__fields">',
       '    <div class="dc-modal__panel">',
       '      <div class="dc-modal__grid">',
-      '        <label class="sp-field"><span class="sp-field__label">Nombre de prises</span><input id="dc-med-editor-nb" name="med_editor_nb" type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="sp-input" data-role="med-editor-nb" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
+      '        <label class="sp-field"><span class="sp-field__label">Nombre de prises</span><input id="dc-med-editor-nb" name="med_editor_nb" type="number" min="1" max="' + escHtml(draft.freqUnit === 'jour' ? '6' : '12') + '" class="sp-input" data-role="med-editor-nb" autocomplete="off" value="' + escHtml(String(draft.nb || 1)) + '" /></label>',
       '        <label class="sp-field"><span class="sp-field__label">Fréquence</span><select id="dc-med-editor-freq" name="med_editor_freq" class="sp-select" data-role="med-editor-freq"><option value="jour"' + (draft.freqUnit === 'jour' ? ' selected' : '') + '>Par jour</option><option value="semaine"' + (draft.freqUnit === 'semaine' ? ' selected' : '') + '>Par semaine</option></select></label>',
-      '        <div class="sp-field"><span class="sp-field__label">Durée</span><div class="dc-modal__inline"><input id="dc-med-editor-duration" name="med_editor_duration" type="number" min="1" class="sp-input" data-role="med-editor-duration" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select id="dc-med-editor-duration-unit" name="med_editor_duration_unit" class="sp-select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
+      '        <div class="sp-field"><span class="sp-field__label">Durée</span><div class="dc-modal__inline"><input id="dc-med-editor-duration" name="med_editor_duration" type="number" min="1" class="sp-input" data-role="med-editor-duration" autocomplete="off" value="' + escHtml(String(draft.durationVal || 1)) + '" /><select id="dc-med-editor-duration-unit" name="med_editor_duration_unit" class="sp-select" data-role="med-editor-duration-unit"><option value="jour"' + (draft.durationUnit === 'jour' ? ' selected' : '') + '>jours</option><option value="mois"' + (draft.durationUnit === 'mois' ? ' selected' : '') + '>mois</option></select></div></div>',
       '      </div>',
       '    </div>',
            rowsHtml,
       '    <div class="dc-modal__panel dc-modal__panel--note">',
-      '      <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea id="dc-med-editor-note" name="med_editor_note" class="sp-textarea" rows="4" data-role="med-editor-note" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
+      '      <label class="sp-field"><span class="sp-field__label">Précisions de prise (optionnel)</span><textarea id="dc-med-editor-note" name="med_editor_note" class="sp-textarea" rows="4" data-role="med-editor-note" autocomplete="off" placeholder="Ex: à prendre au cours du repas, le soir uniquement…">' + escHtml(draft.note || '') + '</textarea></label>',
       '    </div>',
       '  </div>',
       '  <div class="dc-modal__actions">',
@@ -3896,7 +3927,7 @@
       '<div class="dc-refusal-panel">',
       '  <div class="sp-field">',
       '    <label class="sp-field__label" for="dc-refusal-reason">Motif du refus</label>',
-      '    <textarea id="dc-refusal-reason" name="refusal_reason" class="sp-textarea" data-role="refusal-reason" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
+      '    <textarea id="dc-refusal-reason" name="refusal_reason" class="sp-textarea" data-role="refusal-reason" autocomplete="off" placeholder="Précisez le motif clinique ou administratif…"' + (isRejecting ? ' disabled' : '') + '>' + escHtml(state.refusalReason) + '</textarea>',
       '  </div>',
       '  <div class="dc-refusal-actions">',
       '    <button type="button" class="sp-button sp-button--danger' + (isRejecting ? ' is-loading' : '') + '" data-action="confirm-reject"' + (isRejecting ? ' disabled' : '') + '>' + (isRejecting ? 'Refus...' : 'Confirmer le refus') + '</button>',
@@ -3922,7 +3953,7 @@
       '  <div class="dc-pdf-actions">',
       '    <a class="sp-button sp-button--secondary dc-pdf-open" href="' + escHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>',
       '  </div>',
-      '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy"></iframe>',
+      '  <iframe class="dc-pdf-frame" src="' + escHtml(iframeSrcFromDownloadUrl(downloadUrl)) + '" loading="lazy" title="Ordonnance PDF"></iframe>',
       '</div>'
     ].join('');
   }
@@ -3948,7 +3979,7 @@
     var message = firstText([
       pdf.message,
       pdf.last_error_message,
-      status === 'done' ? 'PDF prêt.' : (status === 'failed' ? 'Le PDF n’est pas disponible.' : 'PDF en cours de génération.')
+      status === 'done' ? 'PDF prêt.' : (status === 'failed' ? 'PDF indisponible.' : 'Génération du PDF…')
     ]);
     var downloadUrl = normalizeText(pdf.download_url);
     var nextDocKey = stablePdfDocumentKey(downloadUrl);
@@ -4157,7 +4188,7 @@
     return [
       '<div class="dc-message-react-shell">',
       '  <div class="dc-message-react-host" data-sp-doctor-chat-root="1" data-prescription-id="' + escHtml(detailId) + '" data-prescription-status="' + escHtml(detailStatus) + '">',
-      '    <div class="dc-message-empty">Chargement de la messagerie sécurisée…</div>',
+      '    <div class="dc-message-empty">Chargement de la messagerie…</div>',
       '  </div>',
       '</div>'
     ].join('');

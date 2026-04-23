@@ -45,7 +45,7 @@ export default function DoctorPdfPanel({ detail, pdf, loading = false }: DoctorP
     return (
       <div className="dc-pdf-card">
         <div className="dc-card__title">Ordonnance PDF</div>
-        <div className="dc-pdf-placeholder">PDF disponible après validation.</div>
+        <div className="dc-pdf-placeholder">Disponible après validation.</div>
       </div>
     );
   }
@@ -57,7 +57,7 @@ export default function DoctorPdfPanel({ detail, pdf, loading = false }: DoctorP
     pdf?.last_error_message,
     status === 'done'
       ? 'PDF prêt.'
-      : (loading ? 'Chargement du PDF…' : (status === 'failed' ? 'Le PDF n’est pas disponible.' : 'PDF en cours de génération.')),
+      : (loading ? 'Chargement du PDF…' : (status === 'failed' ? 'PDF indisponible.' : 'Génération du PDF…')),
   ]);
 
   if (!downloadUrl) {
