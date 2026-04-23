@@ -690,13 +690,15 @@
 }
 
 .sp-page-shell {
-  max-width: 1200px;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
   padding: 16px;
+  box-sizing: border-box;
 }
 
 .sp-page-shell--narrow {
-  max-width: 768px;
+  max-width: none;
 }
 
 .sp-page-header {

@@ -1,13 +1,14 @@
-/* SOS Prescription : App Skin V8.6.0 */
+/* SOS Prescription : App Skin V8.6.1 */
 /*
- * SOS Prescription — App Skin v8.6.0
+ * SOS Prescription — App Skin v8.6.1
  * Couche shell locale : widgets, cartes de couture et footer applicatif.
  * Le thème pose le cadre, mais laisse les composants métier internes à l'application.
  */
 
 .sp-shell--app,
 .sp-shell--console {
-  --sp-app-shell-max: var(--sp-workspace-max, 75rem);
+  --sp-shell-surface-max: var(--sp-layout-axis-width, var(--sp-workspace-max, 75rem));
+  --sp-app-shell-max: var(--sp-shell-surface-max);
   --sp-app-shell-gap: clamp(1rem, 0.92rem + 0.35vw, 1.35rem);
   --sp-app-shell-gap-tight: clamp(0.75rem, 0.69rem + 0.22vw, 0.98rem);
   --sp-widget-surface: linear-gradient(
@@ -20,8 +21,29 @@
   --sp-widget-radius: calc(var(--sp-shell-radius-lg, 18px) - 1px);
 }
 
+.sp-shell--app.sp-shell--request {
+  --sp-shell-surface-max: 72rem;
+}
+
+.sp-shell--app.sp-shell--patient {
+  --sp-shell-surface-max: 76rem;
+}
+
+.sp-shell--app.sp-shell--doctor-account {
+  --sp-shell-surface-max: 72rem;
+}
+
+.sp-shell--app.sp-shell--doctor-catalog {
+  --sp-shell-surface-max: 84rem;
+}
+
 .sp-shell--console {
-  --sp-app-shell-max: min(100%, 82rem);
+  --sp-shell-surface-max: 82rem;
+}
+
+.sp-shell--entry-auth,
+.sp-shell--verify {
+  --sp-shell-surface-max: 46rem;
 }
 
 .sp-shell--app :is(.sp-plugin-root, .sp-plugin-shell, .sp-plugin-toolbar-meta, .sp-plugin-status-surface, .sp-plugin-profile-slot, .sp-plugin-mount),
@@ -49,27 +71,6 @@
   margin-inline: auto;
   display: grid;
   gap: var(--sp-app-shell-gap-tight);
-}
-
-.sp-shell--app .sp-plugin-mount--request,
-.sp-shell--app .sp-plugin-status-surface--request {
-  width: min(100%, var(--sp-workspace-max, 72rem));
-}
-
-.sp-shell--app :is(.sp-plugin-toolbar-meta--patient, .sp-plugin-profile-slot--patient, .sp-plugin-status-surface--patient, .sp-plugin-mount--patient) {
-  width: min(100%, var(--sp-workspace-max, 76rem));
-}
-
-.sp-shell--app :is(.sp-plugin-toolbar-meta--doctor-account, .sp-plugin-status-surface--doctor-account, .sp-plugin-mount--doctor-account) {
-  width: min(100%, var(--sp-workspace-max, 72rem));
-}
-
-.sp-shell--app :is(.sp-plugin-toolbar-meta--doctor-catalog, .sp-plugin-mount--doctor-catalog) {
-  width: min(100%, var(--sp-workspace-max, 84rem));
-}
-
-.sp-shell--console :is(.sp-plugin-toolbar-meta--console, .sp-plugin-status-surface--console, .sp-plugin-mount--console) {
-  width: min(100%, var(--sp-workspace-max, 82rem));
 }
 
 .sp-shell--app .sp-sidebar-stack,

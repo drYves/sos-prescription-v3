@@ -1,4 +1,4 @@
-/* SOS Prescription : Medical-Grade Aura V8.6.0 */
+/* SOS Prescription : Medical-Grade Aura V8.6.1 */
 .sp-visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -65,8 +65,8 @@
 
 .sp-app-container,
 .sp-page-shell.sp-app-container {
-  width: min(100%, var(--sp-workspace-max, 75rem));
-  max-width: none !important;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -891,7 +891,7 @@
 }
 
 .sp-page-shell--narrow {
-  width: min(100%, var(--sp-container-reading, 47.5rem));
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -1077,7 +1077,7 @@
 }
 
 .sp-page-shell.sp-app-container {
-  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
+  width: 100%;
   margin-inline: auto;
 }
 
@@ -1087,7 +1087,7 @@
 }
 
 .sp-profile-card {
-  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
+  width: 100%;
   margin: 12px auto 18px;
   padding: 0;
   border: var(--sp-app-border);
@@ -1171,7 +1171,7 @@
 @media (max-width: 900px) {
   .sp-page-shell.sp-app-container,
   .sp-profile-card {
-    width: min(100%, var(--sp-workspace-max, 75rem)) !important;
+    width: 100%;
   }
 
   .sp-profile-card__header {
@@ -1301,11 +1301,11 @@
 
 .sp-profile-card,
 .sp-page-shell.sp-app-container {
-  max-width: none !important;
+  max-width: none;
 }
 
 .sp-profile-card {
-  width: min(100%, var(--sp-workspace-max, 75rem)) !important;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -2731,25 +2731,25 @@ a.sp-app-button.sp-app-button--primary:hover {
 .sp-app-root,
 .sp-patient-console {
   --sp-app-reading-max: var(--sp-container-reading, 47.5rem);
-  --sp-app-workspace-max: var(--sp-workspace-max, 75rem);
+  --sp-app-workspace-max: var(--sp-shell-surface-max, var(--sp-workspace-max, 75rem));
   --sp-app-wide-max: min(100%, var(--sp-container-app-compact, 75rem));
 }
 
 .sp-app-root .sp-app-container,
 .sp-page-shell.sp-app-container,
 .sp-profile-card {
-  width: min(100%, var(--sp-app-workspace-max));
+  width: 100%;
 }
 
 .sp-app-root[data-app="form"] .sp-app-container,
 #sosprescription-root-form .sp-app-container {
-  width: min(100%, var(--sp-app-reading-max));
+  width: 100%;
 }
 
 .sp-app-root[data-app="patient"] .sp-app-container,
 #sosprescription-root-patient .sp-app-container,
 .sp-patient-console .sp-console-grid {
-  width: min(100%, var(--sp-app-workspace-max));
+  width: 100%;
 }
 
 .sp-card,
@@ -2985,9 +2985,9 @@ a.sp-app-button.sp-app-button--secondary:hover {
    Shell = layout / app = surfaces métier / mobile first tactile
    -------------------------------------------------------------------------- */
 :where(#sosprescription-root-form, #sosprescription-root-patient, .sp-app-root, .sp-patient-console) {
-  --sp-app-reading-max: 65ch;
-  --sp-app-workspace-max: 1200px;
-  --sp-app-wide-max: 1600px;
+  --sp-app-reading-max: var(--sp-shell-container-reading, var(--sp-container-reading, 47.5rem));
+  --sp-app-workspace-max: var(--sp-shell-surface-max, var(--sp-workspace-max, 75rem));
+  --sp-app-wide-max: var(--sp-shell-surface-max, var(--sp-container-app-compact, 75rem));
   --sp-app-card-shadow: 0 1px 1px rgba(15, 23, 42, 0.05), 0 10px 24px rgba(15, 23, 42, 0.06);
   --sp-app-card-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.04), 0 6px 18px rgba(15, 23, 42, 0.04);
 }
@@ -2997,7 +2997,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
 .sp-page-shell.sp-app-container,
 .sp-profile-card,
 .sp-patient-console .sp-console-grid {
-  width: min(100%, var(--sp-app-workspace-max)) !important;
+  width: 100%;
 }
 
 .sp-page-shell--narrow,
@@ -3193,7 +3193,7 @@ a.sp-app-button.sp-app-button--secondary:hover {
   .sp-page-shell.sp-app-container,
   .sp-profile-card,
   .sp-patient-console .sp-console-grid {
-    width: 100% !important;
+    width: 100%;
   }
 
   .sp-app-root .sp-app-container,
