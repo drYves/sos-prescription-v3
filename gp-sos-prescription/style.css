@@ -5,11 +5,11 @@ Description: Thème enfant GeneratePress Premium - shell natif SOS Prescription,
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 10.0.5-beta1
+Version: 10.0.5-beta2
 Text Domain: gp-sos-prescription
 */
 
-/* V10.0.5-beta1 · Entry/auth convergence */
+/* V10.0.5-beta2 · Nav A submenus desktop */
 
 :root {
   --sp-shell-frame-max: var(--container-width, var(--gb-container-width, 1200px));
@@ -37,6 +37,11 @@ Text Domain: gp-sos-prescription
   --sp-shell-nav-current-ink: color-mix(in srgb, var(--accent) 44%, var(--contrast) 56%);
   --sp-shell-nav-cta-bg: color-mix(in srgb, white 86%, var(--accent) 14%);
   --sp-shell-nav-cta-bg-hover: color-mix(in srgb, white 76%, var(--sp-brand-payment, var(--accent)) 24%);
+  --sp-shell-nav-dropdown-bg: color-mix(in srgb, white 94%, var(--sp-shell-page-top) 6%);
+  --sp-shell-nav-dropdown-border: color-mix(in srgb, var(--contrast) 10%, transparent);
+  --sp-shell-nav-dropdown-shadow: 0 22px 48px -34px color-mix(in srgb, var(--contrast) 34%, transparent);
+  --sp-shell-nav-dropdown-radius: var(--sp-radius-lg, 16px);
+  --sp-shell-nav-dropdown-item-radius: var(--sp-radius-md, 12px);
   --sp-nav-item-gap: 0.46rem;
   --sp-nav-line-height: 1.08;
   --sp-nav-anchor-height: 2.28rem;
@@ -498,6 +503,181 @@ body.sp-context-public .sp-faq-item:hover {
 .main-navigation .main-nav > div > ul > li > a:active,
 .main-navigation .menu > li > a:active {
   transform: scale(0.98);
+}
+
+/* --- V10.0.5-beta2 · Nav A — sous-menus desktop GP/SOS --- */
+@media (min-width: 769px) {
+  .main-navigation .main-nav > ul > li.menu-item-has-children,
+  .main-navigation .main-nav > div > ul > li.menu-item-has-children,
+  .main-navigation .menu > li.menu-item-has-children {
+    position: relative;
+  }
+
+  .main-navigation .main-nav > ul > li.current-menu-parent > a,
+  .main-navigation .main-nav > div > ul > li.current-menu-parent > a,
+  .main-navigation .menu > li.current-menu-parent > a,
+  .main-navigation .main-nav > ul > li.current-menu-ancestor > a,
+  .main-navigation .main-nav > div > ul > li.current-menu-ancestor > a,
+  .main-navigation .menu > li.current-menu-ancestor > a,
+  .main-navigation .main-nav > ul > li.current_page_parent > a,
+  .main-navigation .main-nav > div > ul > li.current_page_parent > a,
+  .main-navigation .menu > li.current_page_parent > a {
+    color: var(--sp-shell-nav-current-ink);
+    background: var(--sp-shell-nav-current-bg);
+    border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.78),
+      0 12px 28px -28px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+
+  .main-navigation .main-nav ul li.menu-item-has-children > a .dropdown-menu-toggle,
+  .main-navigation .menu li.menu-item-has-children > a .dropdown-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-inline-start: 0.28rem;
+    color: currentColor;
+    opacity: 0.7;
+    line-height: 1;
+    transition:
+      opacity var(--sp-motion-base) var(--sp-ease-standard),
+      transform var(--sp-motion-fast) var(--sp-ease-press);
+  }
+
+  .main-navigation .main-nav ul li.menu-item-has-children:hover > a .dropdown-menu-toggle,
+  .main-navigation .main-nav ul li.menu-item-has-children:focus-within > a .dropdown-menu-toggle,
+  .main-navigation .menu li.menu-item-has-children:hover > a .dropdown-menu-toggle,
+  .main-navigation .menu li.menu-item-has-children:focus-within > a .dropdown-menu-toggle {
+    opacity: 1;
+    transform: translateY(1px);
+  }
+
+  .main-navigation .main-nav ul ul,
+  .main-navigation .menu ul {
+    width: max-content;
+    min-width: 15.5rem;
+    max-width: min(22rem, calc(100vw - 2rem));
+    margin-top: 0.42rem;
+    padding: 0.46rem;
+    border: 1px solid var(--sp-shell-nav-dropdown-border);
+    border-radius: var(--sp-shell-nav-dropdown-radius);
+    background: var(--sp-shell-nav-dropdown-bg);
+    box-shadow: var(--sp-shell-nav-dropdown-shadow);
+    box-sizing: border-box;
+    position: absolute;
+    isolation: isolate;
+    overflow: visible;
+    opacity: 0;
+    transform: translateY(0.3rem);
+    transform-origin: 50% 0;
+    transition:
+      opacity var(--sp-motion-base) var(--sp-ease-standard),
+      transform var(--sp-motion-base) var(--sp-ease-standard),
+      box-shadow var(--sp-motion-base) var(--sp-ease-standard);
+  }
+
+  .main-navigation .main-nav ul ul::before,
+  .main-navigation .menu ul::before {
+    content: "";
+    position: absolute;
+    inset-block-start: -0.42rem;
+    inset-inline: 0;
+    height: 0.42rem;
+  }
+
+  .main-navigation .main-nav ul li:hover > ul,
+  .main-navigation .main-nav ul li.sfHover > ul,
+  .main-navigation .main-nav ul li:focus-within > ul,
+  .main-navigation .menu li:hover > ul,
+  .main-navigation .menu li.sfHover > ul,
+  .main-navigation .menu li:focus-within > ul {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .main-navigation .main-nav ul ul ul,
+  .main-navigation .menu ul ul {
+    margin-top: 0;
+    margin-inline-start: 0.36rem;
+  }
+
+  .main-navigation .main-nav ul ul li,
+  .main-navigation .menu ul li {
+    display: block;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    border-radius: var(--sp-shell-nav-dropdown-item-radius);
+  }
+
+  .main-navigation .main-nav ul ul li + li,
+  .main-navigation .menu ul li + li {
+    margin-top: 0.08rem;
+  }
+
+  .main-navigation .main-nav ul ul li a,
+  .main-navigation .menu ul li a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 2.72rem;
+    padding: 0.72rem 0.84rem;
+    border: 1px solid transparent;
+    border-radius: var(--sp-shell-nav-dropdown-item-radius);
+    background: transparent;
+    box-shadow: none;
+    box-sizing: border-box;
+    color: var(--sp-color-text-2, var(--contrast));
+    font-size: 0.9rem;
+    font-weight: 650;
+    letter-spacing: 0.006em;
+    line-height: 1.25;
+    text-align: start;
+    text-decoration: none;
+    white-space: normal;
+    transition:
+      color var(--sp-motion-base) var(--sp-ease-standard),
+      background-color var(--sp-motion-base) var(--sp-ease-standard),
+      border-color var(--sp-motion-base) var(--sp-ease-standard),
+      box-shadow var(--sp-motion-base) var(--sp-ease-standard),
+      transform var(--sp-motion-fast) var(--sp-ease-press);
+  }
+
+  .main-navigation .main-nav ul ul li:hover > a,
+  .main-navigation .main-nav ul ul li:focus-within > a,
+  .main-navigation .main-nav ul ul li > a:focus-visible,
+  .main-navigation .menu ul li:hover > a,
+  .main-navigation .menu ul li:focus-within > a,
+  .main-navigation .menu ul li > a:focus-visible {
+    color: var(--sp-shell-nav-hover-ink);
+    background: var(--sp-shell-nav-hover-bg);
+    border-color: var(--sp-shell-nav-hover-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    transform: translateX(1px);
+  }
+
+  .main-navigation .main-nav ul ul li > a:focus-visible,
+  .main-navigation .menu ul li > a:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 36%, transparent);
+    outline-offset: 2px;
+  }
+
+  .main-navigation .main-nav ul ul li.current-menu-item > a,
+  .main-navigation .main-nav ul ul li.current_page_item > a,
+  .main-navigation .main-nav ul ul li.current-menu-parent > a,
+  .main-navigation .main-nav ul ul li.current-menu-ancestor > a,
+  .main-navigation .main-nav ul ul li.current_page_parent > a,
+  .main-navigation .menu ul li.current-menu-item > a,
+  .main-navigation .menu ul li.current_page_item > a,
+  .main-navigation .menu ul li.current-menu-parent > a,
+  .main-navigation .menu ul li.current-menu-ancestor > a,
+  .main-navigation .menu ul li.current_page_parent > a {
+    color: var(--sp-shell-nav-current-ink);
+    background: var(--sp-shell-nav-current-bg);
+    border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
 }
 
 
