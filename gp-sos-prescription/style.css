@@ -5,11 +5,11 @@ Description: Thème enfant GeneratePress Premium - shell natif SOS Prescription,
 Author: SOS Prescription
 Author URI: https://sosprescription.fr/
 Template: generatepress
-Version: 10.0.5-beta2
+Version: 10.0.5-beta3
 Text Domain: gp-sos-prescription
 */
 
-/* V10.0.5-beta2 · Nav A submenus desktop */
+/* V10.0.5-beta3 · Nav B mobile tactile */
 
 :root {
   --sp-shell-frame-max: var(--container-width, var(--gb-container-width, 1200px));
@@ -738,4 +738,76 @@ body:not(.sp-context-public) .sp-faq-item {
 body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify) #page,
 body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-context-verify) .site {
   overflow-x: clip;
+}
+
+/* --- V10.0.5-beta3 · Nav B — mobile tactile / hit areas GP --- */
+@media (max-width: 1024px) {
+  .main-navigation .main-nav > ul > li > a,
+  .main-navigation .main-nav > div > ul > li > a,
+  .main-navigation .menu > li > a,
+  .main-navigation .main-nav > ul > li.sp-nav-button > a,
+  .main-navigation .main-nav > div > ul > li.sp-nav-button > a,
+  .main-navigation .menu > li.sp-nav-button > a {
+    min-height: 44px;
+  }
+
+  .main-navigation .menu-toggle,
+  .main-navigation button.menu-toggle,
+  .mobile-menu-control-wrapper .menu-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: var(--sp-radius-md, 12px);
+    box-sizing: border-box;
+  }
+
+  .main-navigation .dropdown-menu-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    color: currentColor;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-navigation.toggled .main-nav > ul,
+  .main-navigation.toggled .main-nav > div > ul,
+  .main-navigation.toggled .menu {
+    align-items: stretch;
+  }
+
+  .main-navigation .main-nav ul li a,
+  .main-navigation .menu li a {
+    min-height: 44px;
+    line-height: 1.22;
+  }
+
+  .main-navigation .main-nav ul ul li a,
+  .main-navigation .menu ul li a {
+    min-height: 44px;
+    padding-inline-start: 1.05rem;
+  }
+
+  .main-navigation .menu-toggle:focus-visible,
+  .main-navigation button.menu-toggle:focus-visible,
+  .mobile-menu-control-wrapper .menu-toggle:focus-visible,
+  .main-navigation .main-nav ul li a:focus-visible,
+  .main-navigation .menu li a:focus-visible,
+  .main-navigation .dropdown-menu-toggle:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 44%, transparent);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .main-navigation .main-nav ul li.current-menu-item > a,
+  .main-navigation .main-nav ul li.current-menu-parent > a,
+  .main-navigation .main-nav ul li.current-menu-ancestor > a,
+  .main-navigation .main-nav ul li.current_page_parent > a,
+  .main-navigation .menu li.current-menu-item > a,
+  .main-navigation .menu li.current-menu-parent > a,
+  .main-navigation .menu li.current-menu-ancestor > a,
+  .main-navigation .menu li.current_page_parent > a {
+    color: var(--sp-shell-nav-current-ink);
+    background: var(--sp-shell-nav-current-bg);
+    border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
 }

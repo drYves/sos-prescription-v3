@@ -2144,3 +2144,87 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
   width: min(100%, var(--sp-shell-current-width));
   max-width: var(--sp-shell-current-width) !important;
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.6-beta4 — Nav B mobile tactile
+   Hit areas 44px, focus-visible et affordance de scroll horizontal pour
+   rolebar / console bar, sans modifier la largeur shell-owned.
+   -------------------------------------------------------------------------- */
+@media (max-width: 1080px) {
+  .sp-shell--app .sp-app-menu__link,
+  .sp-shell--console .sp-app-menu__link,
+  .sp-shell--app .sp-rolebar__nav a,
+  .sp-shell--console .sp-console-bar__nav a {
+    min-height: 44px;
+  }
+
+  .sp-shell--app .sp-app-menu__link:focus-visible,
+  .sp-shell--console .sp-app-menu__link:focus-visible,
+  .sp-shell--app .sp-rolebar__nav a:focus-visible,
+  .sp-shell--console .sp-console-bar__nav a:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 42%, transparent);
+    outline-offset: 3px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.74),
+      0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+@media (max-width: 768px) {
+  .sp-shell--app .sp-rolebar__nav-wrap,
+  .sp-shell--console .sp-console-bar__nav-wrap {
+    position: relative;
+  }
+
+  .sp-shell--app .sp-rolebar__nav-wrap::after,
+  .sp-shell--console .sp-console-bar__nav-wrap::after {
+    content: '';
+    position: absolute;
+    inset-block: 0.2rem 0.35rem;
+    inset-inline-end: 0;
+    width: 1.35rem;
+    pointer-events: none;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--sp-color-surface, #ffffff) 0%, transparent),
+      color-mix(in srgb, var(--sp-color-surface, #ffffff) 88%, transparent)
+    );
+  }
+
+  .sp-shell--app .sp-rolebar__nav,
+  .sp-shell--console .sp-console-bar__nav,
+  .sp-shell--app .sp-app-menu-nav,
+  .sp-shell--console .sp-app-menu-nav {
+    scroll-padding-inline: 1rem;
+    padding-block: 0.1rem 0.35rem;
+  }
+
+  .sp-shell--app .sp-app-menu,
+  .sp-shell--console .sp-app-menu {
+    gap: 0.45rem;
+    padding-inline-end: 1.35rem;
+  }
+
+  .sp-shell--app .sp-app-menu__link,
+  .sp-shell--console .sp-app-menu__link,
+  .sp-shell--app .sp-rolebar__nav a,
+  .sp-shell--console .sp-console-bar__nav a {
+    min-height: 44px;
+    padding-block: 0.68rem;
+    padding-inline: 0.88rem;
+    align-items: center;
+    line-height: 1.16;
+    touch-action: manipulation;
+  }
+
+  .sp-shell--app .sp-app-menu__item--separator,
+  .sp-shell--console .sp-app-menu__item--separator {
+    margin-inline: 0.35rem;
+  }
+
+  .sp-shell--app .sp-app-menu__separator,
+  .sp-shell--console .sp-app-menu__separator {
+    height: 1.45rem;
+  }
+}
