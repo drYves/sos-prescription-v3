@@ -3,6 +3,7 @@
 - `style.css` porté en `Version: 4.8.1` avec un workspace métier élargi à `1200px` et les finitions Diamond Grade conservées.
 - `SP_THEME_VERSION` mis à jour en `4.8.1` dans `functions.php`.
 - `inc/helpers.php` repointe la synchronisation runtime vers `home-accueil-v4.8.1-gb.txt`.
+- `home-accueil-v4.8.1-gb.txt` constitue désormais la source canonique homepage ; `home-accueil-v4.8.0-gb.txt` est retiré comme doublon historique.
 - `tokens.css` porte `--sp-workspace-max` à `75rem`, aligne les conteneurs compacts sur `1200px`, ajoute `--sp-card-padding-block`, `--sp-card-padding-inline` et `--sp-message-bubble-max`.
 - `app-shell.css` recentre le frame applicatif, garde la montée progressive jusqu’à `1200px` et évite l’overflow sur les écrans intermédiaires avec sidebar.
 - `app-skin.css` élargit les surfaces patient concernées, augmente légèrement le padding des cartes et verrouille les bulles de messagerie à `70%` de largeur maximale.
