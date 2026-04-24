@@ -10,7 +10,8 @@
     "dev": "tsx src/main.ts",
     "postinstall": "prisma generate",
     "document-pilot": "tsx src/documents/documentPilotRunner.ts",
-    "document-read": "tsx src/documents/documentReadRunner.ts"
+    "document-read": "tsx src/documents/documentReadRunner.ts",
+    "document-section": "tsx src/documents/documentSectionRunner.ts"
   },
   "devDependencies": {
     "@types/node": "20.19.37",
