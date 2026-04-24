@@ -1926,3 +1926,168 @@ body.sp-context-public .sp-bg-canvas .sp-compare-option__label {
     line-height: 1.55;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V8.5.4 — Responsive Core 1 : homepage mobile foundation
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  body.sp-context-public .sp-bg-canvas .sp-section {
+    padding-block: 3.25rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-section-hero {
+    padding-block-start: 2.5rem;
+    padding-block-end: 2.75rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-section-head, .sp-steps-head, .sp-pricing-head) {
+    gap: 0.65rem;
+    margin-block-end: 1.35rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-ethics, .sp-compare, .sp-standard, .sp-tech, .sp-usecases, .sp-steps, .sp-pricing, .sp-diff, .sp-faq, .sp-final-cta) {
+    gap: 1.45rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-hero__title, .sp-section-head > h2, .sp-steps-head > h2, .sp-pricing-head > h2, .sp-trust-box__title, .sp-final-cta-card h2) {
+    letter-spacing: 0;
+    text-wrap: balance;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero__title {
+    font-size: 2.625rem;
+    line-height: 1.02;
+    white-space: normal;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-section-head > h2, .sp-steps-head > h2, .sp-pricing-head > h2, .sp-trust-box__title, .sp-final-cta-card h2) {
+    font-size: 1.875rem;
+    line-height: 1.12;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-card__content > strong, .sp-card-content > strong, .sp-step-card__title, .sp-selector-card h3, .sp-faq-item summary) {
+    font-size: 1.25rem;
+    line-height: 1.24;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-hero__lead, .sp-section-head > p, .sp-steps-head > p, .sp-pricing-head > p, .sp-ethics-head__lead, .sp-ethics-head__body, .sp-standard-card p, .sp-compare-option p, .sp-selector-card p, .sp-diff-chip p, .sp-faq-item p, .sp-trust-box__lead, .sp-usecase-list li) {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__eyebrow {
+    gap: 0.45rem 0.7rem;
+    margin-block-end: 1.25rem;
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    inline-size: min(100%, 22rem);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof > span {
+    justify-content: center;
+    min-block-size: 2.35rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: var(--sp-radius-md);
+    background: color-mix(in srgb, var(--sp-color-surface) 92%, transparent);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof > span:nth-child(n + 4) {
+    display: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-card, .sp-standard-card, .sp-compare-card, .sp-usecase-card, .sp-step-card, .sp-selector-card, .sp-diff-chip, .sp-faq-item, .sp-price-card, .sp-final-cta-card, .sp-trust-box) {
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--sp-color-surface) 96%, transparent);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-card, .sp-selector-card, .sp-usecase-card, .sp-step-card, .sp-faq-item, .sp-final-cta-card, .sp-trust-box) {
+    padding: 1.25rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-grid, .sp-usecases-grid, .sp-steps-grid, .sp-selector-grid, .sp-diff-grid, .sp-faq-list) {
+    gap: 1rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-card__inner, .sp-selector-card__top, .sp-diff-chip) {
+    grid-template-columns: 1fr;
+    gap: 0.95rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-icon-badge {
+    inline-size: 2.65rem;
+    block-size: 2.65rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-step-card {
+    padding-block-start: 2.6rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-step-card__badge {
+    inline-size: 2.7rem;
+    block-size: 2.7rem;
+    font-size: 1.35rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-button--hero, .sp-trust-box__actions .sp-button, .sp-selector-card__actions .sp-button, .sp-section-final-cta .sp-actions .sp-button) {
+    min-block-size: 3.05rem;
+    border-color: color-mix(in srgb, var(--sp-color-accent) 72%, transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--sp-color-accent) 88%, #fff 12%), var(--sp-color-accent));
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 800;
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--sp-color-accent) 24%, transparent);
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-card__more, .sp-button--ghost) {
+    min-block-size: 2.75rem;
+    border-color: color-mix(in srgb, var(--sp-color-accent) 16%, transparent);
+    background: color-mix(in srgb, var(--sp-color-surface) 94%, var(--sp-color-accent-soft) 6%);
+    color: var(--sp-color-accent-ink);
+    box-shadow: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-final-cta-card {
+    padding-block: 1.5rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  body.sp-context-public .sp-bg-canvas .sp-section {
+    padding-block: 4rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    inline-size: min(100%, 46rem);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof > span {
+    justify-content: center;
+    min-inline-size: 0;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-standard-grid, .sp-usecases-grid, .sp-steps-grid, .sp-selector-grid, .sp-diff-grid) {
+    grid-template-columns: 1fr;
+    max-inline-size: 46rem;
+    margin-inline: auto;
+  }
+
+  body.sp-context-public .sp-bg-canvas :is(.sp-card, .sp-standard-card, .sp-compare-card, .sp-usecase-card, .sp-step-card, .sp-selector-card, .sp-diff-chip, .sp-faq-item, .sp-price-card, .sp-final-cta-card, .sp-trust-box) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
