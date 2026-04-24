@@ -1233,3 +1233,439 @@ body.sp-context-public .sp-step-card__badge {
 .sp-selector-card--sos .sp-selector-card__meta {
   color: var(--sp-home-priority-ink);
 }
+
+/* --------------------------------------------------------------------------
+   V8.5.1 — Mobile A : homepage mobile-first premium
+   -------------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+  body.sp-context-public .sp-bg-canvas {
+    overflow-x: clip;
+  }
+
+  body.sp-context-public .sp-section {
+    padding-block: clamp(var(--sp-space-6), 7vw, var(--sp-space-8));
+  }
+
+  body.sp-context-public .sp-section-hero {
+    padding-block-start: clamp(var(--sp-space-6), 8vw, var(--sp-space-8));
+    padding-block-end: var(--sp-space-5);
+  }
+
+  body.sp-context-public .sp-hero-minimal__body {
+    gap: var(--sp-space-5);
+  }
+
+  body.sp-context-public .sp-hero-minimal__visual {
+    flex-basis: min(36vw, calc(var(--sp-space-11) * 2));
+    min-block-size: min(36vw, calc(var(--sp-space-11) * 2));
+  }
+
+  body.sp-context-public :is(.sp-compare-cards, .sp-standard-grid, .sp-usecases-grid, .sp-steps-grid, .sp-selector-grid, .sp-diff-grid) {
+    gap: var(--sp-space-4);
+  }
+}
+
+@media (max-width: 768px) {
+  body.sp-context-public .sp-bg-canvas {
+    --sp-home-mobile-card-padding: var(--sp-space-4);
+    --sp-home-mobile-section-gap: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-section {
+    padding-block: var(--sp-space-6);
+  }
+
+  body.sp-context-public .sp-section-hero {
+    padding-block-start: var(--sp-space-5);
+    padding-block-end: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-section-head,
+  body.sp-context-public .sp-steps-head,
+  body.sp-context-public .sp-pricing-head {
+    gap: var(--sp-space-2);
+    margin-block-end: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-section-head > h2,
+  body.sp-context-public .sp-steps-head > h2,
+  body.sp-context-public .sp-pricing-head > h2 {
+    font-size: clamp(var(--sp-text-xl), 8vw, var(--sp-text-3xl));
+    line-height: 1.08;
+    text-wrap: balance;
+  }
+
+  body.sp-context-public .sp-section-head > p,
+  body.sp-context-public .sp-steps-head > p,
+  body.sp-context-public .sp-pricing-head > p {
+    font-size: var(--sp-text-sm);
+    line-height: 1.55;
+  }
+
+  body.sp-context-public .sp-hero-minimal {
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-hero-minimal__eyebrow {
+    justify-content: center;
+    gap: var(--sp-space-2);
+    margin-block-end: var(--sp-space-4);
+    font-size: var(--sp-text-xs);
+    line-height: 1.35;
+    text-align: center;
+  }
+
+  body.sp-context-public .sp-hero-minimal__body {
+    display: grid;
+    gap: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-hero-minimal__copy {
+    max-inline-size: 100%;
+    gap: var(--sp-space-3);
+    justify-items: start;
+  }
+
+  body.sp-context-public .sp-hero__title {
+    inline-size: 100%;
+    max-inline-size: 100%;
+    font-size: clamp(2.15rem, 11vw, 3.15rem);
+    line-height: 1;
+    letter-spacing: -0.032em;
+    text-align: left;
+    text-wrap: balance;
+    white-space: normal;
+  }
+
+  body.sp-context-public .sp-hero__line,
+  body.sp-context-public .sp-hero__line--nowrap {
+    display: inline;
+    white-space: normal;
+  }
+
+  body.sp-context-public .sp-hero__lead {
+    max-inline-size: 100%;
+    font-size: var(--sp-text-md);
+    line-height: 1.55;
+  }
+
+  body.sp-context-public .sp-hero-proof {
+    flex-wrap: nowrap;
+    gap: var(--sp-space-2);
+    max-inline-size: 100%;
+    margin-inline: calc(var(--sp-space-2) * -1);
+    padding-inline: var(--sp-space-2);
+    padding-block-end: var(--sp-space-1);
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.sp-context-public .sp-hero-proof > span {
+    flex: 0 0 auto;
+    min-block-size: var(--sp-space-6);
+    padding-inline: var(--sp-space-3);
+    padding-block: var(--sp-space-1);
+    scroll-snap-align: start;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  body.sp-context-public .sp-hero-proof::after {
+    content: "";
+    flex: 0 0 var(--sp-space-2);
+  }
+
+  body.sp-context-public .sp-hero-minimal__visual {
+    display: none;
+  }
+
+  body.sp-context-public .sp-hero-actions {
+    gap: var(--sp-space-3);
+    margin-block-start: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-trust-box {
+    gap: var(--sp-space-3);
+    padding: var(--sp-space-4);
+    border-radius: var(--sp-radius-md);
+    box-shadow: var(--sp-shadow-1);
+  }
+
+  body.sp-context-public .sp-trust-box__title {
+    font-size: clamp(var(--sp-text-lg), 7vw, var(--sp-text-2xl));
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+
+  body.sp-context-public .sp-trust-box__lead {
+    font-size: var(--sp-text-sm);
+    line-height: 1.55;
+  }
+
+  body.sp-context-public .sp-button--hero,
+  body.sp-context-public .sp-trust-box__actions .sp-button {
+    min-block-size: calc(var(--sp-space-7) + var(--sp-space-1));
+    min-inline-size: 0;
+    inline-size: 100%;
+    padding-inline: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-trust-box__arguments {
+    gap: var(--sp-space-2) var(--sp-space-3);
+    font-size: var(--sp-text-xs);
+    line-height: 1.35;
+  }
+
+  body.sp-context-public :is(.sp-ethics, .sp-compare, .sp-standard, .sp-tech, .sp-usecases, .sp-steps, .sp-pricing, .sp-diff, .sp-faq, .sp-final-cta) {
+    gap: var(--sp-home-mobile-section-gap);
+  }
+
+  body.sp-context-public .sp-ethics-head {
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-ethics-head__seal {
+    inline-size: var(--sp-space-8);
+    block-size: var(--sp-space-8);
+    margin-block-end: var(--sp-space-1);
+  }
+
+  body.sp-context-public .sp-ethics-head__lead {
+    font-size: var(--sp-text-md);
+    line-height: 1.5;
+  }
+
+  body.sp-context-public .sp-ethics-head__body {
+    font-size: var(--sp-text-sm);
+    line-height: 1.6;
+  }
+
+  body.sp-context-public :is(.sp-compare-cards, .sp-standard-grid, .sp-usecases-grid, .sp-steps-grid, .sp-selector-grid, .sp-diff-grid, .sp-faq-list) {
+    grid-template-columns: 1fr;
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public :is(.sp-card, .sp-standard-card, .sp-compare-card, .sp-usecase-card, .sp-step-card, .sp-selector-card, .sp-diff-chip, .sp-faq-item, .sp-price-card, .sp-final-cta-card) {
+    padding: var(--sp-home-mobile-card-padding);
+    border-radius: var(--sp-radius-md);
+    box-shadow: var(--sp-shadow-1);
+  }
+
+  body.sp-context-public .sp-compare-card,
+  body.sp-context-public .sp-compare-card__options,
+  body.sp-context-public .sp-standard-card,
+  body.sp-context-public .sp-selector-card,
+  body.sp-context-public .sp-diff-chip {
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-compare-option {
+    padding: var(--sp-space-3);
+    gap: var(--sp-space-1);
+  }
+
+  body.sp-context-public .sp-standard-card__inner,
+  body.sp-context-public .sp-selector-card__top,
+  body.sp-context-public .sp-diff-chip {
+    grid-template-columns: 1fr;
+  }
+
+  body.sp-context-public .sp-step-card {
+    padding-block-start: var(--sp-space-7);
+  }
+
+  body.sp-context-public .sp-step-card__badge {
+    inline-size: var(--sp-space-8);
+    block-size: var(--sp-space-8);
+    font-size: var(--sp-text-2xl);
+  }
+
+  body.sp-context-public .sp-selector-card__situation {
+    max-inline-size: 100%;
+    line-height: 1.25;
+  }
+
+  body.sp-context-public .sp-selector-card__meta {
+    padding-top: var(--sp-space-2);
+  }
+
+  body.sp-context-public .sp-diff-chip > .sp-icon-badge {
+    inline-size: var(--sp-space-7);
+    block-size: var(--sp-space-7);
+  }
+
+  body.sp-context-public .sp-faq-item {
+    padding: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-faq-item summary {
+    min-block-size: var(--sp-space-7);
+    gap: var(--sp-space-3);
+    font-size: var(--sp-text-sm);
+    line-height: 1.35;
+  }
+
+  body.sp-context-public .sp-faq-item p {
+    margin-block-start: var(--sp-space-2);
+    font-size: var(--sp-text-sm);
+    line-height: 1.58;
+  }
+
+  body.sp-context-public .sp-section-final-cta {
+    padding-block-start: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-final-cta .sp-trust-box {
+    padding-block: var(--sp-space-4);
+  }
+}
+
+@media (max-width: 640px) {
+  .sp-modal {
+    padding: var(--sp-space-2);
+  }
+
+  .sp-modal-dialog {
+    inline-size: 100%;
+    max-block-size: calc(100dvh - (var(--sp-space-2) * 2));
+    border-radius: var(--sp-radius-lg);
+  }
+
+  .sp-modal-header {
+    align-items: flex-start;
+    gap: var(--sp-space-3);
+    padding: var(--sp-space-3);
+  }
+
+  .sp-modal-header h3 {
+    font-size: var(--sp-text-lg);
+    line-height: 1.15;
+  }
+
+  .sp-modal-close {
+    inline-size: var(--sp-space-7);
+    block-size: var(--sp-space-7);
+    border-radius: var(--sp-radius-md);
+  }
+
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-body {
+    gap: var(--sp-space-3);
+    padding: var(--sp-space-3);
+  }
+
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-visual-container {
+    max-block-size: 34vh;
+    padding: var(--sp-space-3);
+  }
+
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-diagram,
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-visual-container > img,
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-visual-container > svg {
+    max-block-size: 30vh;
+  }
+
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-list {
+    gap: var(--sp-space-3);
+  }
+
+  :is(#sp-modal-security, #sp-modal-transit, #sp-modal-specimen) .sp-modal-list li {
+    padding-inline-start: var(--sp-space-4);
+    font-size: var(--sp-text-sm);
+    line-height: 1.55;
+  }
+
+  #sp-modal-specimen .sp-modal-visual-container .sp-ordonnance-paper {
+    inline-size: min(100%, 22rem);
+    padding: var(--sp-space-3);
+    gap: var(--sp-space-3);
+    font-size: var(--sp-text-xs);
+  }
+
+  #sp-modal-specimen .sp-ordonnance-paper__grid {
+    gap: var(--sp-space-2);
+  }
+
+  #sp-modal-specimen .sp-ordonnance-paper__field {
+    min-block-size: auto;
+    padding: var(--sp-space-2);
+  }
+
+  #sp-modal-specimen .sp-ordonnance-paper__qr {
+    inline-size: var(--sp-space-10);
+    block-size: var(--sp-space-10);
+  }
+
+  #sp-modal-specimen .sp-ordonnance-paper::after {
+    font-size: clamp(var(--sp-text-3xl), 18vw, var(--sp-text-5xl));
+    letter-spacing: 0.16em;
+  }
+}
+
+@media (max-width: 430px) {
+  body.sp-context-public .sp-section {
+    padding-block: var(--sp-space-5);
+  }
+
+  body.sp-context-public .sp-section-hero {
+    padding-block-start: var(--sp-space-4);
+  }
+
+  body.sp-context-public .sp-hero-minimal__eyebrow {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  body.sp-context-public .sp-eyebrow__separator {
+    display: none;
+  }
+
+  body.sp-context-public .sp-hero__title {
+    font-size: clamp(2rem, 12vw, 2.75rem);
+  }
+
+  body.sp-context-public .sp-hero-proof > span {
+    min-block-size: calc(var(--sp-space-6) - var(--sp-space-1));
+  }
+
+  body.sp-context-public .sp-trust-box {
+    padding: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-trust-box__arguments {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  body.sp-context-public .sp-trust-box__arguments > span + span::before,
+  body.sp-context-public .sp-status-bar > span + span::before {
+    margin-inline-end: var(--sp-space-2);
+  }
+
+  body.sp-context-public :is(.sp-card, .sp-standard-card, .sp-compare-card, .sp-usecase-card, .sp-step-card, .sp-selector-card, .sp-diff-chip, .sp-faq-item, .sp-price-card, .sp-final-cta-card) {
+    padding: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-faq-item summary {
+    min-block-size: calc(var(--sp-space-6) + var(--sp-space-1));
+  }
+}
+
+@media (max-width: 380px) {
+  body.sp-context-public .sp-hero__title {
+    font-size: clamp(1.85rem, 11.5vw, 2.35rem);
+  }
+
+  body.sp-context-public .sp-hero__lead,
+  body.sp-context-public .sp-trust-box__lead,
+  body.sp-context-public .sp-section-head > p,
+  body.sp-context-public .sp-steps-head > p,
+  body.sp-context-public .sp-pricing-head > p {
+    font-size: var(--sp-text-sm);
+    line-height: 1.5;
+  }
+
+  body.sp-context-public .sp-status-item--live::before {
+    animation: none;
+  }
+}
