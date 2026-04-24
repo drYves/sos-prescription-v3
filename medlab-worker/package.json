@@ -1,6 +1,6 @@
 {
   "name": "medlab-worker",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "type": "commonjs",
   "main": "dist/main.js",
@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "dev": "tsx src/main.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "document-pilot": "tsx src/documents/documentPilotRunner.ts"
   },
   "devDependencies": {
     "@types/node": "20.19.37",
