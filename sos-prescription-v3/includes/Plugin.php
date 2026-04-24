@@ -52,6 +52,7 @@ use SosPrescription\Services\NoIndex;
 use SosPrescription\Services\Retention;
 use SosPrescription\Services\StorageCleaner;
 use SosPrescription\Services\Logger;
+use SosPrescription\Services\LocaleContractBroker;
 use SosPrescription\Services\PhpDebugTrace;
 use SosPrescription\Services\ThemeTrace;
 use SosPrescription\Services\LegalPages;
@@ -77,6 +78,7 @@ final class Plugin
         AuthVerifyPage::register_hooks();
         ThemeTrace::register();
         PhpDebugTrace::register_hooks();
+        LocaleContractBroker::register_hooks();
 
         if (did_action('wp_loaded') > 0) {
             self::boot_deferred_services();

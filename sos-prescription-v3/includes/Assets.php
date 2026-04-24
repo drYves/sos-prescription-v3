@@ -5,6 +5,7 @@ namespace SOSPrescription;
 
 use SOSPrescription\Assets\Assets as AssetManager;
 use SOSPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\LocaleContractBroker;
 use SOSPrescription\Services\SandboxConfig;
 
 final class Assets
@@ -129,6 +130,11 @@ final class Assets
             'compliance' => ComplianceConfig::public_data(),
             'sandbox' => SandboxConfig::get(),
         ];
+
+        $localeContract = LocaleContractBroker::runtime_contract();
+        if (is_array($localeContract)) {
+            $data['localeContract'] = $localeContract;
+        }
 
         $json = wp_json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {

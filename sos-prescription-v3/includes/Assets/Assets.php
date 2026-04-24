@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace SOSPrescription\Assets;
 
 use SOSPrescription\Services\ComplianceConfig;
+use SosPrescription\Services\LocaleContractBroker;
 use SOSPrescription\Services\NoticesConfig;
 use SOSPrescription\Services\NotificationsConfig;
 use SOSPrescription\Services\OcrConfig;
@@ -356,7 +357,7 @@ final class Assets
         $cap_manage_data = current_user_can('sosprescription_manage_data') || current_user_can('manage_options');
         $cap_validate = current_user_can('sosprescription_validate') || current_user_can('manage_options');
 
-        return [
+        $data = [
             'restBase' => esc_url_raw(rest_url('sosprescription/v1')),
             'restV4Base' => esc_url_raw(rest_url('sosprescription/v4')),
             'nonce' => wp_create_nonce('wp_rest'),
@@ -409,6 +410,13 @@ final class Assets
             'ocr' => OcrConfig::public_data(),
             'i18n' => self::i18n_data(),
         ];
+
+        $locale_contract = LocaleContractBroker::runtime_contract();
+        if (is_array($locale_contract)) {
+            $data['localeContract'] = $locale_contract;
+        }
+
+        return $data;
     }
 
     private static function localize_app(string $handle): void
