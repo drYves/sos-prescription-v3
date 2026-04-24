@@ -769,6 +769,43 @@ body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-contex
 }
 
 @media (max-width: 768px) {
+  body.sp-context-public #masthead .inside-header {
+    min-height: 64px;
+    gap: 0.875rem;
+    padding-block: 0.35rem;
+  }
+
+  body.sp-context-public .site-logo {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  body.sp-context-public .site-logo a,
+  body.sp-context-public .inside-header a[rel="home"] {
+    display: inline-flex;
+    align-items: center;
+    min-height: 52px;
+    padding-block: 0.2rem;
+  }
+
+  body.sp-context-public .site-logo .header-image,
+  body.sp-context-public .site-logo .custom-logo,
+  body.sp-context-public .inside-header .header-image,
+  body.sp-context-public .inside-header .custom-logo {
+    width: clamp(84px, 24vw, 108px);
+    max-width: none;
+    height: auto;
+    max-height: 44px;
+    display: block;
+  }
+
+  body.sp-context-public .main-navigation.mobile-menu-control-wrapper,
+  body.sp-context-public #site-navigation {
+    flex: 0 0 auto;
+  }
+
   .main-navigation.toggled .main-nav > ul,
   .main-navigation.toggled .main-nav > div > ul,
   .main-navigation.toggled .menu {
