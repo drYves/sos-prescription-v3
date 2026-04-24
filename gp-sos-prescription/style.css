@@ -801,6 +801,18 @@ body:is(.sp-context-patient, .sp-context-doctor, .sp-context-console, .sp-contex
     display: block;
   }
 
+  body.sp-context-public .sp-header-logo-picture {
+    display: block;
+    line-height: 0;
+  }
+
+  body.sp-context-public .sp-header-logo-picture .header-image,
+  body.sp-context-public .sp-header-logo-picture .custom-logo {
+    width: auto;
+    height: clamp(46px, 12vw, 54px);
+    max-height: none;
+  }
+
   body.sp-context-public .main-navigation.mobile-menu-control-wrapper,
   body.sp-context-public #site-navigation {
     flex: 0 0 auto;

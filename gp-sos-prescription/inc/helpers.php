@@ -10,6 +10,46 @@ if (! defined('ABSPATH')) {
 }
 
 add_filter('nav_menu_css_class', 'sp_mark_primary_patient_menu_item', 20, 4);
+add_filter('get_custom_logo', 'sp_use_mobile_header_logo_variant', 10, 2);
+
+/**
+ * Injecte une variante logo mobile dédiée dans le header GeneratePress.
+ *
+ * Le header reste piloté par WordPress/GeneratePress ; seul l'asset servi
+ * sous 768px change afin d'améliorer la densité visuelle du logo mobile.
+ *
+ * @param string $html    HTML du logo WordPress.
+ * @param int    $blog_id Blog courant.
+ * @return string
+ */
+function sp_use_mobile_header_logo_variant($html, $blog_id)
+{
+    if (! is_string($html) || $html === '' || is_admin()) {
+        return $html;
+    }
+
+    $mobile_logo_path = SP_THEME_PATH . '/assets/img/brand/sos-logo-mobile.svg';
+    if (! is_readable($mobile_logo_path)) {
+        return $html;
+    }
+
+    if (strpos($html, 'sp-header-logo-picture') !== false) {
+        return $html;
+    }
+
+    if (! preg_match('/<img\b[^>]*>/i', $html, $matches)) {
+        return $html;
+    }
+
+    $mobile_logo_url = SP_THEME_URL . '/assets/img/brand/sos-logo-mobile.svg';
+    $picture         = sprintf(
+        '<picture class="sp-header-logo-picture"><source media="(max-width: 768px)" srcset="%s" type="image/svg+xml">%s</picture>',
+        esc_url($mobile_logo_url),
+        $matches[0]
+    );
+
+    return str_replace($matches[0], $picture, $html);
+}
 
 /**
  * Retourne les slugs structurants du site.
