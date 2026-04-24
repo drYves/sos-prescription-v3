@@ -99,62 +99,47 @@
       </div>
 
       <div class="sp-compare-cards">
-        <article class="sp-card sp-compare-card">
+        <article class="sp-card sp-compare-card sp-compare-card--criterion">
+          <p class="sp-compare-card__eyebrow">Critère</p>
           <h3 class="sp-compare-card__title">Expertise ciblée</h3>
-          <div class="sp-compare-card__options">
+          <div class="sp-compare-card__options" aria-label="Comparer l’expertise ciblée">
             <div class="sp-compare-option sp-compare-option--sos">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--good" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg></span>
-                <strong>SOS Prescription</strong>
-              </div>
-              <p>Continuité de soins.</p>
+              <strong class="sp-compare-option__label">SOS Prescription</strong>
+              <p>Continuité de soins ciblée pour un traitement habituel déjà connu.</p>
             </div>
             <div class="sp-compare-option sp-compare-option--other">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--bad" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg></span>
-                <strong>Téléconsultation</strong>
-              </div>
-              <p>Diagnostic.</p>
+              <strong class="sp-compare-option__label">Téléconsultation</strong>
+              <p>Échange de diagnostic pour une situation médicale à évaluer en direct.</p>
             </div>
           </div>
         </article>
 
-        <article class="sp-card sp-compare-card">
+        <article class="sp-card sp-compare-card sp-compare-card--criterion">
+          <p class="sp-compare-card__eyebrow">Critère</p>
           <h3 class="sp-compare-card__title">Modalités d’échange</h3>
-          <div class="sp-compare-card__options">
+          <div class="sp-compare-card__options" aria-label="Comparer les modalités d’échange">
             <div class="sp-compare-option sp-compare-option--sos">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--good" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg></span>
-                <strong>SOS Prescription</strong>
-              </div>
-              <p>Asynchrone sécurisée.</p>
+              <strong class="sp-compare-option__label">SOS Prescription</strong>
+              <p>Dossier asynchrone sécurisé, transmis avec les éléments utiles au relais médical.</p>
             </div>
             <div class="sp-compare-option sp-compare-option--other">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--bad" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg></span>
-                <strong>Téléconsultation</strong>
-              </div>
-              <p>Synchrone temps réel.</p>
+              <strong class="sp-compare-option__label">Téléconsultation</strong>
+              <p>Rendez-vous synchrone en temps réel, centré sur l’échange immédiat.</p>
             </div>
           </div>
         </article>
 
-        <article class="sp-card sp-compare-card">
+        <article class="sp-card sp-compare-card sp-compare-card--criterion">
+          <p class="sp-compare-card__eyebrow">Critère</p>
           <h3 class="sp-compare-card__title">Indication médicale</h3>
-          <div class="sp-compare-card__options">
+          <div class="sp-compare-card__options" aria-label="Comparer l’indication médicale">
             <div class="sp-compare-option sp-compare-option--sos">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--good" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg></span>
-                <strong>SOS Prescription</strong>
-              </div>
-              <p>Relais de traitement habituel.</p>
+              <strong class="sp-compare-option__label">SOS Prescription</strong>
+              <p>Relais de traitement habituel : renouvellement ou dépannage documenté.</p>
             </div>
             <div class="sp-compare-option sp-compare-option--other">
-              <div class="sp-compare-option__head">
-                <span class="sp-compare-option__icon sp-compare-option__icon--bad" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg></span>
-                <strong>Téléconsultation</strong>
-              </div>
-              <p>Nouveaux symptômes.</p>
+              <strong class="sp-compare-option__label">Téléconsultation</strong>
+              <p>Nouveaux symptômes ou situation nécessitant une évaluation médicale directe.</p>
             </div>
           </div>
         </article>

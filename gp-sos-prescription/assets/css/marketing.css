@@ -1843,3 +1843,86 @@ body.sp-context-public .sp-bg-canvas .sp-button__icon {
     text-align: start;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V8.5.3 — GB structure : distinction du service mobile/tablette
+   -------------------------------------------------------------------------- */
+body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion {
+  align-content: start;
+}
+
+body.sp-context-public .sp-bg-canvas .sp-compare-card__eyebrow {
+  margin: 0;
+  color: var(--sp-color-text-3);
+  font-size: var(--sp-text-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+body.sp-context-public .sp-bg-canvas .sp-compare-option__label {
+  display: block;
+  color: var(--sp-color-text-1);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion {
+    grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-card__eyebrow,
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-card__title {
+    grid-column: 1;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-card__options {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    grid-template-columns: 1fr;
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-option {
+    padding: var(--sp-space-4);
+  }
+}
+
+@media (max-width: 767px) {
+  body.sp-context-public .sp-bg-canvas .sp-compare-cards {
+    gap: var(--sp-space-3);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion {
+    gap: var(--sp-space-3);
+    padding: var(--sp-space-4);
+    border-radius: var(--sp-radius-lg);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-card__title {
+    font-size: var(--sp-text-lg);
+    line-height: 1.18;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-card__options {
+    grid-template-columns: 1fr;
+    gap: var(--sp-space-2);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-option {
+    gap: var(--sp-space-1);
+    padding: var(--sp-space-3);
+    border-radius: var(--sp-radius-md);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-option__label,
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-option p {
+    font-size: var(--sp-text-sm);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-compare-card--criterion .sp-compare-option p {
+    line-height: 1.55;
+  }
+}
