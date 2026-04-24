@@ -28,6 +28,7 @@ final class LocaleContractBroker
      */
     private const POC_SURFACES = [
         'securite-confidentialite' => ['kind' => 'wordpress_host'],
+        'politique-de-confidentialite' => ['kind' => 'wordpress_host'],
         'catalogue-medicaments' => ['kind' => 'public_separate_route'],
         self::FALLBACK_SLUG => ['kind' => 'fallback_no_sister'],
     ];
