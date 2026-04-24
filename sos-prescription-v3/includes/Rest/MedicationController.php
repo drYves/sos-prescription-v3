@@ -15,6 +15,20 @@ use WP_REST_Response;
 
 final class MedicationController
 {
+    private const LEGACY_HOMEOPATHIC_PRODUCT_MARKERS = [
+        'oscillococcinum',
+        'stodal',
+        'sedatif pc',
+        'cocculine',
+        'homeomunyl',
+    ];
+
+    private const LEGACY_HOMEOPATHIC_HOLDER_MARKERS = [
+        'boiron',
+        'weleda',
+        'lehning',
+    ];
+
     private MedicationRepository $repo;
 
     public function __construct()
@@ -100,12 +114,23 @@ final class MedicationController
 
                 $backend = 'legacy_mysql_fallback';
                 $search = $this->repo->searchWithMeta($q, $limit);
+                $legacyItems = is_array($search['items'] ?? null) ? $search['items'] : [];
+                $legacyFilter = $this->filter_legacy_homeopathic_search_items($legacyItems);
                 $items = $this->mark_legacy_search_items_non_selectable(
-                    $this->canonicalize_search_items(is_array($search['items'] ?? null) ? $search['items'] : [])
+                    $this->canonicalize_search_items($legacyFilter['items'])
                 );
                 $mode = isset($search['mode']) ? (string) $search['mode'] : 'exact';
                 $rawCount = isset($search['raw_count']) ? (int) $search['raw_count'] : count($items);
                 $candidateCount = isset($search['candidate_count']) ? (int) $search['candidate_count'] : count($items);
+
+                if ($legacyFilter['filtered_count'] > 0) {
+                    $this->safe_runtime_log('warning', 'api_medication_search_legacy_homeopathy_filtered', [
+                        'scope' => $scope,
+                        'q' => self::str_sub($q, 0, 80),
+                        'filtered_count' => $legacyFilter['filtered_count'],
+                        'remaining_count' => count($items),
+                    ]);
+                }
             }
 
             if ($backend === 'legacy_mysql_fallback') {
@@ -471,6 +496,93 @@ final class MedicationController
         unset($item);
 
         return $items;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array{items:array<int, array<string, mixed>>, filtered_count:int}
+     */
+    private function filter_legacy_homeopathic_search_items(array $items): array
+    {
+        $filtered = [];
+        $filteredCount = 0;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if ($this->is_legacy_homeopathic_search_item($item)) {
+                $filteredCount += 1;
+                continue;
+            }
+
+            $filtered[] = $item;
+        }
+
+        return [
+            'items' => $filtered,
+            'filtered_count' => $filteredCount,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function is_legacy_homeopathic_search_item(array $item): bool
+    {
+        $label = isset($item['label']) && is_scalar($item['label']) ? (string) $item['label'] : '';
+        $specialite = isset($item['specialite']) && is_scalar($item['specialite']) ? (string) $item['specialite'] : '';
+        $sublabel = isset($item['sublabel']) && is_scalar($item['sublabel']) ? (string) $item['sublabel'] : '';
+
+        $haystack = $this->normalize_legacy_medication_search_text(implode(' ', [$label, $specialite, $sublabel]));
+        if ($haystack === '') {
+            return false;
+        }
+
+        if (str_contains($haystack, 'homeo') || str_contains($haystack, 'degre de dilution')) {
+            return true;
+        }
+
+        foreach (self::LEGACY_HOMEOPATHIC_PRODUCT_MARKERS as $marker) {
+            if (str_contains($haystack, $marker)) {
+                return true;
+            }
+        }
+
+        $hasGranules = str_contains($haystack, 'granules');
+        if ($hasGranules) {
+            foreach (self::LEGACY_HOMEOPATHIC_HOLDER_MARKERS as $marker) {
+                if (str_contains($haystack, $marker)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function normalize_legacy_medication_search_text(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (function_exists('remove_accents')) {
+            $value = remove_accents($value);
+        }
+
+        if (function_exists('mb_strtolower')) {
+            $value = mb_strtolower($value, 'UTF-8');
+        } else {
+            $value = strtolower($value);
+        }
+
+        $value = preg_replace('/[^a-z0-9]+/u', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     /**
