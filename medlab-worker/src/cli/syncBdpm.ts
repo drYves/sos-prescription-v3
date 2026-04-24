@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NdjsonLogger } from "../logger";
-import { normalizeSearchText } from "../services/medicationSearch";
+import { isHomeopathicBdpmMedication, normalizeSearchText } from "../services/medicationSearch";
 import { sleep } from "../utils/sleep";
 
 type SupportedTextEncoding = "utf-8" | "windows-1252";
@@ -41,6 +41,7 @@ interface DownloadedDataset {
 interface ImportContext {
   logger: NdjsonLogger;
   validCisSet: Set<string>;
+  filteredHomeopathicSpecialties: number;
 }
 
 interface DatasetDefinition<Row> {
@@ -158,7 +159,7 @@ async function main(): Promise<void> {
   );
   const prisma = new PrismaClient();
   const downloadDir = opts.downloadDir ?? await mkdtemp(path.join(os.tmpdir(), "bdpm-sync-"));
-  const ctx: ImportContext = { logger, validCisSet: new Set() };
+  const ctx: ImportContext = { logger, validCisSet: new Set(), filteredHomeopathicSpecialties: 0 };
 
   logger.info(
     "bdpm.sync.started",
@@ -194,7 +195,14 @@ async function main(): Promise<void> {
     }
 
     const counts = await collectRowCounts(prisma);
-    logger.info("bdpm.sync.completed", counts, undefined);
+    logger.info(
+      "bdpm.sync.completed",
+      {
+        ...counts,
+        filtered_homeopathic_specialties: ctx.filteredHomeopathicSpecialties,
+      },
+      undefined,
+    );
   } catch (err: unknown) {
     logger.error(
       "bdpm.sync.failed",
@@ -343,6 +351,7 @@ async function importDatasetFile<Row>(
 
   let lineNumber = 0;
   let insertedRows = 0;
+  let skippedRows = 0;
   let chunk: Row[] = [];
 
   for await (const line of iterateFileLines(dataset.filePath, encoding)) {
@@ -354,6 +363,12 @@ async function importDatasetFile<Row>(
 
     const fields = splitTabColumns(line, definition.expectedColumns);
     const parsed = definition.parse(fields, lineNumber, ctx);
+
+    if (dataset.key === "specialties" && isHomeopathicBdpmMedication(parsed as Prisma.BdpmMedicationCreateManyInput)) {
+      skippedRows += 1;
+      ctx.filteredHomeopathicSpecialties += 1;
+      continue;
+    }
 
     const cisValue = (parsed as { cis?: unknown }).cis;
     if (dataset.key !== "specialties" && typeof cisValue === "string" && !ctx.validCisSet.has(cisValue)) {
@@ -386,13 +401,14 @@ async function importDatasetFile<Row>(
 
   ctx.logger.info(
     "bdpm.import.completed",
-    {
-      dataset: dataset.key,
-      line_count: lineNumber,
-      inserted_rows: insertedRows,
-      encoding,
-    },
-    undefined,
+      {
+        dataset: dataset.key,
+        line_count: lineNumber,
+        inserted_rows: insertedRows,
+        skipped_rows: skippedRows,
+        encoding,
+      },
+      undefined,
   );
 }
 

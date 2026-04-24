@@ -6,9 +6,19 @@ let prismaSingleton: PrismaClient | null = null;
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
+const SEARCH_FETCH_MULTIPLIER = 5;
+const MAX_FETCH_LIMIT = MAX_LIMIT * SEARCH_FETCH_MULTIPLIER;
 const MIN_TEXT_QUERY_LENGTH = 2;
 const MIN_NUMERIC_QUERY_LENGTH = 3;
 const STUPEFIANT_REGEX = "(^|[[:space:]])stupefiant(s)?($|[[:space:]])";
+const HOMEOPATHIC_HOLDER_MARKERS = ["boiron", "weleda", "lehning"];
+const HOMEOPATHIC_PRODUCT_MARKERS = [
+  "oscillococcinum",
+  "stodal",
+  "sedatif pc",
+  "cocculine",
+  "homeomunyl",
+];
 
 export interface MedicationSearchConfig {
   prisma?: PrismaClient;
@@ -54,6 +64,18 @@ interface MedicationSearchRow {
   sublabel: string | null;
   isSelectable: boolean;
   matchCode: string;
+  normalizedDenomination?: string | null;
+  pharmaceuticalForm?: string | null;
+  authorizationProcedure?: string | null;
+  holdersRaw?: string | null;
+}
+
+export interface HomeopathicBdpmMedicationInput {
+  denomination?: string | null;
+  normalizedDenomination?: string | null;
+  pharmaceuticalForm?: string | null;
+  authorizationProcedure?: string | null;
+  holdersRaw?: string | null;
 }
 
 export class MedicationSearchError extends Error {
@@ -84,12 +106,15 @@ export class MedicationSearchService {
       const rows = normalized.kind === "numeric"
         ? await this.searchByNumericIdentifier(normalized)
         : await this.searchByNormalizedLabel(normalized);
+      const filteredRows = rows
+        .filter((row) => !isHomeopathicBdpmMedication(row))
+        .slice(0, normalized.limit);
 
       return {
         query: normalized.query,
         normalizedQuery: normalized.normalizedQuery,
         limit: normalized.limit,
-        items: rows.map(mapMedicationSearchRow),
+        items: filteredRows.map(mapMedicationSearchRow),
       };
     } catch (err: unknown) {
       if (err instanceof MedicationSearchError) {
@@ -114,6 +139,7 @@ export class MedicationSearchService {
 
   private async searchByNumericIdentifier(input: SearchQueryShape): Promise<MedicationSearchRow[]> {
     const prefixValue = `${input.digitsOnly}%`;
+    const fetchLimit = resolveFetchLimit(input.limit);
 
     const query = Prisma.sql`
       WITH cpd_flags AS (
@@ -128,6 +154,10 @@ export class MedicationSearchService {
         p."cip13" AS "cip13",
         m."denomination" AS "label",
         NULLIF(BTRIM(p."label"), '') AS "sublabel",
+        m."normalizedDenomination" AS "normalizedDenomination",
+        m."pharmaceuticalForm" AS "pharmaceuticalForm",
+        m."authorizationProcedure" AS "authorizationProcedure",
+        m."holdersRaw" AS "holdersRaw",
         CASE
           WHEN p."cip13" = ${input.digitsOnly} THEN 0
           WHEN p."cip7" = ${input.digitsOnly} THEN 1
@@ -177,16 +207,18 @@ export class MedicationSearchService {
         CHAR_LENGTH(m."denomination") ASC,
         m."cis" ASC,
         p."cip13" ASC
-      LIMIT ${input.limit}
+      LIMIT ${fetchLimit}
     `;
 
-    return this.prisma.$queryRaw<MedicationSearchRow[]>(query);
+    const rows = await this.prisma.$queryRaw<MedicationSearchRow[]>(query);
+    return rows.slice(0, fetchLimit);
   }
 
   private async searchByNormalizedLabel(input: SearchQueryShape): Promise<MedicationSearchRow[]> {
     const fullPrefix = `${input.normalizedQuery}%`;
     const fullContains = `%${input.normalizedQuery}%`;
     const tokenClauses = buildTokenClauses(input.tokens);
+    const fetchLimit = resolveFetchLimit(input.limit);
 
     const query = Prisma.sql`
       WITH cpd_flags AS (
@@ -201,6 +233,10 @@ export class MedicationSearchService {
         p."cip13" AS "cip13",
         m."denomination" AS "label",
         NULLIF(BTRIM(p."label"), '') AS "sublabel",
+        m."normalizedDenomination" AS "normalizedDenomination",
+        m."pharmaceuticalForm" AS "pharmaceuticalForm",
+        m."authorizationProcedure" AS "authorizationProcedure",
+        m."holdersRaw" AS "holdersRaw",
         CASE
           WHEN m."normalizedDenomination" = ${input.normalizedQuery} THEN 0
           WHEN m."normalizedDenomination" LIKE ${fullPrefix} THEN 1
@@ -243,10 +279,11 @@ export class MedicationSearchService {
         CHAR_LENGTH(m."denomination") ASC,
         m."cis" ASC,
         p."cip13" ASC
-      LIMIT ${input.limit}
+      LIMIT ${fetchLimit}
     `;
 
-    return this.prisma.$queryRaw<MedicationSearchRow[]>(query);
+    const rows = await this.prisma.$queryRaw<MedicationSearchRow[]>(query);
+    return rows.slice(0, fetchLimit);
   }
 }
 
@@ -328,6 +365,10 @@ function normalizeLimit(value: unknown): number {
   return Math.min(MAX_LIMIT, Math.trunc(parsed));
 }
 
+function resolveFetchLimit(limit: number): number {
+  return Math.min(MAX_FETCH_LIMIT, Math.max(limit, 1) * SEARCH_FETCH_MULTIPLIER);
+}
+
 function buildTokenClauses(tokens: string[]): Prisma.Sql {
   if (tokens.length === 0) {
     return Prisma.sql`FALSE`;
@@ -366,4 +407,41 @@ export function normalizeSearchText(value: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+export function isHomeopathicBdpmMedication(row: HomeopathicBdpmMedicationInput): boolean {
+  const normalizedDenomination = normalizeSearchText(
+    row.normalizedDenomination && row.normalizedDenomination.trim() !== ""
+      ? row.normalizedDenomination
+      : row.denomination ?? "",
+  );
+  const normalizedForm = normalizeSearchText(row.pharmaceuticalForm ?? "");
+  const normalizedProcedure = normalizeSearchText(row.authorizationProcedure ?? "");
+  const normalizedHolders = normalizeSearchText(row.holdersRaw ?? "");
+
+  if (normalizedProcedure.includes("homeo")) {
+    return true;
+  }
+
+  if (normalizedDenomination.includes("degre de dilution")) {
+    return true;
+  }
+
+  if (HOMEOPATHIC_PRODUCT_MARKERS.some((marker) => normalizedDenomination.includes(marker))) {
+    return true;
+  }
+
+  const granulesLike = normalizedForm.includes("granules");
+  const homeopathicHolder = HOMEOPATHIC_HOLDER_MARKERS.some((marker) => normalizedHolders.includes(marker));
+  const procedureNationale = normalizedProcedure.includes("procedure nationale");
+
+  if (granulesLike && homeopathicHolder) {
+    return true;
+  }
+
+  if (procedureNationale && homeopathicHolder) {
+    return true;
+  }
+
+  return false;
 }
