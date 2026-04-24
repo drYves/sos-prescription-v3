@@ -2105,3 +2105,30 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
 .sp-shell[data-sp-width-mode="console_compact"] .sp-console-frame {
   max-width: var(--sp-shell-current-width);
 }
+
+/* --------------------------------------------------------------------------
+   V10.0.6-beta2 — Width Contract Shell · Lot C2
+   Les conteneurs historiques restaient l'autorité finale via width/max-width
+   !important. On les rebranche explicitement sur le contrat width-mode avec
+   les memes propriétés pour rendre les écarts réellement perceptibles.
+   -------------------------------------------------------------------------- */
+.sp-shell[data-sp-zone="shell"][data-sp-width-mode] :is(.sp-container--app, .sp-container--console) {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    var(--sp-shell-current-container-width)
+  ) !important;
+  max-width: var(--sp-shell-current-container-width) !important;
+}
+
+.sp-shell[data-sp-zone="shell"][data-sp-width-mode] :is(.sp-container--app-compact, .sp-container--console-compact) {
+  width: min(
+    calc(100% - (var(--sp-workspace-gutter, 24px) * 2)),
+    var(--sp-shell-current-width)
+  ) !important;
+  max-width: var(--sp-shell-current-width) !important;
+}
+
+.sp-shell[data-sp-zone="shell"][data-sp-width-mode] :is(.sp-app-frame--no-sidebar, .sp-console-frame) {
+  width: min(100%, var(--sp-shell-current-width));
+  max-width: var(--sp-shell-current-width) !important;
+}
