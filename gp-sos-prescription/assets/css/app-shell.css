@@ -2012,22 +2012,22 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
 
 
 /* --------------------------------------------------------------------------
-   V10.0.6-beta1 — Width Contract Shell · Lot C
-   Les pages shell-owned consomment le contrat runtime data-sp-width-mode.
-   Le thème ajuste les largeurs par famille sans cibler les slugs, sans plugin
-   et sans nouvelle autorité de cadre côté React.
+   V10.0.6-beta3 — Width Contract Shell · Standard 1200
+   Stabilisation transitoire: toutes les surfaces shell-owned non secure
+   consomment une largeur standard unique, secure_compact restant compact.
    -------------------------------------------------------------------------- */
 .sp-shell--app,
 .sp-shell--console {
+  --sp-shell-standard-width: 75rem;
   --sp-width-secure-compact: 46rem;
-  --sp-width-app-standard: 76rem;
-  --sp-width-patient-comfort: 82rem;
-  --sp-width-doctor-account: 78rem;
-  --sp-width-catalogue-utility: 94rem;
-  --sp-width-console-wide: 104rem;
-  --sp-width-console-compact: 64rem;
+  --sp-width-app-standard: var(--sp-shell-standard-width);
+  --sp-width-patient-comfort: var(--sp-shell-standard-width);
+  --sp-width-doctor-account: var(--sp-shell-standard-width);
+  --sp-width-catalogue-utility: var(--sp-shell-standard-width);
+  --sp-width-console-wide: var(--sp-shell-standard-width);
+  --sp-width-console-compact: var(--sp-shell-standard-width);
   --sp-shell-current-width: var(--sp-layout-axis-width, var(--container-width, var(--gb-container-width, 75rem)));
-  --sp-shell-current-container-width: calc(var(--sp-shell-current-width) + var(--sp-layout-axis-sidebar, 0px) + var(--sp-layout-axis-gap, 0px));
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
 }
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="secure_compact"] {
@@ -2044,29 +2044,37 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="app_standard"] {
   --sp-shell-current-width: var(--sp-width-app-standard);
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
   --sp-layout-workspace: var(--sp-shell-current-width);
   --sp-layout-axis-width: var(--sp-shell-current-width);
+  --sp-layout-axis-sidebar: 0px;
   --sp-shell-surface-max: var(--sp-shell-current-width);
 }
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="patient_comfort"] {
   --sp-shell-current-width: var(--sp-width-patient-comfort);
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
   --sp-layout-workspace: var(--sp-shell-current-width);
   --sp-layout-axis-width: var(--sp-shell-current-width);
+  --sp-layout-axis-sidebar: 0px;
   --sp-shell-surface-max: var(--sp-shell-current-width);
 }
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="doctor_account"] {
   --sp-shell-current-width: var(--sp-width-doctor-account);
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
   --sp-layout-workspace: var(--sp-shell-current-width);
   --sp-layout-axis-width: var(--sp-shell-current-width);
+  --sp-layout-axis-sidebar: 0px;
   --sp-shell-surface-max: var(--sp-shell-current-width);
 }
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="catalogue_utility"] {
   --sp-shell-current-width: var(--sp-width-catalogue-utility);
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
   --sp-layout-workspace: var(--sp-shell-current-width);
   --sp-layout-axis-width: var(--sp-shell-current-width);
+  --sp-layout-axis-sidebar: 0px;
   --sp-shell-surface-max: var(--sp-shell-current-width);
 }
 
@@ -2089,8 +2097,12 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
 }
 
 .sp-shell[data-sp-zone="shell"][data-sp-width-mode="unknown"] {
-  --sp-shell-current-width: var(--sp-layout-axis-width, var(--container-width, var(--gb-container-width, 75rem)));
-  --sp-shell-current-container-width: calc(var(--sp-shell-current-width) + var(--sp-layout-axis-sidebar, 0px) + var(--sp-layout-axis-gap, 0px));
+  --sp-shell-current-width: var(--sp-shell-standard-width);
+  --sp-shell-current-container-width: var(--sp-shell-current-width);
+  --sp-layout-workspace: var(--sp-shell-current-width);
+  --sp-layout-axis-width: var(--sp-shell-current-width);
+  --sp-layout-axis-sidebar: 0px;
+  --sp-shell-surface-max: var(--sp-shell-current-width);
 }
 
 .sp-shell[data-sp-width-mode] :is(.sp-container--app, .sp-container--console) {
@@ -2128,7 +2140,7 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
   max-width: var(--sp-shell-current-width) !important;
 }
 
-.sp-shell[data-sp-zone="shell"][data-sp-width-mode] :is(.sp-app-frame--no-sidebar, .sp-console-frame) {
+.sp-shell[data-sp-zone="shell"][data-sp-width-mode] :is(.sp-app-frame, .sp-app-frame--no-sidebar, .sp-console-frame) {
   width: min(100%, var(--sp-shell-current-width));
   max-width: var(--sp-shell-current-width) !important;
 }
