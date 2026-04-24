@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS App Layout V2
- * Version: 10.0.5-beta1
+ * Version: 10.0.6-beta1
  *
  * Recovery structurel GP / SOS :
  * - restauration d'un scaffolding applicatif pragmatique
@@ -26,20 +26,10 @@ $sp_compliance         = get_option('sosprescription_compliance', []);
 $sp_cgu_url            = is_array($sp_compliance) && isset($sp_compliance['cgu_url']) ? trim((string) $sp_compliance['cgu_url']) : '';
 $sp_privacy_url        = is_array($sp_compliance) && isset($sp_compliance['privacy_url']) ? trim((string) $sp_compliance['privacy_url']) : '';
 $sp_content            = '';
-$sp_detect_guard_surface = static function (string $html): bool {
-    return str_contains($html, 'sp-plugin-root--guarded')
-        || str_contains($html, 'sp-plugin-guard')
-        || str_contains($html, 'sp-auth-entry--guarded')
-        || str_contains($html, 'sp-auth-surface--guarded');
-};
-$sp_detect_entry_auth_surface = static function (string $html): bool {
-    return str_contains($html, 'sp-auth-entry')
-        || str_contains($html, 'sp-auth-surface')
-        || str_contains($html, 'data-sp-auth-request-form="1"')
-        || str_contains($html, 'data-sp-auth-verify="1"')
-        || str_contains($html, 'data-sp-magic-redirect="1"')
-        || str_contains($html, 'sp-magic-redirect');
-};
+$sp_explicit_shell_mode = sp_resolve_shell_mode($sp_variant);
+$sp_explicit_secure_type = $sp_explicit_shell_mode === 'secure_compact'
+    ? sp_resolve_secure_compact_surface_type($sp_variant)
+    : '';
 
 while (have_posts()) {
     the_post();
@@ -48,9 +38,27 @@ while (have_posts()) {
     $sp_content = (string) ob_get_clean();
 }
 
-$sp_is_guard_surface      = $sp_detect_guard_surface($sp_content);
-$sp_is_entry_auth_surface = $sp_detect_entry_auth_surface($sp_content);
-$sp_is_entry_shell        = $sp_is_guard_surface || $sp_is_entry_auth_surface;
+$sp_legacy_guard_surface      = false;
+$sp_legacy_entry_auth_surface = false;
+
+if ($sp_explicit_secure_type === '') {
+    // Legacy fallback: secure mode previously inferred from plugin-rendered HTML.
+    // Keep temporarily until all secure surfaces resolve their shell mode explicitly.
+    $sp_legacy_guard_surface = str_contains($sp_content, 'sp-plugin-root--guarded')
+        || str_contains($sp_content, 'sp-plugin-guard')
+        || str_contains($sp_content, 'sp-auth-entry--guarded')
+        || str_contains($sp_content, 'sp-auth-surface--guarded');
+    $sp_legacy_entry_auth_surface = str_contains($sp_content, 'sp-auth-entry')
+        || str_contains($sp_content, 'sp-auth-surface')
+        || str_contains($sp_content, 'data-sp-auth-request-form="1"')
+        || str_contains($sp_content, 'data-sp-auth-verify="1"')
+        || str_contains($sp_content, 'data-sp-magic-redirect="1"')
+        || str_contains($sp_content, 'sp-magic-redirect');
+}
+
+$sp_is_guard_surface      = $sp_explicit_secure_type === 'guarded' || $sp_legacy_guard_surface;
+$sp_is_entry_auth_surface = $sp_explicit_secure_type === 'entry-auth' || $sp_legacy_entry_auth_surface;
+$sp_is_entry_shell        = $sp_explicit_shell_mode === 'secure_compact' || $sp_is_guard_surface || $sp_is_entry_auth_surface;
 $sp_has_sidebar           = ! $sp_is_entry_shell && sp_page_has_context_sidebar($sp_variant);
 $sp_show_rolebar          = ! $sp_is_entry_shell;
 $sp_show_legal_footer     = ! $sp_is_entry_shell && ($sp_cgu_url !== '' || $sp_privacy_url !== '');
@@ -88,11 +96,13 @@ if ($sp_is_guard_surface) {
     $sp_frame_classes[] = 'sp-app-frame--guarded';
 }
 
-$sp_shell_mode = 'standard';
-if ($sp_is_guard_surface) {
-    $sp_shell_mode = 'guarded';
-} elseif ($sp_is_entry_auth_surface) {
-    $sp_shell_mode = 'entry-auth';
+$sp_shell_mode = $sp_explicit_shell_mode;
+if ($sp_shell_mode === 'standard') {
+    if ($sp_is_guard_surface) {
+        $sp_shell_mode = 'guarded';
+    } elseif ($sp_is_entry_auth_surface) {
+        $sp_shell_mode = 'entry-auth';
+    }
 }
 
 $sp_bridge_classes = $sp_plugin_shell_class . ' sp-shell-bridge sp-shell-bridge--app sp-shell-bridge--' . sanitize_html_class($sp_variant);

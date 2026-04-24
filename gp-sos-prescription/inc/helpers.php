@@ -363,6 +363,143 @@ function sp_is_verify_context()
 }
 
 /**
+ * Indique si la page courante contient un shortcode donné avant rendu HTML.
+ *
+ * Ce signal est un contrat de page WordPress : il évite de déduire le mode
+ * shell à partir du DOM déjà produit par le plugin.
+ *
+ * @param string $tag Tag du shortcode.
+ * @return bool
+ */
+function sp_current_page_has_shortcode($tag)
+{
+    if (! is_singular() || ! function_exists('has_shortcode')) {
+        return false;
+    }
+
+    $tag = trim((string) $tag);
+    if ($tag === '') {
+        return false;
+    }
+
+    $post = get_queried_object();
+    if (! ($post instanceof WP_Post)) {
+        return false;
+    }
+
+    $content = isset($post->post_content) ? (string) $post->post_content : '';
+    if ($content === '') {
+        return false;
+    }
+
+    return has_shortcode($content, $tag);
+}
+
+/**
+ * Retourne les slugs WordPress connus qui relèvent d'un sas secure compact.
+ *
+ * Les endpoints techniques standalone restent hors de cette liste : /auth/verify
+ * et /v/{token} ne sont pas migrés par ce contrat thème.
+ *
+ * @return array<int, string>
+ */
+function sp_get_secure_compact_page_slugs()
+{
+    return (array) apply_filters(
+        'sp_secure_compact_page_slugs',
+        array(
+            'connexion-securisee',
+            'deconnexion',
+        )
+    );
+}
+
+/**
+ * Indique si l'utilisateur courant possède une capacité médecin shell-compatible.
+ *
+ * @return bool
+ */
+function sp_current_user_has_doctor_shell_access()
+{
+    return current_user_can('sosprescription_validate')
+        || current_user_can('sosprescription_manage')
+        || current_user_can('manage_options');
+}
+
+/**
+ * Résout explicitement le type de surface secure compact avant rendu plugin.
+ *
+ * Valeurs retournées :
+ * - entry-auth : sas d'entrée / Magic Link / utilisateur non connecté ;
+ * - guarded    : accès refusé, logout ou garde connue côté thème ;
+ * - ''         : aucune résolution explicite possible à ce stade.
+ *
+ * @param string $variant Variante de shell.
+ * @return string
+ */
+function sp_resolve_secure_compact_surface_type($variant = '')
+{
+    if ($variant === '') {
+        $variant = sp_get_page_shell_variant();
+    }
+
+    $slug = sp_get_current_page_slug();
+    if ($slug !== '') {
+        if (in_array($slug, sp_get_secure_compact_page_slugs(), true)) {
+            return $slug === 'deconnexion' ? 'guarded' : 'entry-auth';
+        }
+    }
+
+    if (sp_current_page_has_shortcode('sosprescription_logout')) {
+        return 'guarded';
+    }
+
+    if (sp_current_page_has_shortcode('sosprescription_magic_redirect')) {
+        return 'entry-auth';
+    }
+
+    if (in_array($variant, array('patient', 'doctor-account', 'console'), true) && ! is_user_logged_in()) {
+        return 'entry-auth';
+    }
+
+    if (in_array($variant, array('doctor-account', 'console'), true) && ! sp_current_user_has_doctor_shell_access()) {
+        return 'guarded';
+    }
+
+    return '';
+}
+
+/**
+ * Indique si la page courante relève explicitement du shell secure compact.
+ *
+ * @param string $variant Variante de shell.
+ * @return bool
+ */
+function sp_is_secure_compact_surface($variant = '')
+{
+    return sp_resolve_secure_compact_surface_type($variant) !== '';
+}
+
+/**
+ * Résout le mode shell principal avant rendu du contenu plugin.
+ *
+ * Le mode secure_compact est la nouvelle source d'autorité côté thème. Les
+ * templates peuvent encore utiliser un fallback legacy après rendu quand aucune
+ * résolution explicite n'est disponible.
+ *
+ * @param string $variant Variante de shell.
+ * @return string
+ */
+function sp_resolve_shell_mode($variant = '')
+{
+    if (sp_is_secure_compact_surface($variant)) {
+        return 'secure_compact';
+    }
+
+    return 'standard';
+}
+
+/**
  * Retourne le SVG du symbole de marque, si disponible.
  *
  * @return string
