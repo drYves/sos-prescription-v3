@@ -22,6 +22,7 @@ final class Assets
     private const BUILD_FORM_CSS = 'build/form.css';
     private const BUILD_ADMIN_JS = 'build/admin.js';
     private const BUILD_ADMIN_CSS = 'build/admin.css';
+    private const BUILD_POC_LOCALE_ISLAND_JS = 'build/pocLocaleIsland.js';
 
     private static bool $runtime_config_requested = false;
     private static bool $runtime_config_hooks_registered = false;
@@ -148,6 +149,18 @@ final class Assets
         }
 
         return '';
+    }
+
+    public static function enqueue_poc_locale_island(): void
+    {
+        self::ensure_global_runtime_config();
+
+        self::maybe_enqueue_build_script(
+            'sosprescription-poc-locale-island',
+            self::BUILD_POC_LOCALE_ISLAND_JS,
+            [],
+            true
+        );
     }
 
     private static function maybe_enqueue_turnstile(): bool

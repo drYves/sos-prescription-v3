@@ -2,13 +2,14 @@
  * SOS Prescription – V4.3 Monolith Build
  *
  * Objectif:
- * - Produire 2 bundles "classiques" (pas ESM) en IIFE, sans code-splitting.
+ * - Produire 3 bundles "classiques" (pas ESM) en IIFE, sans code-splitting.
  * - Noms stables, sans hash (cache-busting via SOSPRESCRIPTION_VERSION côté WP).
  * - Aucun manifest Vite utilisé.
  *
  * Sorties attendues:
  *   build/admin.js (+ build/admin.css si CSS importée)
  *   build/form.js  (+ build/form.css  si CSS importée)
+ *   build/pocLocaleIsland.js
  */
 
 import { build as viteBuild } from 'vite';
@@ -25,19 +26,20 @@ const OUT_DIR = path.resolve(ROOT_DIR, 'build');
 
 /**
  * Entrées supportées.
- * @type {readonly ['admin','form']}
+ * @type {readonly ['admin','form','pocLocaleIsland']}
  */
-const SUPPORTED_ENTRIES = ['admin', 'form'];
+const SUPPORTED_ENTRIES = ['admin', 'form', 'pocLocaleIsland'];
 
 /**
  * Parse CLI args.
  * - `node build.mjs` => build admin + form (avec clean)
  * - `node build.mjs admin` => build admin (sans clean par défaut)
  * - `node build.mjs form`  => build form  (sans clean par défaut)
+ * - `node build.mjs pocLocaleIsland` => build îlot POC locale (sans clean par défaut)
  * - `node build.mjs --clean` => clean seulement
  */
 const argv = process.argv.slice(2);
-const requestedEntry = argv.find((arg) => arg === 'admin' || arg === 'form') ?? null;
+const requestedEntry = argv.find((arg) => SUPPORTED_ENTRIES.includes(arg)) ?? null;
 const cleanOnly = argv.includes('--clean') && !requestedEntry;
 const shouldClean = argv.includes('--clean') || requestedEntry === null;
 
@@ -105,6 +107,7 @@ function getGlobalName(entryName) {
   // Le nom est requis par IIFE en mode "lib".
   // Il n'est pas utilisé par notre logique (nous attachons explicitement à window).
   if (entryName === 'admin') return 'SosPrescriptionAdminBundle';
+  if (entryName === 'pocLocaleIsland') return 'SosPrescriptionPocLocaleIslandBundle';
   return 'SosPrescriptionFormBundle';
 }
 

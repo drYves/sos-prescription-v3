@@ -22,6 +22,8 @@ final class LocaleContractBroker
     private const SUPPORTED_LOCALES = ['fr-FR', 'en-GB'];
 
     private const FALLBACK_SLUG = 'poc-multilingue-fallback';
+    private const POC_ISLAND_HOST_SLUG = 'politique-de-confidentialite';
+    private const POC_ISLAND_MOUNT_ID = 'sosprescription-poc-locale-island';
 
     /**
      * @var array<string, array{kind:string}>
@@ -36,6 +38,8 @@ final class LocaleContractBroker
     public static function register_hooks(): void
     {
         add_action('wp_enqueue_scripts', [self::class, 'maybe_request_runtime_config'], 1);
+        add_action('wp_enqueue_scripts', [self::class, 'maybe_enqueue_poc_locale_island'], 20);
+        add_filter('the_content', [self::class, 'append_poc_locale_island_mount'], 20);
     }
 
     public static function maybe_request_runtime_config(): void
@@ -54,6 +58,38 @@ final class LocaleContractBroker
         if (class_exists(AssetManager::class)) {
             AssetManager::ensure_global_runtime_config();
         }
+    }
+
+    public static function maybe_enqueue_poc_locale_island(): void
+    {
+        if (is_admin()) {
+            return;
+        }
+
+        $surface = self::current_surface();
+        if ($surface['slug'] !== self::POC_ISLAND_HOST_SLUG) {
+            return;
+        }
+
+        if (class_exists(AssetManager::class) && method_exists(AssetManager::class, 'enqueue_poc_locale_island')) {
+            AssetManager::enqueue_poc_locale_island();
+        }
+    }
+
+    public static function append_poc_locale_island_mount(string $content): string
+    {
+        if (is_admin() || ! is_singular() || ! in_the_loop() || ! is_main_query()) {
+            return $content;
+        }
+
+        $surface = self::current_surface();
+        if ($surface['slug'] !== self::POC_ISLAND_HOST_SLUG) {
+            return $content;
+        }
+
+        $mount = '<div id="' . esc_attr(self::POC_ISLAND_MOUNT_ID) . '" data-sosprescription-poc-locale-island="1"></div>';
+
+        return $content . "\n" . $mount;
     }
 
     /**
