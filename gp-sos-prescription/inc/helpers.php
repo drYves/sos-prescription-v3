@@ -500,6 +500,82 @@ function sp_resolve_shell_mode($variant = '')
 }
 
 /**
+ * Normalise un mode de largeur shell vers la liste autorisée par le contrat thème.
+ *
+ * Ce contrat ne fixe pas encore les pixels. Il expose un mode runtime stable pour
+ * rendre les largeurs shell-owned mesurables avant toute future coupe CSS.
+ *
+ * @param string $mode Mode brut.
+ * @return string
+ */
+function sp_normalize_shell_width_mode($mode)
+{
+    $mode = strtolower(trim((string) $mode));
+
+    $allowed_modes = array(
+        'app_standard',
+        'patient_comfort',
+        'doctor_account',
+        'console_wide',
+        'console_compact',
+        'secure_compact',
+        'catalogue_utility',
+        'unknown',
+    );
+
+    return in_array($mode, $allowed_modes, true) ? $mode : 'unknown';
+}
+
+/**
+ * Résout le mode de largeur shell-owned exposé au runtime.
+ *
+ * La décision reste portée par le thème enfant. GeneratePress demeure un substrat
+ * amont et un signal possible, mais les pages applicatives shell-owned exposent
+ * explicitement leur famille de largeur via `data-sp-width-mode`.
+ *
+ * @param string              $variant Variante de shell.
+ * @param string              $shell_mode Mode shell final ou explicite.
+ * @param array<string,mixed> $context Contexte optionnel du template.
+ * @return string
+ */
+function sp_resolve_shell_width_mode($variant = '', $shell_mode = '', $context = array())
+{
+    if ($variant === '') {
+        $variant = sp_get_page_shell_variant();
+    }
+
+    if ($shell_mode === '') {
+        $shell_mode = sp_resolve_shell_mode($variant);
+    }
+
+    $variant    = sanitize_key((string) $variant);
+    $shell_mode = sanitize_key((string) $shell_mode);
+    $context    = is_array($context) ? $context : array();
+
+    if (in_array($shell_mode, array('secure_compact', 'entry-auth', 'guarded'), true)) {
+        return 'secure_compact';
+    }
+
+    $mode_map = (array) apply_filters(
+        'sp_shell_width_mode_map',
+        array(
+            'request'        => 'app_standard',
+            'patient'        => 'patient_comfort',
+            'doctor-account' => 'doctor_account',
+            'doctor-catalog' => 'catalogue_utility',
+            'console'        => 'console_wide',
+        ),
+        $variant,
+        $shell_mode,
+        $context
+    );
+
+    $mode = isset($mode_map[$variant]) ? (string) $mode_map[$variant] : 'unknown';
+
+    return sp_normalize_shell_width_mode($mode);
+}
+
+/**
  * Retourne le SVG du symbole de marque, si disponible.
  *
  * @return string

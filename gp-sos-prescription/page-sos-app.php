@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS App Layout V2
- * Version: 10.0.6-beta1
+ * Version: 10.0.6-beta2
  *
  * Recovery structurel GP / SOS :
  * - restauration d'un scaffolding applicatif pragmatique
@@ -105,6 +105,16 @@ if ($sp_shell_mode === 'standard') {
     }
 }
 
+$sp_width_mode = sp_resolve_shell_width_mode(
+    $sp_variant,
+    $sp_shell_mode,
+    array(
+        'template'       => 'app',
+        'has_sidebar'    => $sp_has_sidebar,
+        'is_entry_shell' => $sp_is_entry_shell,
+    )
+);
+
 $sp_bridge_classes = $sp_plugin_shell_class . ' sp-shell-bridge sp-shell-bridge--app sp-shell-bridge--' . sanitize_html_class($sp_variant);
 if ($sp_is_entry_auth_surface) {
     $sp_bridge_classes .= ' sp-shell-bridge--entry-auth';
@@ -114,7 +124,7 @@ if ($sp_is_guard_surface) {
 }
 ?>
 
-<div class="<?php echo esc_attr(implode(' ', $sp_shell_classes)); ?>" data-sp-zone="shell" data-sp-variant="<?php echo esc_attr($sp_variant); ?>" data-sp-shell-mode="<?php echo esc_attr($sp_shell_mode); ?>">
+<div class="<?php echo esc_attr(implode(' ', $sp_shell_classes)); ?>" data-sp-zone="shell" data-sp-variant="<?php echo esc_attr($sp_variant); ?>" data-sp-shell-mode="<?php echo esc_attr($sp_shell_mode); ?>" data-sp-width-mode="<?php echo esc_attr($sp_width_mode); ?>">
     <?php if ($sp_show_rolebar) : ?>
         <?php sp_render_app_rolebar(); ?>
     <?php endif; ?>

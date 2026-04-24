@@ -1,7 +1,7 @@
 <?php
 /**
  * Template Name: SOS Console Layout V2
- * Version: 10.0.6-beta1
+ * Version: 10.0.6-beta2
  *
  * Recovery structurel GP / SOS pour la console médecin :
  * - restauration d'un cadre console stable
@@ -95,6 +95,15 @@ if ($sp_shell_mode === 'standard') {
     }
 }
 
+$sp_width_mode = sp_resolve_shell_width_mode(
+    $sp_variant,
+    $sp_shell_mode,
+    array(
+        'template'       => 'console',
+        'is_entry_shell' => $sp_is_entry_shell,
+    )
+);
+
 $sp_bridge_classes = $sp_plugin_shell_class . ' sp-shell-bridge sp-shell-bridge--console';
 if ($sp_is_entry_auth_surface) {
     $sp_bridge_classes .= ' sp-shell-bridge--entry-auth';
@@ -104,7 +113,7 @@ if ($sp_is_guard_surface) {
 }
 ?>
 
-<div class="<?php echo esc_attr(implode(' ', $sp_shell_classes)); ?>" data-sp-zone="shell" data-sp-variant="<?php echo esc_attr($sp_variant); ?>" data-sp-shell-mode="<?php echo esc_attr($sp_shell_mode); ?>">
+<div class="<?php echo esc_attr(implode(' ', $sp_shell_classes)); ?>" data-sp-zone="shell" data-sp-variant="<?php echo esc_attr($sp_variant); ?>" data-sp-shell-mode="<?php echo esc_attr($sp_shell_mode); ?>" data-sp-width-mode="<?php echo esc_attr($sp_width_mode); ?>">
     <?php if ($sp_show_console_bar) : ?>
         <?php sp_render_console_bar(); ?>
     <?php endif; ?>
