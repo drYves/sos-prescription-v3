@@ -1,0 +1,13 @@
+{
+  "name": "sos-mobile-visual-qa",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mobile visual QA runners for SOS Prescription public runtime.",
+  "scripts": {
+    "mobile:visual:local": "playwright test -c playwright.config.ts",
+    "mobile:visual:browserstack": "playwright test -c browserstack.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}
