@@ -17,6 +17,9 @@
         <div class="sp-hero-minimal__copy">
           <h1 class="sp-hero__title"><span class="sp-hero__line sp-hero__line--nowrap">Besoin d’une ordonnance&nbsp;?</span></h1>
           <p class="sp-hero__lead">Oubli, perte ou départ imminent : obtenez une ordonnance certifiée après validation médicale. Demande en 2 min.</p>
+          <div class="sp-hero-primary-action">
+            <a class="sp-button sp-button--primary sp-button--hero" href="/demande-ordonnance/">Démarrer ma demande</a>
+          </div>
           <p class="sp-hero-proof" aria-label="Repères rapides">
             <span>
               <span class="sp-hero-proof__icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video-off" aria-hidden="true"><path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196"/><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/><path d="m2 2 20 20"/></svg></span>
@@ -54,9 +57,6 @@
       <div class="sp-trust-box sp-trust-box--hero">
         <h2 class="sp-trust-box__title">Solution immédiate pour vos traitements</h2>
         <p class="sp-trust-box__lead">Obtenez votre ordonnance de relais après examen médical de votre dossier par nos praticiens.</p>
-        <div class="sp-trust-box__actions">
-          <a class="sp-button sp-button--primary sp-button--hero" href="/demande-ordonnance/">Démarrer ma demande</a>
-        </div>
         <p class="sp-trust-box__arguments" aria-label="Statut de plateforme">
           <span>Service médical disponible</span>
           <span class="sp-status-item--live">Médecins en ligne</span>

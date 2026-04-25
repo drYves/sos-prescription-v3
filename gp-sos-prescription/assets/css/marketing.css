@@ -2091,3 +2091,149 @@ body.sp-context-public .sp-bg-canvas .sp-compare-option__label {
     -webkit-backdrop-filter: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   V8.5.5 — Mobile Arch 1 : homepage top surface rebuild
+   -------------------------------------------------------------------------- */
+.sp-hero-primary-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-space-3);
+  margin-block-start: var(--sp-space-1);
+}
+
+.sp-hero-primary-action .sp-button {
+  justify-content: center;
+}
+
+@media (max-width: 767px) {
+  body.sp-context-public .sp-bg-canvas .sp-section-hero {
+    padding-block-start: 1.65rem;
+    padding-block-end: 2.25rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__body {
+    display: grid;
+    gap: 1.1rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__copy {
+    gap: 0.95rem;
+    max-inline-size: 100%;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero__lead {
+    max-inline-size: 100%;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-primary-action {
+    inline-size: 100%;
+    margin-block: 0.15rem 0.2rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-primary-action .sp-button {
+    inline-size: 100%;
+    min-block-size: 3.2rem;
+    border-color: color-mix(in srgb, var(--sp-color-accent) 76%, transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--sp-color-accent) 88%, #fff 12%), var(--sp-color-accent));
+    color: #fff;
+    font-size: 1.02rem;
+    font-weight: 850;
+    box-shadow: 0 14px 28px color-mix(in srgb, var(--sp-color-accent) 26%, transparent);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    inline-size: 100%;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof > span {
+    align-content: center;
+    justify-content: center;
+    min-block-size: 3rem;
+    padding: 0.55rem 0.45rem;
+    text-align: center;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof__icon {
+    display: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof__label {
+    overflow-wrap: anywhere;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__visual {
+    display: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-actions {
+    margin-block-start: 1.05rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero {
+    justify-items: start;
+    gap: 0.65rem;
+    padding: 1rem;
+    border-color: color-mix(in srgb, var(--sp-color-accent) 14%, transparent);
+    background: color-mix(in srgb, var(--sp-color-surface) 92%, var(--sp-color-accent-soft) 8%);
+    box-shadow: none;
+    text-align: start;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero .sp-trust-box__title {
+    font-size: 1.1rem;
+    line-height: 1.2;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero .sp-trust-box__lead {
+    font-size: 0.96rem;
+    line-height: 1.55;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero .sp-trust-box__arguments {
+    justify-content: flex-start;
+    gap: 0.45rem 0.75rem;
+    font-size: 0.84rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero .sp-trust-box__arguments > span + span::before {
+    margin-inline-end: 0.75rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__copy {
+    max-inline-size: 42rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-primary-action .sp-button {
+    min-inline-size: min(100%, 22rem);
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-inline-size: 42rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-proof > span:nth-child(n + 4) {
+    display: none;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__visual {
+    min-block-size: 13rem;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-hero-minimal__watermark {
+    inline-size: min(100%, 16rem);
+    opacity: 0.1;
+  }
+
+  body.sp-context-public .sp-bg-canvas .sp-trust-box--hero {
+    max-inline-size: 42rem;
+    padding: 1.35rem;
+    box-shadow: none;
+  }
+}
