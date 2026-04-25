@@ -120,13 +120,15 @@ function Spinner({ className = '' }: { className?: string }) {
 
 function Notice({
   variant = 'info',
+  className = '',
   children,
 }: {
   variant?: 'info' | 'success' | 'warning' | 'error';
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className={cx('sp-app-notice', `sp-app-notice--${variant}`)}>
+    <div className={cx('sp-app-notice', `sp-app-notice--${variant}`, className)}>
       {children}
     </div>
   );
@@ -1365,9 +1367,9 @@ function StepFlowChoice({ flow, onSelectFlow }: StepFlowChoiceProps) {
     <section className="sp-app-card sp-app-card--step-choice">
       <div className="sp-app-section__header">
         <div>
-          <h2 className="sp-app-section__title">Choisissez votre parcours</h2>
+          <h2 className="sp-app-section__title">Commencez par votre situation</h2>
           <p className="sp-app-section__hint">
-            Sélectionnez l’entrée qui correspond à votre demande.
+            Deux parcours, selon que vous avez un justificatif.
           </p>
         </div>
       </div>
@@ -2873,8 +2875,8 @@ function PublicFormApp() {
         </div>
 
         {noticeEnabled && noticeItems.length > 0 ? (
-          <div className="sp-app-block">
-            <Notice variant="info">
+          <div className="sp-app-block sp-app-block--entry-rules">
+            <Notice variant="info" className="sp-app-notice--entry-rules">
               {noticeTitle ? <div className="sp-app-notice__title">{noticeTitle}</div> : null}
               <ul className="sp-app-list">
                 {noticeItems.map((item, index) => (
@@ -2887,8 +2889,8 @@ function PublicFormApp() {
 
 
         {!isLoggedIn ? (
-          <div className="sp-app-block">
-            <Notice variant="info">
+          <div className="sp-app-block sp-app-block--entry-email">
+            <Notice variant="info" className="sp-app-notice--entry-email">
               Vous pouvez compléter votre dossier sans créer de compte au préalable.
               <br />
               Nous vous demanderons simplement de valider votre adresse e-mail à la fin du parcours pour envoyer votre dossier.

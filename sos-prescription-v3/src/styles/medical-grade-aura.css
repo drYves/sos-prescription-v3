@@ -5800,3 +5800,107 @@ a.sp-app-button.sp-app-button--secondary:hover {
     line-height: 1.2;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Request Flow Mobile 2 — first screen action
+   Keep the medical guardrails visible, but reduce their dominance so the first
+   patient action reads as the purpose of the mobile entry screen.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  #sosprescription-root-form .sp-app-header {
+    gap: 0.42rem;
+    margin-bottom: 0;
+  }
+
+  #sosprescription-root-form .sp-app-header__subtitle {
+    font-size: 0.94rem;
+    line-height: 1.38;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar {
+    margin-bottom: 0.42rem;
+  }
+
+  #sosprescription-root-form .sp-app-block--entry-rules,
+  #sosprescription-root-form .sp-app-block--entry-email {
+    margin-block: 0.36rem;
+  }
+
+  #sosprescription-root-form .sp-app-notice--entry-rules,
+  #sosprescription-root-form .sp-app-notice--entry-email {
+    padding: 0.9rem 1rem;
+    border-radius: 1rem;
+    line-height: 1.42;
+  }
+
+  #sosprescription-root-form .sp-app-notice--entry-rules .sp-app-notice__title {
+    margin-bottom: 0.42rem;
+    font-size: 1rem;
+    line-height: 1.18;
+  }
+
+  #sosprescription-root-form .sp-app-notice--entry-rules .sp-app-list {
+    margin-top: 0.35rem;
+    padding-left: 1rem;
+    font-size: 0.9rem;
+    line-height: 1.38;
+  }
+
+  #sosprescription-root-form .sp-app-notice--entry-rules .sp-app-list li + li {
+    margin-top: 0.28rem;
+  }
+
+  #sosprescription-root-form .sp-app-notice--entry-email {
+    font-size: 0.92rem;
+    line-height: 1.42;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice {
+    margin-top: 0.45rem;
+    padding: 0.92rem;
+    border-radius: 1.15rem;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-section__title {
+    font-size: 1.08rem;
+    line-height: 1.14;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-section__hint {
+    margin-top: 0.28rem;
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card {
+    padding: 0.88rem;
+    border-radius: 1rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__header {
+    gap: 0.72rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__icon {
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+    border-radius: 0.85rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__title {
+    font-size: 1.02rem;
+    line-height: 1.18;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__text {
+    margin-top: 0.55rem;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__meta {
+    padding-top: 0.55rem;
+    font-size: 0.82rem;
+    line-height: 1.34;
+  }
+}
