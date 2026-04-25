@@ -5692,3 +5692,111 @@ a.sp-app-button.sp-app-button--secondary:hover {
     margin-inline: auto;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Request Flow Mobile 1 — first screen foundation
+   Keep the form logic unchanged, but stop the mobile entry screen from reading
+   as a stack of desktop step cards before the patient can choose an action.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  #sosprescription-root-form {
+    padding-block-start: 0.15rem;
+  }
+
+  #sosprescription-root-form .sp-app-container {
+    gap: 0.9rem;
+  }
+
+  #sosprescription-root-form .sp-app-header {
+    margin-bottom: 0.15rem;
+  }
+
+  #sosprescription-root-form .sp-app-header__eyebrow {
+    font-size: 0.73rem;
+    line-height: 1.25;
+    letter-spacing: 0.06em;
+  }
+
+  #sosprescription-root-form .sp-app-header__subtitle {
+    max-width: 24rem;
+    margin-inline: auto;
+    font-size: 0.98rem;
+    line-height: 1.45;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.34rem;
+    margin-bottom: 0.65rem;
+    overflow: visible;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__item {
+    justify-content: center;
+    min-width: 0;
+    min-height: 2.55rem;
+    padding: 0.34rem;
+    border-radius: 999px;
+    gap: 0;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__badge {
+    flex-basis: 1.55rem;
+    inline-size: 1.55rem;
+    block-size: 1.55rem;
+    min-width: 1.55rem;
+    font-size: 0.68rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__label {
+    display: none;
+  }
+
+  #sosprescription-root-form .sp-app-block {
+    margin-block: 0.45rem;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice {
+    gap: 0.95rem;
+    padding: clamp(1rem, 4vw, 1.25rem);
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-section__header {
+    gap: 0.35rem;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-section__hint {
+    font-size: 0.96rem;
+    line-height: 1.48;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
+    gap: 0.72rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  #sosprescription-root-form .sp-app-stagebar {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__item {
+    min-height: 3.25rem;
+    padding: 0.55rem 0.65rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__badge {
+    flex-basis: 1.75rem;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    min-width: 1.75rem;
+    font-size: 0.72rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__label {
+    font-size: 0.76rem;
+    line-height: 1.2;
+  }
+}
