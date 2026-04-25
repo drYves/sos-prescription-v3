@@ -23,13 +23,46 @@ final class Assets
     private const BUILD_ADMIN_JS = 'build/admin.js';
     private const BUILD_ADMIN_CSS = 'build/admin.css';
     private const BUILD_POC_LOCALE_ISLAND_JS = 'build/pocLocaleIsland.js';
+    /**
+     * Scripts that must execute immediately for the request flow to hydrate.
+     * LiteSpeed delayed JS can otherwise leave the public form stuck on skeleton.
+     *
+     * @var array<int, string>
+     */
+    private const LITESPEED_CRITICAL_SCRIPT_HANDLES = [
+        'sosprescription-turnstile',
+        'sosprescription-tesseract',
+        'sosprescription-client-ocr',
+        'sosprescription-form',
+    ];
+    /**
+     * Partial strings consumed by LiteSpeed Cache exclusion filters.
+     *
+     * @var array<int, string>
+     */
+    private const LITESPEED_CRITICAL_SCRIPT_EXCLUDES = [
+        'sosprescription-runtime-config',
+        'sosprescription-form-js-before',
+        'sosprescription-form-js',
+        'window.SOSPrescription',
+        'sos-prescription-v3/build/form.js',
+        'sos-prescription-v3/assets/js/sosprescription-client-ocr.js',
+        'sos-prescription-v3/assets/js/libs/tesseract/tesseract.min.js',
+        'challenges.cloudflare.com/turnstile',
+    ];
 
     private static bool $runtime_config_requested = false;
     private static bool $runtime_config_hooks_registered = false;
     private static bool $runtime_config_printed = false;
+    private static bool $critical_script_tag_filter_registered = false;
+    private static bool $critical_script_litespeed_filters_registered = false;
+    private static bool $form_bundle_print_requested = false;
+    private static bool $form_bundle_printed = false;
 
     public static function enqueue_form_app(): void
     {
+        self::ensure_critical_script_tag_filter();
+
         wp_enqueue_style(
             'sosprescription-ui-kit',
             SOSPRESCRIPTION_URL . 'assets/ui-kit.css',
@@ -75,8 +108,9 @@ final class Assets
         );
 
         // JS build (monolithique IIFE)
-        if (self::maybe_enqueue_build_script('sosprescription-form', self::BUILD_FORM_JS, $deps, true)) {
-            self::localize_app('sosprescription-form');
+        // Printed manually in footer so the final tag keeps LiteSpeed bypass attributes.
+        if (is_file(self::plugin_asset_path(self::BUILD_FORM_JS))) {
+            self::request_form_bundle_print();
         }
 
         // Styles additionnels (legacy / overrides)
@@ -321,7 +355,7 @@ final class Assets
         }
 
         self::$runtime_config_printed = true;
-        echo '<script id="sosprescription-runtime-config">' . self::runtime_config_script() . "</script>\n";
+        echo '<script id="sosprescription-runtime-config"' . self::script_litespeed_protection_attributes() . '>' . self::runtime_config_script() . "</script>\n";
     }
 
     private static function runtime_config_script(): string
@@ -436,6 +470,108 @@ final class Assets
     {
         self::ensure_global_runtime_config();
         wp_add_inline_script($handle, self::runtime_config_script(), 'before');
+    }
+
+    private static function request_form_bundle_print(): void
+    {
+        if (self::$form_bundle_print_requested) {
+            return;
+        }
+
+        self::$form_bundle_print_requested = true;
+        add_action('wp_footer', [self::class, 'print_form_bundle_script'], 100);
+    }
+
+    public static function print_form_bundle_script(): void
+    {
+        if (!self::$form_bundle_print_requested || self::$form_bundle_printed) {
+            return;
+        }
+
+        self::$form_bundle_printed = true;
+        echo '<script id="sosprescription-form-js"' . self::script_litespeed_protection_attributes() . ' src="' . esc_url(self::plugin_asset_url(self::BUILD_FORM_JS)) . '"></script>' . "\n";
+    }
+
+    private static function ensure_critical_script_tag_filter(): void
+    {
+        self::ensure_critical_script_litespeed_filters();
+
+        if (self::$critical_script_tag_filter_registered) {
+            return;
+        }
+
+        self::$critical_script_tag_filter_registered = true;
+        add_filter('script_loader_tag', [self::class, 'protect_litespeed_critical_script_tag'], 10, 3);
+    }
+
+    private static function ensure_critical_script_litespeed_filters(): void
+    {
+        if (self::$critical_script_litespeed_filters_registered) {
+            return;
+        }
+
+        self::$critical_script_litespeed_filters_registered = true;
+        add_filter('litespeed_optimize_js_excludes', [self::class, 'add_litespeed_critical_script_excludes']);
+        add_filter('litespeed_optm_js_defer_exc', [self::class, 'add_litespeed_critical_script_excludes']);
+        add_filter('litespeed_optm_gm_js_exc', [self::class, 'add_litespeed_critical_script_excludes']);
+    }
+
+    /**
+     * @param mixed $excludes
+     * @return array<int, string>
+     */
+    public static function add_litespeed_critical_script_excludes($excludes): array
+    {
+        $list = is_array($excludes) ? array_values($excludes) : [];
+
+        foreach (self::LITESPEED_CRITICAL_SCRIPT_EXCLUDES as $exclude) {
+            if (in_array($exclude, $list, true)) {
+                continue;
+            }
+            $list[] = $exclude;
+        }
+
+        return $list;
+    }
+
+    public static function protect_litespeed_critical_script_tag(string $tag, string $handle, string $src): string
+    {
+        unset($src);
+
+        if (!in_array($handle, self::LITESPEED_CRITICAL_SCRIPT_HANDLES, true)) {
+            return $tag;
+        }
+
+        return self::add_script_litespeed_protection_attributes($tag);
+    }
+
+    private static function add_script_litespeed_protection_attributes(string $tag): string
+    {
+        $attributes = [
+            'data-no-optimize' => '1',
+            'data-no-defer' => '1',
+            'data-no-minify' => '1',
+            'data-cfasync' => 'false',
+        ];
+
+        $missing = '';
+        foreach ($attributes as $name => $value) {
+            if (strpos($tag, $name . '=') !== false) {
+                continue;
+            }
+            $missing .= ' ' . $name . '="' . esc_attr($value) . '"';
+        }
+
+        if ($missing === '') {
+            return $tag;
+        }
+
+        return preg_replace('/<script\\b/', '<script' . $missing, $tag, 1) ?? $tag;
+    }
+
+    private static function script_litespeed_protection_attributes(): string
+    {
+        return ' data-no-optimize="1" data-no-defer="1" data-no-minify="1" data-cfasync="false"';
     }
 
     /**
