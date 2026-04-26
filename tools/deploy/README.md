@@ -21,7 +21,10 @@ The script:
 - verifies the archive has exactly the expected root directory;
 - extracts to `/tmp/deploy-*`;
 - validates the remote WordPress root and destination parent;
-- creates a timestamped remote backup before real deploy;
+- refuses a missing destination by default;
+- supports explicit first installation with `--allow-create`;
+- creates a timestamped remote backup before real deploy when the destination already exists;
+- creates the destination without backup only when `--allow-create` is used and the destination is absent;
 - uses `rsync --delete` only after the backup succeeds;
 - never deletes remote backups;
 - never purges cache;
@@ -98,6 +101,43 @@ tools/deploy/deploy-wordpress-artifact.sh \
   --remote-root /home/u636254023/domains/sosprescription.fr/public_html \
   --ssh-host hostinger-sos
 ```
+
+## First Install / Staging
+
+Use `--allow-create` only for a controlled first installation where the expected
+destination directory does not exist yet, for example on a staging domain.
+
+Default behavior is unchanged: without `--allow-create`, the script refuses a
+missing destination.
+
+Staging theme dry-run example:
+
+```bash
+tools/deploy/deploy-wordpress-artifact.sh \
+  --type theme \
+  --archive /var/www/sosprescription/gp-sos-prescription-staging.zip \
+  --remote-root /home/u636254023/domains/sosprescription.net/public_html \
+  --ssh-host hostinger-sos \
+  --allow-create \
+  --dry-run
+```
+
+Staging plugin dry-run example:
+
+```bash
+tools/deploy/deploy-wordpress-artifact.sh \
+  --type plugin \
+  --archive /var/www/sosprescription/sos-prescription-v3-staging.zip \
+  --remote-root /home/u636254023/domains/sosprescription.net/public_html \
+  --ssh-host hostinger-sos \
+  --allow-create \
+  --dry-run
+```
+
+When the destination exists, a real deploy creates a timestamped backup first.
+When the destination is absent and `--allow-create` is used, a real deploy
+creates the expected destination and performs the first install without a
+backup.
 
 ## Rollback
 

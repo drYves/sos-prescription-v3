@@ -4,7 +4,7 @@ set -Eeuo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  deploy-wordpress-artifact.sh --type theme|plugin --archive /path/artifact.zip --remote-root /remote/wp/root --ssh-host hostinger-sos [--dry-run] [--keep-tmp]
+  deploy-wordpress-artifact.sh --type theme|plugin --archive /path/artifact.zip --remote-root /remote/wp/root --ssh-host hostinger-sos [--dry-run] [--allow-create] [--keep-tmp]
 
 Examples:
   ./tools/deploy/deploy-wordpress-artifact.sh \
@@ -12,6 +12,14 @@ Examples:
     --archive /var/www/sosprescription/gp-sos-prescription-mobile.zip \
     --remote-root /home/u636254023/domains/sosprescription.fr/public_html \
     --ssh-host hostinger-sos \
+    --dry-run
+
+  ./tools/deploy/deploy-wordpress-artifact.sh \
+    --type theme \
+    --archive /var/www/sosprescription/gp-sos-prescription-staging.zip \
+    --remote-root /home/u636254023/domains/sosprescription.net/public_html \
+    --ssh-host hostinger-sos \
+    --allow-create \
     --dry-run
 
   ./tools/deploy/deploy-wordpress-artifact.sh \
@@ -37,6 +45,7 @@ REMOTE_ROOT=""
 SSH_HOST=""
 DRY_RUN=0
 KEEP_TMP=0
+ALLOW_CREATE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +67,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --allow-create)
+      ALLOW_CREATE=1
       shift
       ;;
     --keep-tmp)
@@ -124,6 +137,7 @@ log "archive=$ARCHIVE"
 log "remote_root=$REMOTE_ROOT"
 log "ssh_host=$SSH_HOST"
 log "dry_run=$DRY_RUN"
+log "allow_create=$ALLOW_CREATE"
 
 log "Validating remote WordPress root"
 ssh "$SSH_HOST" "test -d '$REMOTE_ROOT'" || fail "Remote root not found: $REMOTE_ROOT"
@@ -162,17 +176,38 @@ esac
 log "Remote destination: $DEST"
 log "Remote backup: $BACKUP"
 
+DEST_EXISTS=0
+if ssh "$SSH_HOST" "test -d '$DEST'"; then
+  DEST_EXISTS=1
+elif ssh "$SSH_HOST" "test -e '$DEST'"; then
+  fail "Remote destination exists but is not a directory: $DEST"
+elif [[ "$ALLOW_CREATE" != "1" ]]; then
+  fail "Remote destination not found: $DEST (use --allow-create for first install)"
+else
+  log "Remote destination absent; first install allowed by --allow-create"
+fi
+
 if [[ "$DRY_RUN" == "1" ]]; then
-  log "DRY_RUN: checking backup command only, no remote changes"
-  ssh "$SSH_HOST" "test -d '$DEST'" || fail "Remote destination not found: $DEST"
+  log "DRY_RUN: no remote changes"
+  if [[ "$DEST_EXISTS" == "1" ]]; then
+    log "DRY_RUN: destination exists; a real deploy would create backup: $BACKUP"
+  else
+    log "DRY_RUN: destination absent; a real deploy would create first install without backup"
+  fi
   rsync -az --delete --dry-run -e ssh "$LOCAL_ROOT/" "$SSH_HOST:$DEST/"
   log "DRY_RUN_OK"
   exit 0
 fi
 
-log "Creating remote backup before deploy"
-ssh "$SSH_HOST" "test -d '$DEST' && cp -a '$DEST' '$BACKUP' && test -d '$BACKUP'" \
-  || fail "Remote backup failed; deployment aborted"
+if [[ "$DEST_EXISTS" == "1" ]]; then
+  log "Creating remote backup before deploy"
+  ssh "$SSH_HOST" "cp -a '$DEST' '$BACKUP' && test -d '$BACKUP'" \
+    || fail "Remote backup failed; deployment aborted"
+else
+  log "First install: creating remote destination without backup"
+  ssh "$SSH_HOST" "mkdir -p '$DEST' && test -d '$DEST'" \
+    || fail "Remote destination creation failed; deployment aborted"
+fi
 
 log "Deploying with rsync --delete"
 rsync -az --delete -e ssh "$LOCAL_ROOT/" "$SSH_HOST:$DEST/"
