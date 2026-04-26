@@ -2374,3 +2374,82 @@ body.admin-bar .sp-shell--app .sp-app-sidebar {
     padding-block-start: 0.75rem;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Request Flow Mobile 4 — iOS viewport and shell contract
+   The request tunnel must not depend on a sticky desktop-like header height in
+   Chrome iOS / Google App. The GeneratePress toggle stays available, but the
+   collapsed navigation is anchored inside the masthead instead of reserving or
+   overlaying a second mobile row.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  body.sp-page-request {
+    --sp-shell-frame-gutter: clamp(10px, 3.2vw, 14px);
+    --sp-workspace-gutter: clamp(10px, 3.2vw, 14px);
+    --sp-request-shell-clearance: max(0.55rem, env(safe-area-inset-top));
+  }
+
+  body.sp-page-request #masthead,
+  body.sp-page-request .site-header {
+    position: relative !important;
+    inset-block-start: auto !important;
+    transform: none !important;
+    z-index: 40;
+  }
+
+  body.sp-page-request #masthead #mobile-menu-control-wrapper {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-end: clamp(0.65rem, 3vw, 0.9rem);
+    inline-size: auto;
+    min-height: 0;
+    margin: 0;
+    transform: translateY(-50%);
+  }
+
+  body.sp-page-request #masthead #mobile-menu-control-wrapper .menu-toggle {
+    min-height: 44px;
+    padding: 0.22rem 0.58rem;
+  }
+
+  body.sp-page-request #masthead #site-navigation:not(.toggled) {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-end: clamp(0.65rem, 3vw, 0.9rem);
+    inline-size: auto;
+    block-size: auto;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    transform: translateY(-50%);
+  }
+
+  body.sp-page-request #masthead #site-navigation:not(.toggled) .inside-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    block-size: auto;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+  }
+
+  body.sp-page-request #masthead #site-navigation:not(.toggled) .menu-toggle {
+    display: none;
+  }
+
+  body.sp-page-request #masthead .inside-header {
+    min-height: 50px;
+    padding-block: 0.18rem;
+    padding-inline-end: clamp(3.85rem, 17vw, 4.75rem);
+  }
+
+  body.sp-page-request #masthead .header-image,
+  body.sp-page-request #masthead .custom-logo {
+    max-height: 32px;
+  }
+
+  body.sp-page-request .sp-shell--app {
+    padding-block-start: var(--sp-request-shell-clearance);
+  }
+}

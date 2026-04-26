@@ -6033,3 +6033,131 @@ a.sp-app-button.sp-app-button--secondary:hover {
       0 14px 28px rgba(15, 23, 42, 0.14);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Request Flow Mobile 4 — real iPhone readability contract
+   Compact the progression and prevent aggressive word fragmentation in iOS
+   in-app browsers while keeping the React flow and legal confirmations intact.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  #sosprescription-root-form {
+    padding-block-start: 0;
+  }
+
+  #sosprescription-root-form .sp-app-container {
+    gap: 0.66rem;
+  }
+
+  #sosprescription-root-form .sp-app-header {
+    gap: 0.32rem;
+    margin-bottom: 0;
+  }
+
+  #sosprescription-root-form .sp-app-header__eyebrow {
+    font-size: 0.68rem;
+    line-height: 1.18;
+  }
+
+  #sosprescription-root-form .sp-app-header__title {
+    font-size: clamp(1.36rem, 7vw, 1.72rem);
+    line-height: 1.04;
+  }
+
+  #sosprescription-root-form .sp-app-header__subtitle {
+    font-size: 0.88rem;
+    line-height: 1.34;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar {
+    display: flex;
+    align-items: center;
+    gap: 0.22rem;
+    min-height: 1.15rem;
+    margin-bottom: 0.34rem;
+    padding: 0.28rem 0.34rem;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 999px;
+    background: rgba(248, 250, 252, 0.82);
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__item {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(203, 213, 225, 0.55);
+    box-shadow: none;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__badge {
+    display: block;
+    inline-size: 100%;
+    block-size: 0.38rem;
+    min-width: 0;
+    border-radius: inherit;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__item.is-complete .sp-app-stagebar__badge,
+  #sosprescription-root-form .sp-app-stagebar__item.is-active .sp-app-stagebar__badge,
+  #sosprescription-root-form .sp-app-stagebar__item[aria-current='step'] .sp-app-stagebar__badge {
+    background: linear-gradient(135deg, var(--sp-shell-color-accent, #0f766e), #14b8a6);
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice {
+    margin-top: 0.24rem;
+    padding: clamp(0.88rem, 3.8vw, 1.05rem);
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #sosprescription-root-form .sp-app-choice-card {
+    padding: 0.82rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__copy,
+  #sosprescription-root-form .sp-app-choice-card__title,
+  #sosprescription-root-form .sp-app-choice-card__text,
+  #sosprescription-root-form .sp-app-choice-card__meta,
+  #sosprescription-root-form .sp-app-checkbox__text {
+    overflow-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
+  }
+
+  #sosprescription-root-form .sp-app-card--attestation,
+  #sosprescription-root-form .sp-app-card--consent {
+    padding: 0.86rem;
+    border-radius: 1rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox {
+    padding: 0.72rem 0.78rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal {
+    gap: 0.44rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action {
+    min-height: 2.55rem;
+    line-height: 1.2;
+  }
+
+  #sosprescription-root-form .sp-app-actions {
+    margin-top: 0.18rem;
+  }
+
+  #sosprescription-root-form .sp-app-actions .sp-app-button--primary {
+    min-height: 54px;
+    font-size: 1rem;
+  }
+}
