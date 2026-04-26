@@ -5,6 +5,7 @@
   "description": "Mobile visual QA runners for SOS Prescription public runtime.",
   "scripts": {
     "mobile:visual:local": "playwright test -c playwright.config.ts",
+    "mobile:visual:request-flow": "playwright test -c playwright.request-flow-visual.config.ts",
     "mobile:visual:browserstack": "playwright test -c browserstack.config.ts"
   },
   "devDependencies": {
