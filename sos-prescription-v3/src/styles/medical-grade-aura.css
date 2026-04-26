@@ -5753,6 +5753,10 @@ a.sp-app-button.sp-app-button--secondary:hover {
     display: none;
   }
 
+  body.sp-page-request #sosprescription-root-form[data-app="form"] .sp-app-stagebar .sp-app-stagebar__label {
+    display: none;
+  }
+
   #sosprescription-root-form .sp-app-block {
     margin-block: 0.45rem;
   }
@@ -5902,5 +5906,130 @@ a.sp-app-button.sp-app-button--secondary:hover {
     padding-top: 0.55rem;
     font-size: 0.82rem;
     line-height: 1.34;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Request Flow Mobile 3 — real iPhone readability
+   Keep the tunnel logic unchanged while making the mobile progression, choices,
+   legal confirmations and primary action harder to compress in iOS browsers.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  #sosprescription-root-form .sp-app-container {
+    gap: 0.78rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar {
+    width: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: clamp(0.18rem, 1vw, 0.32rem);
+    margin-inline: 0;
+    margin-bottom: 0.42rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__item {
+    min-width: 0;
+    min-height: 2.35rem;
+    padding: 0.28rem 0.18rem;
+    border-radius: 999px;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__badge {
+    flex: 0 0 1.55rem;
+    inline-size: 1.55rem;
+    block-size: 1.55rem;
+    min-width: 1.55rem;
+    font-size: 0.68rem;
+  }
+
+  #sosprescription-root-form .sp-app-stagebar__label {
+    display: none;
+  }
+
+  #sosprescription-root-form .sp-app-card--step-choice .sp-app-choice-grid--flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.72rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 0.9rem;
+  }
+
+  #sosprescription-root-form .sp-app-choice-card__copy,
+  #sosprescription-root-form .sp-app-choice-card__text,
+  #sosprescription-root-form .sp-app-choice-card__meta {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  #sosprescription-root-form .sp-app-card--attestation,
+  #sosprescription-root-form .sp-app-card--consent {
+    padding: 0.95rem;
+    gap: 0.82rem;
+  }
+
+  #sosprescription-root-form .sp-app-card--consent .sp-app-consent-list {
+    gap: 0.62rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox,
+  #sosprescription-root-form .sp-app-checkbox__label {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox {
+    padding: 0.76rem 0.82rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox__text {
+    overflow-wrap: anywhere;
+    line-height: 1.48;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.48rem;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__label {
+    width: 100%;
+  }
+
+  #sosprescription-root-form .sp-app-checkbox--legal .sp-app-checkbox__action {
+    display: inline-flex;
+    justify-content: center;
+    width: 100%;
+    margin-inline-start: 0;
+    min-height: 2.35rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--sp-shell-color-accent-soft, #eff6ff) 78%, #ffffff 22%);
+    text-align: center;
+    white-space: normal;
+  }
+
+  #sosprescription-root-form .sp-app-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.62rem;
+    width: 100%;
+  }
+
+  #sosprescription-root-form .sp-app-actions .sp-app-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  #sosprescription-root-form .sp-app-actions .sp-app-button--primary {
+    order: -1;
+    min-height: 52px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 14px 28px rgba(15, 23, 42, 0.14);
   }
 }
